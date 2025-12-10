@@ -32,14 +32,17 @@
           :style="getItemStyle(idx)"
           @click="openViewer(idx)"
         >
-          <img
-            :src="getImageUrl(photo)"
-            :alt="photo.filename"
-            class="masonry-photo-image"
-            loading="lazy"
-            @load="onImageLoad(idx)"
-            @error="onImageError"
-          />
+          <div class="masonry-image-wrapper">
+            <img
+              :src="getImageUrl(photo)"
+              :alt="photo.filename"
+              class="masonry-photo-image"
+              :style="getImageStyle(idx)"
+              loading="lazy"
+              @load="onImageLoad(idx)"
+              @error="onImageError"
+            />
+          </div>
           <div class="gradient-overlay">
             <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
               <p class="text-sm font-light">{{ photo.filename }}</p>
@@ -94,6 +97,7 @@ const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920
 const itemRefs = ref<(HTMLElement | null)[]>([])
 const columnHeights = ref<number[]>([])
 const itemPositions = ref<Array<{ left: number; top: number }>>([])
+const parallaxOffsets = ref<number[]>([])
 
 // 根据预览尺寸计算列数
 const columnCount = computed(() => {
@@ -148,6 +152,25 @@ const getItemStyle = (idx: number) => {
   }
 }
 
+// 获取图片样式（包含视差偏移和放大）
+const getImageStyle = (idx: number) => {
+  const parallaxOffset = parallaxOffsets.value[idx] || 0
+  // 放大图片以填充容器并允许视差滚动显示不同部分
+  // 增加基础放大比例以消除白边
+  const baseScale = 1.2
+  
+  // 根据图片位置和视差偏移动态调整放大比例
+  // 如果图片向上偏移（parallaxOffset < 0），需要更大的放大比例来填充下方
+  // 如果图片向下偏移（parallaxOffset > 0），需要更大的放大比例来填充上方
+  const offsetScale = Math.abs(parallaxOffset) > 0 ? 0.05 : 0
+  const scale = baseScale + offsetScale
+  
+  return {
+    transform: `translateY(${parallaxOffset}px) scale(${scale})`,
+    transformOrigin: 'center center'
+  }
+}
+
 // 监听窗口大小变化
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 const handleResize = () => {
@@ -193,19 +216,41 @@ const openViewer = (idx: number) => {
 
 const onImageLoad = (idx: number) => {
   // 图片加载完成后重新布局
-  nextTick(() => {
-    layoutItems()
-  })
+  // 使用防抖，避免频繁重新布局
+  if (layoutTimer) clearTimeout(layoutTimer)
+  layoutTimer = setTimeout(() => {
+    nextTick(() => {
+      layoutItems()
+      // 布局后更新视差
+      updateParallax()
+    })
+  }, 50)
 }
+
+let layoutTimer: ReturnType<typeof setTimeout> | null = null
 
 // 瀑布流布局函数
 const layoutItems = () => {
   if (!masonryContainer.value || photos.value.length === 0) return
   
   const cols = columnCount.value
+  if (cols === 0) return // 防止列数为0
+  
   const gap = 20
   const containerWidth = masonryContainer.value.clientWidth
+  
+  // 确保容器宽度有效
+  if (containerWidth === 0) {
+    // 如果容器宽度为0，延迟重试
+    setTimeout(() => {
+      layoutItems()
+    }, 100)
+    return
+  }
+  
   const itemWidth = (containerWidth - (cols - 1) * gap) / cols
+  
+  if (itemWidth <= 0) return // 防止宽度无效
   
   // 初始化列高度
   columnHeights.value = new Array(cols).fill(0)
@@ -232,13 +277,21 @@ const layoutItems = () => {
     itemPositions.value[idx] = { left, top }
     
     // 更新列高度
+    // 使用图片的实际高度，如果还没有加载完成则使用估算值
     const itemHeight = item.offsetHeight || 200 // 默认高度
     columnHeights.value[minCol] = top + itemHeight + 20 // 20px margin-bottom
   })
   
   // 设置容器高度
   const maxHeight = Math.max(...columnHeights.value)
-  masonryContainer.value.style.height = `${maxHeight}px`
+  if (maxHeight > 0) {
+    masonryContainer.value.style.height = `${maxHeight}px`
+  }
+  
+  // 布局完成后更新视差
+  nextTick(() => {
+    updateParallax()
+  })
 }
 
 const onImageError = (e: Event) => {
@@ -287,9 +340,57 @@ const loadMore = async () => {
   }
 }
 
+// 计算视差偏移
+const updateParallax = () => {
+  if (!masonryContainer.value || itemPositions.value.length === 0) return
+  
+  const scrollTop = window.scrollY || document.documentElement.scrollTop
+  const windowHeight = window.innerHeight
+  const containerRect = masonryContainer.value.getBoundingClientRect()
+  const containerTop = containerRect.top + scrollTop
+  const viewportTop = scrollTop
+  const viewportBottom = scrollTop + windowHeight
+  const viewportCenterY = scrollTop + windowHeight / 2
+  
+  // 视差强度（可调整，值越大偏移越明显）
+  // 减小视差强度，避免图片偏移过大导致白边
+  const parallaxStrength = 0.12
+  
+  parallaxOffsets.value = itemPositions.value.map((pos, idx) => {
+    if (!itemRefs.value[idx]) return 0
+    
+    // 计算图片中心点相对于容器的位置
+    const itemHeight = itemRefs.value[idx]?.offsetHeight || 200
+    const itemTop = containerTop + pos.top
+    const itemBottom = itemTop + itemHeight
+    const itemCenterY = itemTop + itemHeight / 2
+    
+    // 检查图片是否在视口范围内（包括部分可见）
+    const isVisible = itemBottom > viewportTop && itemTop < viewportBottom
+    
+    if (!isVisible) {
+      // 如果图片完全不在视口内，不应用视差
+      return 0
+    }
+    
+    // 计算图片中心点相对于视口中心的距离
+    const distanceFromCenter = itemCenterY - viewportCenterY
+    
+    // 计算偏移量：距离中心越远，偏移越大；在中心时为0
+    // 减小最大偏移量，避免白边
+    const maxOffset = itemHeight * 0.08 // 最大偏移为图片高度的8%
+    const offset = Math.max(-maxOffset, Math.min(maxOffset, distanceFromCenter * parallaxStrength))
+    
+    return offset
+  })
+}
+
 // 防抖滚动处理
 let scrollTimer: ReturnType<typeof setTimeout> | null = null
 const handleScroll = () => {
+  // 更新视差效果
+  updateParallax()
+  
   if (scrollTimer) clearTimeout(scrollTimer)
   scrollTimer = setTimeout(() => {
     const scrollTop = window.scrollY || document.documentElement.scrollTop
@@ -326,13 +427,26 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   if (scrollTimer) clearTimeout(scrollTimer)
   if (resizeTimer) clearTimeout(resizeTimer)
+  if (layoutTimer) clearTimeout(layoutTimer)
 })
 
 onActivated(() => {
+  // 更新窗口宽度
+  windowWidth.value = window.innerWidth
+  
   nextTick(() => {
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
     window.addEventListener('scroll', handleScroll, { passive: true })
     window.addEventListener('resize', handleResize)
+    
+    // 重新布局，确保容器尺寸和位置正确
+    if (photos.value.length > 0 && masonryContainer.value) {
+      // 等待 DOM 更新完成
+      setTimeout(() => {
+        layoutItems()
+        updateParallax()
+      }, 50)
+    }
   })
 })
 
@@ -351,7 +465,17 @@ onDeactivated(() => {
 
 .masonry-item {
   margin-bottom: 1.25rem;
-  transition: transform 0.3s;
+  transition: transform 0.1s ease-out;
+  will-change: transform;
+}
+
+.masonry-image-wrapper {
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  /* 不设置固定高度，让图片自然高度决定容器高度 */
+  /* 添加小量 padding 来隐藏可能的白边 */
+  padding: 2px 0;
 }
 
 .masonry-photo-image {
@@ -359,11 +483,12 @@ onDeactivated(() => {
   height: auto;
   display: block;
   object-fit: cover;
-  transition: transform 0.5s;
+  transition: transform 0.1s ease-out;
+  will-change: transform;
 }
 
 .masonry-photo-image:hover {
-  transform: scale(1.05);
+  transform: scale(1.2) !important;
 }
 </style>
 
