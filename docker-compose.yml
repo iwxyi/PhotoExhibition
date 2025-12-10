@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: photo-exhibition-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: photo_exhibition
+      MYSQL_USER: photo_user
+      MYSQL_PASSWORD: photo_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: photo-exhibition-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - photo-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: photo-exhibition-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      PHOTO_SCAN_BASE_PATH: /data/photos
+    ports:
+      - "6060:6060"
+    volumes:
+      - ./data/photos:/data/photos:ro
+      - ./data/thumbnails:/data/photos/.thumbnails
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: photo-exhibition-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  photo-network:
+    driver: bridge
+

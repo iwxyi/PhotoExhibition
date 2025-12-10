@@ -1,0 +1,82 @@
+package com.photoexhibition.controller;
+
+import com.photoexhibition.dto.FilterRequest;
+import com.photoexhibition.dto.PhotoDTO;
+import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.service.PhotoService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/photos")
+@RequiredArgsConstructor
+@CrossOrigin(origins = "*")
+public class PhotoController {
+
+    private final PhotoService photoService;
+    private final PhotoRepository photoRepository;
+
+    /**
+     * 图墙模式 - 获取所有图片（瀑布流）
+     */
+    @GetMapping("/wall")
+    public ResponseEntity<Page<PhotoDTO>> getPhotoWall(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<PhotoDTO> photos = photoService.getAllPhotos(pageable);
+        return ResponseEntity.ok(photos);
+    }
+
+    /**
+     * 随机模式 - 获取随机高质量图片
+     */
+    @GetMapping("/random")
+    public ResponseEntity<Page<PhotoDTO>> getRandomPhotos(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "12") int size,
+            @RequestParam(defaultValue = "70.0") double minQualityScore) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<PhotoDTO> photos = photoService.getRandomHighQualityPhotos(minQualityScore, pageable);
+        return ResponseEntity.ok(photos);
+    }
+
+    /**
+     * 获取相册中的图片
+     */
+    @GetMapping("/album/{albumId}")
+    public ResponseEntity<Page<PhotoDTO>> getPhotosByAlbum(
+            @PathVariable Long albumId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<PhotoDTO> photos = photoService.getPhotosByAlbum(albumId, pageable);
+        return ResponseEntity.ok(photos);
+    }
+
+    /**
+     * 高级筛选
+     */
+    @PostMapping("/filter")
+    public ResponseEntity<Page<PhotoDTO>> filterPhotos(@RequestBody FilterRequest request) {
+        Pageable pageable = PageRequest.of(request.getPage(), request.getSize());
+        Page<PhotoDTO> photos = photoService.filterPhotos(request, pageable);
+        return ResponseEntity.ok(photos);
+    }
+
+    /**
+     * 获取图片详情
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<PhotoDTO> getPhotoById(@PathVariable Long id) {
+        PhotoDTO photo = photoService.getPhotoById(id);
+        // 增加查看次数
+        photoService.incrementViewCount(id);
+        return ResponseEntity.ok(photo);
+    }
+}
+

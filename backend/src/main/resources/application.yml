@@ -1,0 +1,78 @@
+server:
+  port: 6060
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: photo-exhibition-backend
+  
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: iwxyiroot
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: false
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.photoexhibition: INFO
+    org.springframework: WARN
+    org.springframework.web: INFO
+    org.hibernate: WARN
+    org.hibernate.SQL: WARN
+    com.zaxxer.hikari: WARN
+    org.apache.tomcat: WARN
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
+  
+  redis:
+    host: localhost
+    port: 6379
+    password: 
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+
+# 文件扫描配置
+photo:
+  scan:
+    # 监控的图片目录（支持绝对路径和相对路径）
+    # 相对路径：相对于项目根目录，例如：./data/photos 或 data/photos
+    # 绝对路径：例如：/Users/你的用户名/Pictures 或 /data/photos
+    base-path: ./data/photos
+    # 支持的图片格式
+    supported-formats: jpg,jpeg,png,heic,raw,cr2,nef,arw
+    # 缩略图尺寸
+    thumbnail-width: 400
+    thumbnail-height: 400
+    # WebP质量
+    webp-quality: 0.85
+    # 自动扫描间隔（秒）
+    scan-interval: 3600
+
+# 文件上传配置
+file:
+  upload:
+    max-size: 50MB
+    allowed-types: image/jpeg,image/png,image/heic,image/raw
+
+# JWT配置
+jwt:
+  secret: photo-exhibition-secret-key-change-in-production-environment
+  expiration: 86400000 # 24小时（毫秒）
+
