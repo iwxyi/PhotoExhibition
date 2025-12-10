@@ -16,13 +16,14 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </button>
+            <SettingsMenu />
           </div>
         </div>
       </div>
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div class="masonry-grid">
+      <div :class="['masonry-grid', previewClass]">
         <div
           v-for="(photo, idx) in photos"
           :key="photo.id"
@@ -64,6 +65,8 @@ import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import SettingsMenu from '@/components/SettingsMenu.vue'
+import { useUiSettings } from '@/composables/useUiSettings'
 
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
@@ -75,6 +78,12 @@ const hasMore = ref(true)
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const savedScrollTop = ref(0)
+const { previewSize } = useUiSettings()
+const previewClass = computed(() => {
+  if (previewSize.value === 'sm') return 'masonry-sm'
+  if (previewSize.value === 'lg') return 'masonry-lg'
+  return 'masonry-md'
+})
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -130,31 +139,69 @@ onDeactivated(() => {
 
 <style scoped>
 .masonry-grid {
-  column-count: 1;
-  column-gap: 1.5rem;
+  column-gap: 1.25rem;
 }
 
+.masonry-sm {
+  column-count: 2;
+}
 @media (min-width: 640px) {
-  .masonry-grid {
-    column-count: 2;
-  }
-}
-
-@media (min-width: 1024px) {
-  .masonry-grid {
+  .masonry-sm {
     column-count: 3;
   }
 }
-
-@media (min-width: 1280px) {
-  .masonry-grid {
+@media (min-width: 1024px) {
+  .masonry-sm {
     column-count: 4;
+  }
+}
+@media (min-width: 1280px) {
+  .masonry-sm {
+    column-count: 5;
+  }
+}
+
+.masonry-md {
+  column-count: 1;
+}
+@media (min-width: 640px) {
+  .masonry-md {
+    column-count: 2;
+  }
+}
+@media (min-width: 1024px) {
+  .masonry-md {
+    column-count: 3;
+  }
+}
+@media (min-width: 1280px) {
+  .masonry-md {
+    column-count: 4;
+  }
+}
+
+.masonry-lg {
+  column-count: 1;
+}
+@media (min-width: 640px) {
+  .masonry-lg {
+    column-count: 2;
+  }
+}
+@media (min-width: 1024px) {
+  .masonry-lg {
+    column-count: 2;
+  }
+}
+@media (min-width: 1280px) {
+  .masonry-lg {
+    column-count: 3;
   }
 }
 
 .masonry-item {
   break-inside: avoid;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.25rem;
 }
 </style>
 

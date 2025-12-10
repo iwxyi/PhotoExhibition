@@ -23,6 +23,7 @@
               </svg>
             </button>
             <FilterPanel v-model:show="showFilter" />
+            <SettingsMenu />
           </div>
         </div>
       </div>
@@ -51,11 +52,15 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
 
-      <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+      <div
+        v-else
+        :class="coverGridClass"
+      >
         <AlbumCard
           v-for="album in albums"
           :key="album.id"
           :album="album"
+          :size="coverSize"
           @click="goToAlbum(album.id)"
         />
       </div>
@@ -82,6 +87,8 @@ import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import AlbumCard from '@/components/AlbumCard.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
+import SettingsMenu from '@/components/SettingsMenu.vue'
+import { useUiSettings } from '@/composables/useUiSettings'
 
 const router = useRouter()
 const photoStore = usePhotoStore()
@@ -96,6 +103,16 @@ const currentPage = ref(0)
 const hasMore = ref(true)
 const activeCategory = ref('全部')
 const savedScrollTop = ref(0)
+const { coverSize } = useUiSettings()
+const coverGridClass = computed(() => {
+  if (coverSize.value === 'sm') {
+    return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+  }
+  if (coverSize.value === 'lg') {
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-6'
+  }
+  return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+})
 
 const goToAlbum = (id: number) => {
   router.push(`/album/${id}`)

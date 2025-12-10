@@ -63,21 +63,33 @@ public class PhotoService {
     public Page<PhotoDTO> filterPhotos(FilterRequest request, Pageable pageable) {
         Page<Photo> photos;
 
+        // 预处理空字符串为 null，避免空值触发 EXIF 查询导致 SQL 拼接异常
+        String cameraModel = (request.getCameraModel() != null && !request.getCameraModel().isBlank())
+                ? request.getCameraModel()
+                : null;
+        String lensModel = (request.getLensModel() != null && !request.getLensModel().isBlank())
+                ? request.getLensModel()
+                : null;
+        Double minAperture = request.getMinAperture();
+        Double maxAperture = request.getMaxAperture();
+        Integer minIso = request.getMinIso();
+        Integer maxIso = request.getMaxIso();
+
         // 标签筛选
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
             photos = photoRepository.findByTagIds(request.getTagIds(), pageable);
         }
         // EXIF筛选
-        else if (request.getCameraModel() != null || request.getLensModel() != null ||
-                 request.getMinAperture() != null || request.getMaxAperture() != null ||
-                 request.getMinIso() != null || request.getMaxIso() != null) {
+        else if (cameraModel != null || lensModel != null ||
+                 minAperture != null || maxAperture != null ||
+                 minIso != null || maxIso != null) {
             photos = photoRepository.findByExifFilters(
-                request.getCameraModel(),
-                request.getLensModel(),
-                request.getMinAperture(),
-                request.getMaxAperture(),
-                request.getMinIso(),
-                request.getMaxIso(),
+                cameraModel,
+                lensModel,
+                minAperture,
+                maxAperture,
+                minIso,
+                maxIso,
                 pageable
             );
         }

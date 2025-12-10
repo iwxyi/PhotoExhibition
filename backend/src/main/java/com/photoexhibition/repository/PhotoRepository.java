@@ -22,13 +22,23 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore ORDER BY RAND()")
     List<Photo> findRandomHighQualityPhotos(@Param("minScore") Double minScore, Pageable pageable);
 
-    @Query("SELECT p FROM Photo p WHERE " +
-           "(:cameraModel IS NULL OR p.cameraModel = :cameraModel) AND " +
-           "(:lensModel IS NULL OR p.lensModel = :lensModel) AND " +
-           "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS double) >= :minAperture) AND " +
-           "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS double) <= :maxAperture) AND " +
-           "(:minIso IS NULL OR p.iso >= :minIso) AND " +
-           "(:maxIso IS NULL OR p.iso <= :maxIso)")
+    @Query(
+        value = "SELECT * FROM photo p WHERE " +
+                "(:cameraModel IS NULL OR p.camera_model = :cameraModel) AND " +
+                "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
+                "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) >= :minAperture) AND " +
+                "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) <= :maxAperture) AND " +
+                "(:minIso IS NULL OR p.iso >= :minIso) AND " +
+                "(:maxIso IS NULL OR p.iso <= :maxIso)",
+        countQuery = "SELECT count(*) FROM photo p WHERE " +
+                "(:cameraModel IS NULL OR p.camera_model = :cameraModel) AND " +
+                "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
+                "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) >= :minAperture) AND " +
+                "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) <= :maxAperture) AND " +
+                "(:minIso IS NULL OR p.iso >= :minIso) AND " +
+                "(:maxIso IS NULL OR p.iso <= :maxIso)",
+        nativeQuery = true
+    )
     Page<Photo> findByExifFilters(@Param("cameraModel") String cameraModel,
                                   @Param("lensModel") String lensModel,
                                   @Param("minAperture") Double minAperture,

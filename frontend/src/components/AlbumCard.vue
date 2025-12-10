@@ -1,10 +1,11 @@
 <template>
   <div
-    class="photo-card cursor-pointer group space-y-3 w-full max-w-[240px] mx-auto"
+    class="photo-card cursor-pointer group space-y-1 w-full mx-auto"
+    :class="cardSizeClass"
     @click="$emit('click')"
   >
     <!-- 封面布局：左侧竖图 + 右侧上下两张横图 -->
-    <div class="grid grid-cols-2 gap-2 h-48 relative w-full">
+    <div class="grid grid-cols-2 gap-0.5 relative w-full" :class="coverSizeClass">
       <!-- 左侧竖图 -->
       <div class="row-span-2 overflow-hidden rounded-l-lg">
         <img
@@ -53,10 +54,9 @@
     </div>
 
     <!-- 信息块（显示在封面下方） -->
-    <div class="px-1 text-gray-900 dark:text-gray-100 space-y-1">
-      <div class="flex items-center justify-between">
-        <h3 class="text-base font-semibold truncate">{{ album.displayTitle || album.name }}</h3>
-        <span class="text-xs text-gray-500 dark:text-gray-400">{{ album.photoCount || 0 }} 张</span>
+    <div class="px-2 py-1 text-gray-900 dark:text-gray-100 space-y-0.5">
+      <div class="flex items-center">
+        <h3 class="text-sm font-semibold truncate">{{ album.displayTitle || album.name }}</h3>
       </div>
       <div v-if="takenDateText" class="text-xs text-gray-500 dark:text-gray-400">
         {{ takenDateText }}
@@ -69,8 +69,11 @@
 import { computed } from 'vue'
 import type { Album } from '@/stores/photo'
 
+type Size = 'sm' | 'md' | 'lg'
+
 const props = defineProps<{
   album: Album
+  size?: Size
 }>()
 
 const leftImage = computed(() => props.album.coverImages?.leftVertical)
@@ -80,6 +83,20 @@ const rightBottomImage = computed(() => props.album.coverImages?.rightBottom)
 const takenDateText = computed(() => {
   if (!props.album.takenAt) return ''
   return props.album.takenAt.slice(0, 10)
+})
+
+const cardSizeClass = computed(() => {
+  const size = props.size || 'md'
+  if (size === 'sm') return 'max-w-[200px]'
+  if (size === 'lg') return 'max-w-[280px]'
+  return 'max-w-[240px]'
+})
+
+const coverSizeClass = computed(() => {
+  const size = props.size || 'md'
+  if (size === 'sm') return 'h-40'
+  if (size === 'lg') return 'h-56'
+  return 'h-48'
 })
 
 const getImageUrl = (photo: any) => {

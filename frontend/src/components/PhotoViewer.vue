@@ -8,7 +8,7 @@
       ref="modalRoot"
     >
       <!-- 顶部栏 -->
-      <div class="flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm">
+      <div v-if="!isFullscreen" class="flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm">
         <div class="flex items-center gap-3">
           <button class="p-2 hover:bg-white/10 rounded" @click="close" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -20,6 +20,14 @@
           </div>
         </div>
         <div class="flex items-center gap-3">
+          <button class="p-2 hover:bg-white/10 rounded" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏查看'">
+            <svg v-if="!isFullscreen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M4 4l6 6M20 16v4h-4m4 0l-6-6M16 4h4v4m0-4l-6 6M8 20H4v-4m0 4l6-6" />
+            </svg>
+            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9H5V5m10 10h4v4M9 15H5v4m10-10h4V5" />
+            </svg>
+          </button>
           <button class="p-2 hover:bg-white/10 rounded" @click="prev">←</button>
           <span class="text-xs sm:text-sm">{{ currentIndex + 1 }} / {{ photos.length }}</span>
           <button class="p-2 hover:bg-white/10 rounded" @click="next">→</button>
@@ -34,6 +42,27 @@
             </svg>
             <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 19a7 7 0 100-14 7 7 0 000 14z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 全屏简化控制：左上关闭，右上全屏切换 -->
+      <div v-else class="pointer-events-none">
+        <div class="absolute left-4 top-4 z-50 pointer-events-auto">
+          <button class="p-2 hover:bg-white/10 rounded text-white" @click="close" title="关闭">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="absolute right-4 top-4 z-50 pointer-events-auto">
+          <button class="p-2 hover:bg-white/10 rounded text-white" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏查看'">
+            <svg v-if="!isFullscreen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M4 4l6 6M20 16v4h-4m4 0l-6-6M16 4h4v4m0-4l-6 6M8 20H4v-4m0 4l6-6" />
+            </svg>
+            <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9H5V5m10 10h4v4M9 15H5v4m10-10h4V5" />
             </svg>
           </button>
         </div>
@@ -54,12 +83,14 @@
 
           <!-- 左右切换按钮 -->
           <button
+            v-if="!isFullscreen"
             class="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/40 text-white hover:bg-black/60"
             @click="prev"
           >
             ‹
           </button>
           <button
+            v-if="!isFullscreen"
             class="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/40 text-white hover:bg-black/60"
             @click="next"
           >
@@ -108,16 +139,18 @@
       <!-- 底部缩略图横排 -->
       <transition name="fade">
         <div
+          v-if="!isFullscreen"
           class="bg-black/80 border-t border-white/10 overflow-x-auto overflow-y-hidden select-none relative"
-          :style="{ height: thumbHeight + 'px' }"
+          :style="{ height: Math.max(thumbHeight, thumbSize + 18) + 'px' }"
         >
           <div
-            class="absolute inset-x-0 top-0 h-4 cursor-ns-resize border-b border-white/20 bg-black/40 z-10"
+            class="absolute inset-x-0 top-0 h-3 cursor-ns-resize border-b border-white/20 bg-black/35 z-20"
             @mousedown.prevent="startDrag"
             title="拖动调整高度"
           ></div>
+          <div class="h-1"></div>
           <div
-          class="flex items-center gap-2 px-3 py-3 min-w-max pt-5 pb-4"
+            class="flex items-center gap-2 px-3 py-1.5 min-w-max"
             ref="thumbContainer"
           >
             <div
@@ -171,7 +204,8 @@ const thumbHeight = ref<number>(parseInt(localStorage.getItem('pe-thumb-height')
 const dragging = ref(false)
 const dragStartY = ref(0)
 const dragStartHeight = ref(0)
-const thumbSize = computed(() => Math.max(30, clampThumbHeight(thumbHeight.value - 14)))
+const thumbSize = computed(() => Math.max(24, clampThumbHeight(thumbHeight.value - 24)))
+const isFullscreen = ref(false)
 
 const STORAGE_KEY = 'pe-info-collapsed'
 const THUMB_KEY = 'pe-thumb-height'
@@ -251,6 +285,33 @@ const stopDrag = () => {
   window.removeEventListener('mousemove', onDrag)
   window.removeEventListener('mouseup', stopDrag)
 }
+
+const toggleFullscreen = async () => {
+  const el = modalRoot.value
+  if (!el) return
+  try {
+    if (!document.fullscreenElement) {
+      await el.requestFullscreen()
+      isFullscreen.value = true
+    } else {
+      await document.exitFullscreen()
+      isFullscreen.value = false
+    }
+  } catch (e) {
+    // ignore fullscreen errors
+    isFullscreen.value = !!document.fullscreenElement
+  }
+}
+
+watch(
+  () => props.visible,
+  (val) => {
+    if (!val && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+      isFullscreen.value = false
+    }
+  }
+)
 
 const scrollThumbIntoView = () => {
   nextTick(() => {

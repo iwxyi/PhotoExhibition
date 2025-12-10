@@ -9,129 +9,131 @@
       </svg>
     </button>
 
-    <Transition name="slide">
-      <div
-        v-if="show"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        @click.self="show = false"
-      >
+    <Teleport to="body">
+      <Transition name="slide">
         <div
-          class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
-          @click.stop
+          v-if="show"
+          class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          @click.self="show = false"
         >
-          <div class="flex justify-between items-center mb-6">
-            <h2 class="text-2xl font-light">高级筛选</h2>
-            <button
-              @click="show = false"
-              class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+          <div
+            class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+            @click.stop
+          >
+            <div class="flex justify-between items-center mb-6">
+              <h2 class="text-2xl font-light">高级筛选</h2>
+              <button
+                @click="show = false"
+                class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
 
-          <form @submit.prevent="applyFilters" class="space-y-6">
-            <!-- 标签筛选 -->
-            <div>
-              <label class="block text-sm font-medium mb-2">标签</label>
-              <div class="flex flex-wrap gap-2">
-                <span
-                  v-for="tag in selectedTags"
-                  :key="tag.id"
-                  class="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-full text-sm flex items-center gap-2"
-                >
-                  {{ tag.name }}
-                  <button
-                    @click="removeTag(tag.id)"
-                    class="hover:text-red-500"
+            <form @submit.prevent="applyFilters" class="space-y-6">
+              <!-- 标签筛选 -->
+              <div>
+                <label class="block text-sm font-medium mb-2">标签</label>
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    v-for="tag in selectedTags"
+                    :key="tag.id"
+                    class="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-full text-sm flex items-center gap-2"
                   >
-                    ×
-                  </button>
-                </span>
+                    {{ tag.name }}
+                    <button
+                      @click="removeTag(tag.id)"
+                      class="hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <!-- EXIF筛选 -->
-            <div class="grid grid-cols-2 gap-4">
+              <!-- EXIF筛选 -->
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-2">相机型号</label>
+                  <input
+                    v-model="filters.cameraModel"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-2">镜头型号</label>
+                  <input
+                    v-model="filters.lensModel"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-2">最小光圈</label>
+                  <input
+                    v-model.number="filters.minAperture"
+                    type="number"
+                    step="0.1"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-2">最大光圈</label>
+                  <input
+                    v-model.number="filters.maxAperture"
+                    type="number"
+                    step="0.1"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
+                  />
+                </div>
+              </div>
+
+              <!-- 色彩筛选 -->
               <div>
-                <label class="block text-sm font-medium mb-2">相机型号</label>
+                <label class="block text-sm font-medium mb-2">主色调</label>
                 <input
-                  v-model="filters.cameraModel"
-                  type="text"
-                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
+                  v-model="filters.dominantColor"
+                  type="color"
+                  class="h-10 w-full rounded-lg cursor-pointer"
                 />
               </div>
+
+              <!-- 质量评分 -->
               <div>
-                <label class="block text-sm font-medium mb-2">镜头型号</label>
+                <label class="block text-sm font-medium mb-2">最小质量评分: {{ filters.minQualityScore || 0 }}</label>
                 <input
-                  v-model="filters.lensModel"
-                  type="text"
-                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
+                  v-model.number="filters.minQualityScore"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  class="w-full"
                 />
               </div>
-              <div>
-                <label class="block text-sm font-medium mb-2">最小光圈</label>
-                <input
-                  v-model.number="filters.minAperture"
-                  type="number"
-                  step="0.1"
-                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
-                />
+
+              <div class="flex justify-end space-x-4 pt-4">
+                <button
+                  type="button"
+                  @click="resetFilters"
+                  class="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  重置
+                </button>
+                <button
+                  type="submit"
+                  class="px-6 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors"
+                >
+                  应用筛选
+                </button>
               </div>
-              <div>
-                <label class="block text-sm font-medium mb-2">最大光圈</label>
-                <input
-                  v-model.number="filters.maxAperture"
-                  type="number"
-                  step="0.1"
-                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white"
-                />
-              </div>
-            </div>
-
-            <!-- 色彩筛选 -->
-            <div>
-              <label class="block text-sm font-medium mb-2">主色调</label>
-              <input
-                v-model="filters.dominantColor"
-                type="color"
-                class="h-10 w-full rounded-lg cursor-pointer"
-              />
-            </div>
-
-            <!-- 质量评分 -->
-            <div>
-              <label class="block text-sm font-medium mb-2">最小质量评分: {{ filters.minQualityScore || 0 }}</label>
-              <input
-                v-model.number="filters.minQualityScore"
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                class="w-full"
-              />
-            </div>
-
-            <div class="flex justify-end space-x-4 pt-4">
-              <button
-                type="button"
-                @click="resetFilters"
-                class="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                重置
-              </button>
-              <button
-                type="submit"
-                class="px-6 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors"
-              >
-                应用筛选
-              </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 

@@ -16,6 +16,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </button>
+            <SettingsMenu />
           </div>
         </div>
       </div>
@@ -31,7 +32,7 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
 
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div v-else :class="gridClass">
         <div
           v-for="(photo, idx) in photos"
           :key="photo.id"
@@ -82,9 +83,12 @@ import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import SettingsMenu from '@/components/SettingsMenu.vue'
+import { useUiSettings } from '@/composables/useUiSettings'
 
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
+const { previewSize } = useUiSettings()
 
 const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)
@@ -104,6 +108,11 @@ const getImageUrl = (photo: any) => {
 
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
+const gridClass = computed(() => {
+  if (previewSize.value === 'sm') return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4'
+  if (previewSize.value === 'lg') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-7'
+  return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+})
 
 const openViewer = (idx: number) => {
   viewerIndex.value = idx
