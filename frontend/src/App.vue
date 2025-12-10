@@ -1,6 +1,10 @@
 <template>
   <div id="app" :class="{ 'dark': isDark }">
-    <router-view />
+    <router-view v-slot="{ Component, route }">
+      <KeepAlive include="Home,Wall,Random">
+        <component :is="Component" :key="route.fullPath" />
+      </KeepAlive>
+    </router-view>
   </div>
 </template>
 

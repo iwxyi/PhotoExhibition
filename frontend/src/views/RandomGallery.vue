@@ -76,7 +76,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+defineOptions({ name: 'Random' })
+import { ref, computed, onMounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
@@ -89,6 +90,7 @@ const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)
 const currentPage = ref(0)
 const hasMore = ref(true)
+const savedScrollTop = ref(0)
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -116,6 +118,16 @@ const loadMore = async () => {
 
 onMounted(async () => {
   await photoStore.fetchRandomPhotos(0, 12, 70)
+})
+
+onActivated(() => {
+  nextTick(() => {
+    window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+  })
+})
+
+onDeactivated(() => {
+  savedScrollTop.value = window.scrollY || 0
 })
 </script>
 

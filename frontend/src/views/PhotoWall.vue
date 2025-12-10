@@ -58,7 +58,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+defineOptions({ name: 'Wall' })
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
@@ -73,6 +74,7 @@ const currentPage = ref(0)
 const hasMore = ref(true)
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
+const savedScrollTop = ref(0)
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -113,6 +115,16 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
+})
+
+onActivated(() => {
+  nextTick(() => {
+    window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+  })
+})
+
+onDeactivated(() => {
+  savedScrollTop.value = window.scrollY || 0
 })
 </script>
 

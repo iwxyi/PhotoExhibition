@@ -68,7 +68,17 @@ const routes = [
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    }
+    // 需要默认保留的页面返回 false，保持当前滚动
+    if (['Home', 'Wall', 'Random'].includes((to.name || '') as string)) {
+      return false
+    }
+    return { left: 0, top: 0 }
+  }
 })
 
 router.beforeEach((to, from, next) => {

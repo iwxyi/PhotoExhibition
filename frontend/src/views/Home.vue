@@ -75,7 +75,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+defineOptions({ name: 'Home' })
+import { ref, onMounted, onActivated, onDeactivated, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
@@ -94,6 +95,7 @@ const showFilter = ref(false)
 const currentPage = ref(0)
 const hasMore = ref(true)
 const activeCategory = ref('全部')
+const savedScrollTop = ref(0)
 
 const goToAlbum = (id: number) => {
   router.push(`/album/${id}`)
@@ -109,6 +111,16 @@ const loadMore = async () => {
 onMounted(async () => {
   await photoStore.fetchCategories()
   await photoStore.fetchAlbums(0, 12, undefined)
+})
+
+onActivated(() => {
+  nextTick(() => {
+    window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+  })
+})
+
+onDeactivated(() => {
+  savedScrollTop.value = window.scrollY || 0
 })
 
 const selectCategory = async (c: string) => {

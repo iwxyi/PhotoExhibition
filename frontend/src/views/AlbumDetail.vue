@@ -54,12 +54,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
 const route = useRoute()
+const router = useRouter()
 const photoStore = usePhotoStore()
 
 const album = computed(() => photoStore.currentAlbum)
@@ -84,10 +85,25 @@ const openViewer = (idx: number) => {
   viewerVisible.value = true
 }
 
+const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    if (viewerVisible.value) {
+      viewerVisible.value = false
+    } else {
+      router.back()
+    }
+  }
+}
+
 onMounted(async () => {
   const albumId = parseInt(route.params.id as string)
   await photoStore.fetchAlbumById(albumId)
   await photoStore.fetchPhotosByAlbum(albumId)
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 

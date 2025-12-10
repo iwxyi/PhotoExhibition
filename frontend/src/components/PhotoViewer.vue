@@ -2,7 +2,7 @@
   <transition name="fade">
     <div
       v-if="visible"
-      class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col"
+      class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col outline-none focus:outline-none"
       @keydown.stop.prevent="onKeydown"
       tabindex="0"
       ref="modalRoot"
@@ -10,15 +10,32 @@
       <!-- 顶部栏 -->
       <div class="flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm">
         <div class="flex items-center gap-3">
-          <button class="p-2 hover:bg-white/10 rounded" @click="close">关闭 Esc</button>
-          <div class="text-xs sm:text-sm opacity-80">
-            {{ currentPhoto?.filename }}
+          <button class="p-2 hover:bg-white/10 rounded" @click="close" title="关闭">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <div class="text-xs sm:text-sm opacity-80 flex items-center gap-2">
+            <span>{{ currentPhoto?.filename }}</span>
           </div>
         </div>
         <div class="flex items-center gap-3">
           <button class="p-2 hover:bg-white/10 rounded" @click="prev">←</button>
           <span class="text-xs sm:text-sm">{{ currentIndex + 1 }} / {{ photos.length }}</span>
           <button class="p-2 hover:bg-white/10 rounded" @click="next">→</button>
+          <button
+            class="p-2 hover:bg-white/10 rounded"
+            @click="toggleInfo"
+            :aria-pressed="!infoCollapsed"
+            title="信息面板"
+          >
+            <svg v-if="infoCollapsed" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 19a7 7 0 100-14 7 7 0 000 14z" />
+            </svg>
+            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 19a7 7 0 100-14 7 7 0 000 14z" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -54,7 +71,7 @@
         <transition name="slide-fade">
           <div
             v-if="!infoCollapsed"
-            class="w-80 max-w-[80vw] bg-gray-900/80 text-white border-l border-white/10 flex flex-col"
+            class="w-80 max-w-[80vw] bg-gray-900/80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto"
           >
             <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
               <span class="text-sm font-semibold">信息</span>
@@ -86,32 +103,41 @@
           </div>
         </transition>
 
-        <!-- 折叠状态时的侧栏开关 -->
-        <button
-          v-show="infoCollapsed"
-          class="absolute right-3 top-20 px-2 py-1 rounded bg-black/50 text-white text-xs"
-          @click="toggleInfo"
-        >
-          展开信息
-        </button>
       </div>
 
       <!-- 底部缩略图横排 -->
       <transition name="fade">
-        <div class="h-28 bg-black/80 border-t border-white/10 overflow-x-auto">
-          <div class="flex items-center gap-2 px-3 py-2 min-w-max">
+        <div
+          class="bg-black/80 border-t border-white/10 overflow-x-auto overflow-y-hidden select-none relative"
+          :style="{ height: thumbHeight + 'px' }"
+        >
+          <div
+            class="absolute inset-x-0 top-0 h-4 cursor-ns-resize border-b border-white/20 bg-black/40 z-10"
+            @mousedown.prevent="startDrag"
+            title="拖动调整高度"
+          ></div>
+          <div
+          class="flex items-center gap-2 px-3 py-3 min-w-max pt-5 pb-4"
+            ref="thumbContainer"
+          >
             <div
               v-for="(p, idx) in photos"
               :key="p.id"
-              class="relative w-24 h-24 flex-shrink-0 cursor-pointer border transition-all duration-150"
+              class="relative flex-shrink-0 cursor-pointer border transition-all duration-150"
+              :style="{ width: thumbSize + 'px', height: thumbSize + 'px' }"
               :class="idx === currentIndex ? 'border-white scale-[1.02]' : 'border-transparent opacity-80 hover:opacity-100'"
               @click="jump(idx)"
+              :ref="el => (thumbItems[idx] = el as HTMLElement)"
             >
               <img
                 :src="getThumbUrl(p)"
                 :alt="p.filename"
-                class="w-full h-full object-cover"
+                class="w-full h-full object-cover rounded-sm"
               />
+              <div
+                v-if="idx === currentIndex"
+                class="pointer-events-none absolute inset-0 ring-2 ring-white/90 rounded-sm"
+              ></div>
             </div>
           </div>
         </div>
@@ -122,8 +148,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { Photo, Tag } from '@/stores/photo'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { Photo } from '@/stores/photo'
 
 const props = defineProps<{
   photos: Photo[]
@@ -139,8 +165,16 @@ const currentIndex = ref(0)
 const infoCollapsed = ref(false)
 const modalRoot = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
+const thumbContainer = ref<HTMLElement | null>(null)
+const thumbItems = ref<HTMLElement[]>([])
+const thumbHeight = ref<number>(parseInt(localStorage.getItem('pe-thumb-height') || '112', 10) || 112)
+const dragging = ref(false)
+const dragStartY = ref(0)
+const dragStartHeight = ref(0)
+const thumbSize = computed(() => Math.max(30, clampThumbHeight(thumbHeight.value - 14)))
 
 const STORAGE_KEY = 'pe-info-collapsed'
+const THUMB_KEY = 'pe-thumb-height'
 
 const currentPhoto = computed(() => props.photos?.[currentIndex.value])
 
@@ -154,6 +188,7 @@ watch(
       if (typeof props.startIndex === 'number') {
         currentIndex.value = Math.min(Math.max(props.startIndex, 0), props.photos.length - 1)
       }
+      scrollThumbIntoView()
     }
   },
   { immediate: true }
@@ -190,6 +225,45 @@ const next = () => {
 
 const jump = (idx: number) => {
   currentIndex.value = idx
+}
+
+const clampThumbHeight = (val: number) => Math.min(260, Math.max(60, val))
+
+const startDrag = (e: MouseEvent) => {
+  dragging.value = true
+  dragStartY.value = e.clientY
+  dragStartHeight.value = thumbHeight.value
+  window.addEventListener('mousemove', onDrag)
+  window.addEventListener('mouseup', stopDrag)
+}
+
+const onDrag = (e: MouseEvent) => {
+  if (!dragging.value) return
+  const delta = dragStartY.value - e.clientY
+  thumbHeight.value = clampThumbHeight(dragStartHeight.value + delta)
+}
+
+const stopDrag = () => {
+  if (!dragging.value) return
+  dragging.value = false
+  thumbHeight.value = clampThumbHeight(thumbHeight.value)
+  localStorage.setItem(THUMB_KEY, String(thumbHeight.value))
+  window.removeEventListener('mousemove', onDrag)
+  window.removeEventListener('mouseup', stopDrag)
+}
+
+const scrollThumbIntoView = () => {
+  nextTick(() => {
+    const el = thumbItems.value[currentIndex.value]
+    const container = thumbContainer.value
+    if (el && container) {
+      el.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest'
+      })
+    }
+  })
 }
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -240,6 +314,25 @@ const getThumbUrl = (photo: Photo) => {
   if (photo.thumbnailPath) return `/api/files${photo.thumbnailPath}`
   return getImageUrl(photo)
 }
+
+watch(
+  () => currentIndex.value,
+  () => {
+    scrollThumbIntoView()
+  }
+)
+
+watch(
+  () => props.photos,
+  () => {
+    thumbItems.value = []
+    nextTick(() => scrollThumbIntoView())
+  }
+)
+
+onBeforeUnmount(() => {
+  stopDrag()
+})
 </script>
 
 <style scoped>
