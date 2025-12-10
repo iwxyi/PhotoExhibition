@@ -25,10 +25,10 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           <div
-            v-for="photo in photos"
+            v-for="(photo, idx) in photos"
             :key="photo.id"
             class="photo-card cursor-pointer"
-            @click="goToPhoto(photo.id)"
+            @click="openViewer(idx)"
           >
             <img
               :src="getImageUrl(photo)"
@@ -45,21 +45,29 @@
         </div>
       </div>
     </main>
+    <PhotoViewer
+      v-model:visible="viewerVisible"
+      :photos="photos"
+      :start-index="viewerIndex"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
+import PhotoViewer from '@/components/PhotoViewer.vue'
 
 const route = useRoute()
-const router = useRouter()
 const photoStore = usePhotoStore()
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)
+
+const viewerVisible = ref(false)
+const viewerIndex = ref(0)
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -71,8 +79,9 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const goToPhoto = (id: number) => {
-  router.push(`/photo/${id}`)
+const openViewer = (idx: number) => {
+  viewerIndex.value = idx
+  viewerVisible.value = true
 }
 
 onMounted(async () => {

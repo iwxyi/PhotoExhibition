@@ -21,10 +21,10 @@
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div class="masonry-grid">
         <div
-          v-for="photo in photos"
+          v-for="(photo, idx) in photos"
           :key="photo.id"
           class="masonry-item photo-card cursor-pointer"
-          @click="goToPhoto(photo.id)"
+          @click="openViewer(idx)"
         >
           <img
             :src="getImageUrl(photo)"
@@ -46,16 +46,20 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
       </div>
     </main>
+    <PhotoViewer
+      v-model:visible="viewerVisible"
+      :photos="photos"
+      :start-index="viewerIndex"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
+import PhotoViewer from '@/components/PhotoViewer.vue'
 
-const router = useRouter()
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 
@@ -63,6 +67,8 @@ const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)
 const currentPage = ref(0)
 const hasMore = ref(true)
+const viewerVisible = ref(false)
+const viewerIndex = ref(0)
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -74,8 +80,9 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const goToPhoto = (id: number) => {
-  router.push(`/photo/${id}`)
+const openViewer = (idx: number) => {
+  viewerIndex.value = idx
+  viewerVisible.value = true
 }
 
 const onImageLoad = () => {

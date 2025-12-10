@@ -172,8 +172,8 @@ public class PhotoScanService {
                     Album newAlbum = new Album();
                     newAlbum.setName(albumPath.getFileName().toString());
                     newAlbum.setPath(albumPathStr);
-                    // 从文件夹名提取标签
-                    extractTagsFromFolderName(newAlbum, albumPath.getFileName().toString());
+                    // 从路径提取标签（包含层级继承）
+                    extractTagsFromPath(newAlbum, albumPath);
                     return albumRepository.save(newAlbum);
                 });
 
@@ -419,23 +419,53 @@ public class PhotoScanService {
     /**
      * 从文件夹名提取标签
      */
-    private void extractTagsFromFolderName(Album album, String folderName) {
-        // 简单的标签提取逻辑，可以根据实际需求优化
-        String[] keywords = folderName.split("[_\\-\\s]+");
-        for (String keyword : keywords) {
-            if (keyword.length() > 1) {
-                Tag tag = tagRepository.findByName(keyword)
-                    .orElseGet(() -> {
-                        Tag newTag = new Tag();
-                        newTag.setName(keyword);
-                        return tagRepository.save(newTag);
-                    });
-                if (album.getTags() == null) {
-                    album.setTags(new ArrayList<>());
+    private void extractTagsFromPath(Album album, Path albumPath) {
+        Set<String> tags = new java.util.HashSet<>();
+
+        try {
+            // 计算相对于basePath的子路径
+            Path base = Paths.get(basePath).toAbsolutePath().normalize();
+            Path relative;
+            try {
+                relative = base.relativize(albumPath.toAbsolutePath().normalize());
+            } catch (Exception e) {
+                relative = albumPath.getFileName();
+            }
+
+            for (Path part : relative) {
+                String name = part.getFileName().toString().trim();
+                if (name.isEmpty()) continue;
+
+                // 去掉日期前缀，如 2025.11.01 xxx 或 2025-11-01 xxx
+                name = name.replaceFirst("^\\d{4}[\\.-]\\d{2}[\\.-]\\d{2}\\s*", "");
+                if (name.isEmpty()) continue;
+
+                // 通过多种分隔符拆分，获取关键词（空格、下划线、横线、顿号、逗号等）
+                String[] keywords = name.split("[\\s_\\-、，,·———/]+");
+                for (String kw : keywords) {
+                    String keyword = kw.trim();
+                    if (keyword.length() > 0) {
+                        tags.add(keyword);
+                    }
                 }
-                if (!album.getTags().contains(tag)) {
-                    album.getTags().add(tag);
-                }
+            }
+        } catch (Exception e) {
+            log.warn("从路径提取标签失败: {}", albumPath, e);
+        }
+
+        // 落库并关联
+        for (String keyword : tags) {
+            Tag tag = tagRepository.findByName(keyword)
+                .orElseGet(() -> {
+                    Tag newTag = new Tag();
+                    newTag.setName(keyword);
+                    return tagRepository.save(newTag);
+                });
+            if (album.getTags() == null) {
+                album.setTags(new ArrayList<>());
+            }
+            if (!album.getTags().contains(tag)) {
+                album.getTags().add(tag);
             }
         }
     }

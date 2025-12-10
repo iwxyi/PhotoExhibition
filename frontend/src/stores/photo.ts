@@ -5,10 +5,12 @@ import { api } from '@/api'
 export interface Album {
   id: number
   name: string
+  displayTitle?: string
   path: string
   coverImageId?: number
   description?: string
   photoCount: number
+  takenAt?: string
   tags?: Tag[]
   coverImages?: CoverImages
   createdAt: string

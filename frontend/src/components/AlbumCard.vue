@@ -1,10 +1,10 @@
 <template>
   <div
-    class="photo-card cursor-pointer group"
+    class="photo-card cursor-pointer group space-y-3 w-full max-w-[240px] mx-auto"
     @click="$emit('click')"
   >
     <!-- 封面布局：左侧竖图 + 右侧上下两张横图 -->
-    <div class="grid grid-cols-2 gap-2 h-80">
+    <div class="grid grid-cols-2 gap-2 h-48 relative w-full">
       <!-- 左侧竖图 -->
       <div class="row-span-2 overflow-hidden rounded-l-lg">
         <img
@@ -32,7 +32,7 @@
       </div>
 
       <!-- 右侧下方横图 -->
-      <div class="overflow-hidden rounded-br-lg">
+      <div class="overflow-hidden rounded-br-lg relative">
         <img
           v-if="rightBottomImage"
           :src="getImageUrl(rightBottomImage)"
@@ -41,23 +41,25 @@
           loading="lazy"
         />
         <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800"></div>
+
+        <!-- 右下角蒙版显示总数 -->
+        <div
+          v-if="album.photoCount && album.photoCount > 0"
+          class="absolute inset-0 bg-black/35 text-white flex items-center justify-center text-base font-semibold"
+        >
+          共 {{ album.photoCount }} 张
+        </div>
       </div>
     </div>
 
-    <!-- 信息覆盖层 -->
-    <div class="gradient-overlay">
-      <div class="absolute bottom-0 left-0 right-0 p-6 text-white">
-        <h3 class="text-xl font-light mb-2">{{ album.name }}</h3>
-        <p class="text-sm opacity-90">{{ album.photoCount }} 张照片</p>
-        <div v-if="album.tags && album.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
-          <span
-            v-for="tag in album.tags.slice(0, 3)"
-            :key="tag.id"
-            class="px-2 py-1 text-xs bg-white/20 backdrop-blur-sm rounded"
-          >
-            {{ tag.name }}
-          </span>
-        </div>
+    <!-- 信息块（显示在封面下方） -->
+    <div class="px-1 text-gray-900 dark:text-gray-100 space-y-1">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-semibold truncate">{{ album.displayTitle || album.name }}</h3>
+        <span class="text-xs text-gray-500 dark:text-gray-400">{{ album.photoCount || 0 }} 张</span>
+      </div>
+      <div v-if="takenDateText" class="text-xs text-gray-500 dark:text-gray-400">
+        {{ takenDateText }}
       </div>
     </div>
   </div>
@@ -74,6 +76,11 @@ const props = defineProps<{
 const leftImage = computed(() => props.album.coverImages?.leftVertical)
 const rightTopImage = computed(() => props.album.coverImages?.rightTop)
 const rightBottomImage = computed(() => props.album.coverImages?.rightBottom)
+
+const takenDateText = computed(() => {
+  if (!props.album.takenAt) return ''
+  return props.album.takenAt.slice(0, 10)
+})
 
 const getImageUrl = (photo: any) => {
   // 优先使用WebP，其次缩略图，最后原图

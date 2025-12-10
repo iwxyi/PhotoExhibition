@@ -30,10 +30,10 @@
 
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div
-          v-for="photo in photos"
+          v-for="(photo, idx) in photos"
           :key="photo.id"
           class="photo-card cursor-pointer group"
-          @click="goToPhoto(photo.id)"
+          @click="openViewer(idx)"
         >
           <div class="aspect-square overflow-hidden rounded-lg">
             <img
@@ -64,16 +64,20 @@
         </button>
       </div>
     </main>
+    <PhotoViewer
+      v-model:visible="viewerVisible"
+      :photos="photos"
+      :start-index="viewerIndex"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
+import PhotoViewer from '@/components/PhotoViewer.vue'
 
-const router = useRouter()
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 
@@ -92,8 +96,12 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const goToPhoto = (id: number) => {
-  router.push(`/photo/${id}`)
+const viewerVisible = ref(false)
+const viewerIndex = ref(0)
+
+const openViewer = (idx: number) => {
+  viewerIndex.value = idx
+  viewerVisible.value = true
 }
 
 const loadMore = async () => {

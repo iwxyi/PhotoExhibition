@@ -11,14 +11,14 @@ import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -69,65 +69,61 @@ public class AlbumService {
      * 获取相册封面图片组合（左侧竖图+右侧上下两张横图）
      */
     public CoverImagesDTO getAlbumCoverImages(Long albumId) {
-        List<Photo> photos = photoRepository.findByAlbumId(albumId, 
+        List<Photo> photos = photoRepository.findByAlbumId(albumId,
             org.springframework.data.domain.PageRequest.of(0, 20)) // 增加查询数量，确保能找到合适的图片
             .getContent();
 
         CoverImagesDTO cover = new CoverImagesDTO();
-        
+
         if (photos.isEmpty()) {
             return cover;
         }
 
-        // 查找竖图（高度>宽度）
-        Photo verticalPhoto = photos.stream()
-            .filter(p -> p.getHeight() != null && p.getWidth() != null && p.getHeight() > p.getWidth())
-            .findFirst()
-            .orElse(null);
+        Photo verticalPhoto = null;
+        List<Photo> horizontalPhotos = new java.util.ArrayList<>(2);
 
-        // 查找横图（宽度>高度）
-        List<Photo> horizontalPhotos = photos.stream()
-            .filter(p -> p.getHeight() != null && p.getWidth() != null && p.getWidth() > p.getHeight())
-            .limit(2)
-            .collect(Collectors.toList());
+        // 第一轮：优先找到竖图和横图
+        for (Photo p : photos) {
+            if (p.getHeight() != null && p.getWidth() != null && p.getHeight() > p.getWidth()) {
+                if (verticalPhoto == null) {
+                    verticalPhoto = p;
+                    continue;
+                }
+            }
+            if (p.getHeight() != null && p.getWidth() != null && p.getWidth() > p.getHeight()) {
+                if (horizontalPhotos.size() < 2) {
+                    horizontalPhotos.add(p);
+                }
+            }
+            if (verticalPhoto != null && horizontalPhotos.size() >= 2) {
+                break;
+            }
+        }
 
-        // 如果找不到竖图，使用第一张图片（不区分方向）
-        if (verticalPhoto == null && !photos.isEmpty()) {
+        // 竖图兜底：没有竖图就用第一张
+        if (verticalPhoto == null) {
             verticalPhoto = photos.get(0);
         }
 
-        // 如果找不到横图，使用前两张图片（不区分方向）
-        List<Photo> finalHorizontalPhotos;
-        if (horizontalPhotos.isEmpty() && photos.size() > 1) {
-            finalHorizontalPhotos = photos.stream()
-                .limit(2)
-                .collect(Collectors.toList());
-        } else if (horizontalPhotos.isEmpty() && photos.size() == 1) {
-            // 如果只有一张图片且是竖图，右侧也用这张图
-            finalHorizontalPhotos = List.of(photos.get(0));
-        } else {
-            finalHorizontalPhotos = horizontalPhotos;
-        }
-
-        if (verticalPhoto != null) {
-            cover.setLeftVertical(convertPhotoToDTO(verticalPhoto));
-        }
-
-        if (finalHorizontalPhotos.size() > 0) {
-            cover.setRightTop(convertPhotoToDTO(finalHorizontalPhotos.get(0)));
-        }
-
-        if (finalHorizontalPhotos.size() > 1) {
-            cover.setRightBottom(convertPhotoToDTO(finalHorizontalPhotos.get(1)));
-        } else if (finalHorizontalPhotos.size() == 1 && photos.size() > 1) {
-            // 如果只有一张横图，第二张使用其他图片
-            Photo secondPhoto = photos.stream()
-                .filter(p -> !p.getId().equals(finalHorizontalPhotos.get(0).getId()))
-                .findFirst()
-                .orElse(null);
-            if (secondPhoto != null) {
-                cover.setRightBottom(convertPhotoToDTO(secondPhoto));
+        // 横图兜底：不够两张，用剩余未使用的照片补齐
+        if (horizontalPhotos.size() < 2) {
+            for (Photo p : photos) {
+                if (horizontalPhotos.size() >= 2) break;
+                if (p.getId().equals(verticalPhoto.getId())) continue;
+                boolean alreadyUsed = horizontalPhotos.stream().anyMatch(h -> h.getId().equals(p.getId()));
+                if (!alreadyUsed) {
+                    horizontalPhotos.add(p);
+                }
             }
+        }
+
+        // 赋值封面
+        cover.setLeftVertical(convertPhotoToDTO(verticalPhoto));
+        if (horizontalPhotos.size() > 0) {
+            cover.setRightTop(convertPhotoToDTO(horizontalPhotos.get(0)));
+        }
+        if (horizontalPhotos.size() > 1) {
+            cover.setRightBottom(convertPhotoToDTO(horizontalPhotos.get(1)));
         }
 
         return cover;
@@ -146,6 +142,12 @@ public class AlbumService {
         dto.setPhotoCount(album.getPhotoCount());
         dto.setCreatedAt(album.getCreatedAt());
         dto.setUpdatedAt(album.getUpdatedAt());
+        dto.setDisplayTitle(buildDisplayTitle(album));
+
+        // 设置相册拍摄时间：取相册最早的拍摄时间，若无则为空
+        photoRepository.findTopByAlbumIdOrderByTakenAtAsc(album.getId())
+            .map(Photo::getTakenAt)
+            .ifPresent(dto::setTakenAt);
 
         if (album.getTags() != null) {
             dto.setTags(album.getTags().stream()
@@ -271,6 +273,67 @@ public class AlbumService {
             // 转换失败，返回原路径
             return absolutePath;
         }
+    }
+
+    /**
+     * 生成展示用标题：去掉首段日期前缀，并将层级目录拼接
+     */
+    private String buildDisplayTitle(Album album) {
+        try {
+            String albumPath = album.getPath();
+            if (albumPath == null || albumPath.isEmpty()) {
+                return stripDatePrefix(album.getName());
+            }
+
+            Path basePathResolved = Paths.get(photoBasePath);
+            if (!basePathResolved.isAbsolute()) {
+                String projectRoot = System.getProperty("user.dir");
+                if (projectRoot.endsWith("backend")) {
+                    projectRoot = new File(projectRoot).getParent();
+                }
+                String cleanPath = photoBasePath.startsWith("./")
+                    ? photoBasePath.substring(2)
+                    : photoBasePath;
+                basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
+            }
+            basePathResolved = basePathResolved.normalize();
+
+            Path albumRealPath = Paths.get(albumPath).normalize();
+            Path relative;
+            if (albumRealPath.startsWith(basePathResolved)) {
+                relative = basePathResolved.relativize(albumRealPath);
+            } else {
+                relative = albumRealPath.getFileName();
+            }
+
+            List<String> parts = new ArrayList<>();
+            for (int i = 0; i < relative.getNameCount(); i++) {
+                String part = relative.getName(i).toString().trim();
+                if (part.isEmpty()) continue;
+                if (i == 0) {
+                    part = stripDatePrefix(part);
+                }
+                if (!part.isEmpty()) {
+                    parts.add(part);
+                }
+            }
+
+            if (parts.isEmpty()) {
+                return stripDatePrefix(album.getName());
+            }
+            // 用“ / ”拼接层级，保留原有子目录信息
+            return String.join(" / ", parts);
+        } catch (Exception e) {
+            return stripDatePrefix(album.getName());
+        }
+    }
+
+    /**
+     * 去掉形如 2025-11-12 或 2025.11.12 的日期前缀
+     */
+    private String stripDatePrefix(String name) {
+        if (name == null) return "";
+        return name.replaceFirst("^\\d{4}[\\.-]?\\d{2}[\\.-]?\\d{2}\\s*", "").trim();
     }
 }
 

@@ -43,5 +43,10 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     Page<Photo> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();
+
+    /**
+     * 获取相册最早拍摄时间的照片
+     */
+    Optional<Photo> findTopByAlbumIdOrderByTakenAtAsc(Long albumId);
 }
 
