@@ -28,14 +28,18 @@
         <p class="text-gray-600 dark:text-gray-400">发现高质量摄影作品</p>
       </div>
 
-      <div v-if="loading" class="flex justify-center items-center h-96">
+      <div v-if="loading && photos.length === 0" class="flex justify-center items-center h-96">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
 
-      <div v-else :class="gridClass">
+      <div v-if="!loading && photos.length === 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
+        <p>暂无图片</p>
+      </div>
+
+      <div v-if="photos.length > 0" :class="gridClass">
         <div
           v-for="(photo, idx) in photos"
-          :key="photo.id"
+          :key="`photo-${photo.id}-${idx}`"
           class="photo-card cursor-pointer group"
           @click="openViewer(idx)"
         >
@@ -45,6 +49,7 @@
               :alt="photo.filename"
               class="photo-image w-full h-full"
               loading="lazy"
+              @error="onImageError"
             />
           </div>
           <div class="gradient-overlay">
@@ -58,14 +63,11 @@
         </div>
       </div>
 
-      <div v-if="hasMore" class="mt-12 text-center">
-        <button
-          @click="loadMore"
-          :disabled="loading"
-          class="px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50"
-        >
-          {{ loading ? '加载中...' : '加载更多' }}
-        </button>
+      <div v-if="loading && photos.length > 0" class="text-center mt-12">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+      </div>
+      <div v-if="!hasMore && photos.length > 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
+        <p>已加载全部图片</p>
       </div>
     </main>
     <PhotoViewer
@@ -78,7 +80,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Random' })
-import { ref, computed, onMounted, onActivated, onDeactivated, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
@@ -95,6 +97,7 @@ const loading = computed(() => photoStore.loading)
 const currentPage = ref(0)
 const hasMore = ref(true)
 const savedScrollTop = ref(0)
+const isLoadingMore = ref(false)
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -119,24 +122,93 @@ const openViewer = (idx: number) => {
   viewerVisible.value = true
 }
 
+const onImageError = (e: Event) => {
+  // 图片加载失败时的处理
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
+}
+
 const loadMore = async () => {
-  currentPage.value++
-  const data = await photoStore.fetchRandomPhotos(currentPage.value, 12, 70)
-  hasMore.value = !data.last
+  // 防止重复加载
+  if (loading.value || isLoadingMore.value || !hasMore.value) return
+  
+  // 保存当前滚动位置
+  const scrollTop = window.scrollY || document.documentElement.scrollTop
+  
+  try {
+    isLoadingMore.value = true
+    currentPage.value++
+    const data = await photoStore.fetchRandomPhotos(currentPage.value, 12, 70)
+    
+    if (!data || !data.content || data.content.length === 0) {
+      hasMore.value = false
+      return
+    }
+    
+    hasMore.value = !data.last
+    
+    // 恢复滚动位置
+    nextTick(() => {
+      window.scrollTo({ top: scrollTop, behavior: 'instant' })
+    })
+  } catch (error) {
+    console.error('加载更多失败:', error)
+    // 加载失败时回退页码
+    currentPage.value--
+    hasMore.value = false
+    // 恢复滚动位置
+    nextTick(() => {
+      window.scrollTo({ top: scrollTop, behavior: 'instant' })
+    })
+  } finally {
+    isLoadingMore.value = false
+  }
+}
+
+// 防抖滚动处理
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+const handleScroll = () => {
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
+    
+    // 距离底部 800px 时开始加载
+    if (scrollTop + windowHeight >= documentHeight - 800) {
+      loadMore()
+    }
+  }, 100)
 }
 
 onMounted(async () => {
-  await photoStore.fetchRandomPhotos(0, 12, 70)
+  try {
+    currentPage.value = 0
+    hasMore.value = true
+    const data = await photoStore.fetchRandomPhotos(0, 12, 70)
+    hasMore.value = !data.last
+    window.addEventListener('scroll', handleScroll, { passive: true })
+  } catch (error) {
+    console.error('初始化加载失败:', error)
+    hasMore.value = false
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
+  if (scrollTimer) clearTimeout(scrollTimer)
 })
 
 onActivated(() => {
   nextTick(() => {
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+    window.addEventListener('scroll', handleScroll, { passive: true })
   })
 })
 
 onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
+  window.removeEventListener('scroll', handleScroll)
 })
 </script>
 

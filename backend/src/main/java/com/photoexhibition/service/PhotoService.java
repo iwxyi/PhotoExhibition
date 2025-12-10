@@ -41,10 +41,11 @@ public class PhotoService {
      */
     public Page<PhotoDTO> getRandomHighQualityPhotos(double minQualityScore, Pageable pageable) {
         List<Photo> photos = photoRepository.findRandomHighQualityPhotos(minQualityScore, pageable);
+        Long total = photoRepository.countByQualityScoreGreaterThanEqual(minQualityScore);
         return new org.springframework.data.domain.PageImpl<>(
             photos.stream().map(this::convertToDTO).collect(Collectors.toList()),
             pageable,
-            photos.size()
+            total
         );
     }
 

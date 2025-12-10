@@ -23,19 +23,22 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div :class="['masonry-grid', previewClass]">
+      <div ref="masonryContainer" class="masonry-container">
         <div
           v-for="(photo, idx) in photos"
-          :key="photo.id"
+          :key="`photo-${photo.id}-${idx}`"
+          :ref="el => setItemRef(el, idx)"
           class="masonry-item photo-card cursor-pointer"
+          :style="getItemStyle(idx)"
           @click="openViewer(idx)"
         >
           <img
             :src="getImageUrl(photo)"
             :alt="photo.filename"
-            class="photo-image w-full"
+            class="masonry-photo-image"
             loading="lazy"
-            @load="onImageLoad"
+            @load="onImageLoad(idx)"
+            @error="onImageError"
           />
           <div class="gradient-overlay">
             <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
@@ -46,8 +49,14 @@
         </div>
       </div>
 
-      <div v-if="loading" class="text-center mt-12">
+      <div v-if="loading && photos.length > 0" class="text-center mt-12">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+      </div>
+      <div v-if="!loading && photos.length === 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
+        <p>暂无图片</p>
+      </div>
+      <div v-if="!hasMore && photos.length > 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
+        <p>已加载全部图片</p>
       </div>
     </main>
     <PhotoViewer
@@ -60,7 +69,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Wall' })
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, watch } from 'vue'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
@@ -78,11 +87,93 @@ const hasMore = ref(true)
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const savedScrollTop = ref(0)
+const masonryContainer = ref<HTMLElement | null>(null)
+const isLoadingMore = ref(false)
 const { previewSize } = useUiSettings()
-const previewClass = computed(() => {
-  if (previewSize.value === 'sm') return 'masonry-sm'
-  if (previewSize.value === 'lg') return 'masonry-lg'
-  return 'masonry-md'
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+const itemRefs = ref<(HTMLElement | null)[]>([])
+const columnHeights = ref<number[]>([])
+const itemPositions = ref<Array<{ left: number; top: number }>>([])
+
+// 根据预览尺寸计算列数
+const columnCount = computed(() => {
+  const width = windowWidth.value
+  let count = 4 // 默认值
+  if (previewSize.value === 'sm') {
+    if (width < 640) count = 2
+    else if (width < 1024) count = 3
+    else if (width < 1280) count = 4
+    else count = 5
+  } else if (previewSize.value === 'lg') {
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else count = 3
+  } else {
+    // md
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else if (width < 1280) count = 3
+    else count = 4
+  }
+  console.log('计算列数: width=', width, 'previewSize=', previewSize.value, 'count=', count)
+  return count
+})
+
+// 计算每列的宽度
+const columnWidth = computed(() => {
+  if (!masonryContainer.value) return 0
+  const containerWidth = masonryContainer.value.clientWidth
+  const gap = 20 // 1.25rem = 20px
+  const cols = columnCount.value
+  return (containerWidth - (cols - 1) * gap) / cols
+})
+
+// 设置 item ref
+const setItemRef = (el: any, idx: number) => {
+  if (el) {
+    itemRefs.value[idx] = el
+  }
+}
+
+// 获取 item 样式
+const getItemStyle = (idx: number) => {
+  const pos = itemPositions.value[idx]
+  if (!pos) return { visibility: 'hidden' }
+  return {
+    position: 'absolute',
+    left: `${pos.left}px`,
+    top: `${pos.top}px`,
+    width: `${columnWidth.value}px`,
+    visibility: 'visible'
+  }
+}
+
+// 监听窗口大小变化
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+const handleResize = () => {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    const newWidth = window.innerWidth
+    windowWidth.value = newWidth
+    console.log('窗口大小变化:', newWidth, '新列数:', columnCount.value)
+    nextTick(() => {
+      layoutItems()
+    })
+  }, 150)
+}
+
+// 监听 photos 变化
+watch(() => photos.value.length, () => {
+  nextTick(() => {
+    layoutItems()
+  })
+})
+
+// 监听列数变化
+watch(columnCount, () => {
+  nextTick(() => {
+    layoutItems()
+  })
 })
 
 const getImageUrl = (photo: any) => {
@@ -100,108 +191,179 @@ const openViewer = (idx: number) => {
   viewerVisible.value = true
 }
 
-const onImageLoad = () => {
-  // 图片加载完成后的处理
+const onImageLoad = (idx: number) => {
+  // 图片加载完成后重新布局
+  nextTick(() => {
+    layoutItems()
+  })
+}
+
+// 瀑布流布局函数
+const layoutItems = () => {
+  if (!masonryContainer.value || photos.value.length === 0) return
+  
+  const cols = columnCount.value
+  const gap = 20
+  const containerWidth = masonryContainer.value.clientWidth
+  const itemWidth = (containerWidth - (cols - 1) * gap) / cols
+  
+  // 初始化列高度
+  columnHeights.value = new Array(cols).fill(0)
+  itemPositions.value = []
+  
+  // 计算每个 item 的位置
+  itemRefs.value.forEach((item, idx) => {
+    if (!item) return
+    
+    // 找到最短的列
+    let minHeight = columnHeights.value[0]
+    let minCol = 0
+    for (let i = 1; i < cols; i++) {
+      if (columnHeights.value[i] < minHeight) {
+        minHeight = columnHeights.value[i]
+        minCol = i
+      }
+    }
+    
+    // 计算位置
+    const left = minCol * (itemWidth + gap)
+    const top = minHeight
+    
+    itemPositions.value[idx] = { left, top }
+    
+    // 更新列高度
+    const itemHeight = item.offsetHeight || 200 // 默认高度
+    columnHeights.value[minCol] = top + itemHeight + 20 // 20px margin-bottom
+  })
+  
+  // 设置容器高度
+  const maxHeight = Math.max(...columnHeights.value)
+  masonryContainer.value.style.height = `${maxHeight}px`
+}
+
+const onImageError = (e: Event) => {
+  // 图片加载失败时的处理
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
 }
 
 const loadMore = async () => {
-  if (loading.value || !hasMore.value) return
-  currentPage.value++
-  const data = await photoStore.fetchPhotoWall(currentPage.value)
-  hasMore.value = !data.last
-}
-
-const handleScroll = () => {
-  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1000) {
-    loadMore()
+  // 防止重复加载
+  if (loading.value || isLoadingMore.value || !hasMore.value) return
+  
+  // 保存当前滚动位置
+  const scrollTop = window.scrollY || document.documentElement.scrollTop
+  
+  try {
+    isLoadingMore.value = true
+    currentPage.value++
+    const data = await photoStore.fetchPhotoWall(currentPage.value)
+    
+    if (!data || !data.content || data.content.length === 0) {
+      hasMore.value = false
+      return
+    }
+    
+    hasMore.value = !data.last
+    
+    // 等待新图片加载后重新布局并恢复滚动位置
+    nextTick(() => {
+      setTimeout(() => {
+        layoutItems()
+        window.scrollTo({ top: scrollTop, behavior: 'instant' })
+      }, 200)
+    })
+  } catch (error) {
+    console.error('加载更多失败:', error)
+    // 加载失败时回退页码
+    currentPage.value--
+    hasMore.value = false
+    // 恢复滚动位置
+    nextTick(() => {
+      window.scrollTo({ top: scrollTop, behavior: 'instant' })
+    })
+  } finally {
+    isLoadingMore.value = false
   }
 }
 
+// 防抖滚动处理
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+const handleScroll = () => {
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
+    
+    // 距离底部 800px 时开始加载
+    if (scrollTop + windowHeight >= documentHeight - 800) {
+      loadMore()
+    }
+  }, 100)
+}
+
 onMounted(async () => {
-  await photoStore.fetchPhotoWall(0)
-  window.addEventListener('scroll', handleScroll)
+  try {
+    // 初始化窗口宽度
+    windowWidth.value = window.innerWidth
+    await photoStore.fetchPhotoWall(0)
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('resize', handleResize)
+    // 等待图片加载后布局
+    nextTick(() => {
+      setTimeout(() => {
+        layoutItems()
+      }, 100)
+    })
+  } catch (error) {
+    console.error('初始化加载失败:', error)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('resize', handleResize)
+  if (scrollTimer) clearTimeout(scrollTimer)
+  if (resizeTimer) clearTimeout(resizeTimer)
 })
 
 onActivated(() => {
   nextTick(() => {
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('resize', handleResize)
   })
 })
 
 onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
+  window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
 <style scoped>
-.masonry-grid {
-  column-gap: 1.25rem;
-}
-
-.masonry-sm {
-  column-count: 2;
-}
-@media (min-width: 640px) {
-  .masonry-sm {
-    column-count: 3;
-  }
-}
-@media (min-width: 1024px) {
-  .masonry-sm {
-    column-count: 4;
-  }
-}
-@media (min-width: 1280px) {
-  .masonry-sm {
-    column-count: 5;
-  }
-}
-
-.masonry-md {
-  column-count: 1;
-}
-@media (min-width: 640px) {
-  .masonry-md {
-    column-count: 2;
-  }
-}
-@media (min-width: 1024px) {
-  .masonry-md {
-    column-count: 3;
-  }
-}
-@media (min-width: 1280px) {
-  .masonry-md {
-    column-count: 4;
-  }
-}
-
-.masonry-lg {
-  column-count: 1;
-}
-@media (min-width: 640px) {
-  .masonry-lg {
-    column-count: 2;
-  }
-}
-@media (min-width: 1024px) {
-  .masonry-lg {
-    column-count: 2;
-  }
-}
-@media (min-width: 1280px) {
-  .masonry-lg {
-    column-count: 3;
-  }
+.masonry-container {
+  position: relative;
+  width: 100%;
 }
 
 .masonry-item {
-  break-inside: avoid;
   margin-bottom: 1.25rem;
+  transition: transform 0.3s;
+}
+
+.masonry-photo-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+  transition: transform 0.5s;
+}
+
+.masonry-photo-image:hover {
+  transform: scale(1.05);
 }
 </style>
 

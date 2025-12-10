@@ -48,12 +48,12 @@
         </div>
       </div>
 
-      <div v-if="loading" class="flex justify-center items-center h-96">
+      <div v-if="loading && albums.length === 0" class="flex justify-center items-center h-96">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
 
       <div
-        v-else
+        v-if="albums.length > 0"
         :class="coverGridClass"
       >
         <AlbumCard
@@ -65,15 +65,12 @@
         />
       </div>
 
-      <!-- 加载更多 -->
-      <div v-if="hasMore" class="mt-12 text-center">
-        <button
-          @click="loadMore"
-          :disabled="loading"
-          class="px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50"
-        >
-          {{ loading ? '加载中...' : '加载更多' }}
-        </button>
+      <!-- 加载状态 -->
+      <div v-if="isLoadingMore && albums.length > 0" class="mt-12 text-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+      </div>
+      <div v-if="!hasMore && albums.length > 0" class="mt-12 text-center text-gray-500 dark:text-gray-400">
+        <p>已加载全部相册</p>
       </div>
     </main>
   </div>
@@ -81,7 +78,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
-import { ref, onMounted, onActivated, onDeactivated, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
@@ -103,6 +100,7 @@ const currentPage = ref(0)
 const hasMore = ref(true)
 const activeCategory = ref('全部')
 const savedScrollTop = ref(0)
+const isLoadingMore = ref(false)
 const { coverSize } = useUiSettings()
 const coverGridClass = computed(() => {
   if (coverSize.value === 'sm') {
@@ -119,30 +117,102 @@ const goToAlbum = (id: number) => {
 }
 
 const loadMore = async () => {
-  currentPage.value++
-  const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
-  const data = await photoStore.fetchAlbums(currentPage.value, 12, cat)
-  hasMore.value = !data.last
+  // 防止重复加载
+  if (loading.value || isLoadingMore.value || !hasMore.value) return
+  
+  // 保存当前滚动位置
+  const scrollTop = window.scrollY || document.documentElement.scrollTop
+  
+  try {
+    isLoadingMore.value = true
+    currentPage.value++
+    const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
+    
+    // 直接调用 API，不通过 store，避免触发 loading
+    const { api } = await import('@/api')
+    const params: any = { page: currentPage.value, size: 12 }
+    if (cat) params.category = cat
+    const response = await api.get('/albums', { params })
+    const data = response.data
+    
+    if (!data || !data.content || data.content.length === 0) {
+      hasMore.value = false
+      return
+    }
+    
+    // 通过 store 追加数据，但不触发 loading
+    // 直接操作 store 的 albums ref
+    const currentAlbums = [...photoStore.albums]
+    photoStore.albums = [...currentAlbums, ...data.content]
+    hasMore.value = !data.last
+    
+    // 恢复滚动位置
+    nextTick(() => {
+      window.scrollTo({ top: scrollTop, behavior: 'instant' })
+    })
+  } catch (error) {
+    console.error('加载更多失败:', error)
+    // 加载失败时回退页码
+    currentPage.value--
+    hasMore.value = false
+    // 恢复滚动位置
+    nextTick(() => {
+      window.scrollTo({ top: scrollTop, behavior: 'instant' })
+    })
+  } finally {
+    isLoadingMore.value = false
+  }
+}
+
+// 防抖滚动处理
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+const handleScroll = () => {
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
+    
+    // 距离底部 800px 时开始加载
+    if (scrollTop + windowHeight >= documentHeight - 800) {
+      loadMore()
+    }
+  }, 100)
 }
 
 onMounted(async () => {
-  await photoStore.fetchCategories()
-  await photoStore.fetchAlbums(0, 12, undefined)
+  try {
+    await photoStore.fetchCategories()
+    const data = await photoStore.fetchAlbums(0, 12, undefined)
+    hasMore.value = !data.last
+    window.addEventListener('scroll', handleScroll, { passive: true })
+  } catch (error) {
+    console.error('初始化加载失败:', error)
+    hasMore.value = false
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
+  if (scrollTimer) clearTimeout(scrollTimer)
 })
 
 onActivated(() => {
   nextTick(() => {
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+    window.addEventListener('scroll', handleScroll, { passive: true })
   })
 })
 
 onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
+  window.removeEventListener('scroll', handleScroll)
 })
 
 const selectCategory = async (c: string) => {
   activeCategory.value = c
   currentPage.value = 0
+  hasMore.value = true
   const cat = c === '全部' ? undefined : c
   const data = await photoStore.fetchAlbums(0, 12, cat)
   hasMore.value = !data.last

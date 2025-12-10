@@ -21,6 +21,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore ORDER BY RAND()")
     List<Photo> findRandomHighQualityPhotos(@Param("minScore") Double minScore, Pageable pageable);
+    
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.qualityScore >= :minScore")
+    Long countByQualityScoreGreaterThanEqual(@Param("minScore") Double minScore);
 
     @Query(
         value = "SELECT * FROM photo p WHERE " +

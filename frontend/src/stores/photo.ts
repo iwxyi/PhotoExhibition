@@ -73,7 +73,11 @@ export const usePhotoStore = defineStore('photo', () => {
       const params: any = { page, size }
       if (category) params.category = category
       const response = await api.get('/albums', { params })
-      albums.value = response.data.content
+      if (page === 0) {
+        albums.value = response.data.content
+      } else {
+        albums.value = [...albums.value, ...response.data.content]
+      }
       return response.data
     } finally {
       loading.value = false
@@ -112,7 +116,11 @@ export const usePhotoStore = defineStore('photo', () => {
     loading.value = true
     try {
       const response = await api.get('/photos/wall', { params: { page, size } })
-      photos.value = response.data.content
+      if (page === 0) {
+        photos.value = response.data.content
+      } else {
+        photos.value = [...photos.value, ...response.data.content]
+      }
       return response.data
     } finally {
       loading.value = false
@@ -125,7 +133,11 @@ export const usePhotoStore = defineStore('photo', () => {
       const response = await api.get('/photos/random', { 
         params: { page, size, minQualityScore } 
       })
-      photos.value = response.data.content
+      if (page === 0) {
+        photos.value = response.data.content
+      } else {
+        photos.value = [...photos.value, ...response.data.content]
+      }
       return response.data
     } finally {
       loading.value = false
