@@ -39,6 +39,30 @@ const routes = [
     name: 'Admin',
     component: () => import('@/views/admin/Dashboard.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/albums',
+    name: 'AdminAlbums',
+    component: () => import('@/views/admin/Albums.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/photos',
+    name: 'AdminPhotos',
+    component: () => import('@/views/admin/Photos.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/tags',
+    name: 'AdminTags',
+    component: () => import('@/views/admin/Tags.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/folders',
+    name: 'AdminFolders',
+    component: () => import('@/views/admin/Folders.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

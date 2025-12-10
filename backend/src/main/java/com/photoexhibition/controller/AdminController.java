@@ -27,14 +27,18 @@ public class AdminController {
      * 手动触发扫描
      */
     @PostMapping("/scan")
-    public ResponseEntity<String> triggerScan(@RequestParam(required = false) String path) {
-        if (path == null || path.isEmpty()) {
-            // 使用配置的base-path
-            photoScanService.scanDirectory(null);
-        } else {
-            photoScanService.scanDirectory(path);
+    public ResponseEntity<Map<String, Object>> triggerScan(@RequestParam(required = false) String path) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String target = (path == null || path.isEmpty()) ? null : path;
+            photoScanService.scanDirectory(target);
+            resp.put("message", "扫描任务已启动");
+            resp.put("path", target);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "扫描失败");
+            return ResponseEntity.status(500).body(resp);
         }
-        return ResponseEntity.ok("扫描任务已启动");
     }
 
     /**

@@ -31,5 +31,15 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT DISTINCT a FROM Album a JOIN a.tags t WHERE t.id IN :tagIds AND a.photoCount > 0")
     Page<Album> findByTagIdsWithPhotos(@Param("tagIds") List<Long> tagIds, Pageable pageable);
+
+    /**
+     * 查询路径前缀匹配的相册
+     */
+    List<Album> findByPathStartingWith(String pathPrefix);
+
+    /**
+     * 删除路径前缀匹配的相册
+     */
+    void deleteByPathStartingWith(String pathPrefix);
 }
 

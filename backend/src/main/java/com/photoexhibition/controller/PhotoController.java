@@ -2,7 +2,6 @@ package com.photoexhibition.controller;
 
 import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.dto.PhotoDTO;
-import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.service.PhotoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -18,13 +17,24 @@ import org.springframework.web.bind.annotation.*;
 public class PhotoController {
 
     private final PhotoService photoService;
-    private final PhotoRepository photoRepository;
 
     /**
      * 图墙模式 - 获取所有图片（瀑布流）
      */
     @GetMapping("/wall")
     public ResponseEntity<Page<PhotoDTO>> getPhotoWall(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<PhotoDTO> photos = photoService.getAllPhotos(pageable);
+        return ResponseEntity.ok(photos);
+    }
+
+    /**
+     * 获取所有图片（通用列表）
+     */
+    @GetMapping
+    public ResponseEntity<Page<PhotoDTO>> getAllPhotos(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -77,6 +87,15 @@ public class PhotoController {
         // 增加查看次数
         photoService.incrementViewCount(id);
         return ResponseEntity.ok(photo);
+    }
+
+    /**
+     * 删除图片
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deletePhoto(@PathVariable Long id) {
+        photoService.deletePhoto(id);
+        return ResponseEntity.ok().build();
     }
 }
 

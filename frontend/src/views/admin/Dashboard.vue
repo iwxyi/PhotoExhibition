@@ -85,6 +85,12 @@
             >
               标签管理
             </router-link>
+            <router-link
+              to="/admin/folders"
+              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            >
+              文件夹管理
+            </router-link>
           </div>
         </div>
       </div>
@@ -100,10 +106,10 @@
               class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">-- 选择API --</option>
-              <option value="GET /api/albums">获取所有相册</option>
-              <option value="GET /api/photos">获取所有图片</option>
-              <option value="GET /api/tags">获取所有标签</option>
-              <option value="POST /api/admin/scan">触发扫描</option>
+              <option value="GET /albums">获取所有相册</option>
+              <option value="GET /photos">获取所有图片</option>
+              <option value="GET /tags">获取所有标签</option>
+              <option value="POST /admin/scan">触发扫描</option>
             </select>
           </div>
           <button
@@ -127,7 +133,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import axios from 'axios'
+import { api } from '@/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -146,15 +152,21 @@ const apiResponse = ref<any>(null)
 const loadStats = async () => {
   try {
     const [albumsRes, photosRes, tagsRes] = await Promise.all([
-      axios.get('/api/albums?size=1'),
-      axios.get('/api/photos?size=1'),
-      axios.get('/api/tags')
+      api.get('/albums', { params: { size: 1, page: 0 } }),
+      api.get('/photos', { params: { size: 1, page: 0 } }),
+      api.get('/tags', { params: { size: 1, page: 0 } })
     ])
     
+    const albumTotal = albumsRes.data.totalElements ?? albumsRes.data.total ?? 0
+    const photoTotal = photosRes.data.totalElements ?? photosRes.data.total ?? 0
+    const tagTotal = Array.isArray(tagsRes.data)
+      ? tagsRes.data.length
+      : (tagsRes.data.totalElements ?? tagsRes.data.total ?? 0)
+
     stats.value = {
-      albums: albumsRes.data.totalElements || 0,
-      photos: photosRes.data.totalElements || 0,
-      tags: tagsRes.data.length || 0
+      albums: albumTotal,
+      photos: photoTotal,
+      tags: tagTotal
     }
   } catch (error) {
     console.error('加载统计信息失败:', error)
@@ -164,7 +176,7 @@ const loadStats = async () => {
 const triggerScan = async () => {
   scanning.value = true
   try {
-    await axios.post('/api/admin/scan')
+    await api.post('/admin/scan')
     alert('扫描任务已触发')
   } catch (error: any) {
     alert('触发扫描失败: ' + (error.response?.data?.message || error.message))
@@ -181,7 +193,7 @@ const testApi = async () => {
   
   try {
     const [method, path] = selectedApi.value.split(' ')
-    const response = await axios({
+    const response = await api({
       method: method.toLowerCase(),
       url: path
     })

@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 import javax.imageio.ImageIO;
-import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -136,13 +135,11 @@ public class PhotoScanService {
             }
             
             if (!Files.exists(path)) {
-                log.warn("目录不存在: {}", path);
-                return;
+                throw new IllegalArgumentException("目录不存在: " + path);
             }
             
             if (!Files.isDirectory(path)) {
-                log.warn("路径不是文件夹: {}", path);
-                return;
+                throw new IllegalArgumentException("路径不是文件夹: " + path);
             }
 
             // 扫描所有子文件夹，跳过.thumbnails目录
@@ -151,8 +148,9 @@ public class PhotoScanService {
                     .filter(p -> !p.getFileName().toString().equals(".thumbnails"))  // 跳过.thumbnails目录
                     .forEach(this::processAlbumDirectory);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("扫描目录失败: {}", directoryPath, e);
+            throw new RuntimeException("扫描目录失败: " + (e.getMessage() == null ? directoryPath : e.getMessage()), e);
         }
     }
 
@@ -444,7 +442,7 @@ public class PhotoScanService {
                 String[] keywords = name.split("[\\s_\\-、，,·———/]+");
                 for (String kw : keywords) {
                     String keyword = kw.trim();
-                    if (keyword.length() > 0) {
+                    if (keyword.length() > 0 && !keyword.matches("^\\.+$") && !keyword.equals("." ) && !keyword.equals("..")) {
                         tags.add(keyword);
                     }
                 }

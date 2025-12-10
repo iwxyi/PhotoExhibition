@@ -7,7 +7,6 @@ import com.photoexhibition.entity.Photo;
 import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -114,6 +113,13 @@ public class PhotoService {
         Photo photo = photoRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("图片不存在"));
         return convertToDTO(photo);
+    }
+
+    public void deletePhoto(Long id) {
+        if (!photoRepository.existsById(id)) {
+            throw new RuntimeException("图片不存在");
+        }
+        photoRepository.deleteById(id);
     }
 
     /**

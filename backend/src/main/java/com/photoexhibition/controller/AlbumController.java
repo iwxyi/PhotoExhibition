@@ -11,9 +11,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
 @RestController
 @RequestMapping("/albums")
 @RequiredArgsConstructor
@@ -60,6 +57,23 @@ public class AlbumController {
     public ResponseEntity<CoverImagesDTO> getAlbumCover(@PathVariable Long id) {
         CoverImagesDTO cover = albumService.getAlbumCoverImages(id);
         return ResponseEntity.ok(cover);
+    }
+
+    /**
+     * 更新相册（名称/描述）
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<AlbumDTO> updateAlbum(@PathVariable Long id, @RequestBody AlbumDTO dto) {
+        return ResponseEntity.ok(albumService.updateAlbum(id, dto));
+    }
+
+    /**
+     * 删除相册
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteAlbum(@PathVariable Long id) {
+        albumService.deleteAlbum(id);
+        return ResponseEntity.ok().build();
     }
 }
 

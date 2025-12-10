@@ -48,7 +48,6 @@ public class WebConfig implements WebMvcConfigurer {
         
         // 配置静态资源访问
         // /files/** 映射到图片目录
-        // 注意：前端访问时，路径应该是 /api/files/相对路径
         registry.addResourceHandler("/files/**")
             .addResourceLocations("file:" + basePath)
             .setCachePeriod(3600); // 缓存1小时

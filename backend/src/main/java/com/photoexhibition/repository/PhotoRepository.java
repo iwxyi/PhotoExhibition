@@ -48,5 +48,15 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      * 获取相册最早拍摄时间的照片
      */
     Optional<Photo> findTopByAlbumIdOrderByTakenAtAsc(Long albumId);
+
+    /**
+     * 路径前缀查询
+     */
+    List<Photo> findByOriginalPathStartingWith(String pathPrefix);
+
+    /**
+     * 按相册ID批量删除
+     */
+    void deleteByAlbumIdIn(List<Long> albumIds);
 }
 

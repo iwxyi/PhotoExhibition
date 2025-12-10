@@ -51,38 +51,40 @@
         </div>
 
         <!-- 信息侧栏 -->
-        <div
-          class="w-80 max-w-[80vw] bg-gray-900/80 text-white border-l border-white/10 flex flex-col"
-          v-show="!infoCollapsed"
-        >
-          <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
-            <span class="text-sm font-semibold">信息</span>
-            <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfo">折叠</button>
-          </div>
-          <div class="flex-1 overflow-auto px-4 py-3 space-y-2 text-xs leading-relaxed">
-            <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
-            <div v-if="currentPhoto?.takenAt"><span class="opacity-60">拍摄时间：</span>{{ formatDate(currentPhoto.takenAt) }}</div>
-            <div v-if="currentPhoto?.cameraModel"><span class="opacity-60">相机：</span>{{ currentPhoto.cameraModel }}</div>
-            <div v-if="currentPhoto?.lensModel"><span class="opacity-60">镜头：</span>{{ currentPhoto.lensModel }}</div>
-            <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
-            <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
-            <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
-            <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
-            <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
-            <div v-if="currentPhoto?.tags?.length">
-              <span class="opacity-60">标签：</span>
-              <span class="inline-flex flex-wrap gap-2 mt-1">
-                <span
-                  v-for="t in currentPhoto.tags.slice(0, 8)"
-                  :key="t.id"
-                  class="px-2 py-1 bg-white/10 rounded"
-                >
-                  {{ t.name }}
+        <transition name="slide-fade">
+          <div
+            v-if="!infoCollapsed"
+            class="w-80 max-w-[80vw] bg-gray-900/80 text-white border-l border-white/10 flex flex-col"
+          >
+            <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <span class="text-sm font-semibold">信息</span>
+              <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfo">折叠</button>
+            </div>
+            <div class="flex-1 overflow-auto px-4 py-3 space-y-2 text-xs leading-relaxed">
+              <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
+              <div v-if="currentPhoto?.takenAt"><span class="opacity-60">拍摄时间：</span>{{ formatDate(currentPhoto.takenAt) }}</div>
+              <div v-if="currentPhoto?.cameraModel"><span class="opacity-60">相机：</span>{{ currentPhoto.cameraModel }}</div>
+              <div v-if="currentPhoto?.lensModel"><span class="opacity-60">镜头：</span>{{ currentPhoto.lensModel }}</div>
+              <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
+              <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
+              <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
+              <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
+              <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
+              <div v-if="currentPhoto?.tags?.length">
+                <span class="opacity-60">标签：</span>
+                <span class="inline-flex flex-wrap gap-2 mt-1">
+                  <span
+                    v-for="t in currentPhoto.tags.slice(0, 8)"
+                    :key="t.id"
+                    class="px-2 py-1 bg-white/10 rounded"
+                  >
+                    {{ t.name }}
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
           </div>
-        </div>
+        </transition>
 
         <!-- 折叠状态时的侧栏开关 -->
         <button
@@ -95,23 +97,25 @@
       </div>
 
       <!-- 底部缩略图横排 -->
-      <div class="h-28 bg-black/80 border-t border-white/10 overflow-x-auto">
-        <div class="flex items-center gap-2 px-3 py-2 min-w-max">
-          <div
-            v-for="(p, idx) in photos"
-            :key="p.id"
-            class="relative w-24 h-24 flex-shrink-0 cursor-pointer border"
-            :class="idx === currentIndex ? 'border-white' : 'border-transparent opacity-80 hover:opacity-100'"
-            @click="jump(idx)"
-          >
-            <img
-              :src="getThumbUrl(p)"
-              :alt="p.filename"
-              class="w-full h-full object-cover"
-            />
+      <transition name="fade">
+        <div class="h-28 bg-black/80 border-t border-white/10 overflow-x-auto">
+          <div class="flex items-center gap-2 px-3 py-2 min-w-max">
+            <div
+              v-for="(p, idx) in photos"
+              :key="p.id"
+              class="relative w-24 h-24 flex-shrink-0 cursor-pointer border transition-all duration-150"
+              :class="idx === currentIndex ? 'border-white scale-[1.02]' : 'border-transparent opacity-80 hover:opacity-100'"
+              @click="jump(idx)"
+            >
+              <img
+                :src="getThumbUrl(p)"
+                :alt="p.filename"
+                class="w-full h-full object-cover"
+              />
+            </div>
           </div>
         </div>
-      </div>
+      </transition>
 
     </div>
   </transition>
@@ -246,6 +250,19 @@ const getThumbUrl = (photo: Photo) => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: all 0.18s ease;
+}
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateX(12px);
+}
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateX(12px);
 }
 </style>
 

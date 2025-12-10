@@ -66,6 +66,34 @@ public class AlbumService {
     }
 
     /**
+     * 更新相册基础信息（名称/描述）
+     */
+    public AlbumDTO updateAlbum(Long id, AlbumDTO dto) {
+        Album album = albumRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+        if (dto.getName() != null && !dto.getName().isEmpty()) {
+            album.setName(dto.getName());
+        }
+        if (dto.getDescription() != null) {
+            album.setDescription(dto.getDescription());
+        }
+        Album saved = albumRepository.save(album);
+        return convertToDTO(saved);
+    }
+
+    /**
+     * 删除相册（会级联删除照片记录）
+     */
+    public void deleteAlbum(Long id) {
+        if (!albumRepository.existsById(id)) {
+            throw new RuntimeException("相册不存在");
+        }
+        // 照片表album_id外键未声明级联，这里直接删相册记录，其它清理由DB外键/应用控制
+        // 若需同时删除照片，请在PhotoRepository中按albumId删除
+        albumRepository.deleteById(id);
+    }
+
+    /**
      * 获取相册封面图片组合（左侧竖图+右侧上下两张横图）
      */
     public CoverImagesDTO getAlbumCoverImages(Long albumId) {
