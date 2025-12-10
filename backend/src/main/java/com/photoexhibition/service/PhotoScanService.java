@@ -80,6 +80,14 @@ public class PhotoScanService {
     }
     
     /**
+     * 异步触发扫描，避免阻塞接口
+     */
+    @Async
+    public void scanDirectoryAsync(String directoryPath) {
+        scanDirectory(directoryPath);
+    }
+    
+    /**
      * 应用启动后执行一次扫描
      */
     @PostConstruct
@@ -430,7 +438,13 @@ public class PhotoScanService {
                 relative = albumPath.getFileName();
             }
 
+            int idx = 0;
             for (Path part : relative) {
+                // 跳过base-path下的第一级目录（作为大分类，不参与标签）
+                if (idx == 0) {
+                    idx++;
+                    continue;
+                }
                 String name = part.getFileName().toString().trim();
                 if (name.isEmpty()) continue;
 

@@ -31,8 +31,8 @@ public class AdminController {
         Map<String, Object> resp = new HashMap<>();
         try {
             String target = (path == null || path.isEmpty()) ? null : path;
-            photoScanService.scanDirectory(target);
-            resp.put("message", "扫描任务已启动");
+            photoScanService.scanDirectoryAsync(target);
+            resp.put("message", "扫描任务已异步启动");
             resp.put("path", target);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {

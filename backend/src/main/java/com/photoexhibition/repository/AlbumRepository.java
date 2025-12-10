@@ -41,5 +41,10 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      * 删除路径前缀匹配的相册
      */
     void deleteByPathStartingWith(String pathPrefix);
+
+    /**
+     * 路径前缀 + 有照片 的分页查询
+     */
+    Page<Album> findByPathStartingWithAndPhotoCountGreaterThan(String pathPrefix, Integer minPhotoCount, Pageable pageable);
 }
 

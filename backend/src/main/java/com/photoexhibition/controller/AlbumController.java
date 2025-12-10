@@ -25,9 +25,10 @@ public class AlbumController {
     @GetMapping
     public ResponseEntity<Page<AlbumDTO>> getAllAlbums(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "12") int size) {
+            @RequestParam(defaultValue = "12") int size,
+            @RequestParam(required = false) String category) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable);
+        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category);
         return ResponseEntity.ok(albums);
     }
 
@@ -74,6 +75,14 @@ public class AlbumController {
     public ResponseEntity<Void> deleteAlbum(@PathVariable Long id) {
         albumService.deleteAlbum(id);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 获取所有一级分类
+     */
+    @GetMapping("/categories")
+    public ResponseEntity<java.util.List<String>> getCategories() {
+        return ResponseEntity.ok(albumService.getCategories());
     }
 }
 

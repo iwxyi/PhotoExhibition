@@ -6,6 +6,7 @@ export interface Album {
   id: number
   name: string
   displayTitle?: string
+  category?: string
   path: string
   coverImageId?: number
   description?: string
@@ -61,19 +62,28 @@ export interface CoverImages {
 export const usePhotoStore = defineStore('photo', () => {
   const albums = ref<Album[]>([])
   const photos = ref<Photo[]>([])
+  const categories = ref<string[]>([])
   const currentAlbum = ref<Album | null>(null)
   const currentPhoto = ref<Photo | null>(null)
   const loading = ref(false)
 
-  const fetchAlbums = async (page = 0, size = 12) => {
+  const fetchAlbums = async (page = 0, size = 12, category?: string) => {
     loading.value = true
     try {
-      const response = await api.get('/albums', { params: { page, size } })
+      const params: any = { page, size }
+      if (category) params.category = category
+      const response = await api.get('/albums', { params })
       albums.value = response.data.content
       return response.data
     } finally {
       loading.value = false
     }
+  }
+
+  const fetchCategories = async () => {
+    const res = await api.get('/albums/categories')
+    categories.value = res.data || []
+    return categories.value
   }
 
   const fetchAlbumById = async (id: number) => {
@@ -145,12 +155,14 @@ export const usePhotoStore = defineStore('photo', () => {
   }
 
   return {
+    categories,
     albums,
     photos,
     currentAlbum,
     currentPhoto,
     loading,
     fetchAlbums,
+    fetchCategories,
     fetchAlbumById,
     fetchPhotosByAlbum,
     fetchPhotoWall,

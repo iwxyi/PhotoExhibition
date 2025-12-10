@@ -16,6 +16,10 @@ public class AlbumDTO {
      * 展示用标题（去掉日期前缀、合并子目录），便于前端显示
      */
     private String displayTitle;
+    /**
+     * 一级分类（base-path 下的第一层目录）
+     */
+    private String category;
     private List<TagDTO> tags;
     private CoverImagesDTO coverImages;
     private LocalDateTime createdAt;

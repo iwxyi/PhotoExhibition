@@ -8,29 +8,7 @@
             <router-link to="/" class="text-2xl font-light tracking-wider text-gray-900 dark:text-white">
               摄影展
             </router-link>
-            <div class="hidden md:flex space-x-6">
-              <router-link 
-                to="/" 
-                class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                :class="{ 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-white': $route.path === '/' }"
-              >
-                相册
-              </router-link>
-              <router-link 
-                to="/wall" 
-                class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                :class="{ 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-white': $route.path === '/wall' }"
-              >
-                图墙
-              </router-link>
-              <router-link 
-                to="/random" 
-                class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                :class="{ 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-white': $route.path === '/random' }"
-              >
-                随机
-              </router-link>
-            </div>
+            <NavLinks />
           </div>
           <div class="flex items-center space-x-4">
             <button
@@ -52,6 +30,23 @@
 
     <!-- 相册网格 -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <!-- 分类 Tabs -->
+      <div class="mb-6">
+        <div class="flex gap-2 overflow-x-auto pb-2">
+          <button
+            v-for="c in ['全部', ...categories]"
+            :key="c"
+            @click="selectCategory(c)"
+            class="px-4 py-2 rounded-full border transition-colors"
+            :class="c === activeCategory
+              ? 'bg-gray-900 text-white border-gray-800 dark:bg-white dark:text-gray-900 dark:border-white'
+              : 'bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700'"
+          >
+            {{ c }}
+          </button>
+        </div>
+      </div>
+
       <div v-if="loading" class="flex justify-center items-center h-96">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
@@ -90,12 +85,15 @@ import FilterPanel from '@/components/FilterPanel.vue'
 const router = useRouter()
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
+import NavLinks from '@/components/NavLinks.vue'
 
 const albums = computed(() => photoStore.albums)
 const loading = computed(() => photoStore.loading)
+const categories = computed(() => photoStore.categories)
 const showFilter = ref(false)
 const currentPage = ref(0)
 const hasMore = ref(true)
+const activeCategory = ref('全部')
 
 const goToAlbum = (id: number) => {
   router.push(`/album/${id}`)
@@ -103,12 +101,22 @@ const goToAlbum = (id: number) => {
 
 const loadMore = async () => {
   currentPage.value++
-  const data = await photoStore.fetchAlbums(currentPage.value)
+  const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
+  const data = await photoStore.fetchAlbums(currentPage.value, 12, cat)
   hasMore.value = !data.last
 }
 
 onMounted(async () => {
-  await photoStore.fetchAlbums(0)
+  await photoStore.fetchCategories()
+  await photoStore.fetchAlbums(0, 12, undefined)
 })
+
+const selectCategory = async (c: string) => {
+  activeCategory.value = c
+  currentPage.value = 0
+  const cat = c === '全部' ? undefined : c
+  const data = await photoStore.fetchAlbums(0, 12, cat)
+  hasMore.value = !data.last
+}
 </script>
 

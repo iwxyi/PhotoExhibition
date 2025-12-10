@@ -37,9 +37,15 @@ public class AlbumService {
      * 获取所有相册并生成封面（只返回有照片的相册）
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
-    public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable) {
-        // 只查询有照片的相册
-        Page<Album> albums = albumRepository.findAlbumsWithPhotos(pageable);
+    public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category) {
+        Page<Album> albums;
+        if (category != null && !category.isEmpty()) {
+            String prefix = buildCategoryPrefix(category);
+            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, pageable);
+        } else {
+            // 只查询有照片的相册
+            albums = albumRepository.findAlbumsWithPhotos(pageable);
+        }
         return albums.map(this::convertToDTO);
     }
 
@@ -52,7 +58,7 @@ public class AlbumService {
             Page<Album> albums = albumRepository.findByTagIdsWithPhotos(request.getTagIds(), pageable);
             return albums.map(this::convertToDTO);
         }
-        return getAllAlbumsWithCover(pageable);
+        return getAllAlbumsWithCover(pageable, null);
     }
 
     /**
@@ -171,6 +177,7 @@ public class AlbumService {
         dto.setCreatedAt(album.getCreatedAt());
         dto.setUpdatedAt(album.getUpdatedAt());
         dto.setDisplayTitle(buildDisplayTitle(album));
+        dto.setCategory(extractCategory(album));
 
         // 设置相册拍摄时间：取相册最早的拍摄时间，若无则为空
         photoRepository.findTopByAlbumIdOrderByTakenAtAsc(album.getId())
@@ -198,6 +205,21 @@ public class AlbumService {
         }
 
         return dto;
+    }
+
+    /**
+     * 获取所有一级分类（base-path 下的第一层目录）
+     */
+    public List<String> getCategories() {
+        List<Album> albums = albumRepository.findAll();
+        List<String> categories = new ArrayList<>();
+        for (Album a : albums) {
+            String c = extractCategory(a);
+            if (c != null && !c.isEmpty() && !categories.contains(c)) {
+                categories.add(c);
+            }
+        }
+        return categories;
     }
 
     /**
@@ -340,7 +362,11 @@ public class AlbumService {
                 if (part.isEmpty()) continue;
                 if (i == 0) {
                     part = stripDatePrefix(part);
+                    // 忽略分类（base-path 下的第一层目录）
+                    continue;
                 }
+                // 从第二层开始，去掉日期前缀
+                part = stripDatePrefix(part);
                 if (!part.isEmpty()) {
                     parts.add(part);
                 }
@@ -362,6 +388,50 @@ public class AlbumService {
     private String stripDatePrefix(String name) {
         if (name == null) return "";
         return name.replaceFirst("^\\d{4}[\\.-]?\\d{2}[\\.-]?\\d{2}\\s*", "").trim();
+    }
+
+    /**
+    * 提取一级分类（base-path 下的第一段目录名）
+    */
+    private String extractCategory(Album album) {
+        try {
+            String albumPath = album.getPath();
+            if (albumPath == null || albumPath.isEmpty()) return "";
+
+            Path basePathResolved = resolveBasePath();
+            Path albumRealPath = Paths.get(albumPath).normalize();
+            if (!albumRealPath.startsWith(basePathResolved)) {
+                return "";
+            }
+            Path relative = basePathResolved.relativize(albumRealPath);
+            if (relative.getNameCount() > 0) {
+                return relative.getName(0).toString();
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    /**
+     * 构造分类前缀绝对路径
+     */
+    private String buildCategoryPrefix(String category) {
+        Path base = resolveBasePath();
+        return base.resolve(category).toAbsolutePath().normalize().toString();
+    }
+
+    private Path resolveBasePath() {
+        Path basePathResolved = Paths.get(photoBasePath);
+        if (!basePathResolved.isAbsolute()) {
+            String projectRoot = System.getProperty("user.dir");
+            if (projectRoot.endsWith("backend")) {
+                projectRoot = new File(projectRoot).getParent();
+            }
+            String cleanPath = photoBasePath.startsWith("./")
+                ? photoBasePath.substring(2)
+                : photoBasePath;
+            basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
+        }
+        return basePathResolved.normalize();
     }
 }
 
