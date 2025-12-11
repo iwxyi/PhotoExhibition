@@ -48,6 +48,7 @@
               :src="getImageUrl(photo)"
               :alt="photo.filename"
               class="photo-image w-full h-full"
+              :style="getImageStyle(photo)"
               loading="lazy"
               @error="onImageError"
             />
@@ -126,6 +127,22 @@ const onImageError = (e: Event) => {
   // 图片加载失败时的处理
   const img = e.target as HTMLImageElement
   img.style.display = 'none'
+}
+
+// 获取图片样式（智能聚焦主体）
+const getImageStyle = (photo: any) => {
+  // 如果有焦点位置信息，使用智能裁剪
+  if (photo.focusX !== undefined && photo.focusY !== undefined) {
+    return {
+      objectPosition: `${photo.focusX}% ${photo.focusY}%`,
+      objectFit: 'cover'
+    }
+  }
+  // 默认居中
+  return {
+    objectPosition: 'center center',
+    objectFit: 'cover'
+  }
 }
 
 const loadMore = async () => {

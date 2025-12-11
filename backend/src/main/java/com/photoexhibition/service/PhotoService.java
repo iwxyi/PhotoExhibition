@@ -195,6 +195,8 @@ public class PhotoService {
         dto.setIso(photo.getIso());
         dto.setTakenAt(photo.getTakenAt());
         dto.setQualityScore(photo.getQualityScore());
+        dto.setFocusX(photo.getFocusX());
+        dto.setFocusY(photo.getFocusY());
         dto.setViewCount(photo.getViewCount());
         dto.setIsFeatured(photo.getIsFeatured());
         dto.setCreatedAt(photo.getCreatedAt());

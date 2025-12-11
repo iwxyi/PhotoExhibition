@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS `photo` (
   `iso` INT(11) DEFAULT NULL COMMENT 'ISO感光度',
   `taken_at` DATETIME DEFAULT NULL COMMENT '拍摄时间',
   `quality_score` DECIMAL(5,2) DEFAULT NULL COMMENT '质量评分（0-100）',
+  `focus_x` DECIMAL(5,2) DEFAULT NULL COMMENT '焦点X位置（百分比 0-100）',
+  `focus_y` DECIMAL(5,2) DEFAULT NULL COMMENT '焦点Y位置（百分比 0-100）',
   `view_count` INT(11) DEFAULT 0 COMMENT '查看次数',
   `is_featured` TINYINT(1) DEFAULT 0 COMMENT '是否精选',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

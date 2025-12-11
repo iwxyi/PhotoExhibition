@@ -26,7 +26,9 @@ spring:
 logging:
   level:
     root: INFO
-    com.photoexhibition: INFO
+    com.photoexhibition: DEBUG
+    com.photoexhibition.service.SubjectDetectionService: DEBUG
+    com.photoexhibition.service.PhotoScanService: DEBUG
     org.springframework: WARN
     org.springframework.web: INFO
     org.hibernate: WARN

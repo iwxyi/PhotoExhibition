@@ -58,15 +58,18 @@ public class PhotoScanService {
     private final PhotoRepository photoRepository;
     private final TagRepository tagRepository;
     private final ColorAnalysisService colorAnalysisService;
+    private final SubjectDetectionService subjectDetectionService;
 
-    public PhotoScanService(AlbumRepository albumRepository, 
+    public PhotoScanService(AlbumRepository albumRepository,
                            PhotoRepository photoRepository,
                            TagRepository tagRepository,
-                           ColorAnalysisService colorAnalysisService) {
+                           ColorAnalysisService colorAnalysisService,
+                           SubjectDetectionService subjectDetectionService) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
         this.tagRepository = tagRepository;
         this.colorAnalysisService = colorAnalysisService;
+        this.subjectDetectionService = subjectDetectionService;
     }
 
     /**
@@ -278,6 +281,13 @@ public class PhotoScanService {
 
             // 分析色彩
             colorAnalysisService.analyzeColor(imageFile, photo);
+
+            // 检测主体位置
+            try {
+                subjectDetectionService.detectSubject(imageFile, photo);
+            } catch (Exception e) {
+                log.warn("检测主体位置失败: {}", imageFile.getName(), e);
+            }
 
             // 计算质量评分
             calculateQualityScore(photo);

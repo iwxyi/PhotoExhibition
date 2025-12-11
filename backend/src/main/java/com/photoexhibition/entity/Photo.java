@@ -69,6 +69,12 @@ public class Photo {
     @Column(name = "quality_score", precision = 5, scale = 2)
     private Double qualityScore;
 
+    @Column(name = "focus_x", precision = 5, scale = 2)
+    private Double focusX; // 焦点X位置（百分比 0-100）
+
+    @Column(name = "focus_y", precision = 5, scale = 2)
+    private Double focusY; // 焦点Y位置（百分比 0-100）
+
     @Column(name = "view_count")
     private Integer viewCount = 0;
 

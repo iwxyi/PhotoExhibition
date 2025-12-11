@@ -68,18 +68,43 @@
         </div>
       </div>
 
-      <div class="flex-1 flex overflow-hidden">
+      <div class="flex-1 flex overflow-hidden min-h-0">
         <!-- 主图区域 -->
-        <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6">
-          <img
-            v-if="currentPhoto"
-            :src="getImageUrl(currentPhoto)"
-            :alt="currentPhoto.filename"
-            class="max-h-full max-w-full object-contain select-none"
-            @wheel.passive="onWheel"
-            @touchstart="onTouchStart"
-            @touchend="onTouchEnd"
-          />
+        <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0">
+          <div class="relative w-full h-full flex items-center justify-center overflow-hidden" ref="imageContainer">
+            <div
+              class="relative inline-block"
+              :style="getImageTransformStyle()"
+              @wheel="onWheelZoom"
+              @touchstart="onTouchStartZoom"
+              @touchmove="onTouchMoveZoom"
+              @touchend="onTouchEndZoom"
+              @dblclick="onDoubleClick"
+              @mousedown="onMouseDown"
+            >
+              <img
+                v-if="currentPhoto"
+                :src="getImageUrl(currentPhoto)"
+                :alt="currentPhoto.filename"
+                class="select-none"
+                :style="getImageStyle()"
+                ref="mainImage"
+                @load="onImageLoad"
+                draggable="false"
+              />
+            </div>
+            <!-- 焦点框覆盖层 -->
+            <div
+              v-if="currentPhoto && showFocusBox && imageLoaded && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
+              class="absolute pointer-events-none"
+              :style="getFocusBoxStyle()"
+            >
+              <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50"></div>
+              <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/60 px-1 rounded whitespace-nowrap">
+                焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
+              </div>
+            </div>
+          </div>
 
           <!-- 左右切换按钮 -->
           <button
@@ -118,6 +143,18 @@
               <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
               <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
               <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
+              <div v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined">
+                <span class="opacity-60">聚焦位置：</span>
+                <span class="inline-flex items-center gap-2">
+                  X: {{ currentPhoto.focusX.toFixed(1) }}%, Y: {{ currentPhoto.focusY.toFixed(1) }}%
+                  <button
+                    class="text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
+                    @click="showFocusBox = !showFocusBox"
+                  >
+                    {{ showFocusBox ? '隐藏框' : '显示框' }}
+                  </button>
+                </span>
+              </div>
               <div v-if="currentPhoto?.tags?.length">
                 <span class="opacity-60">标签：</span>
                 <span class="inline-flex flex-wrap gap-2 mt-1">
@@ -206,6 +243,21 @@ const dragStartY = ref(0)
 const dragStartHeight = ref(0)
 const thumbSize = computed(() => Math.max(24, clampThumbHeight(thumbHeight.value - 24)))
 const isFullscreen = ref(false)
+const showFocusBox = ref(false)
+const mainImage = ref<HTMLImageElement | null>(null)
+const imageContainer = ref<HTMLElement | null>(null)
+const imageSize = ref({ width: 0, height: 0 })
+const imageLoaded = ref(false)
+
+// 缩放相关状态
+const scale = ref(1)
+const translateX = ref(0)
+const translateY = ref(0)
+const isDragging = ref(false)
+const dragStart = ref({ x: 0, y: 0, translateX: 0, translateY: 0 })
+const lastTouchDistance = ref(0)
+const touchCenter = ref({ x: 0, y: 0 })
+const isPinching = ref(false)
 
 const STORAGE_KEY = 'pe-info-collapsed'
 const THUMB_KEY = 'pe-thumb-height'
@@ -232,10 +284,12 @@ onMounted(() => {
   const saved = localStorage.getItem(STORAGE_KEY)
   infoCollapsed.value = saved === '1'
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', onImageLoad)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', onImageLoad)
 })
 
 const toggleInfo = () => {
@@ -338,25 +392,142 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
-const onWheel = (e: WheelEvent) => {
-  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-    if (e.deltaY > 0) next()
-    else prev()
+// 触控板/鼠标滚轮缩放
+const onWheelZoom = (e: WheelEvent) => {
+  // 如果按住 Ctrl/Cmd 键，进行缩放
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? -0.1 : 0.1
+    zoomAtPoint(e.clientX, e.clientY, delta)
   } else {
-    if (e.deltaX > 0) next()
-    else prev()
+    // 否则用于切换图片（原有逻辑）
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      if (e.deltaY > 0) next()
+      else prev()
+    } else {
+      if (e.deltaX > 0) next()
+      else prev()
+    }
   }
 }
 
-const onTouchStart = (e: TouchEvent) => {
-  touchStartX.value = e.changedTouches[0].clientX
+// 触摸缩放和拖拽
+const onTouchStartZoom = (e: TouchEvent) => {
+  if (e.touches.length === 1) {
+    // 单指：准备拖拽
+    isDragging.value = true
+    dragStart.value = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      translateX: translateX.value,
+      translateY: translateY.value
+    }
+    touchStartX.value = e.touches[0].clientX
+  } else if (e.touches.length === 2) {
+    // 双指：准备缩放
+    isPinching.value = true
+    isDragging.value = false
+    const touch1 = e.touches[0]
+    const touch2 = e.touches[1]
+    lastTouchDistance.value = getTouchDistance(touch1, touch2)
+    touchCenter.value = {
+      x: (touch1.clientX + touch2.clientX) / 2,
+      y: (touch1.clientY + touch2.clientY) / 2
+    }
+  }
 }
 
-const onTouchEnd = (e: TouchEvent) => {
-  const dx = e.changedTouches[0].clientX - touchStartX.value
-  if (Math.abs(dx) > 40) {
-    if (dx > 0) prev()
-    else next()
+const onTouchMoveZoom = (e: TouchEvent) => {
+  e.preventDefault()
+  
+  if (e.touches.length === 1 && isDragging.value && scale.value > 1) {
+    // 单指拖拽（仅在缩放后）
+    const dx = e.touches[0].clientX - dragStart.value.x
+    const dy = e.touches[0].clientY - dragStart.value.y
+    translateX.value = dragStart.value.translateX + dx
+    translateY.value = dragStart.value.translateY + dy
+    constrainTranslation()
+  } else if (e.touches.length === 2 && isPinching.value) {
+    // 双指缩放
+    const touch1 = e.touches[0]
+    const touch2 = e.touches[1]
+    const distance = getTouchDistance(touch1, touch2)
+    const scaleDelta = distance / lastTouchDistance.value
+    
+    // 更新缩放中心
+    touchCenter.value = {
+      x: (touch1.clientX + touch2.clientX) / 2,
+      y: (touch1.clientY + touch2.clientY) / 2
+    }
+    
+    zoomAtPoint(touchCenter.value.x, touchCenter.value.y, (scaleDelta - 1) * scale.value)
+    lastTouchDistance.value = distance
+  }
+}
+
+const onTouchEndZoom = (e: TouchEvent) => {
+  if (e.touches.length === 0) {
+    // 所有手指抬起
+    if (isDragging.value && scale.value === 1) {
+      // 如果未缩放，检查是否是滑动切换图片
+      const dx = e.changedTouches[0].clientX - touchStartX.value
+      if (Math.abs(dx) > 40) {
+        if (dx > 0) prev()
+        else next()
+      }
+    }
+    isDragging.value = false
+    isPinching.value = false
+  } else if (e.touches.length === 1) {
+    // 从双指变为单指
+    isPinching.value = false
+    isDragging.value = true
+    dragStart.value = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      translateX: translateX.value,
+      translateY: translateY.value
+    }
+  }
+}
+
+const getTouchDistance = (touch1: Touch, touch2: Touch) => {
+  const dx = touch2.clientX - touch1.clientX
+  const dy = touch2.clientY - touch1.clientY
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+// 鼠标拖拽（仅在缩放后）
+const onMouseDown = (e: MouseEvent) => {
+  if (scale.value > 1 && e.button === 0) {
+    e.preventDefault()
+    isDragging.value = true
+    dragStart.value = {
+      x: e.clientX,
+      y: e.clientY,
+      translateX: translateX.value,
+      translateY: translateY.value
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+}
+
+const onMouseMove = (e: MouseEvent) => {
+  if (isDragging.value && scale.value > 1) {
+    const dx = e.clientX - dragStart.value.x
+    const dy = e.clientY - dragStart.value.y
+    translateX.value = dragStart.value.translateX + dx
+    translateY.value = dragStart.value.translateY + dy
+    constrainTranslation()
+  }
+}
+
+const onMouseUp = () => {
+  if (isDragging.value) {
+    isDragging.value = false
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
   }
 }
 
@@ -376,10 +547,208 @@ const getThumbUrl = (photo: Photo) => {
   return getImageUrl(photo)
 }
 
+const onImageLoad = () => {
+  if (mainImage.value) {
+    // 确保图片已完全加载
+    const img = mainImage.value
+    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      imageSize.value = {
+        width: img.offsetWidth,
+        height: img.offsetHeight
+      }
+      imageLoaded.value = true
+    } else {
+      imageLoaded.value = false
+    }
+  }
+}
+
+const getFocusBoxStyle = () => {
+  if (!currentPhoto.value || !mainImage.value || !imageContainer.value || !imageLoaded.value) return {}
+  
+  const photo = currentPhoto.value
+  const img = mainImage.value
+  const container = imageContainer.value
+  
+  // 再次检查图片是否已加载完成（双重保险）
+  if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) {
+    return {}
+  }
+  
+  // 获取图片元素的边界矩形（这是图片元素占用的空间，可能包含空白）
+  const imgRect = img.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+  
+  // 使用当前图片的实际原始尺寸（直接从 img 获取，确保是最新的）
+  const naturalWidth = img.naturalWidth
+  const naturalHeight = img.naturalHeight
+  
+  if (naturalWidth === 0 || naturalHeight === 0) return {}
+  
+  // 图片元素的显示尺寸（可能包含空白区域）
+  const elementWidth = imgRect.width
+  const elementHeight = imgRect.height
+  
+  // 计算 object-contain 的缩放比例
+  // object-contain 会保持宽高比，使用较小的缩放比例
+  const scaleX = elementWidth / naturalWidth
+  const scaleY = elementHeight / naturalHeight
+  const baseScale = Math.min(scaleX, scaleY)
+  
+  // 计算图片实际显示的尺寸（基础缩放，不考虑用户缩放）
+  const baseDisplayWidth = naturalWidth * baseScale
+  const baseDisplayHeight = naturalHeight * baseScale
+  
+  // 计算图片在元素中的偏移（居中显示）
+  // 因为 object-contain，图片会在元素中居中
+  const offsetX = (elementWidth - baseDisplayWidth) / 2
+  const offsetY = (elementHeight - baseDisplayHeight) / 2
+  
+  // 计算图片在容器中的位置
+  const imgOffsetX = imgRect.left - containerRect.left
+  const imgOffsetY = imgRect.top - containerRect.top
+  
+  // 焦点框大小基于基础显示尺寸的 20%（不考虑用户缩放，保持固定视觉大小）
+  const boxSize = Math.min(baseDisplayWidth, baseDisplayHeight) * 0.2 * scale.value
+  
+  // 计算焦点框的位置（基于百分比）
+  // focusX 和 focusY 是 0-100 的百分比，表示在原始图片上的位置
+  const focusXPercent = photo.focusX! / 100
+  const focusYPercent = photo.focusY! / 100
+  
+  // 将原始图片的焦点位置转换为基础显示图片上的坐标
+  const focusXOnBase = focusXPercent * baseDisplayWidth
+  const focusYOnBase = focusYPercent * baseDisplayHeight
+  
+  // 计算焦点框在基础显示图片上的位置（焦点位置是框的中心）
+  const boxLeftOnBase = focusXOnBase - (boxSize / scale.value) / 2
+  const boxTopOnBase = focusYOnBase - (boxSize / scale.value) / 2
+  
+  // 确保焦点框在基础显示图片范围内
+  const baseBoxSize = boxSize / scale.value
+  const clampedLeft = Math.max(0, Math.min(boxLeftOnBase, baseDisplayWidth - baseBoxSize))
+  const clampedTop = Math.max(0, Math.min(boxTopOnBase, baseDisplayHeight - baseBoxSize))
+  
+  // 转换为相对于容器的绝对位置
+  // 容器偏移 + 元素内偏移 + 图片上的位置 + 用户缩放和平移
+  const left = imgOffsetX + offsetX + clampedLeft * scale.value + translateX.value
+  const top = imgOffsetY + offsetY + clampedTop * scale.value + translateY.value
+  
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${boxSize}px`,
+    height: `${boxSize}px`
+  }
+}
+
+// 双击缩放
+const onDoubleClick = (e: MouseEvent) => {
+  if (scale.value > 1) {
+    // 如果已缩放，重置
+    resetZoom()
+  } else {
+    // 否则放大到2倍
+    zoomAtPoint(e.clientX, e.clientY, 1)
+  }
+}
+
+// 在指定点缩放
+const zoomAtPoint = (clientX: number, clientY: number, delta: number) => {
+  if (!mainImage.value || !imageContainer.value) return
+  
+  const container = imageContainer.value
+  const containerRect = container.getBoundingClientRect()
+  
+  // 计算相对于容器的坐标
+  const x = clientX - containerRect.left - containerRect.width / 2
+  const y = clientY - containerRect.top - containerRect.height / 2
+  
+  // 计算新的缩放值
+  const targetScale = Math.max(1, Math.min(5, scale.value + delta))
+  const scaleDelta = targetScale / scale.value
+  
+  // 调整平移，使缩放中心点保持不变
+  translateX.value = x - (x - translateX.value) * scaleDelta
+  translateY.value = y - (y - translateY.value) * scaleDelta
+  
+  scale.value = targetScale
+  constrainTranslation()
+}
+
+// 限制平移范围
+const constrainTranslation = () => {
+  if (!mainImage.value || !imageContainer.value || scale.value <= 1) {
+    translateX.value = 0
+    translateY.value = 0
+    return
+  }
+  
+  const img = mainImage.value
+  const container = imageContainer.value
+  
+  const imgRect = img.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+  
+  const scaledWidth = imgRect.width * scale.value
+  const scaledHeight = imgRect.height * scale.value
+  
+  const maxX = (scaledWidth - containerRect.width) / 2
+  const maxY = (scaledHeight - containerRect.height) / 2
+  
+  translateX.value = Math.max(-maxX, Math.min(maxX, translateX.value))
+  translateY.value = Math.max(-maxY, Math.min(maxY, translateY.value))
+}
+
+// 重置缩放
+const resetZoom = () => {
+  scale.value = 1
+  translateX.value = 0
+  translateY.value = 0
+}
+
+// 获取图片样式（确保 object-contain 正确工作）
+const getImageStyle = (): Record<string, string> => {
+  if (!mainImage.value || !imageContainer.value) {
+    return {
+      maxWidth: '100%',
+      maxHeight: '100%',
+      objectFit: 'contain',
+      display: 'block'
+    }
+  }
+  
+  const container = imageContainer.value
+  const containerRect = container.getBoundingClientRect()
+  
+  return {
+    maxWidth: `${containerRect.width}px`,
+    maxHeight: `${containerRect.height}px`,
+    width: 'auto',
+    height: 'auto',
+    objectFit: 'contain',
+    display: 'block'
+  }
+}
+
+// 获取图片变换样式
+const getImageTransformStyle = () => {
+  return {
+    transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
+    transformOrigin: 'center center'
+  }
+}
+
 watch(
   () => currentIndex.value,
   () => {
     scrollThumbIntoView()
+    // 图片切换时重置状态，等待新图片加载
+    imageSize.value = { width: 0, height: 0 }
+    imageLoaded.value = false
+    // 重置缩放
+    resetZoom()
+    // 图片加载完成后会自动调用 onImageLoad
   }
 )
 
@@ -393,6 +762,9 @@ watch(
 
 onBeforeUnmount(() => {
   stopDrag()
+  onMouseUp()
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
 })
 </script>
 

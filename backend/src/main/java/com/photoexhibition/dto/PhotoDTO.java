@@ -29,6 +29,8 @@ public class PhotoDTO {
     private Integer iso;
     private LocalDateTime takenAt;
     private Double qualityScore;
+    private Double focusX; // 焦点X位置（百分比 0-100）
+    private Double focusY; // 焦点Y位置（百分比 0-100）
     private Integer viewCount;
     private Boolean isFeatured;
     private List<TagDTO> tags;
