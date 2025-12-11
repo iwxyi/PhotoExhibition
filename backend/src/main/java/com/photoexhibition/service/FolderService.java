@@ -4,11 +4,13 @@ import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.service.PhotoScanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +29,7 @@ public class FolderService {
 
     private final AlbumRepository albumRepository;
     private final PhotoRepository photoRepository;
+    private final PhotoScanService photoScanService;
     @Value("${photo.scan.base-path}")
     private String basePath;
 
@@ -144,6 +147,10 @@ public class FolderService {
             stream.forEach(path -> {
                 try {
                     String fileName = path.getFileName().toString();
+                    if (!Files.exists(path)) {
+                        // 可能是失效的软链接，直接跳过
+                        return;
+                    }
                     boolean isDir = Files.isDirectory(path);
                     // 跳过以"."开头的隐藏文件和文件夹
                     if (fileName.startsWith(".")) {
@@ -318,6 +325,41 @@ public class FolderService {
     }
 
     /**
+     * 批量移动文件或文件夹
+     */
+    @Transactional
+    public void moveItems(List<String> paths, String targetDir) throws Exception {
+        if (paths == null || paths.isEmpty()) return;
+        Path target = Paths.get(targetDir).toAbsolutePath().normalize();
+        Files.createDirectories(target);
+        for (String p : paths) {
+            Path src = Paths.get(p).toAbsolutePath().normalize();
+            if (Files.isDirectory(src)) {
+                Path dst = target.resolve(src.getFileName());
+                moveFolder(src.toString(), dst.toString());
+            } else {
+                moveSingleFile(src, target.resolve(src.getFileName()));
+            }
+        }
+    }
+
+    /**
+     * 批量删除文件或文件夹
+     */
+    @Transactional
+    public void deleteItems(List<String> paths) throws Exception {
+        if (paths == null || paths.isEmpty()) return;
+        for (String p : paths) {
+            Path path = Paths.get(p).toAbsolutePath().normalize();
+            if (Files.isDirectory(path)) {
+                deleteFolder(path.toString());
+            } else {
+                deleteFileWithDb(path);
+            }
+        }
+    }
+
+    /**
      * 将相对路径转换为项目根目录下的绝对路径，若已是绝对路径则直接返回
      */
     private Path resolvePath(String pathStr) {
@@ -366,6 +408,110 @@ public class FolderService {
         map.put("width", photo.getWidth());
         map.put("height", photo.getHeight());
         return map;
+    }
+
+    /**
+     * 上传文件/文件夹
+     */
+    @Transactional
+    public void uploadFiles(List<MultipartFile> files, String targetDir, List<String> relativePaths) throws Exception {
+        if (files == null || files.isEmpty()) return;
+        Path baseTarget = resolvePath(targetDir);
+        Files.createDirectories(baseTarget);
+        for (int i = 0; i < files.size(); i++) {
+            MultipartFile mf = files.get(i);
+            String rel = (relativePaths != null && relativePaths.size() > i) ? relativePaths.get(i) : mf.getOriginalFilename();
+            if (rel == null || rel.isEmpty()) continue;
+            Path dest = baseTarget.resolve(rel).normalize();
+            Files.createDirectories(dest.getParent());
+            mf.transferTo(dest.toFile());
+            syncFileCreate(dest);
+        }
+    }
+
+    private void moveSingleFile(Path source, Path target) throws Exception {
+        if (!Files.exists(source) || Files.isDirectory(source)) return;
+        Files.createDirectories(target.getParent());
+        Files.move(source, target);
+        syncFileMove(source, target);
+    }
+
+    private void deleteFileWithDb(Path filePath) throws Exception {
+        String abs = filePath.toAbsolutePath().normalize().toString();
+        if (Files.exists(filePath)) {
+            Files.deleteIfExists(filePath);
+        }
+        if (isUnderBase(abs)) {
+            photoRepository.findByOriginalPath(abs).ifPresent(photo -> {
+                Long albumId = photo.getAlbumId();
+                photoRepository.delete(photo);
+                updateAlbumCount(albumId);
+            });
+        }
+    }
+
+    private void syncFileCreate(Path filePath) {
+        String abs = filePath.toAbsolutePath().normalize().toString();
+        if (!isUnderBase(abs) || Files.isDirectory(filePath)) return;
+        try {
+            Path albumPath = filePath.getParent();
+            Album album = findOrCreateAlbum(albumPath);
+            photoScanService.processPhotoFile(filePath.toFile(), album);
+            updateAlbumCount(album.getId());
+        } catch (Exception e) {
+            log.warn("同步创建文件失败: {}", filePath, e);
+        }
+    }
+
+    private void syncFileMove(Path source, Path target) {
+        String oldAbs = source.toAbsolutePath().normalize().toString();
+        String newAbs = target.toAbsolutePath().normalize().toString();
+        if (!isUnderBase(oldAbs) && !isUnderBase(newAbs)) return;
+        photoRepository.findByOriginalPath(oldAbs).ifPresent(photo -> {
+            Long oldAlbumId = photo.getAlbumId();
+            Path newAlbumPath = target.getParent();
+            Album newAlbum = findOrCreateAlbum(newAlbumPath);
+            photo.setAlbumId(newAlbum.getId());
+            photo.setOriginalPath(newAbs);
+            if (photo.getThumbnailPath() != null) {
+                photo.setThumbnailPath(replacePrefix(photo.getThumbnailPath(), oldAbs, newAbs));
+            }
+            if (photo.getWebpPath() != null) {
+                photo.setWebpPath(replacePrefix(photo.getWebpPath(), oldAbs, newAbs));
+            }
+            photoRepository.save(photo);
+            updateAlbumCount(oldAlbumId);
+            updateAlbumCount(newAlbum.getId());
+        });
+    }
+
+    private Album findOrCreateAlbum(Path albumPath) {
+        String pathStr = albumPath.toAbsolutePath().normalize().toString();
+        return albumRepository.findByPath(pathStr).orElseGet(() -> {
+            Album a = new Album();
+            a.setName(albumPath.getFileName().toString());
+            a.setPath(pathStr);
+            a.setPhotoCount(0);
+            return albumRepository.save(a);
+        });
+    }
+
+    private boolean isUnderBase(String absPath) {
+        try {
+            Path base = resolveBasePath();
+            return Paths.get(absPath).normalize().startsWith(base);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void updateAlbumCount(Long albumId) {
+        if (albumId == null) return;
+        albumRepository.findById(albumId).ifPresent(a -> {
+            int count = photoRepository.countByAlbumId(albumId).intValue();
+            a.setPhotoCount(count);
+            albumRepository.save(a);
+        });
     }
 
     /**

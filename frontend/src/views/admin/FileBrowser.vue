@@ -50,15 +50,66 @@
         </button>
         <button
           @click="refresh"
-          :disabled="loading"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap min-w-[90px]"
         >
-          {{ loading ? '加载中...' : '刷新' }}
+          刷新
         </button>
+        <button
+          @click="triggerFileInput(false)"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+        >
+          上传文件
+        </button>
+        <button
+          @click="triggerFileInput(true)"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+        >
+          上传文件夹
+        </button>
+        <button
+          @click="toggleMultiSelect"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+        >
+          {{ multiSelect ? '关闭多选' : '开启多选' }}
+        </button>
+        <template v-if="multiSelect">
+          <button
+            @click="moveSelected"
+            :disabled="!selectedPaths.size"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+          >
+            移动已选 ({{ selectedPaths.size }})
+          </button>
+          <button
+            @click="deleteSelected"
+            :disabled="!selectedPaths.size"
+            class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+          >
+            删除已选 ({{ selectedPaths.size }})
+          </button>
+          <button
+            @click="selectAll"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+          >
+            全选
+          </button>
+          <button
+            @click="invertSelection"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+          >
+            反选
+          </button>
+        </template>
+        <input ref="fileInput" type="file" multiple class="hidden" @change="handleFileInput(false, $event)" />
+        <input ref="dirInput" type="file" multiple webkitdirectory class="hidden" @change="handleFileInput(true, $event)" />
       </div>
 
       <!-- 文件列表 -->
-      <div class="bg-gray-800 rounded-lg p-4">
+      <div
+        class="bg-gray-800 rounded-lg p-4"
+        @dragover.prevent
+        @drop.prevent="handleDrop"
+      >
         <div v-if="loading" class="text-center py-8 text-gray-400">
           加载中...
         </div>
@@ -68,7 +119,7 @@
         <div v-else-if="!items.length" class="text-center py-8 text-gray-400">
           当前目录为空
         </div>
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           <!-- 文件夹 -->
           <div
             v-for="dir in directories"
@@ -78,8 +129,11 @@
             class="bg-gray-700 hover:bg-gray-600 rounded-lg p-4 cursor-pointer transition-colors relative"
             :class="{ 'ring-2 ring-blue-500': selectedItem?.path === dir.path }"
           >
+            <label v-if="multiSelect" class="absolute top-2 right-2">
+              <input type="checkbox" class="w-4 h-4" :checked="selectedPaths.has(dir.path)" @click.stop="toggleSelect(dir.path)" />
+            </label>
             <!-- 三合一封面 -->
-            <div v-if="dir.leftVertical || dir.rightTop || dir.rightBottom" class="grid grid-cols-2 gap-0.5 mb-3 h-32 rounded-lg overflow-hidden">
+            <div v-if="dir.leftVertical || dir.rightTop || dir.rightBottom" class="grid grid-cols-2 gap-[2px] mb-3 h-32 rounded-lg overflow-hidden">
               <!-- 左侧竖图 -->
               <div class="row-span-2 overflow-hidden">
                 <img
@@ -142,8 +196,11 @@
             class="bg-gray-700 hover:bg-gray-600 rounded-lg p-4 cursor-pointer transition-colors relative"
             :class="{ 'ring-2 ring-blue-500': selectedItem?.path === file.path }"
           >
+            <label v-if="multiSelect" class="absolute top-2 right-2">
+              <input type="checkbox" class="w-4 h-4" :checked="selectedPaths.has(file.path)" @click.stop="toggleSelect(file.path)" />
+            </label>
             <!-- 图片文件显示缩略图 -->
-            <div v-if="file.thumbnail" class="mb-3 h-32 rounded-lg overflow-hidden">
+            <div v-if="file.thumbnail" class="mb-3 h-32 rounded-lg overflow-hidden flex items-center justify-center">
               <img
                 :src="getImageUrl(file.thumbnail)"
                 :alt="file.name"
@@ -208,8 +265,8 @@
           v-model="newFolderName"
           @keyup.enter="createFolder"
           placeholder="文件夹名称"
+          ref="newFolderInput"
           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autofocus
         />
         <div class="flex gap-2 justify-end">
           <button
@@ -265,7 +322,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { api } from '@/api'
 
 interface PhotoInfo {
@@ -297,10 +354,14 @@ const loading = ref(false)
 const error = ref('')
 const items = ref<FileItem[]>([])
 const selectedItem = ref<FileItem | null>(null)
+const selectedPaths = ref<Set<string>>(new Set())
+const multiSelect = ref(false)
+const uploading = ref(false)
 
 const showCreateDialog = ref(false)
 const newFolderName = ref('')
 const creating = ref(false)
+const newFolderInput = ref<HTMLInputElement | null>(null)
 
 const showRenameDialog = ref(false)
 const renameValue = ref('')
@@ -375,6 +436,7 @@ const loadFiles = async (path?: string) => {
 
 const goToPath = (path: string) => {
   currentPath.value = path
+  selectedPaths.value.clear()
   loadFiles(path)
 }
 
@@ -406,6 +468,8 @@ const navigateToPart = (index: number) => {
 }
 
 const refresh = () => {
+  if (loading.value) return
+  selectedPaths.value.clear()
   loadFiles()
 }
 
@@ -509,6 +573,73 @@ const handleClickOutside = () => {
   selectedItem.value = null
 }
 
+const toggleSelect = (path: string) => {
+  if (!multiSelect.value) return
+  const set = new Set(selectedPaths.value)
+  if (set.has(path)) set.delete(path)
+  else set.add(path)
+  selectedPaths.value = set
+}
+
+const deleteSelected = async () => {
+  if (!selectedPaths.value.size) return
+  if (!confirm(`确认删除选中的 ${selectedPaths.value.size} 项？`)) return
+  try {
+    await api.delete('/admin/folders/browser/delete-items', {
+      params: { paths: Array.from(selectedPaths.value) }
+    })
+    selectedPaths.value.clear()
+    await loadFiles()
+  } catch (e: any) {
+    alert('删除失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const toggleMultiSelect = () => {
+  multiSelect.value = !multiSelect.value
+  if (!multiSelect.value) {
+    selectedPaths.value.clear()
+  }
+}
+
+const selectAll = () => {
+  if (!multiSelect.value) return
+  const set = new Set<string>()
+  items.value.forEach(i => set.add(i.path))
+  selectedPaths.value = set
+}
+
+const invertSelection = () => {
+  if (!multiSelect.value) return
+  const set = new Set<string>()
+  const current = selectedPaths.value
+  items.value.forEach(i => {
+    if (current.has(i.path)) return
+    set.add(i.path)
+  })
+  // 同时保留未选 → 选，已选 → 取消
+  items.value.forEach(i => {
+    if (!current.has(i.path)) return
+    // 已选的反转为不选，已处理
+  })
+  selectedPaths.value = set
+}
+
+const moveSelected = async () => {
+  if (!selectedPaths.value.size) return
+  const target = prompt('输入目标目录绝对路径', currentPath.value)
+  if (!target) return
+  try {
+    await api.post('/admin/folders/browser/move-items', null, {
+      params: { paths: Array.from(selectedPaths.value), target }
+    })
+    selectedPaths.value.clear()
+    await loadFiles()
+  } catch (e: any) {
+    alert('移动失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
 const formatFileSize = (bytes?: number) => {
   if (!bytes) return '-'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -538,10 +669,90 @@ const getImageUrl = (photo: PhotoInfo) => {
   return build(photo.webpPath) || build(photo.thumbnailPath) || build(photo.originalPath)
 }
 
+const triggerFileInput = (isDir: boolean) => {
+  if (isDir) {
+    dirInput.value?.click()
+  } else {
+    fileInput.value?.click()
+  }
+}
+
+const handleFileInput = async (isDir: boolean, event: Event) => {
+  const input = event.target as HTMLInputElement
+  if (!input.files || !input.files.length) return
+  const files = Array.from(input.files)
+  const relativePaths = isDir ? files.map(f => (f as any).webkitRelativePath || f.name) : undefined
+  await uploadFiles(files, relativePaths)
+  input.value = ''
+}
+
+const handleDrop = async (event: DragEvent) => {
+  const dt = event.dataTransfer
+  if (!dt) return
+  const files = Array.from(dt.files)
+  const relativePaths = files.map(f => (f as any).webkitRelativePath || f.name)
+  await uploadFiles(files, relativePaths)
+}
+
+const uploadFiles = async (files: File[], relativePaths?: string[]) => {
+  if (!files.length) return
+  const uploadUrl = '/api/admin/folders/browser/upload' // 走前端同源代理，避免跨域/凭证问题
+  const BATCH_SIZE = 10 // 较小批次，降低 EOF 风险
+  uploading.value = true
+  try {
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const slice = files.slice(i, i + BATCH_SIZE)
+      const relSlice = relativePaths ? relativePaths.slice(i, i + BATCH_SIZE) : undefined
+
+      const form = new FormData()
+      slice.forEach(f => form.append('files', f))
+      if (relSlice) {
+        relSlice.forEach(p => form.append('relativePaths', p))
+      }
+      form.append('target', currentPath.value)
+
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        body: form,
+        credentials: 'same-origin'
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || res.statusText)
+      }
+    }
+    await loadFiles()
+  } catch (e: any) {
+    console.error('上传失败', e)
+    alert('上传失败: ' + (e.message || '上传失败'))
+  } finally {
+    uploading.value = false
+  }
+}
+
+watch(showCreateDialog, (val) => {
+  if (val) {
+    nextTick(() => newFolderInput.value?.focus())
+  }
+})
+
 onMounted(async () => {
   await loadBasePath()
   await loadFiles()
   document.addEventListener('click', handleClickOutside)
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (contextMenu.value.show) {
+        contextMenu.value.show = false
+        selectedItem.value = null
+        return
+      }
+      if (showCreateDialog.value || showRenameDialog.value) return
+      goToParent()
+    }
+  }
+  document.addEventListener('keydown', escHandler)
+  onUnmounted(() => document.removeEventListener('keydown', escHandler))
 })
 
 onUnmounted(() => {

@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -133,6 +134,56 @@ public class FolderController {
                 java.nio.file.Files.deleteIfExists(itemPath);
             }
             resp.put("message", "删除成功");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 批量删除文件或文件夹
+     */
+    @DeleteMapping("/browser/delete-items")
+    public ResponseEntity<Map<String, Object>> deleteItems(@RequestParam List<String> paths) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            folderService.deleteItems(paths);
+            resp.put("message", "删除成功");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 批量移动文件或文件夹
+     */
+    @PostMapping("/browser/move-items")
+    public ResponseEntity<Map<String, Object>> moveItems(@RequestParam List<String> paths, @RequestParam String target) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            folderService.moveItems(paths, target);
+            resp.put("message", "移动成功");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 上传文件或文件夹（支持文件夹内路径）
+     */
+    @PostMapping("/browser/upload")
+    public ResponseEntity<Map<String, Object>> upload(@RequestParam("files") List<MultipartFile> files,
+                                                      @RequestParam String target,
+                                                      @RequestParam(required = false) List<String> relativePaths) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            folderService.uploadFiles(files, target, relativePaths);
+            resp.put("message", "上传成功");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage());
