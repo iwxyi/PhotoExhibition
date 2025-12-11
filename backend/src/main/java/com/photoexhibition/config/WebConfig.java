@@ -51,5 +51,9 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addResourceHandler("/files/**")
             .addResourceLocations("file:" + basePath)
             .setCachePeriod(3600); // 缓存1小时
+        // 兼容 /api/files/** 访问路径
+        registry.addResourceHandler("/api/files/**")
+            .addResourceLocations("file:" + basePath)
+            .setCachePeriod(3600);
     }
 }

@@ -434,27 +434,57 @@ public class PhotoScanService {
 
     /**
      * 从文件夹名提取标签
+     * 注意：不包含 base-path 本身及其下第一层目录的名字作为标签
+     * 第一层目录作为大分类，不参与标签提取
      */
     private void extractTagsFromPath(Album album, Path albumPath) {
         Set<String> tags = new java.util.HashSet<>();
 
         try {
-            // 计算相对于basePath的子路径
-            Path base = Paths.get(basePath).toAbsolutePath().normalize();
-            Path relative;
-            try {
-                relative = base.relativize(albumPath.toAbsolutePath().normalize());
-            } catch (Exception e) {
-                relative = albumPath.getFileName();
+            // 解析 base-path 为绝对路径（处理相对路径情况）
+            Path base = Paths.get(basePath);
+            if (!base.isAbsolute()) {
+                String projectRoot = System.getProperty("user.dir");
+                if (projectRoot.endsWith("backend")) {
+                    projectRoot = new File(projectRoot).getParent();
+                }
+                String cleanPath = basePath.startsWith("./") 
+                    ? basePath.substring(2) 
+                    : basePath;
+                base = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
+            } else {
+                base = base.toAbsolutePath().normalize();
             }
 
+            // 计算相对于 basePath 的子路径
+            Path albumAbsolutePath = albumPath.toAbsolutePath().normalize();
+            Path relative;
+            try {
+                // 确保 albumPath 是 base 的子路径
+                if (!albumAbsolutePath.startsWith(base)) {
+                    log.warn("相册路径不在 base-path 下: {} (base: {})", albumAbsolutePath, base);
+                    return;
+                }
+                relative = base.relativize(albumAbsolutePath);
+            } catch (Exception e) {
+                log.warn("无法计算相对路径: {} (base: {})", albumPath, base, e);
+                return;
+            }
+
+            // 如果相对路径为空，说明 albumPath 就是 base-path，不提取标签
+            if (relative.getNameCount() == 0) {
+                return;
+            }
+
+            // 遍历相对路径的各个部分，跳过第一层（idx=0）
             int idx = 0;
             for (Path part : relative) {
-                // 跳过base-path下的第一级目录（作为大分类，不参与标签）
+                // 跳过 base-path 下的第一级目录（作为大分类，不参与标签）
                 if (idx == 0) {
                     idx++;
                     continue;
                 }
+                
                 String name = part.getFileName().toString().trim();
                 if (name.isEmpty()) continue;
 
@@ -470,6 +500,7 @@ public class PhotoScanService {
                         tags.add(keyword);
                     }
                 }
+                idx++;
             }
         } catch (Exception e) {
             log.warn("从路径提取标签失败: {}", albumPath, e);

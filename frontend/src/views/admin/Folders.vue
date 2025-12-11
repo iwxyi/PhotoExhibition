@@ -2,7 +2,7 @@
   <div class="min-h-screen bg-gray-900 text-white">
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-light">文件夹管理</h1>
+        <h1 class="text-2xl font-light">数据迁移</h1>
         <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
       </div>
 

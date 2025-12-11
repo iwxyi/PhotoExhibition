@@ -86,10 +86,16 @@
               标签管理
             </router-link>
             <router-link
-              to="/admin/folders"
+              to="/admin/migration"
               class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
             >
-              文件夹管理
+              数据迁移
+            </router-link>
+            <router-link
+              to="/admin/file-browser"
+              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            >
+              文件浏览器
             </router-link>
           </div>
         </div>
