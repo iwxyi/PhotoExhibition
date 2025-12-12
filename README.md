@@ -1,265 +1,124 @@
-# 高端摄影作品展示平台
+# PhotoExhibition
 
-一个基于 SpringBoot + Vue3 的全栈摄影作品展示平台，支持自动扫描、多种展示模式、高级筛选等功能。
+基于 Spring Boot + Vue 3 的摄影作品管理与展示平台，支持自动扫描、智能人像聚合、瀑布流展示、标签/EXIF/颜色筛选，以及管理员批量操作。
+
+## 功能速览
+
+### 1. 多维度图片浏览与管理
+- 即刻看到所有作品：相册封面拼图、瀑布流、随机模式，支持无限滚动与懒加载，不用等待。
+- 一键找图：按标签、EXIF（相机/镜头/光圈/ISO 等）、色彩、质量评分组合筛选，快速定位想要的照片。
+- 自动扫描与去重：后台持续扫盘，识别已存在照片，移动/复制后数据可复用。
+- 保持流畅：缩略图 + WebP、Redis 缓存、分批扫描、异步处理，浏览不卡顿。
+
+### 2. 人脸识别与智能分类
+- 看得准：RetinaFace 检测 + R50/R100 向量识别，精确提取人脸 embedding。
+- 自动聚合：相似人脸自动成组，“已确认/自动分配/相似推荐/套图推荐/未分配”分层呈现，先批量建议，再由你一键确认。
+- 直接命名：未命名聚类点击姓名即可建人；左侧卡片就地改名/备注，支持删除，面板宽度可拖拽记忆。
+- 套图场景友好：同目录及上级目录的照片会适度放宽阈值做“套图推荐”，常见同一场景拍摄更易被找到。
 
 ## 技术栈
+- 后端：Spring Boot 2.7+，MySQL 5.7/8.0，Redis 6+，Maven，ONNX Runtime
+- 前端：Vue 3 + TypeScript，Vite，Tailwind CSS，Pinia
 
-### 后端
-- SpringBoot 2.7+
-- MySQL 5.7
-- Redis
-- Maven
-
-### 前端
-- Vue 3 + TypeScript
-- Tailwind CSS
-- Pinia
-- Vite
-
-## 核心功能
-
-### 1. 文件夹自动扫描
-- 监控指定目录，自动读取图片
-- 提取EXIF信息和生成缩略图
-- 从文件夹名自动生成标签
-
-### 2. 三种展示模式
-- **相册模式**：文件夹结构展示，每个相册封面为"左侧一张竖图+右侧上下两张横图"
-- **图墙模式**：所有图片瀑布流展示，支持无限滚动
-- **随机模式**：随机展示高质量图片组合
-
-### 3. 高级筛选
-- 多标签组合筛选
-- EXIF条件筛选（相机型号、镜头、光圈等）
-- 色彩筛选
-
-### 4. 性能优化
-- 图片懒加载和渐进式加载
-- WebP格式自动转换
-- Redis热点数据缓存
-
-### 5. 管理员功能
-- 手动调整标签
-- 重新生成封面
-- 批量操作
-
-## 项目结构
-
+## 目录结构
 ```
 PhotoExhibition/
-├── backend/                 # SpringBoot后端
-│   ├── src/
-│   │   └── main/
-│   │       ├── java/
-│   │       │   └── com/photoexhibition/
-│   │       │       ├── controller/    # API控制器
-│   │       │       ├── service/      # 业务逻辑
-│   │       │       ├── repository/    # 数据访问
-│   │       │       ├── entity/        # 实体类
-│   │       │       ├── dto/           # 数据传输对象
-│   │       │       └── config/        # 配置类
-│   │       └── resources/
-│   │           └── application.yml
-│   └── pom.xml
-├── frontend/                # Vue3前端
-│   ├── src/
-│   │   ├── views/          # 页面组件
-│   │   ├── components/     # 通用组件
-│   │   ├── stores/         # Pinia状态管理
-│   │   ├── api/            # API接口
-│   │   └── router/         # 路由配置
-│   └── package.json
-├── database/               # 数据库脚本
-│   └── schema.sql
-├── docker-compose.yml      # Docker编排
+├── backend/                 # Spring Boot 后端
+│   ├── src/main/java/com/photoexhibition/
+│   │   ├── controller/      # API 控制器
+│   │   ├── service/         # 业务逻辑（扫描、嵌入、聚类、人脸分配）
+│   │   ├── repository/      # 数据访问
+│   │   ├── entity/          # 实体类
+│   │   └── dto/             # 传输对象
+│   └── src/main/resources/application.yml
+├── frontend/                # Vue 3 前端
+│   ├── src/views/           # 页面（含人物管理）
+│   ├── src/components/      # 通用组件
+│   ├── src/stores/          # Pinia 状态
+│   └── src/api/             # 接口封装
+├── database/schema.sql      # 数据库结构
+├── docker-compose.yml
 └── README.md
 ```
 
-## 目录规范（base-path 与外层大分类）
-
-- `photo.scan.base-path` 下的第一级目录视为“外层大分类”，用于首页分类 Tab 和相册 `category` 显示，但：
-  - 一级目录名不会参与标签提取。
-  - 相册显示标题会跳过一级目录，并剥离各级目录前的日期前缀（如 `2025.11.01`）。
-- 标签提取从相对路径的第二段开始（即跳过一级目录），并去掉日期前缀。
-- 示例（`base-path=/data/photos`）：
-  ```
-  /data/photos/
-    人像/                     # 一级分类，仅用于分类，不进标签
-      2025.11.15 滴水湖烟花-木木/   # 相册
-        833A5293.jpg
-        ...
-      2025.11.16 礼服-王诗蒙/       # 相册（可含子类）
-        伯爵/                   # 作为显示标题的一部分，日期前缀会被去掉
-          坐着/xxx.jpg
-        礼服/综合/xxx.jpg
-    风景/
-      2023.10.07 满觉陇/IMG_9205.jpeg
-  ```
-- 封面与显示标题会把“时间 标题/子类1/子类2”串联为长标题，日期会在标题下方单独显示。
-
 ## 快速开始
-
-### 方式一：Docker部署（推荐）
-
-1. 准备图片目录
+### Docker（推荐）
 ```bash
 mkdir -p data/photos
-# 将你的照片文件夹放入 data/photos 目录
-```
-
-2. 启动服务
-```bash
+# 将照片放入 data/photos
 docker-compose up -d
+# 前端: http://localhost:3000
+# 后端: http://localhost:6060/api
 ```
 
-3. 访问应用
-- 前端：http://localhost:3000
-- 后端API：http://localhost:6060/api
-
-### 方式二：本地开发
-
-#### 后端开发
-
-1. 安装依赖
+### 本地开发
+后端
 ```bash
 cd backend
-mvn install
-```
-
-2. 配置数据库
-- 修改 `application.yml` 中的数据库连接信息
-- 执行 `database/schema.sql` 创建表结构
-
-3. 启动Redis
-```bash
-redis-server
-```
-
-4. 运行应用
-```bash
+mvn clean install
+# 配置 application.yml 的数据库与 photo.scan.base-path
 mvn spring-boot:run
 ```
-
-#### 前端开发
-
-1. 安装依赖
+前端
 ```bash
 cd frontend
 npm install
+npm run dev  # http://localhost:3000
 ```
 
-2. 启动开发服务器
-```bash
-npm run dev
-```
-
-3. 构建生产版本
-```bash
-npm run build
-```
-
-## 配置说明
-
-### 后端配置（application.yml）
-
+## 配置要点（application.yml）
 ```yaml
 photo:
   scan:
     base-path: /data/photos          # 图片根目录
-    supported-formats: jpg,jpeg,png  # 支持的格式
-    thumbnail-width: 400             # 缩略图宽度
-    thumbnail-height: 400            # 缩略图高度
-    scan-interval: 3600              # 自动扫描间隔（秒）
+    supported-formats: jpg,jpeg,png,heic,raw
+    thumbnail-width: 400
+    thumbnail-height: 400
+    webp-quality: 0.85
+    scan-interval: 3600              # 秒
+  detection:
+    enabled: true                    # 开启专业检测模型（RetinaFace）
+    model-path: ./models/face_detection.onnx
+    confidence-threshold: 0.5
+    nms-threshold: 0.4
+  embedding:
+    model-path: ./models/face_recognition.onnx # R50/R100
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/photo_exhibition?...
+    username: root
+    password: your_password
+redis:
+  host: localhost
+  port: 6379
 ```
 
-### 数据库表结构
+## 路径与标签约定
+- `photo.scan.base-path` 的第一级目录仅作为“外层大分类”，用于首页分类 Tab，不参与标签提取。
+- 标签从相对路径第二段开始提取，并去掉各级目录前的日期前缀（如 `2025.11.01`）。
+- 例：`/data/photos/人像/2025.11.15 烟花-木木/833A5293.jpg`  
+  - 分类：人像  
+  - 相册显示标题：`2025.11.15 烟花-木木`（日期单独展示）
 
-主要表：
-- `album`: 相册表
-- `photo`: 图片表
-- `tag`: 标签表
-- `album_tag`: 相册标签关联
-- `photo_tag`: 图片标签关联
-- `admin`: 管理员表
+## 人脸与人物管理（新人须知）
+- 检测：默认启用 RetinaFace ONNX，支持置信度、面积、长宽比过滤，降低误检。
+- 识别：R50/R100 embedding，聚类使用平均向量 + 多代表向量，分层阈值、离群保护、最小样本约束。
+- 界面：左侧人物（已确认 + 未命名聚类）多列自适应，点击整卡选择，名字可就地编辑；右侧多级 Tab（已确认、自动分配、相似推荐、套图推荐、未分配）便于批量确认。
+- 自动建人：为未命名聚类输入名字即创建人物；删除人物、编辑备注均在左侧完成。
+- 路径分层推荐：同目录/上级/再上级（不超过 base-path 下的第二层）会适度放宽相似度阈值，用于“套图推荐”。
 
-详细结构见 `database/schema.sql`
+## 常用命令
+- 后端：`mvn spring-boot:run`
+- 前端：`npm run dev` / `npm run build`
+- 触发扫描：`curl -X POST http://localhost:6060/api/admin/scan`
+- Docker 启停：`docker-compose up -d` / `docker-compose down`
 
-## API接口
-
-### 相册相关
-- `GET /api/albums` - 获取所有相册
-- `GET /api/albums/{id}` - 获取相册详情
-- `POST /api/albums/filter` - 筛选相册
-
-### 图片相关
-- `GET /api/photos/wall` - 图墙模式
-- `GET /api/photos/random` - 随机模式
-- `GET /api/photos/album/{albumId}` - 获取相册图片
-- `GET /api/photos/{id}` - 获取图片详情
-- `POST /api/photos/filter` - 高级筛选
-
-### 管理员
-- `POST /api/admin/scan` - 手动触发扫描
-- `PUT /api/admin/albums/{id}/tags` - 更新相册标签`
-- `POST /api/admin/albums/{id}/regenerate-cover` - 重新生成封面
-
-## 功能特性
-
-### 自动扫描
-- 定时扫描指定目录（默认1小时）
-- 自动提取EXIF信息
-- 生成缩略图和WebP格式
-- 分析图片色彩
-- 计算质量评分
-
-### 展示模式
-
-#### 相册模式
-- 网格布局展示相册
-- 每个相册封面由3张图片组成（左竖图+右上下横图）
-- 支持标签筛选
-
-#### 图墙模式
-- 瀑布流布局
-- 无限滚动加载
-- 响应式列数（1-4列）
-
-#### 随机模式
-- 随机展示高质量图片
-- 可设置最小质量评分阈值
-
-### 筛选功能
-- 多标签组合筛选
-- EXIF参数筛选（相机、镜头、光圈、ISO等）
-- 色彩筛选
-- 质量评分筛选
-
-## 性能优化
-
-1. **Redis缓存**
-   - 相册列表缓存
-   - 图片详情缓存
-   - 热点数据缓存1小时
-
-2. **图片优化**
-   - 缩略图生成
-   - WebP格式转换
-   - 懒加载
-
-3. **数据库优化**
-   - 索引优化
-   - 分页查询
-
-## 开发计划
-
-- [ ] 图片上传功能
-- [ ] 用户系统
-- [ ] 收藏功能
-- [ ] 评论系统
-- [ ] 分享功能
-- [ ] 移动端适配优化
+## 常见问题
+- 图片 404：检查 `photo.scan.base-path` 与文件权限；确认文件实际存在。
+- 扫描无结果：确保格式在支持列表，查看后端日志；可手动触发扫描。
+- 端口占用：检查 6060/3000 是否被占用，可在 `application.yml` 与 `vite.config.ts` 调整。
+- MySQL/Redis 连接失败：确认服务已启动、账号密码正确，可用 CLI 测试。
 
 ## 许可证
-
 MIT License
 

@@ -236,20 +236,20 @@ public class FaceService {
         }
 
         // 获取所有未分配人脸（含 embedding）
-        List<Face> unassigned = faceRepository.findByPersonIsNull();
-        if (unassigned.isEmpty()) {
+        List<Face> unassignedFaces = faceRepository.findByPersonIsNull();
+        if (unassignedFaces.isEmpty()) {
             return new ArrayList<>();
         }
 
         // 计算与已确认人脸的相似度，并按路径层级应用分层阈值
         List<FaceDTO> result = new ArrayList<>();
-        for (Face unassigned : unassigned) {
-            if (unassigned.getEmbedding() == null || unassigned.getEmbedding().isEmpty()) continue;
-            String upath = unassigned.getPhoto() != null ? unassigned.getPhoto().getOriginalPath() : null;
+        for (Face candidate : unassignedFaces) {
+            if (candidate.getEmbedding() == null || candidate.getEmbedding().isEmpty()) continue;
+            String upath = candidate.getPhoto() != null ? candidate.getPhoto().getOriginalPath() : null;
             FolderScope scope = matchFolderScope(upath, folderPrefixes);
             if (scope == FolderScope.NONE) continue; // 不在同目录相关范围内
             
-            float[] unassignedVec = parseEmbedding(unassigned.getEmbedding());
+            float[] unassignedVec = parseEmbedding(candidate.getEmbedding());
             if (unassignedVec == null) continue;
 
             double maxSim = -1;
@@ -274,7 +274,7 @@ public class FaceService {
             double upper = 0.6; // 保持与相似推荐区间不重叠
 
             if (maxSim >= lower && maxSim < upper) {
-                FaceDTO dto = toDTO(unassigned);
+                FaceDTO dto = toDTO(candidate);
                 dto.setSimilarity(maxSim);
                 result.add(dto);
             }

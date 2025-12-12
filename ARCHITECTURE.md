@@ -42,34 +42,37 @@ Database (数据库)
 
 #### 2.2.1 实体模块 (Entity)
 - `Album`: 相册实体
-- `Photo`: 图片实体
+- `Photo`: 图片实体（含 contentHash/pathHash、EXIF、质量分）
+- `Face`: 人脸实体（embedding、bbox、confidence、isConfirmed）
+- `PersonProfile`: 人物档案（name/description，与 Face 关联）
 - `Tag`: 标签实体
 
 #### 2.2.2 服务模块 (Service)
-- `PhotoScanService`: 图片扫描服务
-  - 文件夹监控
-  - EXIF提取
-  - 缩略图生成
-  - WebP转换
-  - 色彩分析
-  
-- `AlbumService`: 相册服务
-  - 相册查询
-  - 封面生成
-  - 标签管理
-  
-- `PhotoService`: 图片服务
-  - 图片查询
-  - 筛选功能
-  - 统计功能
+- `PhotoScanService`
+  - 定时/手动扫描；优先按 `contentHash` 复用已存在照片，再回退 `pathHash` / `originalPath`
+  - EXIF 提取、缩略图/WebP 生成、色彩分析、质量评分
+  - 关机/退出检测，避免关闭时的异常任务
 
-- `ColorAnalysisService`: 色彩分析服务
-  - 主色调提取
-  - 调色板生成
+- `FaceDetectionService`
+  - ONNX Runtime 加载 RetinaFace（可配置开关、模型路径、置信度/NMS 阈值）
+  - 置信度、面积、长宽比、边缘留白过滤，降低误检
+
+- `FaceEmbeddingService`
+  - ONNX Runtime 加载 R50/R100 识别模型，生成并归一化 embedding
+
+- `FaceService`
+  - 聚类：平均向量 + 代表向量，分层阈值，离群/合并保护，最小样本约束
+  - 列表：已确认/自动分配/相似推荐/套图推荐/未分配；同/上级/再上级目录的“套图推荐”阈值放宽
+  - 绑定：未命名聚类直接命名建人；区分人工确认与自动分配
+
+- `AlbumService`：相册查询、封面生成、标签管理
+- `PhotoService`：图片查询、筛选（标签/EXIF/色彩/评分）、统计
+- `ColorAnalysisService`：主色调与调色板提取
 
 #### 2.2.3 控制器模块 (Controller)
 - `AlbumController`: 相册API
 - `PhotoController`: 图片API
+- `FaceController`: 人脸/人物管理API（聚类、推荐、分配/确认、套图推荐）
 - `AdminController`: 管理员API
 
 #### 2.2.4 配置模块 (Config)
@@ -90,21 +93,22 @@ Database (数据库)
 
 ```
 src/
-├── views/          # 页面组件
-│   ├── Home.vue           # 首页（相册模式）
-│   ├── PhotoWall.vue      # 图墙模式
-│   ├── RandomGallery.vue  # 随机模式
-│   ├── AlbumDetail.vue    # 相册详情
-│   └── PhotoDetail.vue    # 图片详情
-├── components/     # 通用组件
-│   ├── AlbumCard.vue      # 相册卡片
-│   └── FilterPanel.vue    # 筛选面板
-├── stores/        # Pinia状态管理
-│   ├── photo.ts           # 图片相关状态
-│   └── theme.ts           # 主题状态
-├── api/           # API接口
-│   └── index.ts           # Axios配置
-└── router/        # 路由配置
+├── views/
+│   ├── Home.vue             # 相册模式
+│   ├── PhotoWall.vue        # 瀑布流
+│   ├── RandomGallery.vue    # 随机模式
+│   ├── AlbumDetail.vue
+│   ├── PhotoDetail.vue
+│   └── admin/Persons.vue    # 人物管理：左侧多列、自适应列数，右侧五级 Tab，面板可拖拽记忆
+├── components/
+│   ├── AlbumCard.vue
+│   └── FilterPanel.vue
+├── stores/
+│   ├── photo.ts
+│   └── theme.ts
+├── api/
+│   └── index.ts
+└── router/
     └── index.ts
 ```
 
@@ -127,60 +131,62 @@ src/
 
 ```
 album (相册)
-  ├── id (PK)
-  ├── name
-  ├── path
-  └── photo_count
-      │
-      ├── album_tag (相册标签关联)
-      │   ├── album_id (FK)
-      │   └── tag_id (FK)
-      │
-      └── photo (图片)
-          ├── id (PK)
-          ├── album_id (FK)
-          ├── filename
-          ├── exif_data (JSON)
-          └── ...
-              │
-              └── photo_tag (图片标签关联)
-                  ├── photo_id (FK)
-                  └── tag_id (FK)
+  id (PK)
+  name
+  path
+  photo_count
+  └── album_tag (album_id, tag_id)
+
+photo (图片)
+  id (PK)
+  album_id (FK)
+  filename
+  original_path / thumbnail_path / webp_path
+  content_hash / path_hash
+  exif_data (JSON), quality_score
+  └── photo_tag (photo_id, tag_id)
+
+face (人脸)
+  id (PK)
+  photo_id (FK)
+  person_id (nullable)
+  embedding (向量字符串)
+  confidence, bbox
+  is_confirmed (人工确认标记)
+
+person_profile (人物)
+  id (PK)
+  name, description
+  created_at, updated_at
 
 tag (标签)
-  ├── id (PK)
-  └── name
+  id (PK)
+  name (UNIQUE)
 ```
 
 ### 4.2 索引设计
 
-- `album.path`: UNIQUE索引
-- `photo.album_id`: 索引
-- `photo.taken_at`: 索引
-- `photo.camera_model`: 索引
-- `photo.quality_score`: 索引
-- `tag.name`: UNIQUE索引
+- `album.path`: UNIQUE
+- `photo.album_id`、`photo.taken_at`、`photo.camera_model`、`photo.quality_score`
+- `photo.content_hash` / `photo.path_hash`
+- `tag.name`: UNIQUE
+- `face.photo_id`、`face.person_id`
 
 ## 5. 核心功能实现
 
-### 5.1 文件夹自动扫描
+### 5.1 文件夹自动扫描（hash 优先复用）
 
 **流程**:
-1. 定时任务触发（默认1小时）
-2. 递归扫描指定目录
-3. 识别图片文件（根据扩展名）
-4. 提取EXIF信息
-5. 生成缩略图
-6. 转换WebP格式
-7. 分析色彩
-8. 计算质量评分
-9. 保存到数据库
+1. 定时/手动触发（默认1小时）
+2. 递归扫描指定目录，识别图片
+3. 按 `contentHash` 优先复用已有记录，再回退 `pathHash` / `originalPath`
+4. 提取 EXIF；生成缩略图/WebP；色彩分析；质量评分
+5. 保存数据库，避免重复写入；关闭期间任务检测
 
 **技术实现**:
-- `@Scheduled`: Spring定时任务
-- `metadata-extractor`: EXIF提取
-- `thumbnailator`: 缩略图生成
-- `ImageIO`: 图片处理
+- `@Scheduled` 定时 + 管理接口手动触发
+- `metadata-extractor` 提取 EXIF
+- `thumbnailator` / `ImageIO` 生成缩略图与 WebP
 
 ### 5.2 三种展示模式
 
@@ -233,6 +239,13 @@ tag (标签)
 - 分页查询
 - 索引优化
 - 查询优化
+
+### 5.5 人脸识别与人物管理
+- 检测：RetinaFace ONNX（可配置开关/模型路径/阈值），置信度、面积、长宽比过滤
+- 识别：R50/R100 embedding，归一化向量
+- 聚类：平均向量 + 多代表向量；分层阈值；离群/合并保护；最小样本约束
+- 推荐分层：已确认、自动分配、相似推荐、套图推荐（同/上级/再上级目录阈值放宽）、未分配
+- 交互：未命名聚类直接命名建人；就地编辑姓名/备注、删除；左右面板可拖拽并记忆宽度
 
 ## 6. 部署架构
 

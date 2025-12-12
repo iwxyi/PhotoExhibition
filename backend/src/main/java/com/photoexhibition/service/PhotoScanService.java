@@ -295,7 +295,7 @@ public class PhotoScanService {
                 errorMsg.contains("context") && errorMsg.contains("close")) {
                 log.debug("应用关闭，停止处理相册: {}", albumPath);
             } else {
-                log.error("处理相册目录失败: {}", albumPath, e);
+            log.error("处理相册目录失败: {}", albumPath, e);
             }
         }
     }
@@ -478,7 +478,7 @@ public class PhotoScanService {
                 (errorMsg.contains("context") && errorMsg.contains("close"))) {
                 log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
             } else {
-                log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+            log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
             }
         }
     }
