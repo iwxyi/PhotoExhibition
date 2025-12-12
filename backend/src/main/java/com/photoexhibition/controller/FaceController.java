@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 
 @RestController
 @RequestMapping("/admin")
@@ -160,8 +161,22 @@ public class FaceController {
      */
     @PostMapping("/persons/from-faces")
     public ResponseEntity<PersonDTO> createPersonFromFaces(@RequestBody Map<String, Object> payload) {
-        @SuppressWarnings("unchecked")
-        List<Long> faceIds = (List<Long>) payload.get("faceIds");
+        Object idsObj = payload.get("faceIds");
+        if (!(idsObj instanceof List)) {
+            throw new IllegalArgumentException("faceIds 必须是数组");
+        }
+        List<?> rawIds = (List<?>) idsObj;
+        List<Long> faceIds = new ArrayList<>();
+        for (Object o : rawIds) {
+            if (o == null) continue;
+            if (o instanceof Number) {
+                faceIds.add(((Number) o).longValue());
+            } else if (o instanceof String) {
+                faceIds.add(Long.parseLong((String) o));
+            } else {
+                throw new IllegalArgumentException("faceIds 必须是数字或字符串形式的ID");
+            }
+        }
         String name = (String) payload.get("name");
         String description = (String) payload.get("description");
         return ResponseEntity.ok(faceService.createPersonFromFaces(faceIds, name, description));

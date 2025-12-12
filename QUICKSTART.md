@@ -299,12 +299,12 @@ environment:
 
 ```
 data/photos/
-├── 2024-01-旅行/
+├── 旅行/
 │   ├── IMG_001.jpg
 │   └── IMG_002.jpg
-├── 2024-02-人像/
+├── 人像/
 │   └── portrait_001.jpg
-└── 2024-03-风景/
+└── 风景/
     └── landscape_001.jpg
 ```
 

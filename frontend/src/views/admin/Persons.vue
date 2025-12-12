@@ -27,18 +27,19 @@
         <div 
           ref="personListContainer"
           class="flex-1 overflow-y-auto"
-          :style="{ display: 'grid', gridTemplateColumns: `repeat(${personColumns}, 1fr)`, gap: '8px' }"
+          :style="{ display: 'grid', gridTemplateColumns: `repeat(${personColumns}, 1fr)`, gap: '8px', alignContent: 'start', gridAutoFlow: 'row' }"
         >
           <!-- 已确认人物 -->
           <div
             v-for="p in confirmedPersons"
             :key="`confirmed-${p.id}`"
-            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all"
-            :class="isSelected(p) ? 'ring-2 ring-blue-500' : ''"
+            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border border-transparent bg-gray-800/70 hover:bg-gray-700/80"
+            :class="isSelected(p) ? 'border-2 border-blue-500 bg-gray-700/80' : ''"
+            @click="selectPerson(p)"
           >
             <div 
-              @click.stop="selectPerson(p)"
               class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
+              @click.stop="selectPerson(p)"
             >
               <img v-if="getPersonThumb(p)" :src="getPersonThumb(p)" class="w-full h-full object-cover" />
             </div>
@@ -46,7 +47,7 @@
               <input
                 v-if="editingPersonId === p.id"
                 v-model="editingName"
-                @blur="cancelEdit"
+                @blur="handleNameBlur(p)"
                 @keyup.enter="savePersonName(p)"
                 @keyup.esc="cancelEdit"
                 class="w-full px-1.5 py-0.5 bg-gray-600 border border-blue-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -69,12 +70,13 @@
           <div
             v-for="p in clusterPersons"
             :key="`cluster-${p.id}`"
-            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all opacity-60"
-            :class="isSelected(p) ? 'ring-2 ring-yellow-500 opacity-100' : ''"
+            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border border-transparent bg-gray-800/60 hover:bg-gray-700/70"
+            :class="isSelected(p) ? 'border-2 border-yellow-500 bg-gray-700/80' : ''"
+            @click="selectPerson(p)"
           >
             <div 
-              @click.stop="selectPerson(p)"
               class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
+              @click.stop="selectPerson(p)"
             >
               <img v-if="getPersonThumb(p)" :src="getPersonThumb(p)" class="w-full h-full object-cover" />
             </div>
@@ -82,7 +84,7 @@
               <input
                 v-if="editingPersonId === p.id"
                 v-model="editingName"
-                @blur="cancelEdit"
+                @blur="handleNameBlur(p)"
                 @keyup.enter="createPersonFromName(p)"
                 @keyup.esc="cancelEdit"
                 class="w-full px-1.5 py-0.5 bg-gray-600 border border-yellow-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-500"
@@ -501,16 +503,18 @@ const leftPanelWidth = ref(parseInt(localStorage.getItem(STORAGE_KEY) || '280', 
 const isResizing = ref(false)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(0)
+const containerWidth = ref(0)
 
 // 列数自适应
 const personColumns = computed(() => {
-  if (!personListContainer.value) return 2
-  const width = personListContainer.value.clientWidth
+  const width = containerWidth.value
+  if (width <= 0) return 2
   if (width < 200) return 1
   if (width < 280) return 2
   if (width < 360) return 3
   if (width < 440) return 4
-  return 5
+  if (width < 520) return 5
+  return 6
 })
 
 const tab = ref<'confirmed' | 'auto' | 'similar' | 'sameFolder' | 'unassigned'>('confirmed')
@@ -547,6 +551,7 @@ const startResize = (e: MouseEvent) => {
   isResizing.value = true
   resizeStartX.value = e.clientX
   resizeStartWidth.value = leftPanelWidth.value
+  updateContainerWidth()
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
   e.preventDefault()
@@ -557,6 +562,7 @@ const handleResize = (e: MouseEvent) => {
   const diff = e.clientX - resizeStartX.value
   const newWidth = Math.max(200, Math.min(500, resizeStartWidth.value + diff))
   leftPanelWidth.value = newWidth
+  updateContainerWidth()
 }
 
 const stopResize = () => {
@@ -564,6 +570,12 @@ const stopResize = () => {
   localStorage.setItem(STORAGE_KEY, String(leftPanelWidth.value))
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+}
+
+const updateContainerWidth = () => {
+  if (personListContainer.value) {
+    containerWidth.value = personListContainer.value.clientWidth
+  }
 }
 
 const loadPersons = async () => {
@@ -787,6 +799,15 @@ const createPersonFromName = async (p: PersonListItem) => {
   }
 }
 
+const handleNameBlur = (p: PersonListItem) => {
+  if (editingPersonId.value !== p.id) return
+  if (p.type === 'confirmed') {
+    savePersonName(p)
+  } else {
+    createPersonFromName(p)
+  }
+}
+
 const savePersonDescription = async () => {
   if (!selectedPersonId.value || !selectedItem.value) return
   
@@ -974,13 +995,30 @@ watch(tab, (v) => {
   }
 })
 
+let resizeObserver: ResizeObserver | null = null
+
 onMounted(() => {
   loadPersons()
+  nextTick(() => {
+    updateContainerWidth()
+    if (personListContainer.value && 'ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(() => {
+        updateContainerWidth()
+      })
+      resizeObserver.observe(personListContainer.value)
+    }
+    window.addEventListener('resize', updateContainerWidth)
+  })
 })
 
 onBeforeUnmount(() => {
   if (isResizing.value) {
     stopResize()
   }
+  if (resizeObserver && personListContainer.value) {
+    resizeObserver.unobserve(personListContainer.value)
+  }
+  resizeObserver = null
+  window.removeEventListener('resize', updateContainerWidth)
 })
 </script>

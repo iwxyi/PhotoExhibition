@@ -225,26 +225,29 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        // 获取这些照片所在的文件夹（album）
-        Set<Long> albumIds = confirmedFaces.stream()
-            .map(f -> f.getPhoto() != null ? f.getPhoto().getAlbumId() : null)
-            .filter(id -> id != null)
-            .collect(Collectors.toSet());
-
-        if (albumIds.isEmpty()) {
+        // 构建路径前缀层级：同文件夹、上一级、再上一级（最多到 base-path 下两级：category/album）
+        Set<String> folderPrefixes = new HashSet<>();
+        for (Face confirmed : confirmedFaces) {
+            String path = confirmed.getPhoto() != null ? confirmed.getPhoto().getOriginalPath() : null;
+            folderPrefixes.addAll(buildFolderPrefixes(path));
+        }
+        if (folderPrefixes.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 获取这些文件夹中的未分配人脸
-        List<Face> unassignedInFolders = faceRepository.findByPersonIsNullAndPhotoAlbumIdIn(albumIds);
-        if (unassignedInFolders.isEmpty()) {
+        // 获取所有未分配人脸（含 embedding）
+        List<Face> unassigned = faceRepository.findByPersonIsNull();
+        if (unassigned.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 计算与已确认人脸的相似度
+        // 计算与已确认人脸的相似度，并按路径层级应用分层阈值
         List<FaceDTO> result = new ArrayList<>();
-        for (Face unassigned : unassignedInFolders) {
+        for (Face unassigned : unassigned) {
             if (unassigned.getEmbedding() == null || unassigned.getEmbedding().isEmpty()) continue;
+            String upath = unassigned.getPhoto() != null ? unassigned.getPhoto().getOriginalPath() : null;
+            FolderScope scope = matchFolderScope(upath, folderPrefixes);
+            if (scope == FolderScope.NONE) continue; // 不在同目录相关范围内
             
             float[] unassignedVec = parseEmbedding(unassigned.getEmbedding());
             if (unassignedVec == null) continue;
@@ -261,8 +264,16 @@ public class FaceService {
                 }
             }
 
-            // 相似度在0.5-0.6之间（低于相似推荐但有一定相似度）
-            if (maxSim >= 0.5 && maxSim < 0.6) {
+            // 分层阈值：同目录放宽，越向上阈值越宽但不低于0.46，仍限制上限避免与相似推荐重叠
+            double lower = 0.50;
+            if (scope == FolderScope.PARENT) {
+                lower = 0.48;
+            } else if (scope == FolderScope.GRAND) {
+                lower = 0.46;
+            }
+            double upper = 0.6; // 保持与相似推荐区间不重叠
+
+            if (maxSim >= lower && maxSim < upper) {
                 FaceDTO dto = toDTO(unassigned);
                 dto.setSimilarity(maxSim);
                 result.add(dto);
@@ -486,10 +497,10 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceClusterDTO> clusterSimilarFaces(double threshold) {
-        // 获取所有未分配的人脸（有embedding的）
+        // 获取所有未分配且质量合格的人脸（有向量、框形合理、置信度足够）
         List<Face> unassigned = faceRepository.findByPersonIsNull();
         List<Face> withEmbedding = unassigned.stream()
-            .filter(f -> f.getEmbedding() != null && !f.getEmbedding().isEmpty())
+            .filter(this::isValidForClustering)
             .collect(Collectors.toList());
 
         if (withEmbedding.isEmpty()) {
@@ -498,6 +509,7 @@ public class FaceService {
 
         // 改进的聚类算法：使用组内平均向量作为代表
         // 优化：使用更严格的加入条件，需要与组内多个代表脸都相似才加入
+        // 增强：代表向量多样化、离群保护、分层阈值与最小样本约束
         List<List<Face>> groups = new ArrayList<>();
         List<float[]> groupCentroids = new ArrayList<>(); // 每个组的平均向量
         List<List<float[]>> groupRepresentatives = new ArrayList<>(); // 每个组的代表向量（用于更严格的匹配）
@@ -516,20 +528,31 @@ public class FaceService {
                 
                 double sim = cosine(vec1, centroid);
                 
-                // 更严格的匹配：需要与组内至少一个代表向量相似，且与中心向量相似
-                // 对于小规模组（<=3），只需要与中心向量相似
-                // 对于大规模组（>3），需要与至少2个代表向量相似
+                // 更严格的匹配：需要与组内多个代表向量相似，且与中心向量相似
+                // 对于小规模组（<=3），至少命中1个代表；大组（>3），至少命中2个代表
+                // 同时使用代表相似度的中位数/均值做离群保护
                 List<float[]> representatives = groupRepresentatives.get(g);
                 int requiredMatches = groups.get(g).size() <= 3 ? 1 : 2;
                 int currentMatches = 0;
+                List<Double> repSims = new ArrayList<>();
                 
                 // 检查与代表向量的相似度
                 for (float[] rep : representatives) {
                     double repSim = cosine(vec1, rep);
+                    repSims.add(repSim);
                     if (repSim >= threshold) {
                         currentMatches++;
                     }
                 }
+
+                // 代表相似度统计
+                double medianRepSim = repSims.isEmpty() ? 0 : quantile(repSims, 0.5);
+                double top3AvgSim = repSims.isEmpty() ? 0 : repSims.stream()
+                    .sorted((a, b) -> Double.compare(b, a))
+                    .limit(3)
+                    .mapToDouble(Double::doubleValue)
+                    .average()
+                    .orElse(0.0);
                 
                 // 如果与中心向量相似，也算一个匹配
                 if (sim >= threshold) {
@@ -537,7 +560,21 @@ public class FaceService {
                 }
                 
                 // 需要满足：与中心向量相似 且 与足够多的代表向量相似
-                if (sim >= threshold && currentMatches >= requiredMatches && sim > bestSimilarity) {
+                // 大组额外收紧阈值，降低跨人误合
+                final double dynamicThreshold = groups.get(g).size() >= 5
+                    ? threshold + 0.03  // 大组加严
+                    : threshold;
+
+                // 离群保护：代表相似度需要通过统计阈值
+                boolean passRepresentativeStats = (medianRepSim >= dynamicThreshold) && (top3AvgSim >= dynamicThreshold);
+
+                // 最小样本支持：若组内已有多张高相似代表，要求至少2个代表命中
+                long highSimCount = repSims.stream().filter(v -> v >= dynamicThreshold).count();
+                int requiredMatchesWithSupport = (groups.get(g).size() >= 2 && highSimCount >= 2)
+                    ? Math.max(requiredMatches, 2)
+                    : requiredMatches;
+
+                if (sim >= dynamicThreshold && currentMatches >= requiredMatchesWithSupport && passRepresentativeStats && sim > bestSimilarity) {
                     bestSimilarity = sim;
                     bestGroup = g;
                 }
@@ -574,21 +611,29 @@ public class FaceService {
 
         // 转换为DTO
         List<FaceClusterDTO> clusters = new ArrayList<>();
-        for (List<Face> group : groups) {
+        for (int i = 0; i < groups.size(); i++) {
+            List<Face> group = groups.get(i);
             if (group.size() < 1) continue; // 至少需要1个人脸
 
+            // 离群清理：按与中心向量的相似度分位剔除极端低值
+            float[] centroid = groupCentroids.get(i);
+            List<Face> cleanedGroup = pruneGroupBySimilarity(group, centroid);
+            if (cleanedGroup.isEmpty()) {
+                continue;
+            }
+
             FaceClusterDTO cluster = new FaceClusterDTO();
-            List<FaceDTO> faceDTOs = group.stream()
+            List<FaceDTO> faceDTOs = cleanedGroup.stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
             cluster.setFaces(faceDTOs);
-            cluster.setCount(group.size());
+            cluster.setCount(cleanedGroup.size());
 
             // 计算平均置信度并找到代表脸
             double sumConf = 0;
             Face bestFace = null;
             double bestConf = -1;
-            for (Face f : group) {
+            for (Face f : cleanedGroup) {
                 if (f.getConfidence() != null) {
                     sumConf += f.getConfidence();
                     if (f.getConfidence() > bestConf) {
@@ -597,8 +642,8 @@ public class FaceService {
                     }
                 }
             }
-            cluster.setAvgConfidence(group.size() > 0 ? sumConf / group.size() : null);
-            cluster.setRepresentativeFaceId(bestFace != null ? bestFace.getId() : group.get(0).getId());
+            cluster.setAvgConfidence(cleanedGroup.size() > 0 ? sumConf / cleanedGroup.size() : null);
+            cluster.setRepresentativeFaceId(bestFace != null ? bestFace.getId() : cleanedGroup.get(0).getId());
 
             clusters.add(cluster);
         }
@@ -654,6 +699,175 @@ public class FaceService {
         }
         
         return centroid;
+    }
+
+    /**
+     * 基于与中心向量的相似度，剔除离群值（低于10分位的样本）
+     */
+    private List<Face> pruneGroupBySimilarity(List<Face> group, float[] centroid) {
+        if (group == null || group.isEmpty() || centroid == null) {
+            return group;
+        }
+        List<Double> sims = new ArrayList<>();
+        Map<Long, Double> simMap = new HashMap<>();
+        for (Face f : group) {
+            float[] vec = parseEmbedding(f.getEmbedding());
+            if (vec == null) continue;
+            double s = cosine(centroid, vec);
+            sims.add(s);
+            simMap.put(f.getId(), s);
+        }
+        if (sims.isEmpty()) return group;
+        double q10 = quantile(sims, 0.1);
+        // 稍微放宽一点，避免误杀：低于 q10 且小于 q10+0.02 才剔除
+        double cut = q10 + 0.02;
+        return group.stream()
+            .filter(f -> {
+                Double s = simMap.get(f.getId());
+                return s == null || s >= cut;
+            })
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 计算分位数（0-1）
+     */
+    private double quantile(List<Double> values, double q) {
+        if (values == null || values.isEmpty()) return 0;
+        List<Double> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        double pos = q * (sorted.size() - 1);
+        int idx = (int) pos;
+        double frac = pos - idx;
+        if (idx + 1 < sorted.size()) {
+            return sorted.get(idx) * (1 - frac) + sorted.get(idx + 1) * frac;
+        }
+        return sorted.get(idx);
+    }
+
+    /**
+     * 目录层级枚举，用于分层阈值
+     */
+    private enum FolderScope {
+        SAME, PARENT, GRAND, NONE
+    }
+
+    /**
+     * 构建最多三层的目录前缀：同目录、父目录、祖父目录（不超过 base-path 下的第二层，如 category/album）
+     */
+    private Set<String> buildFolderPrefixes(String originalPath) {
+        Set<String> prefixes = new HashSet<>();
+        if (originalPath == null || originalPath.isEmpty()) return prefixes;
+
+        try {
+            String base = Paths.get(photoBasePath).normalize().toString();
+            String normalized = Paths.get(originalPath).normalize().toString();
+            // 去掉 base 前缀
+            if (normalized.startsWith(base)) {
+                normalized = normalized.substring(base.length());
+            }
+            normalized = normalized.replace('\\', '/');
+            if (normalized.startsWith("/")) normalized = normalized.substring(1);
+            String[] parts = normalized.split("/");
+            if (parts.length < 3) {
+                // 不足 category/album/xxx 时，仅用当前目录
+                String current = normalized.contains("/") ? normalized.substring(0, normalized.lastIndexOf('/')) : normalized;
+                if (!current.isEmpty()) prefixes.add(current);
+                return prefixes;
+            }
+
+            // parts: [category, album, sub1, sub2...]
+            String category = parts[0];
+            String album = parts[1];
+
+            // 同目录
+            String current = normalized.contains("/") ? normalized.substring(0, normalized.lastIndexOf('/')) : normalized;
+            if (!current.isEmpty()) prefixes.add(current);
+
+            // 父目录（不高于 album 层）
+            if (parts.length >= 3) {
+                String parent = String.join("/", Arrays.copyOfRange(parts, 0, parts.length - 1));
+                // 限制不超过 category/album
+                String albumLevel = category + "/" + album;
+                if (parent.startsWith(albumLevel)) {
+                    prefixes.add(parent);
+                } else {
+                    prefixes.add(albumLevel);
+                }
+            }
+
+            // 祖父目录：限制到 album 层
+            prefixes.add(category + "/" + album);
+        } catch (Exception e) {
+            log.debug("构建目录前缀失败: path={}, err={}", originalPath, e.getMessage());
+        }
+        return prefixes;
+    }
+
+    /**
+     * 匹配当前路径与前缀集合的层级
+     */
+    private FolderScope matchFolderScope(String originalPath, Set<String> prefixes) {
+        if (originalPath == null || originalPath.isEmpty() || prefixes == null || prefixes.isEmpty()) {
+            return FolderScope.NONE;
+        }
+        try {
+            String normalized = Paths.get(originalPath).normalize().toString().replace('\\', '/');
+            if (normalized.startsWith(photoBasePath)) {
+                normalized = normalized.substring(Paths.get(photoBasePath).normalize().toString().length());
+            }
+            if (normalized.startsWith("/")) normalized = normalized.substring(1);
+
+            // 构造当前目录层级链
+            List<String> chain = new ArrayList<>();
+            if (normalized.contains("/")) {
+                String current = normalized.substring(0, normalized.lastIndexOf('/'));
+                chain.add(current); // same
+                int lastSlash = current.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    chain.add(current.substring(0, lastSlash)); // parent
+                    int second = current.substring(0, lastSlash).lastIndexOf('/');
+                    if (second > 0) {
+                        chain.add(current.substring(0, second)); // grand
+                    }
+                }
+            } else {
+                chain.add(normalized);
+            }
+
+            if (!chain.isEmpty() && prefixes.contains(chain.get(0))) return FolderScope.SAME;
+            if (chain.size() > 1 && prefixes.contains(chain.get(1))) return FolderScope.PARENT;
+            if (chain.size() > 2 && prefixes.contains(chain.get(2))) return FolderScope.GRAND;
+        } catch (Exception e) {
+            log.debug("匹配目录前缀失败: path={}, err={}", originalPath, e.getMessage());
+        }
+        return FolderScope.NONE;
+    }
+
+    /**
+     * 判断人脸是否适合参与聚类：需要有向量、框形合理、置信度不太低
+     */
+    private boolean isValidForClustering(Face face) {
+        if (face == null) return false;
+        if (face.getEmbedding() == null || face.getEmbedding().isEmpty()) return false;
+
+        // 框大小与比例过滤，避免极小或畸形框
+        if (face.getWidth() != null && face.getHeight() != null) {
+            double w = face.getWidth();
+            double h = face.getHeight();
+            double area = w * h;
+            if (w <= 0 || h <= 0) return false;
+            if (area < 0.01) return false; // 极小框
+            double ratio = w / h;
+            if (ratio < 0.45 || ratio > 2.2) return false; // 畸形比例
+        }
+
+        // 置信度过低的向量可能是噪声
+        if (face.getConfidence() != null && face.getConfidence() < 0.5) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

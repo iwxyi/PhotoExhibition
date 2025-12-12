@@ -23,6 +23,7 @@ Thumbs.db
 
 # Data
 data/
+models/
 *.log
 
 # Docker
