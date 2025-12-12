@@ -15,6 +15,10 @@ import java.util.Optional;
 public interface PhotoRepository extends JpaRepository<Photo, Long> {
     Optional<Photo> findByOriginalPath(String originalPath);
 
+    Optional<Photo> findByContentHash(String contentHash);
+
+    Optional<Photo> findByPathHash(String pathHash);
+
     Page<Photo> findByAlbumId(Long albumId, Pageable pageable);
 
     Long countByAlbumId(Long albumId);

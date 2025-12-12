@@ -14,6 +14,7 @@ public class PhotoDTO {
     private String thumbnailPath;
     private String webpPath;
     private Long fileSize;
+    private String contentHash;
     private Integer width;
     private Integer height;
     private String format;
@@ -34,6 +35,7 @@ public class PhotoDTO {
     private Integer viewCount;
     private Boolean isFeatured;
     private List<TagDTO> tags;
+    private List<FaceDTO> faces;
     private LocalDateTime createdAt;
 }
 

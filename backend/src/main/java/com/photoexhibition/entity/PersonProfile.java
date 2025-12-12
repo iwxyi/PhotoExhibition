@@ -1,35 +1,30 @@
 package com.photoexhibition.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
+
 import javax.persistence.*;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Table(name = "album")
+@Table(name = "person_profile")
 @Data
-public class Album {
+@ToString(exclude = "faces")
+@EqualsAndHashCode(exclude = "faces")
+public class PersonProfile {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true, length = 100)
     private String name;
-
-    @Column(nullable = false, unique = true, length = 500)
-    private String path;
-
-    @Column(name = "path_hash", length = 64, unique = true)
-    private String pathHash;
-
-    @Column(name = "cover_image_id")
-    private Long coverImageId;
 
     @Column(columnDefinition = "TEXT")
     private String description;
-
-    @Column(name = "photo_count")
-    private Integer photoCount = 0;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -37,13 +32,9 @@ public class Album {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-        name = "album_tag",
-        joinColumns = @JoinColumn(name = "album_id"),
-        inverseJoinColumns = @JoinColumn(name = "tag_id")
-    )
-    private List<Tag> tags;
+    @OneToMany(mappedBy = "person", fetch = FetchType.LAZY)
+    @JsonIgnore
+    private List<Face> faces;
 
     @PrePersist
     protected void onCreate() {

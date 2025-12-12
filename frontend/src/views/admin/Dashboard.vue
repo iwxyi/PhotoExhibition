@@ -29,18 +29,27 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <!-- 统计卡片 -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="bg-gray-800 rounded-lg p-6">
+        <router-link
+          to="/admin/albums"
+          class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
+        >
           <h3 class="text-gray-400 text-sm mb-2">相册总数</h3>
           <p class="text-3xl font-light">{{ stats.albums }}</p>
-        </div>
-        <div class="bg-gray-800 rounded-lg p-6">
+        </router-link>
+        <router-link
+          to="/admin/photos"
+          class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
+        >
           <h3 class="text-gray-400 text-sm mb-2">图片总数</h3>
           <p class="text-3xl font-light">{{ stats.photos }}</p>
-        </div>
-        <div class="bg-gray-800 rounded-lg p-6">
+        </router-link>
+        <router-link
+          to="/admin/tags"
+          class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
+        >
           <h3 class="text-gray-400 text-sm mb-2">标签总数</h3>
           <p class="text-3xl font-light">{{ stats.tags }}</p>
-        </div>
+        </router-link>
       </div>
 
       <!-- 操作面板 -->
@@ -66,34 +75,28 @@
         <!-- 数据管理 -->
         <div class="bg-gray-800 rounded-lg p-6">
           <h2 class="text-xl font-light mb-4">数据管理</h2>
-          <div class="space-y-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <router-link
-              to="/admin/albums"
-              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              to="/admin/faces"
+              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
             >
-              相册管理
+              人脸管理
             </router-link>
             <router-link
-              to="/admin/photos"
-              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              to="/admin/persons"
+              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
             >
-              图片管理
-            </router-link>
-            <router-link
-              to="/admin/tags"
-              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-            >
-              标签管理
+              人物管理
             </router-link>
             <router-link
               to="/admin/migration"
-              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
             >
               数据迁移
             </router-link>
             <router-link
               to="/admin/file-browser"
-              class="block px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
             >
               文件浏览器
             </router-link>
@@ -116,7 +119,50 @@
               <option value="GET /photos">获取所有图片</option>
               <option value="GET /tags">获取所有标签</option>
               <option value="POST /admin/scan">触发扫描</option>
+              <option value="POST /admin/scan/force">强制扫描（重建缩略图/人脸/标签）</option>
+              <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
+              <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
             </select>
+          </div>
+          <div v-if="showPathInput">
+            <label class="block text-sm text-gray-400 mb-2">可选：指定扫描路径</label>
+            <input
+              v-model="pathInput"
+              placeholder="不填则使用配置的 base-path"
+              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div v-if="showFaceSimilarInputs" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">人脸ID</label>
+              <input
+                v-model="faceIdInput"
+                placeholder="必填"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Top</label>
+              <input
+                v-model="topInput"
+                type="number"
+                min="1"
+                placeholder="默认10"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">阈值</label>
+              <input
+                v-model="thresholdInput"
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                placeholder="默认0.6"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
           <button
             @click="testApi"
@@ -136,7 +182,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/api'
@@ -154,6 +200,10 @@ const scanning = ref(false)
 const selectedApi = ref('')
 const testing = ref(false)
 const apiResponse = ref<any>(null)
+const pathInput = ref('')
+const faceIdInput = ref('')
+const topInput = ref('')
+const thresholdInput = ref('')
 
 const loadStats = async () => {
   try {
@@ -194,16 +244,66 @@ const triggerScan = async () => {
 const testApi = async () => {
   if (!selectedApi.value) return
   
+  // 清理所有数据需要二次确认
+  if (selectedApi.value === 'POST /admin/cleanup/all') {
+    const confirmed = confirm(
+      '⚠️ 危险操作警告 ⚠️\n\n' +
+      '此操作将删除所有数据，包括：\n' +
+      '• 所有照片\n' +
+      '• 所有相册\n' +
+      '• 所有标签\n' +
+      '• 所有人脸\n' +
+      '• 所有人物\n\n' +
+      '只保留账号数据（AdminUser）\n\n' +
+      '此操作不可恢复！\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+    // 再次确认
+    const doubleConfirmed = confirm('请再次确认：你真的要删除所有数据吗？')
+    if (!doubleConfirmed) {
+      return
+    }
+  }
+  
   testing.value = true
   apiResponse.value = null
   
   try {
-    const [method, path] = selectedApi.value.split(' ')
-    const response = await api({
+    let [method, path] = selectedApi.value.split(' ')
+    const params: any = {}
+
+    if (showFaceSimilarInputs.value) {
+      if (!faceIdInput.value.trim()) {
+        alert('请填写人脸ID')
+        testing.value = false
+        return
+      }
+      path = path.replace('{id}', faceIdInput.value.trim())
+      if (topInput.value) params.top = topInput.value
+      if (thresholdInput.value) params.threshold = thresholdInput.value
+    }
+
+    const config: any = {
       method: method.toLowerCase(),
       url: path
-    })
+    }
+    if (showPathInput.value && pathInput.value.trim()) {
+      config.params = { path: pathInput.value.trim() }
+    }
+    if (Object.keys(params).length) {
+      config.params = { ...(config.params || {}), ...params }
+    }
+    const response = await api(config)
     apiResponse.value = response.data
+    
+    // 清理成功后刷新统计数据
+    if (selectedApi.value === 'POST /admin/cleanup/all' && response.data.success) {
+      await loadStats()
+      alert('数据清理完成！')
+    }
   } catch (error: any) {
     apiResponse.value = {
       error: true,
@@ -223,5 +323,8 @@ const handleLogout = () => {
 onMounted(() => {
   loadStats()
 })
+
+const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))
+const showFaceSimilarInputs = computed(() => selectedApi.value.includes('/admin/faces/{id}/similar'))
 </script>
 

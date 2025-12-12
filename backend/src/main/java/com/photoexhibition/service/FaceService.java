@@ -1,0 +1,940 @@
+package com.photoexhibition.service;
+
+import com.photoexhibition.dto.FaceDTO;
+import com.photoexhibition.dto.FaceClusterDTO;
+import com.photoexhibition.dto.PersonDTO;
+import com.photoexhibition.dto.PersonListItemDTO;
+import com.photoexhibition.entity.Face;
+import com.photoexhibition.entity.PersonProfile;
+import com.photoexhibition.entity.Photo;
+import com.photoexhibition.dto.PersonSummaryDTO;
+import com.photoexhibition.repository.FaceRepository;
+import com.photoexhibition.repository.PersonProfileRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.io.File;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class FaceService {
+
+    private final FaceRepository faceRepository;
+    private final PersonProfileRepository personProfileRepository;
+    private final FaceRecognitionService faceRecognitionService;
+    private final FaceEmbeddingService faceEmbeddingService;
+    @Value("${photo.scan.base-path}")
+    private String photoBasePath;
+
+    /**
+     * 重新检测并保存某张照片的人脸信息
+     */
+    @Transactional
+    public List<Face> detectAndSaveFaces(File imageFile, Photo photo) {
+        List<FaceRecognitionService.DetectedFace> detected = faceRecognitionService.detectFaces(imageFile);
+
+        if (photo.getId() != null) {
+            faceRepository.deleteByPhotoId(photo.getId());
+        }
+
+        List<Face> faces = new ArrayList<>();
+        for (FaceRecognitionService.DetectedFace f : detected) {
+            // 更严格的过滤条件，大幅减少误检（特别是环境照片）
+            // 1. 置信度阈值提高到0.65（原来0.5），更严格
+            if (f.getConfidence() < 0.65) {
+                log.debug("跳过低置信度人脸: conf={}, file={}", f.getConfidence(), imageFile.getName());
+                continue;
+            }
+            // 2. 面积阈值提高到0.1（原来0.08），确保人脸足够大且明显
+            if (f.getWidth() < 0.1 || f.getHeight() < 0.1) {
+                log.debug("跳过过小人脸: w={}, h={}, file={}", f.getWidth(), f.getHeight(), imageFile.getName());
+                continue;
+            }
+            // 3. 宽高比范围收紧到0.75-1.3（原来0.7-1.4），更符合真实人脸比例
+            double ratio = f.getHeight() > 0 ? f.getWidth() / f.getHeight() : 1.0;
+            if (ratio < 0.75 || ratio > 1.3) {
+                log.debug("跳过异常比例的人脸: ratio={}, file={}", ratio, imageFile.getName());
+                continue;
+            }
+            // 4. 坐标归一化与裁剪，防止越界导致空白
+            double x = Math.max(0.0, Math.min(1.0, f.getX()));
+            double y = Math.max(0.0, Math.min(1.0, f.getY()));
+            double w = Math.max(0.0, Math.min(1.0 - x, f.getWidth()));
+            double h = Math.max(0.0, Math.min(1.0 - y, f.getHeight()));
+            // 5. 裁剪后面积检查，确保裁剪后仍然足够大
+            if (w < 0.08 || h < 0.08) {
+                log.debug("裁剪后过小人脸: w={}, h={}, file={}", w, h, imageFile.getName());
+                continue;
+            }
+            // 6. 位置合理性检查：人脸不应该太靠近边缘（避免误检边缘区域），边缘区域扩大到10%
+            double centerX = x + w / 2;
+            double centerY = y + h / 2;
+            double edgeMargin = 0.10; // 边缘10%区域
+            if (centerX < edgeMargin || centerX > 1.0 - edgeMargin || 
+                centerY < edgeMargin || centerY > 1.0 - edgeMargin) {
+                log.debug("跳过边缘位置人脸: center=({}, {}), file={}", centerX, centerY, imageFile.getName());
+                continue;
+            }
+            // 7. 面积合理性检查：人脸区域面积应该足够大（至少占图片的1%）
+            double area = w * h;
+            if (area < 0.01) {
+                log.debug("跳过面积过小的人脸: area={}, file={}", area, imageFile.getName());
+                continue;
+            }
+            Face face = new Face();
+            face.setPhoto(photo);
+            face.setX(x);
+            face.setY(y);
+            face.setWidth(w);
+            face.setHeight(h);
+            face.setConfidence(f.getConfidence());
+            Face saved = faceRepository.save(face);
+
+            // 提取人脸向量
+            float[] embedding = faceEmbeddingService.extract(imageFile, saved);
+            if (embedding != null) {
+                saved.setEmbedding(toJson(embedding));
+                saved = faceRepository.save(saved);
+            }
+            faces.add(saved);
+        }
+
+        photo.setFaces(faces);
+        log.debug("保存人脸 {} 个，photoId={}", faces.size(), photo.getId());
+        return faces;
+    }
+
+    /**
+     * 获取某张照片的人脸列表（返回Face实体，用于内部使用）
+     */
+    @Transactional(readOnly = true)
+    public List<Face> getFacesByPhoto(Long photoId) {
+        return faceRepository.findByPhotoId(photoId);
+    }
+
+    /**
+     * 获取某张照片的人脸列表（返回DTO）
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getFacesByPhotoDTO(Long photoId) {
+        return faceRepository.findByPhotoId(photoId).stream()
+            .map(this::toDTO)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取某张照片的人脸数量
+     */
+    @Transactional(readOnly = true)
+    public long getFaceCountByPhoto(Long photoId) {
+        return faceRepository.findByPhotoId(photoId).size();
+    }
+
+    /**
+     * 分页获取所有人脸记录，可按姓名/文件名模糊搜索
+     */
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listFaces(String keyword, Pageable pageable) {
+        Page<Face> page = faceRepository.searchFaces(keyword, pageable);
+        return page.map(this::toDTO);
+    }
+
+    /**
+     * 将人脸绑定到人物（personId 为空则解绑）
+     * @param faceId 人脸ID
+     * @param personId 人物ID（为空则解绑）
+     * @param confirmed 是否确认（true=已确认，false=自动分配，null=保持原状态）
+     */
+    @Transactional
+    public FaceDTO assignFaceToPerson(Long faceId, Long personId, Boolean confirmed) {
+        Face face = faceRepository.findById(faceId)
+            .orElseThrow(() -> new RuntimeException("人脸不存在"));
+
+        if (personId == null) {
+            face.setPerson(null);
+            face.setIsConfirmed(false);
+        } else {
+            PersonProfile person = personProfileRepository.findById(personId)
+                .orElseThrow(() -> new RuntimeException("人物不存在"));
+            face.setPerson(person);
+            if (confirmed != null) {
+                face.setIsConfirmed(confirmed);
+            }
+        }
+        return toDTO(faceRepository.save(face));
+    }
+
+    /**
+     * 将人脸绑定到人物（兼容旧接口，默认为已确认）
+     */
+    @Transactional
+    public FaceDTO assignFaceToPerson(Long faceId, Long personId) {
+        return assignFaceToPerson(faceId, personId, true); // 默认已确认
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listUnassignedFaces(Pageable pageable) {
+        return faceRepository.findByPersonIsNull(pageable).map(this::toDTO);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listAssignedFaces(Pageable pageable) {
+        return faceRepository.findByPersonIsNotNull(pageable).map(this::toDTO);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listPersonFaces(Long personId, Pageable pageable) {
+        return faceRepository.findByPersonId(personId, pageable).map(this::toDTO);
+    }
+
+    /**
+     * 获取已确认的人脸（用户手动确认的）
+     */
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listConfirmedFaces(Long personId, Pageable pageable) {
+        return faceRepository.findByPersonIdAndIsConfirmed(personId, true, pageable).map(this::toDTO);
+    }
+
+    /**
+     * 获取自动分配的人脸（未确认但已分配）
+     */
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listAutoAssignedFaces(Long personId, Pageable pageable) {
+        return faceRepository.findByPersonIdAndIsConfirmed(personId, false, pageable).map(this::toDTO);
+    }
+
+    /**
+     * 获取同一文件夹的相似人脸（套图推荐）
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> listSameFolderSimilarFaces(Long personId, int top) {
+        // 获取该人物的已确认人脸
+        List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true, PageRequest.of(0, 10))
+            .getContent();
+        if (confirmedFaces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 获取这些照片所在的文件夹（album）
+        Set<Long> albumIds = confirmedFaces.stream()
+            .map(f -> f.getPhoto() != null ? f.getPhoto().getAlbumId() : null)
+            .filter(id -> id != null)
+            .collect(Collectors.toSet());
+
+        if (albumIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 获取这些文件夹中的未分配人脸
+        List<Face> unassignedInFolders = faceRepository.findByPersonIsNullAndPhotoAlbumIdIn(albumIds);
+        if (unassignedInFolders.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 计算与已确认人脸的相似度
+        List<FaceDTO> result = new ArrayList<>();
+        for (Face unassigned : unassignedInFolders) {
+            if (unassigned.getEmbedding() == null || unassigned.getEmbedding().isEmpty()) continue;
+            
+            float[] unassignedVec = parseEmbedding(unassigned.getEmbedding());
+            if (unassignedVec == null) continue;
+
+            double maxSim = -1;
+            for (Face confirmed : confirmedFaces) {
+                if (confirmed.getEmbedding() == null || confirmed.getEmbedding().isEmpty()) continue;
+                float[] confirmedVec = parseEmbedding(confirmed.getEmbedding());
+                if (confirmedVec == null) continue;
+                
+                double sim = cosine(unassignedVec, confirmedVec);
+                if (sim > maxSim) {
+                    maxSim = sim;
+                }
+            }
+
+            // 相似度在0.5-0.6之间（低于相似推荐但有一定相似度）
+            if (maxSim >= 0.5 && maxSim < 0.6) {
+                FaceDTO dto = toDTO(unassigned);
+                dto.setSimilarity(maxSim);
+                result.add(dto);
+            }
+        }
+
+        result.sort((a, b) -> Double.compare(
+            b.getSimilarity() != null ? b.getSimilarity() : 0,
+            a.getSimilarity() != null ? a.getSimilarity() : 0
+        ));
+        
+        if (result.size() > top) {
+            return result.subList(0, top);
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> listPersonsWithSample() {
+        return personProfileRepository.findAll().stream()
+            .map(this::toSummaryDTO)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取统一的人物列表（包括已确认人物和未确认聚类）
+     */
+    @Transactional(readOnly = true)
+    public List<PersonListItemDTO> listPersonItems(double clusterThreshold) {
+        List<PersonListItemDTO> items = new ArrayList<>();
+
+        // 1. 已确认的人物
+        List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
+        for (PersonProfile person : confirmedPersons) {
+            PersonListItemDTO item = new PersonListItemDTO();
+            item.setType("confirmed");
+            item.setId(person.getId());
+            item.setName(person.getName());
+            item.setDescription(person.getDescription());
+            item.setCreatedAt(person.getCreatedAt());
+            item.setUpdatedAt(person.getUpdatedAt());
+
+            // 获取该人物的人脸数量
+            long faceCount = faceRepository.findByPersonId(person.getId(), PageRequest.of(0, 1))
+                .getTotalElements();
+            item.setFaceCount((int) faceCount);
+
+            // 获取代表脸
+            Face sample = faceRepository.findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(person.getId());
+            if (sample == null) {
+                sample = faceRepository.findTopByPersonIdOrderByCreatedAtDesc(person.getId());
+            }
+            if (sample != null && sample.getPhoto() != null) {
+                item.setSampleFaceId(sample.getId());
+                item.setSamplePhotoId(sample.getPhoto().getId());
+                item.setSampleConfidence(sample.getConfidence());
+                item.setSampleThumbnailPath(convertToRelativePath(sample.getPhoto().getThumbnailPath()));
+                item.setSampleOriginalPath(convertToRelativePath(sample.getPhoto().getOriginalPath()));
+            }
+
+            items.add(item);
+        }
+
+        // 2. 未确认的聚类
+        List<FaceClusterDTO> clusters = clusterSimilarFaces(clusterThreshold);
+        for (int i = 0; i < clusters.size(); i++) {
+            FaceClusterDTO cluster = clusters.get(i);
+            PersonListItemDTO item = new PersonListItemDTO();
+            item.setType("cluster");
+            item.setId((long) i); // 使用索引作为ID
+            item.setName("未命名");
+            item.setDescription("自动聚合的相似人脸，尚未确认");
+            item.setFaceCount(cluster.getCount());
+            item.setAvgConfidence(cluster.getAvgConfidence());
+
+            // 获取代表脸
+            if (cluster.getRepresentativeFaceId() != null) {
+                Face sample = faceRepository.findById(cluster.getRepresentativeFaceId()).orElse(null);
+                if (sample != null && sample.getPhoto() != null) {
+                    item.setSampleFaceId(sample.getId());
+                    item.setSamplePhotoId(sample.getPhoto().getId());
+                    item.setSampleConfidence(sample.getConfidence());
+                    item.setSampleThumbnailPath(convertToRelativePath(sample.getPhoto().getThumbnailPath()));
+                    item.setSampleOriginalPath(convertToRelativePath(sample.getPhoto().getOriginalPath()));
+                }
+            }
+
+            items.add(item);
+        }
+
+        // 按创建时间降序排序（已确认人物在前，聚类在后）
+        items.sort((a, b) -> {
+            if ("confirmed".equals(a.getType()) && "cluster".equals(b.getType())) {
+                return -1;
+            }
+            if ("cluster".equals(a.getType()) && "confirmed".equals(b.getType())) {
+                return 1;
+            }
+            if (a.getCreatedAt() != null && b.getCreatedAt() != null) {
+                return b.getCreatedAt().compareTo(a.getCreatedAt());
+            }
+            return 0;
+        });
+
+        return items;
+    }
+
+    /**
+     * 自动分配相似人脸（高相似度，自动分配但不确认）
+     */
+    @Transactional
+    public List<FaceDTO> autoAssignSimilarFaces(Long personId, double threshold) {
+        List<FaceDTO> similar = findSimilarUnassignedFaces(personId, 100, threshold);
+        // 自动分配相似度 >= 0.75 的人脸
+        for (FaceDTO face : similar) {
+            if (face.getSimilarity() != null && face.getSimilarity() >= 0.75) {
+                assignFaceToPerson(face.getId(), personId, false); // 自动分配，不确认
+            }
+        }
+        return similar.stream()
+            .filter(f -> f.getSimilarity() != null && f.getSimilarity() >= 0.75)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取与指定人物相似但未分配的人脸
+     * 改进：使用该人物所有人脸的平均向量作为基准，提高准确率
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> findSimilarUnassignedFaces(Long personId, int top, double threshold) {
+        // 获取该人物的所有人脸
+        List<Face> personFaces = faceRepository.findByPersonId(personId, PageRequest.of(0, 1000))
+            .getContent();
+        if (personFaces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 计算该人物所有人脸的平均向量（更准确）
+        List<float[]> personVectors = new ArrayList<>();
+        for (Face face : personFaces) {
+            if (face.getEmbedding() == null || face.getEmbedding().isEmpty()) continue;
+            float[] vec = parseEmbedding(face.getEmbedding());
+            if (vec != null) {
+                personVectors.add(vec);
+            }
+        }
+        
+        if (personVectors.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // 计算平均向量
+        int dim = personVectors.get(0).length;
+        float[] avgVec = new float[dim];
+        for (float[] vec : personVectors) {
+            for (int i = 0; i < dim; i++) {
+                avgVec[i] += vec[i];
+            }
+        }
+        int count = personVectors.size();
+        for (int i = 0; i < dim; i++) {
+            avgVec[i] /= count;
+        }
+        
+        // 归一化
+        double norm = 0;
+        for (float v : avgVec) {
+            norm += v * v;
+        }
+        norm = Math.sqrt(norm);
+        if (norm > 1e-6) {
+            for (int i = 0; i < dim; i++) {
+                avgVec[i] /= (float) norm;
+            }
+        }
+
+        // 查找所有未分配的人脸
+        List<Face> unassigned = faceRepository.findByPersonIsNull();
+        List<FaceDTO> result = new ArrayList<>();
+
+        for (Face f : unassigned) {
+            if (f.getEmbedding() == null || f.getEmbedding().isEmpty()) continue;
+            float[] vec = parseEmbedding(f.getEmbedding());
+            if (vec == null) continue;
+            double sim = cosine(avgVec, vec);
+            if (sim >= threshold) {
+                FaceDTO dto = toDTO(f);
+                dto.setSimilarity(sim);
+                result.add(dto);
+            }
+        }
+
+        result.sort((a, b) -> Double.compare(
+            b.getSimilarity() != null ? b.getSimilarity() : 0,
+            a.getSimilarity() != null ? a.getSimilarity() : 0
+        ));
+        if (result.size() > top) {
+            return result.subList(0, top);
+        }
+        return result;
+    }
+
+    /**
+     * 获取聚类中的人脸列表
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getClusterFaces(int clusterIndex, double threshold) {
+        List<FaceClusterDTO> clusters = clusterSimilarFaces(threshold);
+        if (clusterIndex < 0 || clusterIndex >= clusters.size()) {
+            return new ArrayList<>();
+        }
+        return clusters.get(clusterIndex).getFaces();
+    }
+
+    /**
+     * 自动聚合相似人脸（基于embedding相似度）
+     * 使用改进的聚类算法：使用组内平均向量作为代表，提高准确率
+     * 优化：使用更严格的聚类条件，减少误聚类
+     * @param threshold 相似度阈值，建议0.65-0.72
+     * @return 聚类结果列表
+     */
+    @Transactional(readOnly = true)
+    public List<FaceClusterDTO> clusterSimilarFaces(double threshold) {
+        // 获取所有未分配的人脸（有embedding的）
+        List<Face> unassigned = faceRepository.findByPersonIsNull();
+        List<Face> withEmbedding = unassigned.stream()
+            .filter(f -> f.getEmbedding() != null && !f.getEmbedding().isEmpty())
+            .collect(Collectors.toList());
+
+        if (withEmbedding.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 改进的聚类算法：使用组内平均向量作为代表
+        // 优化：使用更严格的加入条件，需要与组内多个代表脸都相似才加入
+        List<List<Face>> groups = new ArrayList<>();
+        List<float[]> groupCentroids = new ArrayList<>(); // 每个组的平均向量
+        List<List<float[]>> groupRepresentatives = new ArrayList<>(); // 每个组的代表向量（用于更严格的匹配）
+
+        for (Face face1 : withEmbedding) {
+            float[] vec1 = parseEmbedding(face1.getEmbedding());
+            if (vec1 == null) continue;
+
+            Integer bestGroup = null;
+            double bestSimilarity = -1;
+
+            // 检查与所有组中心向量的相似度
+            for (int g = 0; g < groups.size(); g++) {
+                float[] centroid = groupCentroids.get(g);
+                if (centroid == null) continue;
+                
+                double sim = cosine(vec1, centroid);
+                
+                // 更严格的匹配：需要与组内至少一个代表向量相似，且与中心向量相似
+                // 对于小规模组（<=3），只需要与中心向量相似
+                // 对于大规模组（>3），需要与至少2个代表向量相似
+                List<float[]> representatives = groupRepresentatives.get(g);
+                int requiredMatches = groups.get(g).size() <= 3 ? 1 : 2;
+                int currentMatches = 0;
+                
+                // 检查与代表向量的相似度
+                for (float[] rep : representatives) {
+                    double repSim = cosine(vec1, rep);
+                    if (repSim >= threshold) {
+                        currentMatches++;
+                    }
+                }
+                
+                // 如果与中心向量相似，也算一个匹配
+                if (sim >= threshold) {
+                    currentMatches++;
+                }
+                
+                // 需要满足：与中心向量相似 且 与足够多的代表向量相似
+                if (sim >= threshold && currentMatches >= requiredMatches && sim > bestSimilarity) {
+                    bestSimilarity = sim;
+                    bestGroup = g;
+                }
+            }
+
+            if (bestGroup != null) {
+                // 加入现有组，并更新组中心向量和代表向量
+                groups.get(bestGroup).add(face1);
+                groupCentroids.set(bestGroup, updateCentroid(groups.get(bestGroup)));
+                
+                // 更新代表向量：保留置信度最高的几个作为代表
+                List<Face> groupFaces = groups.get(bestGroup);
+                List<float[]> newReps = groupFaces.stream()
+                    .sorted((a, b) -> Double.compare(
+                        (b.getConfidence() != null ? b.getConfidence() : 0.0),
+                        (a.getConfidence() != null ? a.getConfidence() : 0.0)
+                    ))
+                    .limit(Math.min(5, groupFaces.size())) // 最多保留5个代表
+                    .map(f -> parseEmbedding(f.getEmbedding()))
+                    .filter(v -> v != null)
+                    .collect(Collectors.toList());
+                groupRepresentatives.set(bestGroup, newReps);
+            } else {
+                // 创建新组
+                List<Face> newGroup = new ArrayList<>();
+                newGroup.add(face1);
+                groups.add(newGroup);
+                groupCentroids.add(vec1.clone()); // 初始中心向量就是这个人脸
+                List<float[]> newReps = new ArrayList<>();
+                newReps.add(vec1.clone());
+                groupRepresentatives.add(newReps);
+            }
+        }
+
+        // 转换为DTO
+        List<FaceClusterDTO> clusters = new ArrayList<>();
+        for (List<Face> group : groups) {
+            if (group.size() < 1) continue; // 至少需要1个人脸
+
+            FaceClusterDTO cluster = new FaceClusterDTO();
+            List<FaceDTO> faceDTOs = group.stream()
+                .map(this::toDTO)
+                .collect(Collectors.toList());
+            cluster.setFaces(faceDTOs);
+            cluster.setCount(group.size());
+
+            // 计算平均置信度并找到代表脸
+            double sumConf = 0;
+            Face bestFace = null;
+            double bestConf = -1;
+            for (Face f : group) {
+                if (f.getConfidence() != null) {
+                    sumConf += f.getConfidence();
+                    if (f.getConfidence() > bestConf) {
+                        bestConf = f.getConfidence();
+                        bestFace = f;
+                    }
+                }
+            }
+            cluster.setAvgConfidence(group.size() > 0 ? sumConf / group.size() : null);
+            cluster.setRepresentativeFaceId(bestFace != null ? bestFace.getId() : group.get(0).getId());
+
+            clusters.add(cluster);
+        }
+
+        // 按人脸数量降序排序
+        clusters.sort((a, b) -> Integer.compare(b.getCount(), a.getCount()));
+
+        log.info("聚类完成: 共 {} 个未分配人脸，聚合成 {} 个组（阈值: {}）", withEmbedding.size(), clusters.size(), threshold);
+        return clusters;
+    }
+
+    /**
+     * 计算组内平均向量（中心向量）
+     */
+    private float[] updateCentroid(List<Face> group) {
+        if (group.isEmpty()) return null;
+        
+        List<float[]> vectors = new ArrayList<>();
+        for (Face face : group) {
+            float[] vec = parseEmbedding(face.getEmbedding());
+            if (vec != null) {
+                vectors.add(vec);
+            }
+        }
+        
+        if (vectors.isEmpty()) return null;
+        
+        int dim = vectors.get(0).length;
+        float[] centroid = new float[dim];
+        
+        // 计算平均值
+        for (float[] vec : vectors) {
+            for (int i = 0; i < dim; i++) {
+                centroid[i] += vec[i];
+            }
+        }
+        
+        int count = vectors.size();
+        for (int i = 0; i < dim; i++) {
+            centroid[i] /= count;
+        }
+        
+        // 归一化
+        double norm = 0;
+        for (float v : centroid) {
+            norm += v * v;
+        }
+        norm = Math.sqrt(norm);
+        if (norm > 1e-6) {
+            for (int i = 0; i < dim; i++) {
+                centroid[i] /= (float) norm;
+            }
+        }
+        
+        return centroid;
+    }
+
+    /**
+     * 批量创建人物并绑定人脸
+     * @param faceIds 人脸ID列表
+     * @param personName 人物名称
+     * @param description 人物描述
+     * @return 创建的人物DTO
+     */
+    @Transactional
+    public PersonDTO createPersonFromFaces(List<Long> faceIds, String personName, String description) {
+        if (faceIds == null || faceIds.isEmpty()) {
+            throw new RuntimeException("人脸ID列表不能为空");
+        }
+        if (personName == null || personName.trim().isEmpty()) {
+            throw new RuntimeException("人物名称不能为空");
+        }
+
+        // 查找或创建人物
+        PersonProfile person = personProfileRepository.findByName(personName.trim())
+            .orElseGet(() -> {
+                PersonProfile p = new PersonProfile();
+                p.setName(personName.trim());
+                p.setDescription(description);
+                return personProfileRepository.save(p);
+            });
+
+        if (description != null && !description.trim().isEmpty()) {
+            person.setDescription(description.trim());
+            personProfileRepository.save(person);
+        }
+
+        // 绑定所有人脸（创建时默认为已确认）
+        for (Long faceId : faceIds) {
+            Face face = faceRepository.findById(faceId)
+                .orElseThrow(() -> new RuntimeException("人脸不存在: " + faceId));
+            face.setPerson(person);
+            face.setIsConfirmed(true); // 创建时默认为已确认
+            faceRepository.save(face);
+        }
+
+        log.info("创建人物并绑定人脸: personId={}, name={}, faceCount={}", person.getId(), person.getName(), faceIds.size());
+        return toDTO(person);
+    }
+
+    /**
+     * 查找相似人脸
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> findSimilarFaces(Long faceId, int top, double threshold) {
+        Face base = faceRepository.findById(faceId).orElseThrow(() -> new RuntimeException("人脸不存在"));
+        float[] baseVec = parseEmbedding(base.getEmbedding());
+        if (baseVec == null) return List.of();
+
+        List<Face> all = faceRepository.findAll();
+        List<FaceDTO> result = new ArrayList<>();
+        for (Face f : all) {
+            if (f.getId().equals(faceId)) continue;
+            float[] vec = parseEmbedding(f.getEmbedding());
+            if (vec == null) continue;
+            double sim = cosine(baseVec, vec);
+            if (sim >= threshold) {
+                FaceDTO dto = toDTO(f);
+                dto.setSimilarity(sim);
+                result.add(dto);
+            }
+        }
+
+        result.sort((a, b) -> Double.compare(b.getSimilarity(), a.getSimilarity()));
+        if (result.size() > top) {
+            return result.subList(0, top);
+        }
+        return result;
+    }
+
+    /**
+     * 更新人脸对应的人员信息（若名称不存在则创建）
+     */
+    @Transactional
+    public FaceDTO updateFacePerson(Long faceId, String name, String description) {
+        Face face = faceRepository.findById(faceId)
+            .orElseThrow(() -> new RuntimeException("人脸不存在"));
+
+        if (name == null || name.trim().isEmpty()) {
+            face.setPerson(null);
+        } else {
+            PersonProfile person = personProfileRepository.findByName(name.trim())
+                .orElseGet(() -> {
+                    PersonProfile p = new PersonProfile();
+                    p.setName(name.trim());
+                    p.setDescription(description);
+                    return personProfileRepository.save(p);
+                });
+
+            if (description != null && !description.trim().isEmpty()) {
+                person.setDescription(description.trim());
+                personProfileRepository.save(person);
+            }
+            face.setPerson(person);
+        }
+
+        return toDTO(faceRepository.save(face));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonDTO> listPersons() {
+        return personProfileRepository.findAll().stream()
+            .map(this::toDTO)
+            .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public PersonDTO createOrUpdatePerson(Long id, PersonDTO payload) {
+        PersonProfile person;
+        if (id != null) {
+            person = personProfileRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("人物不存在"));
+        } else {
+            Optional<PersonProfile> existing = personProfileRepository.findByName(payload.getName());
+            person = existing.orElseGet(PersonProfile::new);
+        }
+
+        if (payload.getName() != null && !payload.getName().trim().isEmpty()) {
+            person.setName(payload.getName().trim());
+        } else if (person.getName() == null || person.getName().trim().isEmpty()) {
+            person.setName("未命名人物");
+        }
+        person.setDescription(payload.getDescription());
+        return toDTO(personProfileRepository.save(person));
+    }
+
+    private FaceDTO toDTO(Face face) {
+        FaceDTO dto = new FaceDTO();
+        dto.setId(face.getId());
+        dto.setPhotoId(face.getPhoto() != null ? face.getPhoto().getId() : null);
+        dto.setX(face.getX());
+        dto.setY(face.getY());
+        dto.setWidth(face.getWidth());
+        dto.setHeight(face.getHeight());
+        dto.setConfidence(face.getConfidence());
+        dto.setIsConfirmed(face.getIsConfirmed() != null ? face.getIsConfirmed() : false);
+        if (face.getPerson() != null) {
+            dto.setPersonId(face.getPerson().getId());
+            dto.setPersonName(face.getPerson().getName());
+            dto.setPersonDescription(face.getPerson().getDescription());
+        }
+        if (face.getPhoto() != null) {
+            dto.setPhotoId(face.getPhoto().getId());
+            dto.setPhotoFilename(face.getPhoto().getFilename());
+            dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
+            dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
+        }
+        return dto;
+    }
+
+    private PersonDTO toDTO(PersonProfile person) {
+        PersonDTO dto = new PersonDTO();
+        dto.setId(person.getId());
+        dto.setName(person.getName());
+        dto.setDescription(person.getDescription());
+        return dto;
+    }
+
+    private PersonSummaryDTO toSummaryDTO(PersonProfile person) {
+        PersonSummaryDTO dto = new PersonSummaryDTO();
+        dto.setId(person.getId());
+        dto.setName(person.getName());
+        dto.setDescription(person.getDescription());
+        dto.setCreatedAt(person.getCreatedAt());
+        dto.setUpdatedAt(person.getUpdatedAt());
+
+        Face sample = faceRepository.findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(person.getId());
+        if (sample == null) {
+            sample = faceRepository.findTopByPersonIdOrderByCreatedAtDesc(person.getId());
+        }
+        if (sample != null && sample.getPhoto() != null) {
+            dto.setSampleFaceId(sample.getId());
+            dto.setSamplePhotoId(sample.getPhoto().getId());
+            dto.setSampleConfidence(sample.getConfidence());
+            dto.setSampleThumbnailPath(convertToRelativePath(sample.getPhoto().getThumbnailPath()));
+            dto.setSampleOriginalPath(convertToRelativePath(sample.getPhoto().getOriginalPath()));
+        }
+        return dto;
+    }
+
+    private float[] parseEmbedding(String json) {
+        if (json == null || json.isEmpty()) return null;
+        try {
+            String s = json.trim();
+            if (s.startsWith("[")) s = s.substring(1);
+            if (s.endsWith("]")) s = s.substring(0, s.length() - 1);
+            if (s.isEmpty()) return null;
+            String[] parts = s.split(",");
+            float[] v = new float[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                v[i] = Float.parseFloat(parts[i]);
+            }
+            return v;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private double cosine(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return -1;
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            na += a[i] * a[i];
+            nb += b[i] * b[i];
+        }
+        double denom = Math.sqrt(na) * Math.sqrt(nb);
+        if (denom < 1e-6) return -1;
+        return dot / denom;
+    }
+
+    private String toJson(float[] arr) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        for (int i = 0; i < arr.length; i++) {
+            if (i > 0) sb.append(",");
+            sb.append(String.format(java.util.Locale.US, "%.6f", arr[i]));
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    /**
+     * 删除人物（解除所有人脸的关联后删除）
+     */
+    @Transactional
+    public void deletePerson(Long personId) {
+        PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+        
+        // 解除所有人脸的关联
+        List<Face> faces = faceRepository.findByPersonId(personId, PageRequest.of(0, 10000))
+            .getContent();
+        for (Face face : faces) {
+            face.setPerson(null);
+            faceRepository.save(face);
+        }
+        
+        // 删除人物
+        personProfileRepository.delete(person);
+        log.info("已删除人物: {} (ID: {})，已解除 {} 张人脸的关联", person.getName(), personId, faces.size());
+    }
+
+    private String convertToRelativePath(String absolutePath) {
+        if (absolutePath == null || absolutePath.isEmpty()) {
+            return absolutePath;
+        }
+
+        try {
+            String basePath = photoBasePath;
+            if (!Paths.get(basePath).isAbsolute()) {
+                String projectRoot = System.getProperty("user.dir");
+                if (projectRoot.endsWith("backend")) {
+                    projectRoot = new File(projectRoot).getParent();
+                }
+                String cleanPath = basePath.startsWith("./")
+                    ? basePath.substring(2)
+                    : basePath;
+                basePath = new File(projectRoot, cleanPath).getAbsolutePath();
+            }
+
+            basePath = Paths.get(basePath).normalize().toString();
+            String normalizedAbsolutePath = Paths.get(absolutePath).normalize().toString();
+
+            if (!normalizedAbsolutePath.startsWith(basePath)) {
+                return absolutePath;
+            }
+
+            String relativePath = normalizedAbsolutePath.substring(basePath.length());
+            if (!relativePath.startsWith("/")) {
+                relativePath = "/" + relativePath;
+            }
+            return relativePath.replace("\\", "/");
+        } catch (Exception e) {
+            return absolutePath;
+        }
+    }
+}
+

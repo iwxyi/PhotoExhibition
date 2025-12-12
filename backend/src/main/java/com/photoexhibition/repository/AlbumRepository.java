@@ -46,5 +46,13 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      * 路径前缀 + 有照片 的分页查询
      */
     Page<Album> findByPathStartingWithAndPhotoCountGreaterThan(String pathPrefix, Integer minPhotoCount, Pageable pageable);
+
+    /**
+     * 带标签的相册加载，避免懒加载问题
+     */
+    @Query("SELECT a FROM Album a LEFT JOIN FETCH a.tags WHERE a.id = :id")
+    Optional<Album> findByIdWithTags(@Param("id") Long id);
+
+    Optional<Album> findByPathHash(String pathHash);
 }
 

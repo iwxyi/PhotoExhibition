@@ -7,6 +7,7 @@ import com.drew.metadata.Metadata;
 import com.drew.metadata.exif.ExifIFD0Directory;
 import com.drew.metadata.exif.ExifSubIFDDirectory;
 import com.photoexhibition.entity.Album;
+import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
@@ -22,18 +23,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.security.MessageDigest;
+import java.security.DigestInputStream;
 
 @Slf4j
 @Service
@@ -59,17 +65,61 @@ public class PhotoScanService {
     private final TagRepository tagRepository;
     private final ColorAnalysisService colorAnalysisService;
     private final SubjectDetectionService subjectDetectionService;
+    private final FaceService faceService;
+    private final SmartTagService smartTagService;
+    private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
 
     public PhotoScanService(AlbumRepository albumRepository,
                            PhotoRepository photoRepository,
                            TagRepository tagRepository,
                            ColorAnalysisService colorAnalysisService,
-                           SubjectDetectionService subjectDetectionService) {
+                           SubjectDetectionService subjectDetectionService,
+                           FaceService faceService,
+                           SmartTagService smartTagService) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
         this.tagRepository = tagRepository;
         this.colorAnalysisService = colorAnalysisService;
         this.subjectDetectionService = subjectDetectionService;
+        this.faceService = faceService;
+        this.smartTagService = smartTagService;
+    }
+    
+    @PreDestroy
+    public void onShutdown() {
+        isShuttingDown.set(true);
+        log.info("扫描服务正在关闭，停止所有异步任务");
+    }
+
+    /**
+     * 异步回填所有照片的哈希值
+     */
+    @Async
+    public void backfillHashesAsync() {
+        try {
+            List<Photo> photos = photoRepository.findAll();
+            log.info("开始回填哈希，总计 {} 张", photos.size());
+            for (Photo photo : photos) {
+                try {
+                    if (photo.getContentHash() != null && !photo.getContentHash().isEmpty()) {
+                        continue;
+                    }
+                    File file = new File(photo.getOriginalPath());
+                    if (!file.exists()) {
+                        log.warn("文件不存在，跳过哈希回填: {}", photo.getOriginalPath());
+                        continue;
+                    }
+                    String hash = calculateSha256(file);
+                    photo.setContentHash(hash);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    log.warn("回填哈希失败: {}", photo.getOriginalPath(), e);
+                }
+            }
+            log.info("哈希回填完成");
+        } catch (Exception e) {
+            log.error("回填哈希任务失败", e);
+        }
     }
 
     /**
@@ -91,6 +141,14 @@ public class PhotoScanService {
     }
     
     /**
+     * 异步触发强制扫描（跳过更新校验）
+     */
+    @Async
+    public void rescanDirectoryAsync(String directoryPath) {
+        rescanDirectory(directoryPath);
+    }
+    
+    /**
      * 应用启动后执行一次扫描
      */
     @PostConstruct
@@ -105,6 +163,18 @@ public class PhotoScanService {
      */
     @Transactional
     public void scanDirectory(String directoryPath) {
+        scanDirectoryInternal(directoryPath, false);
+    }
+
+    /**
+     * 强制重新扫描（总是重建缩略图、人脸、标签）
+     */
+    @Transactional
+    public void rescanDirectory(String directoryPath) {
+        scanDirectoryInternal(directoryPath, true);
+    }
+
+    private void scanDirectoryInternal(String directoryPath, boolean force) {
         if (directoryPath == null || directoryPath.isEmpty()) {
             directoryPath = basePath;
         }
@@ -157,7 +227,7 @@ public class PhotoScanService {
             try (Stream<Path> paths = Files.walk(path)) {
                 paths.filter(Files::isDirectory)
                     .filter(p -> !p.getFileName().toString().equals(".thumbnails"))  // 跳过.thumbnails目录
-                    .forEach(this::processAlbumDirectory);
+                    .forEach(p -> processAlbumDirectory(p, force));
             }
         } catch (Exception e) {
             log.error("扫描目录失败: {}", directoryPath, e);
@@ -168,7 +238,13 @@ public class PhotoScanService {
     /**
      * 处理相册目录
      */
-    private void processAlbumDirectory(Path albumPath) {
+    private void processAlbumDirectory(Path albumPath, boolean force) {
+        // 检查应用是否正在关闭
+        if (isShuttingDown.get()) {
+            log.debug("应用正在关闭，跳过处理: {}", albumPath);
+            return;
+        }
+        
         try {
             // 跳过.thumbnails目录
             if (albumPath.getFileName().toString().equals(".thumbnails")) {
@@ -176,13 +252,17 @@ public class PhotoScanService {
             }
             
             String albumPathStr = albumPath.toString();
-            Album album = albumRepository.findByPath(albumPathStr)
+            String albumPathHash = calculateSha256(albumPathStr);
+            Album album = albumRepository.findByPathHash(albumPathHash)
                 .orElseGet(() -> {
+                    // 再次检查是否关闭
+                    if (isShuttingDown.get()) {
+                        throw new IllegalStateException("应用正在关闭");
+                    }
                     Album newAlbum = new Album();
                     newAlbum.setName(albumPath.getFileName().toString());
                     newAlbum.setPath(albumPathStr);
-                    // 从路径提取标签（包含层级继承）
-                    extractTagsFromPath(newAlbum, albumPath);
+                    newAlbum.setPathHash(albumPathHash);
                     return albumRepository.save(newAlbum);
                 });
 
@@ -191,15 +271,32 @@ public class PhotoScanService {
             log.info("相册 {}: {} 张图片", album.getName(), imageFiles.size());
 
             for (File imageFile : imageFiles) {
-                processPhotoFile(imageFile, album);
+                processPhotoFile(imageFile, album, force);
             }
 
             // 更新相册照片数量
             album.setPhotoCount(photoRepository.countByAlbumId(album.getId()).intValue());
             albumRepository.save(album);
 
+        } catch (IllegalStateException e) {
+            // 应用关闭时的异常，静默处理
+            if (e.getMessage() != null && e.getMessage().contains("关闭")) {
+                log.debug("应用关闭，停止处理相册: {}", albumPath);
+            } else {
+                log.warn("处理相册目录失败（应用状态异常）: {}", albumPath, e);
+            }
+        } catch (org.springframework.context.ApplicationContextException e) {
+            // Spring上下文异常，应用可能正在关闭
+            log.debug("应用上下文异常，停止处理相册: {}", albumPath);
         } catch (Exception e) {
-            log.error("处理相册目录失败: {}", albumPath, e);
+            // 检查是否是应用关闭相关的异常
+            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (errorMsg.contains("closed") || errorMsg.contains("shutdown") || 
+                errorMsg.contains("context") && errorMsg.contains("close")) {
+                log.debug("应用关闭，停止处理相册: {}", albumPath);
+            } else {
+                log.error("处理相册目录失败: {}", albumPath, e);
+            }
         }
     }
 
@@ -244,9 +341,15 @@ public class PhotoScanService {
      * 处理单张图片
      */
     @Transactional
-    public void processPhotoFile(File imageFile, Album album) {
+    public void processPhotoFile(File imageFile, Album album, boolean force) {
+        // 检查应用是否正在关闭
+        if (isShuttingDown.get()) {
+            return;
+        }
+        
         try {
             String filePath = imageFile.getAbsolutePath();
+            String pathHash = calculateSha256(filePath);
             
             // 跳过.thumbnails目录下的文件
             if (filePath.contains("/.thumbnails/") || filePath.contains("\\.thumbnails\\")) {
@@ -258,20 +361,51 @@ public class PhotoScanService {
                 return;
             }
             
-            // 检查是否已存在
-            Optional<Photo> existingPhoto = photoRepository.findByOriginalPath(filePath);
-            if (existingPhoto.isPresent()) {
-                // 检查文件是否更新
-                if (imageFile.lastModified() <= existingPhoto.get().getUpdatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()) {
-                    return; // 文件未更新，跳过
-                }
+            // 计算内容哈希（SHA-256）
+            String contentHash = calculateSha256(imageFile);
+
+            // 优先按内容哈希查找（支持复制图片复用数据），再按路径哈希，最后按原路径兜底
+            Optional<Photo> photoByHash = contentHash == null ? Optional.empty() : photoRepository.findByContentHash(contentHash);
+            Optional<Photo> photoByPathHash = pathHash == null ? Optional.empty() : photoRepository.findByPathHash(pathHash);
+            Optional<Photo> photoByPath = photoRepository.findByOriginalPath(filePath);
+
+            // 优先使用contentHash找到的照片（支持复制图片复用）
+            Photo photo = photoByHash
+                .orElseGet(() -> photoByPathHash
+                .orElseGet(() -> photoByPath.orElseGet(Photo::new)));
+
+            // 记录是否通过contentHash找到的（已存在且内容相同）
+            boolean foundByContentHash = photoByHash.isPresent() && photo.getId() != null;
+            
+            if (!force && photo.getUpdatedAt() != null && imageFile.lastModified() <= photo.getUpdatedAt()
+                    .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()) {
+                // 文件未更新且非强制，跳过
+                return;
             }
 
-            Photo photo = existingPhoto.orElseGet(Photo::new);
+            // 仅在实际处理时记录日志，输出相对路径
+            String relativePath = toRelativePath(filePath);
+            if (foundByContentHash && !force) {
+                log.info("处理图片（复用数据）: {}", relativePath != null ? relativePath : filePath);
+            } else {
+                log.info("处理图片: {}", relativePath != null ? relativePath : filePath);
+            }
+
+            // 始终更新哈希值（确保数据一致性）
+            photo.setContentHash(contentHash);
+            photo.setPathHash(pathHash);
             photo.setAlbumId(album.getId());
             photo.setFilename(imageFile.getName());
+            // 更新路径（即使照片被移动，Face仍然通过photo_id关联，不受影响）
             photo.setOriginalPath(filePath);
             photo.setFileSize(imageFile.length());
+
+            // 确保相册标签已初始化，避免懒加载异常（带标签查询）
+            Album albumWithTags = albumRepository.findByIdWithTags(album.getId()).orElse(album);
+            if (albumWithTags.getTags() == null) {
+                albumWithTags.setTags(new ArrayList<>());
+            }
+            album = albumWithTags;
 
             // 提取EXIF信息
             extractExifData(imageFile, photo);
@@ -292,10 +426,60 @@ public class PhotoScanService {
             // 计算质量评分
             calculateQualityScore(photo);
 
+            // 先保存一次，确保有ID用于人脸关联
             photoRepository.save(photo);
 
+            // 人脸检测与保存
+            // 如果通过contentHash找到照片且已有人脸数据，且非强制扫描，可以跳过人脸检测（复用已有数据）
+            List<Face> faces;
+            if (foundByContentHash && !force && photo.getId() != null) {
+                // 检查是否已有人脸数据
+                long existingFaceCount = faceService.getFaceCountByPhoto(photo.getId());
+                if (existingFaceCount > 0) {
+                    log.debug("照片已有人脸数据，跳过重新检测（photoId={}, faceCount={}）", photo.getId(), existingFaceCount);
+                    faces = faceService.getFacesByPhoto(photo.getId());
+                } else {
+                    // 虽然通过contentHash找到，但没有人脸数据，需要检测
+                    faces = faceService.detectAndSaveFaces(imageFile, photo);
+                }
+            } else {
+                // 新照片或强制扫描，重新检测人脸
+                faces = faceService.detectAndSaveFaces(imageFile, photo);
+            }
+
+            // 合并相册标签到照片标签，便于搜索（复制一份避免懒加载问题）
+            List<Tag> albumTags = album.getTags() == null ? new ArrayList<>() : new ArrayList<>(album.getTags());
+            if (!albumTags.isEmpty()) {
+                if (photo.getTags() == null) {
+                    photo.setTags(new java.util.HashSet<>());
+                }
+                photo.getTags().addAll(albumTags);
+            }
+
+            // 智能标签（含人脸信息）
+            smartTagService.applySmartTags(imageFile, photo, faces.size());
+
+            photoRepository.save(photo);
+
+        } catch (IllegalStateException e) {
+            // 应用关闭时的异常，静默处理
+            if (e.getMessage() != null && e.getMessage().contains("关闭")) {
+                log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
+            } else {
+                log.warn("处理图片失败（应用状态异常）: {}", imageFile.getAbsolutePath(), e);
+            }
+        } catch (org.springframework.context.ApplicationContextException e) {
+            // Spring上下文异常，应用可能正在关闭
+            log.debug("应用上下文异常，停止处理图片: {}", imageFile.getName());
         } catch (Exception e) {
-            log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+            // 检查是否是应用关闭相关的异常
+            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (errorMsg.contains("closed") || errorMsg.contains("shutdown") || 
+                (errorMsg.contains("context") && errorMsg.contains("close"))) {
+                log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
+            } else {
+                log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+            }
         }
     }
 
@@ -433,93 +617,73 @@ public class PhotoScanService {
     }
 
     /**
-     * 从文件夹名提取标签
-     * 注意：不包含 base-path 本身及其下第一层目录的名字作为标签
-     * 第一层目录作为大分类，不参与标签提取
+     * 计算文件的 SHA-256
      */
-    private void extractTagsFromPath(Album album, Path albumPath) {
-        Set<String> tags = new java.util.HashSet<>();
+    private String calculateSha256(File file) {
+        try (InputStream is = Files.newInputStream(file.toPath());
+             DigestInputStream dis = new DigestInputStream(is, MessageDigest.getInstance("SHA-256"))) {
+            byte[] buffer = new byte[8192];
+            while (dis.read(buffer) != -1) {
+                // streaming hash
+            }
+            byte[] digest = dis.getMessageDigest().digest();
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("计算文件哈希失败: {}", file.getName(), e);
+            return null;
+        }
+    }
 
+    /**
+     * 计算字符串的 SHA-256（用于路径哈希等）
+     */
+    private String calculateSha256(String input) {
+        if (input == null) return null;
         try {
-            // 解析 base-path 为绝对路径（处理相对路径情况）
-            Path base = Paths.get(basePath);
-            if (!base.isAbsolute()) {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("计算字符串哈希失败", e);
+            return null;
+        }
+    }
+
+    /**
+     * 转换为相对 base-path 的路径（用于日志显示）
+     */
+    private String toRelativePath(String absolutePath) {
+        if (absolutePath == null || absolutePath.isEmpty()) return absolutePath;
+        try {
+            String base = basePath;
+            if (!Paths.get(base).isAbsolute()) {
                 String projectRoot = System.getProperty("user.dir");
                 if (projectRoot.endsWith("backend")) {
                     projectRoot = new File(projectRoot).getParent();
                 }
-                String cleanPath = basePath.startsWith("./") 
-                    ? basePath.substring(2) 
-                    : basePath;
-                base = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
-            } else {
-                base = base.toAbsolutePath().normalize();
+                String cleanPath = base.startsWith("./") ? base.substring(2) : base;
+                base = new File(projectRoot, cleanPath).getAbsolutePath();
             }
-
-            // 计算相对于 basePath 的子路径
-            Path albumAbsolutePath = albumPath.toAbsolutePath().normalize();
-            Path relative;
-            try {
-                // 确保 albumPath 是 base 的子路径
-                if (!albumAbsolutePath.startsWith(base)) {
-                    log.warn("相册路径不在 base-path 下: {} (base: {})", albumAbsolutePath, base);
-                    return;
-                }
-                relative = base.relativize(albumAbsolutePath);
-            } catch (Exception e) {
-                log.warn("无法计算相对路径: {} (base: {})", albumPath, base, e);
-                return;
+            base = Paths.get(base).normalize().toString();
+            String normalized = Paths.get(absolutePath).normalize().toString();
+            if (!normalized.startsWith(base)) {
+                return absolutePath;
             }
-
-            // 如果相对路径为空，说明 albumPath 就是 base-path，不提取标签
-            if (relative.getNameCount() == 0) {
-                return;
+            String rel = normalized.substring(base.length());
+            if (!rel.startsWith(File.separator)) {
+                rel = File.separator + rel;
             }
-
-            // 遍历相对路径的各个部分，跳过第一层（idx=0）
-            int idx = 0;
-            for (Path part : relative) {
-                // 跳过 base-path 下的第一级目录（作为大分类，不参与标签）
-                if (idx == 0) {
-                    idx++;
-                    continue;
-                }
-                
-                String name = part.getFileName().toString().trim();
-                if (name.isEmpty()) continue;
-
-                // 去掉日期前缀，如 2025.11.01 xxx 或 2025-11-01 xxx
-                name = name.replaceFirst("^\\d{4}[\\.-]\\d{2}[\\.-]\\d{2}\\s*", "");
-                if (name.isEmpty()) continue;
-
-                // 通过多种分隔符拆分，获取关键词（空格、下划线、横线、顿号、逗号等）
-                String[] keywords = name.split("[\\s_\\-、，,·———/]+");
-                for (String kw : keywords) {
-                    String keyword = kw.trim();
-                    if (keyword.length() > 0 && !keyword.matches("^\\.+$") && !keyword.equals("." ) && !keyword.equals("..")) {
-                        tags.add(keyword);
-                    }
-                }
-                idx++;
-            }
+            return rel.replace("\\", "/");
         } catch (Exception e) {
-            log.warn("从路径提取标签失败: {}", albumPath, e);
-        }
-
-        // 落库并关联
-        for (String keyword : tags) {
-            Tag tag = tagRepository.findByName(keyword)
-                .orElseGet(() -> {
-                    Tag newTag = new Tag();
-                    newTag.setName(keyword);
-                    return tagRepository.save(newTag);
-                });
-            if (album.getTags() == null) {
-                album.setTags(new ArrayList<>());
-            }
-            if (!album.getTags().contains(tag)) {
-                album.getTags().add(tag);
-            }
+            return absolutePath;
         }
     }
 }

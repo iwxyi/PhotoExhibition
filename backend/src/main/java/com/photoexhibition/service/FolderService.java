@@ -456,7 +456,7 @@ public class FolderService {
         try {
             Path albumPath = filePath.getParent();
             Album album = findOrCreateAlbum(albumPath);
-            photoScanService.processPhotoFile(filePath.toFile(), album);
+            photoScanService.processPhotoFile(filePath.toFile(), album, false);
             updateAlbumCount(album.getId());
         } catch (Exception e) {
             log.warn("同步创建文件失败: {}", filePath, e);

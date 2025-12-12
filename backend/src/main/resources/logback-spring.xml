@@ -2,13 +2,13 @@
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
     
-    <!-- 控制台输出格式 - 精简版（只显示时间、级别、线程、类名、消息） -->
+    <!-- 控制台输出格式 - 去掉线程名 -->
     <property name="CONSOLE_LOG_PATTERN" 
-              value="%clr(%d{HH:mm:ss}){faint} %clr(%5p) %clr([%15.15t]){faint} %clr(%-30.30logger{29}){cyan} %m%n%wEx"/>
+              value="%clr(%d{HH:mm:ss}){faint} %clr(%5p) %clr(%-30.30logger{29}){cyan} %m%n%wEx"/>
     
-    <!-- 文件输出格式 - 详细版 -->
+    <!-- 文件输出格式 - 去掉线程名 -->
     <property name="FILE_LOG_PATTERN" 
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${PID:- } --- [%t] %-40.40logger{39} : %m%n%wEx"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${PID:- } --- %-40.40logger{39} : %m%n%wEx"/>
     
     <!-- 控制台输出 -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">

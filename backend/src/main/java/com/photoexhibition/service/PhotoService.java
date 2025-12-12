@@ -3,7 +3,12 @@ package com.photoexhibition.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.dto.PhotoDTO;
+import com.photoexhibition.dto.FaceDTO;
+import com.photoexhibition.dto.TagDTO;
+import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.Tag;
+import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +27,7 @@ import java.util.stream.Collectors;
 public class PhotoService {
 
     private final PhotoRepository photoRepository;
+    private final FaceRepository faceRepository;
     private final ObjectMapper objectMapper;
     
     @Value("${photo.scan.base-path}")
@@ -159,6 +165,7 @@ public class PhotoService {
         dto.setThumbnailPath(convertToRelativePath(photo.getThumbnailPath()));
         dto.setWebpPath(convertToRelativePath(photo.getWebpPath()));
         dto.setFileSize(photo.getFileSize());
+        dto.setContentHash(photo.getContentHash());
         dto.setWidth(photo.getWidth());
         dto.setHeight(photo.getHeight());
         dto.setFormat(photo.getFormat());
@@ -199,6 +206,14 @@ public class PhotoService {
         dto.setFocusY(photo.getFocusY());
         dto.setViewCount(photo.getViewCount());
         dto.setIsFeatured(photo.getIsFeatured());
+        if (photo.getTags() != null) {
+            dto.setTags(photo.getTags().stream().map(this::toTagDTO).collect(Collectors.toList()));
+        }
+        // faces 需要额外查询，避免懒加载问题
+        List<Face> faces = photo.getId() != null
+            ? faceRepository.findByPhotoId(photo.getId())
+            : java.util.Collections.emptyList();
+        dto.setFaces(faces.stream().map(this::toFaceDTO).collect(Collectors.toList()));
         dto.setCreatedAt(photo.getCreatedAt());
 
         return dto;
@@ -249,6 +264,31 @@ public class PhotoService {
             // 转换失败，返回原路径
             return absolutePath;
         }
+    }
+
+    private TagDTO toTagDTO(Tag tag) {
+        TagDTO dto = new TagDTO();
+        dto.setId(tag.getId());
+        dto.setName(tag.getName());
+        dto.setColor(tag.getColor());
+        return dto;
+    }
+
+    private FaceDTO toFaceDTO(Face face) {
+        FaceDTO dto = new FaceDTO();
+        dto.setId(face.getId());
+        dto.setPhotoId(face.getPhoto() != null ? face.getPhoto().getId() : null);
+        dto.setX(face.getX());
+        dto.setY(face.getY());
+        dto.setWidth(face.getWidth());
+        dto.setHeight(face.getHeight());
+        dto.setConfidence(face.getConfidence());
+        if (face.getPerson() != null) {
+            dto.setPersonId(face.getPerson().getId());
+            dto.setPersonName(face.getPerson().getName());
+            dto.setPersonDescription(face.getPerson().getDescription());
+        }
+        return dto;
     }
 }
 

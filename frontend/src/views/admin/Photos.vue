@@ -30,6 +30,7 @@
                 <th class="py-2 pr-4">尺寸</th>
                 <th class="py-2 pr-4">格式</th>
                 <th class="py-2 pr-4">拍摄时间</th>
+                <th class="py-2 pr-4">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -44,6 +45,9 @@
                 <td class="py-2 pr-4">{{ p.width }} x {{ p.height }}</td>
                 <td class="py-2 pr-4">{{ p.format }}</td>
                 <td class="py-2 pr-4 whitespace-nowrap">{{ formatDate(p.takenAt) }}</td>
+                <td class="py-2 pr-4 space-x-2">
+                  <button @click="openFaceDialog(p)" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">人脸</button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -54,6 +58,54 @@
           <div class="space-x-2">
             <button @click="prev" :disabled="page===0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">上一页</button>
             <button @click="next" :disabled="page>=totalPages-1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 人脸标注弹窗 -->
+  <div v-if="showFaceDialog" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="closeFaceDialog">
+    <div class="bg-gray-800 rounded-lg w-full max-w-3xl p-6 max-h-[80vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-lg font-light">人脸标注 - {{ activePhoto?.filename }}</h3>
+          <p class="text-sm text-gray-400">可为检测到的人脸设置姓名和说明</p>
+        </div>
+        <button @click="closeFaceDialog" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">关闭</button>
+      </div>
+
+      <div v-if="faceLoading" class="text-gray-400">加载中...</div>
+      <div v-else-if="!faces.length" class="text-gray-400">未检测到人脸</div>
+      <div v-else class="space-y-4">
+        <div v-for="face in faces" :key="face.id" class="border border-gray-700 rounded-lg p-4">
+          <div class="text-sm text-gray-400 mb-2">
+            位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
+            <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm text-gray-300 mb-1">姓名</label>
+              <input
+                v-model="face.personName"
+                placeholder="输入姓名，留空则移除关联"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-300 mb-1">人物说明</label>
+              <textarea
+                v-model="face.personDescription"
+                rows="2"
+                placeholder="例如：家庭成员、朋友、客户等"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              ></textarea>
+            </div>
+          </div>
+          <div class="mt-3 text-right">
+            <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
+              {{ savingFaceId===face.id ? '保存中...' : '保存' }}
+            </button>
           </div>
         </div>
       </div>
@@ -72,6 +124,11 @@ const size = ref(20)
 const totalPages = ref(1)
 const keyword = ref('')
 const selectedIds = ref<number[]>([])
+const showFaceDialog = ref(false)
+const faces = ref<any[]>([])
+const faceLoading = ref(false)
+const savingFaceId = ref<number | null>(null)
+const activePhoto = ref<any | null>(null)
 
 const load = async () => {
   loading.value = true
@@ -99,6 +156,11 @@ const formatDate = (val?: string) => {
   return val.slice(0, 10)
 }
 
+const formatPercent = (val?: number) => {
+  if (val === undefined || val === null) return '-'
+  return `${(val * 100).toFixed(0)}%`
+}
+
 const allSelected = computed(() => photos.value.length > 0 && selectedIds.value.length === photos.value.length)
 
 const toggleAll = (e: Event) => {
@@ -114,6 +176,48 @@ const deleteSelected = async () => {
   }
   selectedIds.value = []
   await load()
+}
+
+const openFaceDialog = async (photo: any) => {
+  activePhoto.value = photo
+  showFaceDialog.value = true
+  await loadFaces(photo.id)
+}
+
+const closeFaceDialog = () => {
+  showFaceDialog.value = false
+  faces.value = []
+  activePhoto.value = null
+}
+
+const loadFaces = async (photoId: number) => {
+  faceLoading.value = true
+  try {
+    const res = await api.get(`/admin/photos/${photoId}/faces`)
+    faces.value = res.data || []
+  } catch (e) {
+    console.error('加载人脸失败', e)
+  } finally {
+    faceLoading.value = false
+  }
+}
+
+const saveFace = async (face: any) => {
+  if (!face.id) return
+  savingFaceId.value = face.id
+  try {
+    await api.put(`/admin/faces/${face.id}`, {
+      name: face.personName || '',
+      description: face.personDescription || ''
+    })
+    if (activePhoto.value?.id) {
+      await loadFaces(activePhoto.value.id)
+    }
+  } catch (e) {
+    alert('保存失败')
+  } finally {
+    savingFaceId.value = null
+  }
 }
 
 const prev = () => {

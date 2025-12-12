@@ -3,6 +3,7 @@ package com.photoexhibition.controller;
 import com.photoexhibition.dto.AlbumDTO;
 import com.photoexhibition.entity.AdminUser;
 import com.photoexhibition.repository.AdminUserRepository;
+import com.photoexhibition.service.DataCleanupService;
 import com.photoexhibition.service.PhotoScanService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +22,7 @@ public class AdminController {
 
     private final PhotoScanService photoScanService;
     private final AdminUserRepository adminUserRepository;
+    private final DataCleanupService dataCleanupService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
@@ -37,6 +39,40 @@ public class AdminController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "扫描失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 强制重新扫描（忽略更新时间，重建缩略图、人脸、标签）
+     */
+    @PostMapping("/scan/force")
+    public ResponseEntity<Map<String, Object>> triggerForceScan(@RequestParam(required = false) String path) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String target = (path == null || path.isEmpty()) ? null : path;
+            photoScanService.rescanDirectoryAsync(target);
+            resp.put("message", "强制扫描任务已异步启动");
+            resp.put("path", target);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "强制扫描失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 全量回填图片哈希（SHA-256）
+     */
+    @PostMapping("/photos/hash-migrate")
+    public ResponseEntity<Map<String, Object>> migrateHashes() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            photoScanService.backfillHashesAsync();
+            resp.put("message", "哈希回填任务已异步启动");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "哈希回填失败");
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -126,5 +162,24 @@ public class AdminController {
             @RequestBody List<Long> photoIds) {
         // 实现批量操作逻辑
         return ResponseEntity.ok("批量操作完成");
+    }
+
+    /**
+     * 清理所有数据（只保留账号数据）
+     * 危险操作：会删除所有照片、相册、标签、人脸、人物等数据
+     */
+    @PostMapping("/cleanup/all")
+    public ResponseEntity<Map<String, Object>> cleanupAllData() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            dataCleanupService.cleanupAllData();
+            resp.put("message", "数据清理完成，已删除所有照片、相册、标签、人脸、人物数据，账号数据已保留");
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "数据清理失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
     }
 }

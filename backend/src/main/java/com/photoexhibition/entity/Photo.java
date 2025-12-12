@@ -1,8 +1,12 @@
 package com.photoexhibition.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import javax.persistence.*;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @Entity
 @Table(name = "photo")
@@ -29,6 +33,12 @@ public class Photo {
 
     @Column(name = "file_size")
     private Long fileSize;
+
+    @Column(name = "content_hash", length = 64, unique = true)
+    private String contentHash;
+
+    @Column(name = "path_hash", length = 64, unique = true)
+    private String pathHash;
 
     private Integer width;
     private Integer height;
@@ -80,6 +90,18 @@ public class Photo {
 
     @Column(name = "is_featured")
     private Boolean isFeatured = false;
+
+    @ManyToMany(fetch = FetchType.EAGER, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @JoinTable(
+        name = "photo_tag",
+        joinColumns = @JoinColumn(name = "photo_id"),
+        inverseJoinColumns = @JoinColumn(name = "tag_id")
+    )
+    private Set<Tag> tags = new HashSet<>();
+
+    @OneToMany(mappedBy = "photo", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JsonIgnore
+    private List<Face> faces;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

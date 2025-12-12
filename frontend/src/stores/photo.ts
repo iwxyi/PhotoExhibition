@@ -46,7 +46,25 @@ export interface Photo {
   viewCount: number
   isFeatured: boolean
   tags?: Tag[]
+  faces?: FaceFace[]
   createdAt: string
+}
+
+export interface FaceFace {
+  id: number
+  photoId?: number
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  confidence?: number
+  personId?: number
+  personName?: string
+  personDescription?: string
+  photoFilename?: string
+  photoThumbnailPath?: string
+  photoOriginalPath?: string
+  similarity?: number
 }
 
 export interface Tag {

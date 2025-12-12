@@ -1,0 +1,43 @@
+package com.photoexhibition.repository;
+
+import com.photoexhibition.entity.Face;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface FaceRepository extends JpaRepository<Face, Long> {
+
+    List<Face> findByPhotoId(Long photoId);
+
+    void deleteByPhotoId(Long photoId);
+
+    @Query("SELECT f FROM Face f LEFT JOIN f.person p LEFT JOIN f.photo ph " +
+           "WHERE (:keyword IS NULL OR :keyword = '' " +
+           "OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(ph.filename) LIKE LOWER(CONCAT('%', :keyword, '%')))")
+    Page<Face> searchFaces(@Param("keyword") String keyword, Pageable pageable);
+
+    Page<Face> findByPersonIsNull(Pageable pageable);
+
+    List<Face> findByPersonIsNull();
+
+    Page<Face> findByPersonIsNotNull(Pageable pageable);
+
+    Page<Face> findByPersonId(Long personId, Pageable pageable);
+
+    Page<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed, Pageable pageable);
+
+    @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person IS NULL AND p.albumId IN :albumIds")
+    List<Face> findByPersonIsNullAndPhotoAlbumIdIn(@Param("albumIds") java.util.Set<Long> albumIds);
+
+    Face findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(Long personId);
+
+    Face findTopByPersonIdOrderByCreatedAtDesc(Long personId);
+}
+

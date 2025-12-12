@@ -93,6 +93,32 @@
               </div>
             </div>
           </div>
+
+          <!-- 人物信息 -->
+          <div v-if="photo.faces && photo.faces.length" class="border-t border-gray-200 dark:border-gray-800 pt-6">
+            <h2 class="text-lg font-light mb-4">人物</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div
+                v-for="face in photo.faces"
+                :key="face.id"
+                class="bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3 flex gap-3"
+              >
+                <div class="w-20 h-20 bg-gray-700 rounded overflow-hidden relative">
+                  <img :src="getFaceThumb(face)" class="absolute" :style="getFaceCropStyle(face)" loading="lazy" />
+                </div>
+                <div class="flex-1 space-y-2 text-sm">
+                  <div class="text-gray-200">
+                    <span class="text-gray-500 dark:text-gray-400 text-xs block">人物</span>
+                    {{ face.personName || '未标注' }}
+                  </div>
+                  <div class="text-gray-200">
+                    <span class="text-gray-500 dark:text-gray-400 text-xs block">备注</span>
+                    {{ face.personDescription || '—' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -111,8 +137,30 @@ const photo = computed(() => photoStore.currentPhoto)
 const loading = computed(() => photoStore.loading)
 
 const getImageUrl = (photo: any) => {
-  // 详情页显示原图
   return `/api/files${photo.originalPath}`
+}
+
+const getFaceCropStyle = (face: any) => {
+  if (!face?.width || !face?.height || face.width <= 0 || face.height <= 0) {
+    return { position: 'absolute', inset: 0, objectFit: 'cover' }
+  }
+  const scale = Math.max(1 / face.width, 1 / face.height)
+  const left = -(face.x || 0) * scale * 100
+  const top = -(face.y || 0) * scale * 100
+  return {
+    position: 'absolute',
+    width: `${scale * 100}%`,
+    height: `${scale * 100}%`,
+    left: `${left}%`,
+    top: `${top}%`,
+    objectFit: 'cover'
+  }
+}
+
+const getFaceThumb = (face: any) => {
+  if (face?.photoThumbnailPath) return `/api/files${face.photoThumbnailPath}`
+  if (photo.value?.thumbnailPath) return `/api/files${photo.value.thumbnailPath}`
+  return photo.value ? `/api/files${photo.value.originalPath}` : ''
 }
 
 onMounted(async () => {

@@ -1,0 +1,183 @@
+<template>
+  <div class="min-h-screen bg-gray-900 text-white">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-2xl font-light">人脸管理</h1>
+          <p class="text-sm text-gray-400 mt-1">查看检测到的人脸，显示人物归属</p>
+        </div>
+        <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
+      </div>
+
+      <div class="bg-gray-800 rounded-lg p-4 mb-6">
+        <div class="flex flex-wrap gap-4 items-center">
+          <input
+            v-model="keyword"
+            placeholder="搜索姓名或文件名"
+            class="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+            @keyup.enter="load"
+          />
+          <button @click="load" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50">
+            {{ loading ? '加载中...' : '搜索' }}
+          </button>
+          <button @click="resetSearch" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">重置</button>
+        </div>
+      </div>
+
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-400">
+              <tr>
+                <th class="py-2 pr-4">ID</th>
+                <th class="py-2 pr-4">预览</th>
+                <th class="py-2 pr-4">文件名</th>
+                <th class="py-2 pr-4">人物</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="face in faces" :key="face.id" class="border-t border-gray-700">
+                <td class="py-3 pr-4">{{ face.id }}</td>
+                <td class="py-3 pr-4">
+                  <div class="w-20 h-20 bg-gray-700 rounded overflow-hidden relative">
+                    <img
+                      v-if="face.photoThumbnailPath"
+                      :src="getImageUrl(face.photoThumbnailPath)"
+                      :alt="face.photoFilename"
+                      class="absolute"
+                      :style="getFaceCropStyle(face)"
+                      loading="lazy"
+                    />
+                    <span v-else class="text-gray-500 text-xs flex items-center justify-center h-full">无缩略图</span>
+                  </div>
+                </td>
+                <td class="py-3 pr-4">
+                  <div class="flex flex-col">
+                    <span class="truncate max-w-[160px]" :title="face.photoFilename">{{ face.photoFilename || '-' }}</span>
+                    <button v-if="face.photoId" @click="openPhoto(face.photoId)" class="text-blue-400 text-xs mt-1 hover:underline">
+                      查看图片
+                    </button>
+                  </div>
+                </td>
+                <td class="py-3 pr-4 text-gray-200">
+                  {{ face.personName || '未分配' }}
+                </td>
+              </tr>
+              <tr v-if="!faces.length && !loading">
+                <td colspan="4" class="py-6 text-center text-gray-400">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
+          <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
+          <div class="space-x-2">
+            <button @click="prev" :disabled="page === 0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50">上一页</button>
+            <button @click="next" :disabled="page >= totalPages - 1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50">下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { api } from '@/api'
+
+interface FaceItem {
+  id: number
+  photoId?: number
+  photoFilename?: string
+  photoThumbnailPath?: string
+  photoOriginalPath?: string
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  personName?: string
+}
+
+const faces = ref<FaceItem[]>([])
+const loading = ref(false)
+const page = ref(0)
+const size = ref(10)
+const totalPages = ref(1)
+const keyword = ref('')
+
+const load = async () => {
+  loading.value = true
+  try {
+    const params: any = { page: page.value, size: size.value }
+    if (keyword.value.trim()) {
+      params.keyword = keyword.value.trim()
+    }
+    const res = await api.get('/admin/faces', { params })
+    faces.value = res.data.content || res.data || []
+    totalPages.value = res.data.totalPages ?? 1
+  } finally {
+    loading.value = false
+  }
+}
+
+const resetSearch = () => {
+  keyword.value = ''
+  page.value = 0
+  load()
+}
+
+const prev = () => {
+  if (page.value === 0) return
+  page.value -= 1
+  load()
+}
+
+const next = () => {
+  if (page.value >= totalPages.value - 1) return
+  page.value += 1
+  load()
+}
+
+const getImageUrl = (path?: string) => {
+  if (!path) return ''
+  return path.startsWith('http') ? path : `/api/files${path}`
+}
+
+const getFaceCropStyle = (face: FaceItem) => {
+  const hasSize = face.width && face.height && face.width > 0 && face.height > 0
+  const thumb = face.photoThumbnailPath || face.photoOriginalPath
+  if (!thumb || !hasSize) {
+    return { position: 'absolute', inset: 0, objectFit: 'cover' }
+  }
+  const w = Math.min(1, Math.max(0.06, face.width!))
+  const h = Math.min(1, Math.max(0.06, face.height!))
+  // 限制最大放大倍数，避免超大偏移空白
+  const scale = Math.min(2.5, Math.max(1, Math.max(1 / w, 1 / h)))
+  const left = clamp((-(face.x || 0) * scale * 100), -120, 120)
+  const top = clamp((-(face.y || 0) * scale * 100), -120, 120)
+  return {
+    position: 'absolute',
+    width: `${scale * 100}%`,
+    height: `${scale * 100}%`,
+    left: `${left}%`,
+    top: `${top}%`,
+    objectFit: 'cover'
+  }
+}
+
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+
+const openPhoto = (photoId: number) => {
+  window.open(`/photo/${photoId}`, '_blank')
+}
+
+onMounted(() => load())
+</script>
+
+<style scoped>
+textarea {
+  resize: vertical;
+}
+</style>
+

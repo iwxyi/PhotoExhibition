@@ -89,3 +89,14 @@ jwt:
   secret: photo-exhibition-secret-key-change-in-production-environment
   expiration: 86400000 # 24小时（毫秒）
 
+# 人脸识别配置
+face:
+  # 人脸检测模型配置（ONNX格式，如RetinaFace）
+  detection:
+    enabled: true  # 设置为true启用专业检测模型，需要下载对应的ONNX模型文件
+    model-path: ./models/face_detection.onnx  # 检测模型路径
+    confidence-threshold: 0.5  # 检测置信度阈值
+    nms-threshold: 0.4  # 非极大值抑制阈值
+  # 人脸特征提取模型配置（用于识别）
+  embedding:
+    model-path: ./models/face_recognition.onnx  # 特征提取模型路径（R50/R100等）
