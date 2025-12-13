@@ -297,7 +297,7 @@ public class PhotoScanService {
             } else {
             log.error("处理相册目录失败: {}", albumPath, e);
             }
-        }
+        }ç
     }
 
     /**

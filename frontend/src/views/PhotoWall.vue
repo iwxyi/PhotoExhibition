@@ -92,7 +92,7 @@ const viewerIndex = ref(0)
 const savedScrollTop = ref(0)
 const masonryContainer = ref<HTMLElement | null>(null)
 const isLoadingMore = ref(false)
-const { previewSize } = useUiSettings()
+const { previewSize, parallaxEnabled } = useUiSettings()
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
 const itemRefs = ref<(HTMLElement | null)[]>([])
 const columnHeights = ref<number[]>([])
@@ -154,7 +154,7 @@ const getItemStyle = (idx: number) => {
 
 // 获取图片样式（包含视差偏移和放大）
 const getImageStyle = (idx: number) => {
-  const parallaxOffset = parallaxOffsets.value[idx] || 0
+  const parallaxOffset = parallaxEnabled.value ? (parallaxOffsets.value[idx] || 0) : 0
   // 放大图片以填充容器并允许视差滚动显示不同部分
   // 增加基础放大比例以消除白边
   const baseScale = 1.2
@@ -162,7 +162,7 @@ const getImageStyle = (idx: number) => {
   // 根据图片位置和视差偏移动态调整放大比例
   // 如果图片向上偏移（parallaxOffset < 0），需要更大的放大比例来填充下方
   // 如果图片向下偏移（parallaxOffset > 0），需要更大的放大比例来填充上方
-  const offsetScale = Math.abs(parallaxOffset) > 0 ? 0.05 : 0
+  const offsetScale = parallaxEnabled.value && Math.abs(parallaxOffset) > 0 ? 0.05 : 0
   const scale = baseScale + offsetScale
   
   return {
@@ -196,6 +196,13 @@ watch(() => photos.value.length, () => {
 watch(columnCount, () => {
   nextTick(() => {
     layoutItems()
+  })
+})
+
+// 监听视差滚动开关变化
+watch(parallaxEnabled, () => {
+  nextTick(() => {
+    updateParallax()
   })
 })
 
@@ -342,7 +349,11 @@ const loadMore = async () => {
 
 // 计算视差偏移
 const updateParallax = () => {
-  if (!masonryContainer.value || itemPositions.value.length === 0) return
+  if (!masonryContainer.value || itemPositions.value.length === 0 || !parallaxEnabled.value) {
+    // 如果视差滚动被禁用，清空所有偏移
+    parallaxOffsets.value = new Array(itemPositions.value.length).fill(0)
+    return
+  }
   
   const scrollTop = window.scrollY || document.documentElement.scrollTop
   const windowHeight = window.innerHeight

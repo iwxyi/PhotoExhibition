@@ -252,5 +252,28 @@ public class FaceController {
         faceService.deletePerson(id);
         return ResponseEntity.ok(Map.of("message", "人物已删除"));
     }
+
+    /**
+     * 检查移除已确认人脸后，哪些自动分配人脸需要清理
+     */
+    @GetMapping("/persons/{personId}/faces/to-cleanup")
+    public ResponseEntity<List<Long>> findFacesToCleanup(
+            @PathVariable Long personId,
+            @RequestParam Long removedFaceId) {
+        return ResponseEntity.ok(faceService.findFacesToCleanupAfterRemoval(personId, removedFaceId));
+    }
+
+    /**
+     * 批量解绑人脸
+     */
+    @PostMapping("/faces/batch-unassign")
+    public ResponseEntity<Map<String, String>> batchUnassignFaces(@RequestBody Map<String, List<Long>> payload) {
+        List<Long> faceIds = payload.get("faceIds");
+        if (faceIds == null || faceIds.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "人脸ID列表不能为空"));
+        }
+        faceService.unassignFaces(faceIds);
+        return ResponseEntity.ok(Map.of("message", "已批量解绑 " + faceIds.size() + " 个人脸"));
+    }
 }
 

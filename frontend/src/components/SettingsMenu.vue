@@ -51,19 +51,38 @@
           </button>
         </div>
       </div>
+      <div v-if="isPhotoWall">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">视差滚动</span>
+          <button
+            @click="setParallaxEnabled(!parallaxEnabled)"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+            :class="parallaxEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+          >
+            <span
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+              :class="parallaxEnabled ? 'translate-x-6' : 'translate-x-1'"
+            ></span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useUiSettings } from '@/composables/useUiSettings'
 
 const router = useRouter()
+const route = useRoute()
 const showSettings = ref(false)
 
-const { coverSize, previewSize, setCoverSize, setPreviewSize } = useUiSettings()
+const { coverSize, previewSize, parallaxEnabled, setCoverSize, setPreviewSize, setParallaxEnabled } = useUiSettings()
+
+// 判断是否在图墙页面
+const isPhotoWall = computed(() => route.path === '/wall')
 
 const coverOptions = [
   { value: 'sm', label: '小' },

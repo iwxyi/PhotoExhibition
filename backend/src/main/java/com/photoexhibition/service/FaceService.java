@@ -163,6 +163,8 @@ public class FaceService {
         if (personId == null) {
             face.setPerson(null);
             face.setIsConfirmed(false);
+            faceRepository.save(face);
+            // 不再自动清理，需要前端调用检查接口并确认
         } else {
             PersonProfile person = personProfileRepository.findById(personId)
                 .orElseThrow(() -> new RuntimeException("人物不存在"));
@@ -170,8 +172,213 @@ public class FaceService {
             if (confirmed != null) {
                 face.setIsConfirmed(confirmed);
             }
+            faceRepository.save(face);
         }
-        return toDTO(faceRepository.save(face));
+        return toDTO(face);
+    }
+
+    /**
+     * 检查移除已确认人脸后，哪些自动分配人脸需要清理
+     * @param personId 人物ID
+     * @param removedFaceId 已移除的人脸ID
+     * @return 需要解绑的人脸ID列表
+     */
+    @Transactional(readOnly = true)
+    public List<Long> findFacesToCleanupAfterRemoval(Long personId, Long removedFaceId) {
+        List<Long> result = new ArrayList<>();
+        
+        // 获取该人物的剩余已确认人脸
+        List<Face> remainingConfirmed = faceRepository.findByPersonIdAndIsConfirmed(personId, true, PageRequest.of(0, 1000))
+            .getContent();
+        
+        // 如果没有剩余已确认人脸，则所有自动分配的人脸都需要解绑
+        if (remainingConfirmed.isEmpty()) {
+            List<Face> autoAssigned = faceRepository.findByPersonIdAndIsConfirmed(personId, false, PageRequest.of(0, 1000))
+                .getContent();
+            return autoAssigned.stream().map(Face::getId).collect(Collectors.toList());
+        }
+
+        // 获取已移除的人脸向量
+        Face removedFace = faceRepository.findById(removedFaceId).orElse(null);
+        if (removedFace == null || removedFace.getEmbedding() == null || removedFace.getEmbedding().isEmpty()) {
+            return result;
+        }
+        float[] removedVec = parseEmbedding(removedFace.getEmbedding());
+        if (removedVec == null) return result;
+
+        // 计算剩余已确认人脸的平均向量
+        List<float[]> confirmedVectors = new ArrayList<>();
+        for (Face confirmed : remainingConfirmed) {
+            if (confirmed.getEmbedding() == null || confirmed.getEmbedding().isEmpty()) continue;
+            float[] vec = parseEmbedding(confirmed.getEmbedding());
+            if (vec != null) {
+                confirmedVectors.add(vec);
+            }
+        }
+        if (confirmedVectors.isEmpty()) return result;
+
+        // 计算平均向量
+        int dim = confirmedVectors.get(0).length;
+        float[] avgVec = new float[dim];
+        for (float[] vec : confirmedVectors) {
+            for (int i = 0; i < dim; i++) {
+                avgVec[i] += vec[i];
+            }
+        }
+        int count = confirmedVectors.size();
+        for (int i = 0; i < dim; i++) {
+            avgVec[i] /= count;
+        }
+        // 归一化
+        double norm = 0;
+        for (float v : avgVec) {
+            norm += v * v;
+        }
+        norm = Math.sqrt(norm);
+        if (norm > 1e-6) {
+            for (int i = 0; i < dim; i++) {
+                avgVec[i] /= (float) norm;
+            }
+        }
+
+        // 获取该人物的自动分配人脸
+        List<Face> autoAssigned = faceRepository.findByPersonIdAndIsConfirmed(personId, false, PageRequest.of(0, 1000))
+            .getContent();
+
+        // 检查每个自动分配的人脸
+        for (Face autoFace : autoAssigned) {
+            if (autoFace.getEmbedding() == null || autoFace.getEmbedding().isEmpty()) continue;
+            float[] autoVec = parseEmbedding(autoFace.getEmbedding());
+            if (autoVec == null) continue;
+
+            // 计算与已移除人脸的相似度
+            double simToRemoved = cosine(autoVec, removedVec);
+            
+            // 计算与剩余已确认人脸平均向量的相似度
+            double simToRemaining = cosine(autoVec, avgVec);
+
+            // 如果与已移除人脸的相似度 >= 0.75，但与剩余已确认人脸的相似度 < 0.6，则需要解绑
+            if (simToRemoved >= 0.75 && simToRemaining < 0.6) {
+                result.add(autoFace.getId());
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * 批量解绑人脸
+     * @param faceIds 要解绑的人脸ID列表
+     */
+    @Transactional
+    public void unassignFaces(List<Long> faceIds) {
+        for (Long faceId : faceIds) {
+            Face face = faceRepository.findById(faceId).orElse(null);
+            if (face != null) {
+                face.setPerson(null);
+                face.setIsConfirmed(false);
+                faceRepository.save(face);
+            }
+        }
+        log.info("已批量解绑 {} 个人脸", faceIds.size());
+    }
+
+    /**
+     * 移除已确认人脸后，清理只与该人脸相似的自动分配人脸（已废弃，改为需要用户确认）
+     * @param personId 人物ID
+     * @param removedFaceId 已移除的人脸ID
+     */
+    @Deprecated
+    @SuppressWarnings("unused")
+    private void cleanupAutoAssignedFacesAfterRemoval(Long personId, Long removedFaceId) {
+        // 获取该人物的剩余已确认人脸
+        List<Face> remainingConfirmed = faceRepository.findByPersonIdAndIsConfirmed(personId, true, PageRequest.of(0, 1000))
+            .getContent();
+        
+        // 如果没有剩余已确认人脸，则解绑所有自动分配的人脸
+        if (remainingConfirmed.isEmpty()) {
+            List<Face> autoAssigned = faceRepository.findByPersonIdAndIsConfirmed(personId, false, PageRequest.of(0, 1000))
+                .getContent();
+            for (Face autoFace : autoAssigned) {
+                autoFace.setPerson(null);
+                autoFace.setIsConfirmed(false);
+                faceRepository.save(autoFace);
+            }
+            if (!autoAssigned.isEmpty()) {
+                log.info("已移除人物 {} 的所有自动分配人脸（无剩余已确认人脸）", personId);
+            }
+            return;
+        }
+
+        // 获取已移除的人脸向量
+        Face removedFace = faceRepository.findById(removedFaceId).orElse(null);
+        if (removedFace == null || removedFace.getEmbedding() == null || removedFace.getEmbedding().isEmpty()) {
+            return;
+        }
+        float[] removedVec = parseEmbedding(removedFace.getEmbedding());
+        if (removedVec == null) return;
+
+        // 计算剩余已确认人脸的平均向量
+        List<float[]> confirmedVectors = new ArrayList<>();
+        for (Face confirmed : remainingConfirmed) {
+            if (confirmed.getEmbedding() == null || confirmed.getEmbedding().isEmpty()) continue;
+            float[] vec = parseEmbedding(confirmed.getEmbedding());
+            if (vec != null) {
+                confirmedVectors.add(vec);
+            }
+        }
+        if (confirmedVectors.isEmpty()) return;
+
+        // 计算平均向量
+        int dim = confirmedVectors.get(0).length;
+        float[] avgVec = new float[dim];
+        for (float[] vec : confirmedVectors) {
+            for (int i = 0; i < dim; i++) {
+                avgVec[i] += vec[i];
+            }
+        }
+        int count = confirmedVectors.size();
+        for (int i = 0; i < dim; i++) {
+            avgVec[i] /= count;
+        }
+        // 归一化
+        double norm = 0;
+        for (float v : avgVec) {
+            norm += v * v;
+        }
+        norm = Math.sqrt(norm);
+        if (norm > 1e-6) {
+            for (int i = 0; i < dim; i++) {
+                avgVec[i] /= (float) norm;
+            }
+        }
+
+        // 获取该人物的自动分配人脸
+        List<Face> autoAssigned = faceRepository.findByPersonIdAndIsConfirmed(personId, false, PageRequest.of(0, 1000))
+            .getContent();
+
+        // 检查每个自动分配的人脸
+        for (Face autoFace : autoAssigned) {
+            if (autoFace.getEmbedding() == null || autoFace.getEmbedding().isEmpty()) continue;
+            float[] autoVec = parseEmbedding(autoFace.getEmbedding());
+            if (autoVec == null) continue;
+
+            // 计算与已移除人脸的相似度
+            double simToRemoved = cosine(autoVec, removedVec);
+            
+            // 计算与剩余已确认人脸平均向量的相似度
+            double simToRemaining = cosine(autoVec, avgVec);
+
+            // 如果与已移除人脸的相似度 >= 0.75，但与剩余已确认人脸的相似度 < 0.6，则解绑
+            // 说明这个自动分配的人脸主要是基于已移除的人脸分配的
+            if (simToRemoved >= 0.75 && simToRemaining < 0.6) {
+                autoFace.setPerson(null);
+                autoFace.setIsConfirmed(false);
+                faceRepository.save(autoFace);
+                log.debug("已自动解绑人脸 {}（只与已移除人脸相似，相似度={}，与剩余人脸相似度={}）", 
+                    autoFace.getId(), String.format("%.2f", simToRemoved), String.format("%.2f", simToRemaining));
+            }
+        }
     }
 
     /**
@@ -900,12 +1107,12 @@ public class FaceService {
             personProfileRepository.save(person);
         }
 
-        // 绑定所有人脸（创建时默认为已确认）
+        // 绑定所有人脸（创建时默认为自动分配，用户需要手动确认）
         for (Long faceId : faceIds) {
             Face face = faceRepository.findById(faceId)
                 .orElseThrow(() -> new RuntimeException("人脸不存在: " + faceId));
             face.setPerson(person);
-            face.setIsConfirmed(true); // 创建时默认为已确认
+            face.setIsConfirmed(false); // 创建时默认为自动分配，用户需要手动确认
             faceRepository.save(face);
         }
 

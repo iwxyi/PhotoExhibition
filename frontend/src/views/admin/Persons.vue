@@ -52,7 +52,7 @@
                 @keyup.esc="cancelEdit"
                 class="w-full px-1.5 py-0.5 bg-gray-600 border border-blue-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
                 @click.stop
-                ref="nameInput"
+                :ref="el => { if (editingPersonId === p.id && el) (el as HTMLInputElement).focus() }"
               />
               <div
                 v-else
@@ -89,7 +89,7 @@
                 @keyup.esc="cancelEdit"
                 class="w-full px-1.5 py-0.5 bg-gray-600 border border-yellow-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-500"
                 @click.stop
-                ref="nameInput"
+                :ref="el => { if (editingPersonId === p.id && el) (el as HTMLInputElement).focus() }"
                 placeholder="输入姓名"
               />
               <div
@@ -142,68 +142,111 @@
           请从左侧选择一个人物
         </div>
         <div v-else class="flex-1 flex flex-col overflow-hidden">
-          <div class="flex gap-1 mb-3 border-b border-gray-700 flex-shrink-0 overflow-x-auto">
-            <button
-              v-if="selectedItem.type === 'confirmed'"
-              class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-              :class="tab === 'confirmed' ? 'bg-gray-700 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'"
-              @click="tab = 'confirmed'"
-            >
-              已确认 ({{ confirmedFaces.length }})
-            </button>
-            <button
-              v-if="selectedItem.type === 'confirmed'"
-              class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-              :class="tab === 'auto' ? 'bg-gray-700 text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-gray-200'"
-              @click="tab = 'auto'"
-            >
-              自动分配 ({{ autoAssignedFaces.length }})
-            </button>
-            <button
-              v-if="selectedItem.type === 'confirmed'"
-              class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-              :class="tab === 'similar' ? 'bg-gray-700 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:text-gray-200'"
-              @click="tab = 'similar'"
-            >
-              相似推荐 ({{ similarFaces.length }})
-            </button>
-            <button
-              v-if="selectedItem.type === 'confirmed'"
-              class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-              :class="tab === 'sameFolder' ? 'bg-gray-700 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:text-gray-200'"
-              @click="tab = 'sameFolder'"
-            >
-              套图推荐 ({{ sameFolderFaces.length }})
-            </button>
-            <button
-              class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-              :class="tab === 'unassigned' ? 'bg-gray-700 text-gray-300 border-b-2 border-gray-300' : 'text-gray-400 hover:text-gray-200'"
-              @click="tab = 'unassigned'"
-            >
-              未分配 ({{ unassignedFaces.length }})
-            </button>
+          <div class="flex gap-1 mb-3 border-b border-gray-700 flex-shrink-0 overflow-x-auto items-center">
+            <div class="flex gap-1 flex-1 overflow-x-auto">
+              <button
+                v-if="selectedItem.type === 'confirmed' || selectedItem.type === 'cluster'"
+                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'confirmed' ? 'bg-gray-700 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'"
+                @click="tab = 'confirmed'"
+              >
+                <template v-if="selectedItem.type === 'confirmed'">已确认 ({{ confirmedFaces.length }})</template>
+                <template v-else>聚类 ({{ personFaces.length }})</template>
+              </button>
+              <button
+                v-if="selectedItem.type === 'confirmed'"
+                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'auto' ? 'bg-gray-700 text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-gray-200'"
+                @click="tab = 'auto'"
+              >
+                自动分配 ({{ autoAssignedFaces.length }})
+              </button>
+              <button
+                v-if="selectedItem.type === 'confirmed'"
+                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'similar' ? 'bg-gray-700 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:text-gray-200'"
+                @click="tab = 'similar'"
+              >
+                相似推荐 ({{ similarFaces.length }})
+              </button>
+              <button
+                v-if="selectedItem.type === 'confirmed'"
+                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'sameFolder' ? 'bg-gray-700 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                @click="tab = 'sameFolder'"
+              >
+                套图推荐 ({{ sameFolderFaces.length }})
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'unassigned' ? 'bg-gray-700 text-gray-300 border-b-2 border-gray-300' : 'text-gray-400 hover:text-gray-200'"
+                @click="tab = 'unassigned'"
+              >
+                未分配 ({{ unassignedFaces.length }})
+              </button>
+            </div>
           </div>
 
           <!-- Tab内容 -->
           <div class="flex-1 overflow-y-auto pr-1">
             <!-- 已确认照片 -->
             <div v-if="tab === 'confirmed' && selectedItem.type === 'confirmed'">
-              <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+              <div class="mb-2 flex items-center justify-between">
+                <span class="text-xs text-gray-400">已确认的人脸</span>
+                <div class="flex gap-2">
+                  <button
+                    @click="selectAllCurrentTab"
+                    :disabled="confirmedFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    @click="invertSelection('confirmed')"
+                    :disabled="confirmedFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
+                    @click="removeSelectedConfirmed"
+                    :disabled="selectedConfirmed.size === 0"
+                    class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    移除<template v-if="selectedConfirmed.size > 0"> ({{ selectedConfirmed.size }})</template>
+                  </button>
+                </div>
+              </div>
+              <div 
+                ref="confirmedContainer"
+                class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
+                @mousedown="handleMouseDown($event, 'confirmed')"
+                @mousemove="handleMouseMove($event, 'confirmed')"
+                @mouseup="handleMouseUp($event, 'confirmed')"
+                @mouseleave="handleMouseUp($event, 'confirmed')"
+              >
                 <div
-                  v-for="f in confirmedFaces"
+                  v-for="(f, index) in confirmedFaces"
                   :key="f.id"
-                  class="bg-gray-700 rounded overflow-hidden border border-gray-600 relative group"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedConfirmed.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
+                  @click="handleFaceClick($event, f.id, 'confirmed')"
                 >
+                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
+                    <input type="checkbox" :checked="selectedConfirmed.has(f.id)" @change.stop="toggleSelectConfirmed(f.id)" />
+                  </label>
                   <div class="relative h-32 bg-gray-800 overflow-hidden">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
-                      class="w-full h-full object-cover"
+                      class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
                     <button
-                      @click="unassignFace(f.id)"
+                      @click.stop="unassignFace(f.id)"
                       class="absolute top-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       移除
@@ -211,9 +254,15 @@
                   </div>
                   <div class="p-1.5">
                     <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
                   </div>
                 </div>
+                <!-- 框选遮罩 -->
+                <div
+                  v-if="isSelecting && currentTab === 'confirmed'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
               </div>
               <div v-if="confirmedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无已确认照片</div>
             </div>
@@ -222,34 +271,67 @@
             <div v-if="tab === 'auto' && selectedItem.type === 'confirmed'">
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs text-gray-400">自动分配的人脸（相似度≥75%）</span>
-                <button
-                  @click="confirmSelectedAuto"
-                  :disabled="selectedAuto.size === 0"
-                  class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
-                >
-                  批量确认 ({{ selectedAuto.size }})
-                </button>
+                <div class="flex gap-2">
+                  <button
+                    @click="selectAllCurrentTab"
+                    :disabled="autoAssignedFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    @click="invertSelection('auto')"
+                    :disabled="autoAssignedFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
+                    @click="confirmSelectedAuto"
+                    :disabled="selectedAuto.size === 0"
+                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    认领<template v-if="selectedAuto.size > 0"> ({{ selectedAuto.size }})</template>
+                  </button>
+                  <button
+                    @click="removeSelectedAuto"
+                    :disabled="selectedAuto.size === 0"
+                    class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    移除<template v-if="selectedAuto.size > 0"> ({{ selectedAuto.size }})</template>
+                  </button>
+                </div>
               </div>
-              <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+              <div 
+                ref="autoContainer"
+                class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
+                @mousedown="handleMouseDown($event, 'auto')"
+                @mousemove="handleMouseMove($event, 'auto')"
+                @mouseup="handleMouseUp($event, 'auto')"
+                @mouseleave="handleMouseUp($event, 'auto')"
+              >
                 <div
-                  v-for="f in autoAssignedFaces"
+                  v-for="(f, index) in autoAssignedFaces"
                   :key="f.id"
-                  class="bg-gray-700 rounded overflow-hidden border border-orange-600/50 relative group"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedAuto.has(f.id) ? 'border-2 border-blue-500' : 'border-orange-600/50'"
+                  @click="handleFaceClick($event, f.id, 'auto')"
                 >
                   <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" class="mr-0.5" :checked="selectedAuto.has(f.id)" @change="toggleSelectAuto(f.id)" />
-                    选
+                    <input type="checkbox" :checked="selectedAuto.has(f.id)" @change.stop="toggleSelectAuto(f.id)" />
                   </label>
                   <div class="relative h-32 bg-gray-800 overflow-hidden">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
-                      class="w-full h-full object-cover"
+                      class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
                     <button
-                      @click="confirmFace(f.id)"
+                      @click.stop="confirmFace(f.id)"
                       class="absolute bottom-1 right-1 bg-green-600 hover:bg-green-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       确认
@@ -257,9 +339,15 @@
                   </div>
                   <div class="p-1.5">
                     <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
                   </div>
                 </div>
+                <!-- 框选遮罩 -->
+                <div
+                  v-if="isSelecting && currentTab === 'auto'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
               </div>
               <div v-if="autoAssignedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无自动分配照片</div>
             </div>
@@ -268,23 +356,49 @@
             <div v-if="tab === 'similar' && selectedItem.type === 'confirmed'">
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs text-gray-400">按相似度排序的可能照片（60%-75%）</span>
-                <button
-                  @click="assignSelectedSimilar"
-                  :disabled="selectedSimilar.size === 0"
-                  class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
-                >
-                  批量认领 ({{ selectedSimilar.size }})
-                </button>
+                <div class="flex gap-2">
+                  <button
+                    @click="selectAllCurrentTab"
+                    :disabled="similarFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    @click="invertSelection('similar')"
+                    :disabled="similarFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
+                    @click="assignSelectedSimilar"
+                    :disabled="selectedSimilar.size === 0"
+                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    认领<template v-if="selectedSimilar.size > 0"> ({{ selectedSimilar.size }})</template>
+                  </button>
+                </div>
               </div>
-              <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+              <div 
+                ref="similarContainer"
+                class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
+                @mousedown="handleMouseDown($event, 'similar')"
+                @mousemove="handleMouseMove($event, 'similar')"
+                @mouseup="handleMouseUp($event, 'similar')"
+                @mouseleave="handleMouseUp($event, 'similar')"
+              >
                 <div
-                  v-for="f in similarFaces"
+                  v-for="(f, index) in similarFaces"
                   :key="f.id"
-                  class="bg-gray-700 rounded overflow-hidden border border-green-600/50 relative group"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedSimilar.has(f.id) ? 'border-2 border-blue-500' : 'border-green-600/50'"
+                  @click="handleFaceClick($event, f.id, 'similar')"
                 >
                   <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" class="mr-0.5" :checked="selectedSimilar.has(f.id)" @change="toggleSelectSimilar(f.id)" />
-                    选
+                    <input type="checkbox" :checked="selectedSimilar.has(f.id)" @change.stop="toggleSelectSimilar(f.id)" />
                   </label>
                   <div class="absolute top-1 right-1 bg-green-600/80 px-1.5 py-0.5 rounded text-[10px] z-10">
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
@@ -293,12 +407,12 @@
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
-                      class="w-full h-full object-cover"
+                      class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
                     <button
-                      @click="assignFace(f.id, false)"
+                      @click.stop="assignFace(f.id, false)"
                       class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
@@ -306,9 +420,15 @@
                   </div>
                   <div class="p-1.5">
                     <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
                   </div>
                 </div>
+                <!-- 框选遮罩 -->
+                <div
+                  v-if="isSelecting && currentTab === 'similar'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
               </div>
               <div v-if="similarFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无相似推荐</div>
             </div>
@@ -317,23 +437,49 @@
             <div v-if="tab === 'sameFolder' && selectedItem.type === 'confirmed'">
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs text-gray-400">同一文件夹的相似人脸（50%-60%）</span>
-                <button
-                  @click="assignSelectedSameFolder"
-                  :disabled="selectedSameFolder.size === 0"
-                  class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
-                >
-                  批量认领 ({{ selectedSameFolder.size }})
-                </button>
+                <div class="flex gap-2">
+                  <button
+                    @click="selectAllCurrentTab"
+                    :disabled="sameFolderFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    @click="invertSelection('sameFolder')"
+                    :disabled="sameFolderFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
+                    @click="assignSelectedSameFolder"
+                    :disabled="selectedSameFolder.size === 0"
+                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    认领<template v-if="selectedSameFolder.size > 0"> ({{ selectedSameFolder.size }})</template>
+                  </button>
+                </div>
               </div>
-              <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+              <div 
+                ref="sameFolderContainer"
+                class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
+                @mousedown="handleMouseDown($event, 'sameFolder')"
+                @mousemove="handleMouseMove($event, 'sameFolder')"
+                @mouseup="handleMouseUp($event, 'sameFolder')"
+                @mouseleave="handleMouseUp($event, 'sameFolder')"
+              >
                 <div
-                  v-for="f in sameFolderFaces"
+                  v-for="(f, index) in sameFolderFaces"
                   :key="f.id"
-                  class="bg-gray-700 rounded overflow-hidden border border-purple-600/50 relative group"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedSameFolder.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50'"
+                  @click="handleFaceClick($event, f.id, 'sameFolder')"
                 >
                   <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" class="mr-0.5" :checked="selectedSameFolder.has(f.id)" @change="toggleSelectSameFolder(f.id)" />
-                    选
+                    <input type="checkbox" :checked="selectedSameFolder.has(f.id)" @change.stop="toggleSelectSameFolder(f.id)" />
                   </label>
                   <div class="absolute top-1 right-1 bg-purple-600/80 px-1.5 py-0.5 rounded text-[10px] z-10">
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
@@ -342,12 +488,12 @@
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
-                      class="w-full h-full object-cover"
+                      class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
                     <button
-                      @click="assignFace(f.id, false)"
+                      @click.stop="assignFace(f.id, false)"
                       class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
@@ -355,9 +501,15 @@
                   </div>
                   <div class="p-1.5">
                     <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
                   </div>
                 </div>
+                <!-- 框选遮罩 -->
+                <div
+                  v-if="isSelecting && currentTab === 'sameFolder'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
               </div>
               <div v-if="sameFolderFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无套图推荐</div>
             </div>
@@ -366,36 +518,61 @@
             <div v-if="tab === 'unassigned'">
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs text-gray-400">所有未分配的照片</span>
-                <button
-                  v-if="selectedItem.type === 'confirmed'"
-                  @click="assignSelectedUnassigned"
-                  :disabled="selectedUnassigned.size === 0"
-                  class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
-                >
-                  批量认领 ({{ selectedUnassigned.size }})
-                </button>
+                <div v-if="selectedItem.type === 'confirmed'" class="flex gap-2">
+                  <button
+                    @click="selectAllCurrentTab"
+                    :disabled="unassignedFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    @click="invertSelection('unassigned')"
+                    :disabled="unassignedFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
+                    @click="assignSelectedUnassigned"
+                    :disabled="selectedUnassigned.size === 0"
+                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    认领<template v-if="selectedUnassigned.size > 0"> ({{ selectedUnassigned.size }})</template>
+                  </button>
+                </div>
               </div>
-              <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+              <div 
+                ref="unassignedContainer"
+                class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
+                @mousedown="handleMouseDown($event, 'unassigned')"
+                @mousemove="handleMouseMove($event, 'unassigned')"
+                @mouseup="handleMouseUp($event, 'unassigned')"
+                @mouseleave="handleMouseUp($event, 'unassigned')"
+              >
                 <div
-                  v-for="f in unassignedFaces"
+                  v-for="(f, index) in unassignedFaces"
                   :key="f.id"
-                  class="bg-gray-700 rounded overflow-hidden border border-gray-600 relative group"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedUnassigned.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
+                  @click="handleFaceClick($event, f.id, 'unassigned')"
                 >
                   <label v-if="selectedItem.type === 'confirmed'" class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" class="mr-0.5" :checked="selectedUnassigned.has(f.id)" @change="toggleSelectUnassigned(f.id)" />
-                    选
+                    <input type="checkbox" :checked="selectedUnassigned.has(f.id)" @change.stop="toggleSelectUnassigned(f.id)" />
                   </label>
                   <div class="relative h-32 bg-gray-800 overflow-hidden">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
-                      class="w-full h-full object-cover"
+                      class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
                     <button
                       v-if="selectedItem.type === 'confirmed'"
-                      @click="assignFace(f.id, false)"
+                      @click.stop="assignFace(f.id, false)"
                       class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
@@ -403,35 +580,87 @@
                   </div>
                   <div class="p-1.5">
                     <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
                   </div>
                 </div>
+                <!-- 框选遮罩 -->
+                <div
+                  v-if="isSelecting && currentTab === 'unassigned'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
               </div>
               <div v-if="unassignedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无未分配照片</div>
             </div>
 
             <!-- 聚类照片（未确认聚类） -->
             <div v-if="tab === 'confirmed' && selectedItem.type === 'cluster'">
-              <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+              <div class="mb-2 flex items-center justify-between">
+                <span class="text-xs text-gray-400">聚类中的人脸</span>
+                <div class="flex gap-2">
+                  <button
+                    @click="selectAllCurrentTab"
+                    :disabled="personFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    @click="invertSelection('cluster')"
+                    :disabled="personFaces.length === 0"
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
+                    @click="removeSelectedClusterFaces"
+                    :disabled="selectedClusterFaces.size === 0"
+                    class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    移除<template v-if="selectedClusterFaces.size > 0"> ({{ selectedClusterFaces.size }})</template>
+                  </button>
+                </div>
+              </div>
+              <div 
+                ref="clusterContainer"
+                class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
+                @mousedown="handleMouseDown($event, 'cluster')"
+                @mousemove="handleMouseMove($event, 'cluster')"
+                @mouseup="handleMouseUp($event, 'cluster')"
+                @mouseleave="handleMouseUp($event, 'cluster')"
+              >
                 <div
-                  v-for="f in personFaces"
+                  v-for="(f, index) in personFaces"
                   :key="f.id"
-                  class="bg-gray-700 rounded overflow-hidden border border-gray-600 relative group"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedClusterFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
+                  @click="handleFaceClick($event, f.id, 'cluster')"
                 >
+                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
+                    <input type="checkbox" :checked="selectedClusterFaces.has(f.id)" @change.stop="toggleSelectCluster(f.id)" />
+                  </label>
                   <div class="relative h-32 bg-gray-800 overflow-hidden">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
-                      class="w-full h-full object-cover"
+                      class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
                   </div>
                   <div class="p-1.5">
                     <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
                   </div>
                 </div>
+                <!-- 框选遮罩 -->
+                <div
+                  v-if="isSelecting && currentTab === 'cluster'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
               </div>
               <div v-if="personFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无照片</div>
             </div>
@@ -495,7 +724,6 @@ const originalName = ref('')
 const editingDescription = ref('')
 const originalDescription = ref('')
 const savingPerson = ref(false)
-const nameInput = ref<HTMLInputElement | null>(null)
 const personListContainer = ref<HTMLElement | null>(null)
 
 // 面板宽度和拖拽
@@ -521,6 +749,7 @@ const tab = ref<'confirmed' | 'auto' | 'similar' | 'sameFolder' | 'unassigned'>(
 
 // 已确认照片
 const confirmedFaces = ref<FaceItem[]>([])
+const selectedConfirmed = ref<Set<number>>(new Set())
 const loadingConfirmed = ref(false)
 
 // 自动分配照片
@@ -545,6 +774,7 @@ const loadingUnassigned = ref(false)
 
 // 聚类照片（用于未确认聚类）
 const personFaces = ref<FaceItem[]>([])
+const selectedClusterFaces = ref<Set<number>>(new Set())
 const loadingPersonFaces = ref(false)
 
 const startResize = (e: MouseEvent) => {
@@ -625,7 +855,8 @@ const selectPerson = (p: PersonListItem) => {
 
 const loadAllFaces = async () => {
   if (!selectedPersonId.value) return
-  loadConfirmedFaces()
+  // 先加载已确认照片，然后根据结果决定是否切换tab
+  await loadConfirmedFaces()
   loadAutoAssignedFaces()
   loadSimilarFaces()
   loadSameFolderFaces()
@@ -640,6 +871,12 @@ const loadConfirmedFaces = async () => {
       params: { page: 0, size: 200 }
     })
     confirmedFaces.value = res.data.content || res.data || []
+    selectedConfirmed.value.clear()
+    
+    // 如果已确认tab没有照片，自动切换到自动分配tab
+    if (confirmedFaces.value.length === 0 && tab.value === 'confirmed' && selectedItem.value?.type === 'confirmed') {
+      tab.value = 'auto'
+    }
   } finally {
     loadingConfirmed.value = false
   }
@@ -699,6 +936,7 @@ const loadClusterFaces = async () => {
       params: { threshold: clusterThreshold.value }
     })
     personFaces.value = res.data || []
+    selectedClusterFaces.value.clear()
   } finally {
     loadingPersonFaces.value = false
   }
@@ -719,9 +957,6 @@ const startEditName = (p: PersonListItem) => {
   editingPersonId.value = p.id
   editingName.value = p.name || ''
   originalName.value = p.name || ''
-  nextTick(() => {
-    nameInput.value?.focus()
-  })
 }
 
 const cancelEdit = () => {
@@ -867,6 +1102,18 @@ const confirmSelectedAuto = async () => {
   selectedAuto.value.clear()
 }
 
+const removeSelectedAuto = async () => {
+  if (selectedAuto.value.size === 0) return
+  const ids = Array.from(selectedAuto.value)
+  for (const id of ids) {
+    await api.put(`/admin/faces/${id}/assign`, null, { 
+      params: { personId: null } 
+    })
+  }
+  selectedAuto.value.clear()
+  await loadAllFaces()
+}
+
 const assignSelectedSimilar = async () => {
   const ids = Array.from(selectedSimilar.value)
   for (const id of ids) {
@@ -892,7 +1139,9 @@ const assignSelectedUnassigned = async () => {
 }
 
 const unassignFace = async (faceId: number) => {
-  await api.put(`/admin/faces/${faceId}/assign`)
+  await api.put(`/admin/faces/${faceId}/assign`, null, { 
+    params: { personId: null } 
+  })
   await loadAllFaces()
 }
 
@@ -922,6 +1171,366 @@ const toggleSelectUnassigned = (id: number) => {
   if (set.has(id)) set.delete(id)
   else set.add(id)
   selectedUnassigned.value = set
+}
+
+const toggleSelectCluster = (id: number) => {
+  const set = new Set(selectedClusterFaces.value)
+  if (set.has(id)) set.delete(id)
+  else set.add(id)
+  selectedClusterFaces.value = set
+}
+
+const toggleSelectConfirmed = (id: number) => {
+  const set = new Set(selectedConfirmed.value)
+  if (set.has(id)) set.delete(id)
+  else set.add(id)
+  selectedConfirmed.value = set
+}
+
+// 框选状态
+const isSelecting = ref(false)
+const selectionStart = ref<{ x: number, y: number } | null>(null)
+const selectionEnd = ref<{ x: number, y: number } | null>(null)
+const currentTab = ref<string>('')
+const lastSelectedIndex = ref<number | null>(null)
+
+// 容器引用
+const confirmedContainer = ref<HTMLElement | null>(null)
+const autoContainer = ref<HTMLElement | null>(null)
+const similarContainer = ref<HTMLElement | null>(null)
+const sameFolderContainer = ref<HTMLElement | null>(null)
+const unassignedContainer = ref<HTMLElement | null>(null)
+const clusterContainer = ref<HTMLElement | null>(null)
+
+// 框选样式
+const selectionBoxStyle = computed(() => {
+  if (!selectionStart.value || !selectionEnd.value) return {}
+  const left = Math.min(selectionStart.value.x, selectionEnd.value.x)
+  const top = Math.min(selectionStart.value.y, selectionEnd.value.y)
+  const width = Math.abs(selectionEnd.value.x - selectionStart.value.x)
+  const height = Math.abs(selectionEnd.value.y - selectionStart.value.y)
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`
+  }
+})
+
+// 获取当前标签页的容器和列表
+const getCurrentContainer = (tabType: string) => {
+  switch (tabType) {
+    case 'confirmed': return confirmedContainer.value
+    case 'auto': return autoContainer.value
+    case 'similar': return similarContainer.value
+    case 'sameFolder': return sameFolderContainer.value
+    case 'unassigned': return unassignedContainer.value
+    case 'cluster': return clusterContainer.value
+    default: return null
+  }
+}
+
+const getCurrentFaceList = (tabType: string): FaceItem[] => {
+  switch (tabType) {
+    case 'confirmed': return confirmedFaces.value
+    case 'auto': return autoAssignedFaces.value
+    case 'similar': return similarFaces.value
+    case 'sameFolder': return sameFolderFaces.value
+    case 'unassigned': return unassignedFaces.value
+    case 'cluster': return personFaces.value
+    default: return []
+  }
+}
+
+const getCurrentSelection = (tabType: string): Ref<Set<number>> => {
+  switch (tabType) {
+    case 'confirmed': return selectedConfirmed
+    case 'auto': return selectedAuto
+    case 'similar': return selectedSimilar
+    case 'sameFolder': return selectedSameFolder
+    case 'unassigned': return selectedUnassigned
+    case 'cluster': return selectedClusterFaces
+    default: return selectedConfirmed
+  }
+}
+
+// 鼠标按下
+const handleMouseDown = (e: MouseEvent, tabType: string) => {
+  // 如果点击的是按钮或输入框，不启动框选
+  const target = e.target as HTMLElement
+  if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button') || target.closest('input') || target.closest('label')) {
+    return
+  }
+  
+  // 如果按住Ctrl或Shift，不启动框选（用于多选）
+  if (e.ctrlKey || e.shiftKey) {
+    return
+  }
+  
+  const container = getCurrentContainer(tabType)
+  if (!container) return
+  
+  const rect = container.getBoundingClientRect()
+  isSelecting.value = true
+  currentTab.value = tabType
+  selectionStart.value = {
+    x: e.clientX - rect.left + container.scrollLeft,
+    y: e.clientY - rect.top + container.scrollTop
+  }
+  selectionEnd.value = selectionStart.value
+  e.preventDefault()
+}
+
+// 鼠标移动
+const handleMouseMove = (e: MouseEvent, tabType: string) => {
+  if (!isSelecting.value || currentTab.value !== tabType || !selectionStart.value) return
+  
+  const container = getCurrentContainer(tabType)
+  if (!container) return
+  
+  const rect = container.getBoundingClientRect()
+  selectionEnd.value = {
+    x: e.clientX - rect.left + container.scrollLeft,
+    y: e.clientY - rect.top + container.scrollTop
+  }
+  
+  // 更新框选范围内的人脸选择状态
+  updateSelectionFromBox(tabType)
+}
+
+// 鼠标释放
+const handleMouseUp = (e: MouseEvent, tabType: string) => {
+  if (!isSelecting.value || currentTab.value !== tabType) return
+  
+  isSelecting.value = false
+  selectionStart.value = null
+  selectionEnd.value = null
+  currentTab.value = ''
+}
+
+// 根据框选范围更新选择
+const updateSelectionFromBox = (tabType: string) => {
+  if (!selectionStart.value || !selectionEnd.value) return
+  
+  const container = getCurrentContainer(tabType)
+  if (!container) return
+  
+  const selection = getCurrentSelection(tabType)
+  const left = Math.min(selectionStart.value.x, selectionEnd.value.x)
+  const right = Math.max(selectionStart.value.x, selectionEnd.value.x)
+  const top = Math.min(selectionStart.value.y, selectionEnd.value.y)
+  const bottom = Math.max(selectionStart.value.y, selectionEnd.value.y)
+  
+  const faces = container.querySelectorAll('[data-face-id]')
+  const newSelection = new Set(selection.value)
+  
+  faces.forEach((faceEl) => {
+    const rect = faceEl.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const faceLeft = rect.left - containerRect.left + container.scrollLeft
+    const faceRight = faceLeft + rect.width
+    const faceTop = rect.top - containerRect.top + container.scrollTop
+    const faceBottom = faceTop + rect.height
+    
+    // 检查是否与框选范围相交
+    const intersects = !(faceRight < left || faceLeft > right || faceBottom < top || faceTop > bottom)
+    const faceId = parseInt(faceEl.getAttribute('data-face-id') || '0')
+    
+    if (intersects) {
+      newSelection.add(faceId)
+    }
+  })
+  
+  selection.value = newSelection
+}
+
+// 处理人脸点击（支持Shift/Ctrl/Ctrl+Shift）
+const handleFaceClick = (e: MouseEvent, faceId: number, tabType: string) => {
+  // 如果点击的是按钮或输入框，不处理
+  const target = e.target as HTMLElement
+  if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button') || target.closest('input') || target.closest('label')) {
+    return
+  }
+  
+  const selection = getCurrentSelection(tabType)
+  const faceList = getCurrentFaceList(tabType)
+  const currentIndex = faceList.findIndex(f => f.id === faceId)
+  
+  if (e.shiftKey && lastSelectedIndex.value !== null && currentIndex !== -1) {
+    // Shift+点击：连续选择
+    const start = Math.min(lastSelectedIndex.value, currentIndex)
+    const end = Math.max(lastSelectedIndex.value, currentIndex)
+    const newSelection = new Set(selection.value)
+    
+    if (e.ctrlKey) {
+      // Ctrl+Shift+点击：添加到连续选择
+      for (let i = start; i <= end; i++) {
+        newSelection.add(faceList[i].id)
+      }
+    } else {
+      // Shift+点击：替换为连续选择
+      newSelection.clear()
+      for (let i = start; i <= end; i++) {
+        newSelection.add(faceList[i].id)
+      }
+    }
+    
+    selection.value = newSelection
+  } else if (e.ctrlKey || e.metaKey) {
+    // Ctrl+点击：切换选择
+    const newSelection = new Set(selection.value)
+    if (newSelection.has(faceId)) {
+      newSelection.delete(faceId)
+    } else {
+      newSelection.add(faceId)
+    }
+    selection.value = newSelection
+    lastSelectedIndex.value = currentIndex
+  } else {
+    // 普通点击：单独选择
+    selection.value = new Set([faceId])
+    lastSelectedIndex.value = currentIndex
+  }
+}
+
+// 反选
+const invertSelection = (tabType: string) => {
+  const selection = getCurrentSelection(tabType)
+  const faceList = getCurrentFaceList(tabType)
+  const newSelection = new Set<number>()
+  
+  faceList.forEach(face => {
+    if (!selection.value.has(face.id)) {
+      newSelection.add(face.id)
+    }
+  })
+  
+  selection.value = newSelection
+  lastSelectedIndex.value = faceList.length > 0 ? faceList.length - 1 : null
+}
+
+// 批量移除已确认照片
+const removeSelectedConfirmed = async () => {
+  if (selectedConfirmed.value.size === 0) return
+  
+  const ids = Array.from(selectedConfirmed.value)
+  for (const id of ids) {
+    await api.put(`/admin/faces/${id}/assign`, null, { 
+      params: { personId: null } 
+    })
+  }
+  selectedConfirmed.value.clear()
+  await loadAllFaces()
+}
+
+// 批量移除聚类照片
+const removeSelectedClusterFaces = async () => {
+  if (selectedClusterFaces.value.size === 0) return
+  if (!confirm(`确定要移除 ${selectedClusterFaces.value.size} 张照片吗？`)) return
+  
+  const ids = Array.from(selectedClusterFaces.value)
+  for (const id of ids) {
+    await api.put(`/admin/faces/${id}/assign`, null, { 
+      params: { personId: null } 
+    })
+  }
+  selectedClusterFaces.value.clear()
+  await loadClusterFaces()
+}
+
+// 处理移除操作（根据tab类型）
+const handleRemoveSelected = async () => {
+  if (tab.value === 'confirmed' && selectedItem.value?.type === 'confirmed') {
+    await removeSelectedConfirmed()
+  } else if (tab.value === 'confirmed' && selectedItem.value?.type === 'cluster') {
+    await removeSelectedClusterFaces()
+  }
+}
+
+// 获取当前tab的选中数量
+const getCurrentSelectionCount = (): number => {
+  if (tab.value === 'confirmed' && selectedItem.value?.type === 'cluster') {
+    return selectedClusterFaces.value.size
+  }
+  switch (tab.value) {
+    case 'confirmed':
+      return selectedConfirmed.value.size
+    case 'auto':
+      return selectedAuto.value.size
+    case 'similar':
+      return selectedSimilar.value.size
+    case 'sameFolder':
+      return selectedSameFolder.value.size
+    case 'unassigned':
+      return selectedUnassigned.value.size
+    default:
+      return 0
+  }
+}
+
+// 获取当前tab的人脸总数
+const getCurrentTabFaceCount = (): number => {
+  if (tab.value === 'confirmed' && selectedItem.value?.type === 'cluster') {
+    return personFaces.value.length
+  }
+  switch (tab.value) {
+    case 'confirmed':
+      return confirmedFaces.value.length
+    case 'auto':
+      return autoAssignedFaces.value.length
+    case 'similar':
+      return similarFaces.value.length
+    case 'sameFolder':
+      return sameFolderFaces.value.length
+    case 'unassigned':
+      return unassignedFaces.value.length
+    default:
+      return 0
+  }
+}
+
+// 获取当前tab类型
+const getCurrentTabType = (): string => {
+  if (tab.value === 'confirmed' && selectedItem.value?.type === 'cluster') {
+    return 'cluster'
+  }
+  return tab.value
+}
+
+// 全选当前tab的所有人脸
+const selectAllCurrentTab = () => {
+  const faceList = getCurrentFaceList(tab.value)
+  const selection = getCurrentSelection(tab.value)
+  const newSelection = new Set<number>()
+  
+  faceList.forEach(face => {
+    newSelection.add(face.id)
+  })
+  
+  selection.value = newSelection
+  lastSelectedIndex.value = faceList.length > 0 ? faceList.length - 1 : null
+}
+
+// 处理认领操作（根据tab类型）
+const handleClaimSelected = async () => {
+  if (!selectedPersonId.value) {
+    alert('请先选择一个已确认的人物')
+    return
+  }
+  switch (tab.value) {
+    case 'auto':
+      await confirmSelectedAuto()
+      break
+    case 'similar':
+      await assignSelectedSimilar()
+      break
+    case 'sameFolder':
+      await assignSelectedSameFolder()
+      break
+    case 'unassigned':
+      await assignSelectedUnassigned()
+      break
+  }
 }
 
 const getImageUrl = (path?: string) => {
