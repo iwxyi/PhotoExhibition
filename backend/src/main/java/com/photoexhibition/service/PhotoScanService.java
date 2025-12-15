@@ -416,20 +416,13 @@ public class PhotoScanService {
             // 分析色彩
             colorAnalysisService.analyzeColor(imageFile, photo);
 
-            // 检测主体位置
-            try {
-                subjectDetectionService.detectSubject(imageFile, photo);
-            } catch (Exception e) {
-                log.warn("检测主体位置失败: {}", imageFile.getName(), e);
-            }
-
             // 计算质量评分
             calculateQualityScore(photo);
 
             // 先保存一次，确保有ID用于人脸关联
             photoRepository.save(photo);
 
-            // 人脸检测与保存
+            // 人脸检测与保存（在主体检测之前，以便主体检测可以使用人脸信息）
             // 如果通过contentHash找到照片且已有人脸数据，且非强制扫描，可以跳过人脸检测（复用已有数据）
             List<Face> faces;
             if (foundByContentHash && !force && photo.getId() != null) {
@@ -446,6 +439,16 @@ public class PhotoScanService {
                 // 新照片或强制扫描，重新检测人脸
                 faces = faceService.detectAndSaveFaces(imageFile, photo);
             }
+
+            // 检测主体位置（使用已检测的人脸信息）
+            try {
+                subjectDetectionService.detectSubject(imageFile, photo, faces);
+            } catch (Exception e) {
+                log.warn("检测主体位置失败: {}", imageFile.getName(), e);
+            }
+            
+            // 保存更新后的焦点位置
+            photoRepository.save(photo);
 
             // 合并相册标签到照片标签，便于搜索（复制一份避免懒加载问题）
             List<Tag> albumTags = album.getTags() == null ? new ArrayList<>() : new ArrayList<>(album.getTags());

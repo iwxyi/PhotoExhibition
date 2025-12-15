@@ -111,3 +111,12 @@ smart-tag:
     top-k: 5  # 返回top-k个最可能的分类结果。如果启用strict-top-k，会强制返回前k个（忽略置信度阈值）
     strict-top-k: false  # 是否强制返回top-k个结果（忽略置信度阈值）。false=先过滤再取top-k（推荐），true=强制前k个
     language: zh  # 标签语言：zh(中文) 或 en(英文)，默认zh
+  # 主体检测配置（用于焦点框显示和智能裁切）
+  subject-detection:
+    strategy: hybrid  # 检测策略：hybrid(混合策略，推荐) | face-first(人脸优先) | exif-first(EXIF优先) | visual-only(仅视觉)
+    face-weight: 2.0  # 人脸权重倍数（当检测到人脸时，人脸区域的兴趣度会乘以此值）
+    # ONNX显著性检测模型配置（可选，启用后优先使用深度学习模型）
+    saliency:
+      enabled: true  # 设置为true启用ONNX显著性检测模型，需要下载对应的ONNX模型文件
+      model-path: ./models/saliency_detection.onnx  # 显著性检测模型路径（如U²-Net、BASNet等）
+      input-size: 1024  # 模型输入尺寸，RMBG-1.4使用1024x1024，U²-Net Lite使用320x320
