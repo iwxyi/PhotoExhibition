@@ -39,7 +39,13 @@
               <tr v-for="face in faces" :key="face.id" class="border-t border-gray-700">
                 <td class="py-3 pr-4">{{ face.id }}</td>
                 <td class="py-3 pr-4">
-                  <div class="w-20 h-20 bg-gray-700 rounded overflow-hidden relative">
+                  <div
+                    class="w-20 h-20 bg-gray-700 rounded overflow-hidden relative cursor-pointer group"
+                    @click="face.photoId && openPhoto(face.photoId)"
+                    @mouseenter="showPreview(face)"
+                    @mousemove="movePreview"
+                    @mouseleave="hidePreview"
+                  >
                     <img
                       v-if="face.photoThumbnailPath"
                       :src="getImageUrl(face.photoThumbnailPath)"
@@ -54,9 +60,6 @@
                 <td class="py-3 pr-4">
                   <div class="flex flex-col">
                     <span class="truncate max-w-[160px]" :title="face.photoFilename">{{ face.photoFilename || '-' }}</span>
-                    <button v-if="face.photoId" @click="openPhoto(face.photoId)" class="text-blue-400 text-xs mt-1 hover:underline">
-                      查看图片
-                    </button>
                   </div>
                 </td>
                 <td class="py-3 pr-4 text-gray-200">
@@ -72,14 +75,35 @@
 
         <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
           <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
-          <div class="space-x-2">
+          <div class="flex items-center gap-2">
             <button @click="prev" :disabled="page === 0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50">上一页</button>
+            <div class="flex items-center gap-1">
+              <button
+                v-for="pnum in pageNumbers"
+                :key="pnum"
+                @click="jumpTo(pnum)"
+                :disabled="loading"
+                class="px-3 py-1 rounded border border-gray-700"
+                :class="pnum === page ? 'bg-blue-600 border-blue-500' : 'bg-gray-700 hover:bg-gray-600'"
+              >
+                {{ pnum + 1 }}
+              </button>
+            </div>
             <button @click="next" :disabled="page >= totalPages - 1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50">下一页</button>
           </div>
         </div>
       </div>
     </div>
   </div>
+  <transition name="fade">
+    <div
+      v-if="previewVisible"
+      class="preview-float bg-gray-900"
+      :style="previewStyle"
+    >
+      <img :src="previewUrl" alt="预览" class="w-full h-full object-contain" />
+    </div>
+  </transition>
 </template>
 
 <script setup lang="ts">
@@ -105,6 +129,21 @@ const page = ref(0)
 const size = ref(10)
 const totalPages = ref(1)
 const keyword = ref('')
+const previewVisible = ref(false)
+const previewUrl = ref('')
+const previewStyle = ref<{ left: string; top: string }>({ left: '0px', top: '0px' })
+const pageNumbers = computed(() => {
+  const total = Math.max(totalPages.value, 1)
+  const current = page.value
+  const span = 2
+  let start = Math.max(0, current - span)
+  let end = Math.min(total - 1, current + span)
+  while (end - start < span * 2 && end < total - 1) end++
+  while (end - start < span * 2 && start > 0) start--
+  const list = []
+  for (let i = start; i <= end; i++) list.push(i)
+  return list
+})
 
 const load = async () => {
   loading.value = true
@@ -136,6 +175,11 @@ const prev = () => {
 const next = () => {
   if (page.value >= totalPages.value - 1) return
   page.value += 1
+  load()
+}
+const jumpTo = (p: number) => {
+  if (p < 0 || p >= totalPages.value || p === page.value) return
+  page.value = p
   load()
 }
 
@@ -172,12 +216,47 @@ const openPhoto = (photoId: number) => {
   window.open(`/photo/${photoId}`, '_blank')
 }
 
+const showPreview = (face: FaceItem) => {
+  previewUrl.value = getImageUrl(face.photoThumbnailPath || face.photoOriginalPath || '')
+  previewVisible.value = !!previewUrl.value
+}
+
+const movePreview = (e: MouseEvent) => {
+  if (!previewVisible.value) return
+  const offset = 16
+  // 使用 viewport 坐标，避免滚动后位置偏移
+  const x = e.clientX + offset
+  const y = e.clientY + offset
+  const maxX = window.innerWidth - 240
+  const maxY = window.innerHeight - 240
+  previewStyle.value = {
+    left: `${Math.min(x, maxX)}px`,
+    top: `${Math.min(y, maxY)}px`
+  }
+}
+
+const hidePreview = () => {
+  previewVisible.value = false
+  previewUrl.value = ''
+}
+
 onMounted(() => load())
 </script>
 
 <style scoped>
 textarea {
   resize: vertical;
+}
+
+.preview-float {
+  position: fixed;
+  z-index: 9999;
+  width: 220px;
+  height: 220px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 </style>
 

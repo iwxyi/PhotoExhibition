@@ -36,6 +36,7 @@
                 class="w-6 h-6 rounded border border-white/20"
                 :style="{ background: t.color }"
               ></div>
+              <button class="text-xs text-blue-300 hover:text-blue-200" @click="openTag(t)">查看图片</button>
               <button class="text-xs text-amber-300 hover:text-amber-200" @click="editOne(t)">编辑</button>
               <button class="text-xs text-red-300 hover:text-red-200" @click="deleteOne(t.id)">删</button>
             </div>
@@ -43,9 +44,21 @@
         </div>
 
         <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
-          <span>第 {{ page + 1 }} 页 / 共 {{ totalPages }} 页</span>
-          <div class="space-x-2">
+          <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
+          <div class="flex items-center gap-2">
             <button @click="prev" :disabled="page===0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">上一页</button>
+            <div class="flex items-center gap-1">
+              <button
+                v-for="pnum in pageNumbers"
+                :key="pnum"
+                @click="jumpTo(pnum)"
+                :disabled="loading"
+                class="px-3 py-1 rounded border border-gray-700"
+                :class="pnum === page ? 'bg-blue-600 border-blue-500' : 'bg-gray-700 hover:bg-gray-600'"
+              >
+                {{ pnum + 1 }}
+              </button>
+            </div>
             <button @click="next" :disabled="page>=totalPages-1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">下一页</button>
           </div>
         </div>
@@ -56,6 +69,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api'
 
 const tags = ref<any[]>([])
@@ -65,6 +79,19 @@ const page = ref(0)
 const size = ref(24)
 const total = ref(0)
 const selectedIds = ref<number[]>([])
+const router = useRouter()
+const pageNumbers = computed(() => {
+  const totalPage = totalPages.value
+  const current = page.value
+  const span = 2
+  let start = Math.max(0, current - span)
+  let end = Math.min(totalPage - 1, current + span)
+  while (end - start < span * 2 && end < totalPage - 1) end++
+  while (end - start < span * 2 && start > 0) start--
+  const list = []
+  for (let i = start; i <= end; i++) list.push(i)
+  return list
+})
 
 const load = async () => {
   loading.value = true
@@ -100,6 +127,11 @@ const next = () => {
   page.value++
 }
 
+const jumpTo = (p: number) => {
+  if (p < 0 || p >= totalPages.value || p === page.value) return
+  page.value = p
+}
+
 const editOne = async (t: any) => {
   const newName = window.prompt('修改标签名称', t.name)
   if (newName === null || newName.trim() === '') return
@@ -131,6 +163,11 @@ const deleteSelected = async () => {
   }
   selectedIds.value = []
   await load()
+}
+
+const openTag = (tag: any) => {
+  if (!tag?.id) return
+  router.push({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
 }
 
 onMounted(() => load())

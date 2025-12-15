@@ -19,11 +19,11 @@
       <div v-else-if="photo" class="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <!-- 图片区域 -->
         <div class="lg:col-span-2">
-          <div class="sticky top-24">
+          <div class="sticky top-24 flex justify-center">
             <img
               :src="getImageUrl(photo)"
               :alt="photo.filename"
-              class="w-full h-auto rounded-lg shadow-2xl"
+              class="max-w-full w-auto h-auto max-h-[80vh] object-contain rounded-lg shadow-2xl"
               loading="lazy"
             />
           </div>
@@ -94,6 +94,22 @@
             </div>
           </div>
 
+          <!-- 标签 -->
+          <div v-if="photo.tags && photo.tags.length" class="border-t border-gray-200 dark:border-gray-800 pt-6">
+            <h2 class="text-lg font-light mb-4">标签</h2>
+            <div class="flex flex-wrap gap-2">
+              <span
+                v-for="t in photo.tags"
+                :key="t.id"
+                class="px-3 py-1 rounded-full text-sm cursor-pointer"
+                :style="{ backgroundColor: t.color || 'rgba(59,130,246,0.1)', color: t.color ? '#fff' : '#2563eb' }"
+                @click="openTag(t)"
+              >
+                {{ t.name }}
+              </span>
+            </div>
+          </div>
+
           <!-- 人物信息 -->
           <div v-if="photo.faces && photo.faces.length" class="border-t border-gray-200 dark:border-gray-800 pt-6">
             <h2 class="text-lg font-light mb-4">人物</h2>
@@ -127,14 +143,21 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useRoute } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 
 const route = useRoute()
 const photoStore = usePhotoStore()
+const router = useRouter()
 
 const photo = computed(() => photoStore.currentPhoto)
 const loading = computed(() => photoStore.loading)
+
+const openTag = (tag: any) => {
+  if (!tag?.id) return
+  router.push({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+}
 
 const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`

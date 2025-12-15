@@ -62,6 +62,22 @@ public class AdminController {
     }
 
     /**
+     * 获取扫描状态
+     */
+    @GetMapping("/scan/status")
+    public ResponseEntity<Map<String, Object>> getScanStatus() {
+        return ResponseEntity.ok(photoScanService.getScanStatus());
+    }
+
+    /**
+     * 重建单张图片的人脸数据
+     */
+    @PostMapping("/photos/{id}/rescan-faces")
+    public ResponseEntity<Map<String, Object>> rescanFaces(@PathVariable Long id) {
+        return ResponseEntity.ok(photoScanService.rescanFacesForPhoto(id));
+    }
+
+    /**
      * 全量回填图片哈希（SHA-256）
      */
     @PostMapping("/photos/hash-migrate")

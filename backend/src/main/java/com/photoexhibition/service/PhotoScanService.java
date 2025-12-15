@@ -36,6 +36,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.security.MessageDigest;
@@ -68,6 +69,11 @@ public class PhotoScanService {
     private final FaceService faceService;
     private final SmartTagService smartTagService;
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
+    private final AtomicBoolean isScanning = new AtomicBoolean(false);
+    private final AtomicInteger scanCurrent = new AtomicInteger(0);
+    private final AtomicInteger scanTotal = new AtomicInteger(0);
+    private volatile LocalDateTime lastScanStart = null;
+    private volatile LocalDateTime lastScanEnd = null;
 
     public PhotoScanService(AlbumRepository albumRepository,
                            PhotoRepository photoRepository,
@@ -174,11 +180,80 @@ public class PhotoScanService {
         scanDirectoryInternal(directoryPath, true);
     }
 
+    /**
+     * 仅针对单张图片重建人脸与向量
+     * @return 返回结果描述
+     */
+    @Transactional
+    public Map<String, Object> rescanFacesForPhoto(Long photoId) {
+        Map<String, Object> result = new HashMap<>();
+        Optional<Photo> opt = photoRepository.findById(photoId);
+        if (opt.isEmpty()) {
+            result.put("error", "照片不存在");
+            return result;
+        }
+        Photo photo = opt.get();
+        if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
+            result.put("error", "原始路径为空，无法定位文件");
+            return result;
+        }
+        File imageFile = new File(photo.getOriginalPath());
+        if (!imageFile.exists()) {
+            result.put("error", "文件不存在: " + photo.getOriginalPath());
+            return result;
+        }
+        // 调用现有人脸检测流程
+        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo);
+        int count = faces == null ? 0 : faces.size();
+
+        // 安全更新关联集合，避免 orphan 触发
+        try {
+            List<Face> managedFaces = faces == null ? Collections.emptyList() : faces;
+            if (photo.getFaces() != null) {
+                photo.getFaces().clear();
+                photo.getFaces().addAll(managedFaces);
+            } else {
+                photo.setFaces(new ArrayList<>(managedFaces));
+            }
+            photoRepository.save(photo);
+        } catch (Exception e) {
+            log.warn("更新照片人脸关联失败: photoId={}, err={}", photoId, e.getMessage());
+        }
+
+        result.put("count", count);
+        result.put("photoId", photoId);
+        if (count == 0) {
+            result.put("message", "未检测到人脸或全部被过滤，请检查阈值/尺寸/比例设置");
+        } else {
+            result.put("message", "重建完成");
+        }
+        return result;
+    }
+
+    /**
+     * 获取扫描进度/状态
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getScanStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("scanning", isScanning.get());
+        status.put("current", scanCurrent.get());
+        status.put("total", scanTotal.get());
+        status.put("lastScanStart", lastScanStart);
+        status.put("lastScanEnd", lastScanEnd);
+        return status;
+    }
+
     private void scanDirectoryInternal(String directoryPath, boolean force) {
         if (directoryPath == null || directoryPath.isEmpty()) {
             directoryPath = basePath;
         }
         try {
+            isScanning.set(true);
+            scanCurrent.set(0);
+            scanTotal.set(0);
+            lastScanStart = LocalDateTime.now();
+
             Path path = Paths.get(directoryPath);
             
             // 处理相对路径：如果是相对路径，转换为绝对路径
@@ -223,6 +298,29 @@ public class PhotoScanService {
                 throw new IllegalArgumentException("路径不是文件夹: " + path);
             }
 
+            // 预统计总数用于进度显示
+            try (Stream<Path> paths = Files.walk(path)) {
+                Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toSet());
+                int total = (int) paths
+                    .filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        if (name.contains("_thumb")) return false;
+                        Path parent = p.getParent();
+                        if (parent != null && parent.getFileName().toString().equals(".thumbnails")) return false;
+                        String ext = FilenameUtils.getExtension(name).toLowerCase();
+                        return supportedSet.contains(ext);
+                    })
+                    .count();
+                scanTotal.set(total);
+            } catch (Exception e) {
+                log.warn("统计待扫描图片数量失败: {}", e.getMessage());
+                scanTotal.set(0);
+            }
+
             // 扫描所有子文件夹，跳过.thumbnails目录
             try (Stream<Path> paths = Files.walk(path)) {
                 paths.filter(Files::isDirectory)
@@ -232,6 +330,9 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.error("扫描目录失败: {}", directoryPath, e);
             throw new RuntimeException("扫描目录失败: " + (e.getMessage() == null ? directoryPath : e.getMessage()), e);
+        } finally {
+            lastScanEnd = LocalDateTime.now();
+            isScanning.set(false);
         }
     }
 
@@ -361,6 +462,9 @@ public class PhotoScanService {
                 return;
             }
             
+            // 进度累加（进入处理流程即视为已处理一个文件）
+            scanCurrent.incrementAndGet();
+            
             // 计算内容哈希（SHA-256）
             String contentHash = calculateSha256(imageFile);
 
@@ -446,7 +550,7 @@ public class PhotoScanService {
             } catch (Exception e) {
                 log.warn("检测主体位置失败: {}", imageFile.getName(), e);
             }
-            
+
             // 保存更新后的焦点位置
             photoRepository.save(photo);
 

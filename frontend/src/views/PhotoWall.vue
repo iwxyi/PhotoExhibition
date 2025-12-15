@@ -23,6 +23,12 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div v-if="activeTagId" class="mb-6 flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+        <span class="px-3 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200">
+          标签：{{ activeTagName || ('#' + activeTagId) }}
+        </span>
+        <button class="text-blue-500 hover:underline" @click="clearTag">清除标签过滤</button>
+      </div>
       <div ref="masonryContainer" class="masonry-container">
         <div
           v-for="(photo, idx) in photos"
@@ -73,6 +79,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'Wall' })
 import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
@@ -82,6 +89,8 @@ import { useUiSettings } from '@/composables/useUiSettings'
 
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
+const route = useRoute()
+const router = useRouter()
 
 const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)
@@ -98,6 +107,8 @@ const itemRefs = ref<(HTMLElement | null)[]>([])
 const columnHeights = ref<number[]>([])
 const itemPositions = ref<Array<{ left: number; top: number }>>([])
 const parallaxOffsets = ref<number[]>([])
+const activeTagId = ref<number | null>(null)
+const activeTagName = ref<string | null>(null)
 
 // 根据预览尺寸计算列数
 const columnCount = computed(() => {
@@ -317,7 +328,9 @@ const loadMore = async () => {
   try {
     isLoadingMore.value = true
     currentPage.value++
-    const data = await photoStore.fetchPhotoWall(currentPage.value)
+    const data = activeTagId.value
+      ? await photoStore.fetchPhotosByTag(activeTagId.value, currentPage.value)
+      : await photoStore.fetchPhotoWall(currentPage.value)
     
     if (!data || !data.content || data.content.length === 0) {
       hasMore.value = false
@@ -419,7 +432,8 @@ onMounted(async () => {
   try {
     // 初始化窗口宽度
     windowWidth.value = window.innerWidth
-    await photoStore.fetchPhotoWall(0)
+    hydrateTagFromRoute()
+    await loadInitial()
     window.addEventListener('scroll', handleScroll, { passive: true })
     window.addEventListener('resize', handleResize)
     // 等待图片加载后布局
@@ -460,6 +474,40 @@ onActivated(() => {
     }
   })
 })
+
+const loadInitial = async () => {
+  currentPage.value = 0
+  hasMore.value = true
+  if (activeTagId.value) {
+    await photoStore.fetchPhotosByTag(activeTagId.value, 0)
+  } else {
+    await photoStore.fetchPhotoWall(0)
+  }
+}
+
+const hydrateTagFromRoute = () => {
+  const tagIdParam = route.query.tagId
+  const tagNameParam = route.query.tagName
+  activeTagId.value = tagIdParam ? Number(tagIdParam) : null
+  activeTagName.value = tagNameParam ? String(tagNameParam) : null
+}
+
+const clearTag = async () => {
+  await router.push({ path: '/wall', query: {} })
+}
+
+watch(
+  () => route.query.tagId,
+  async () => {
+    hydrateTagFromRoute()
+    await loadInitial()
+    nextTick(() => {
+      setTimeout(() => {
+        layoutItems()
+      }, 50)
+    })
+  }
+)
 
 onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0

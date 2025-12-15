@@ -117,13 +117,13 @@ public class FaceRecognitionService {
                 double height = (c.maxY - c.minY + step) * scaleY / originalHeight;
                 double confidence = Math.min(1.0, (double) c.count / (w * h) * 8);
 
-                // 基于人脸常见比例做更严格的粗过滤，减少环境照片误检
+                // 基于人脸常见比例做过滤，放宽以减少漏检
                 double ratio = height > 0 ? width / height : 1.0;
-                if (ratio < 0.6 || ratio > 1.4) continue; // 收紧到0.6-1.4
+                if (ratio < 0.5 || ratio > 1.6) continue; // 放宽到0.5-1.6
 
-                // 面积检查：确保区域足够大（至少占图片的1%）
+                // 面积检查：确保区域足够大（至少占图片的0.5%）
                 double area = width * height;
-                if (area < 0.01) continue;
+                if (area < 0.005) continue;
 
                 results.add(new DetectedFace(x, y, width, height, confidence));
             }

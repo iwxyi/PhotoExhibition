@@ -278,11 +278,15 @@ public class PhotoService {
         FaceDTO dto = new FaceDTO();
         dto.setId(face.getId());
         dto.setPhotoId(face.getPhoto() != null ? face.getPhoto().getId() : null);
+        dto.setPhotoFilename(face.getPhoto() != null ? face.getPhoto().getFilename() : null);
+        dto.setPhotoThumbnailPath(face.getPhoto() != null ? face.getPhoto().getThumbnailPath() : null);
+        dto.setPhotoOriginalPath(face.getPhoto() != null ? face.getPhoto().getOriginalPath() : null);
         dto.setX(face.getX());
         dto.setY(face.getY());
         dto.setWidth(face.getWidth());
         dto.setHeight(face.getHeight());
         dto.setConfidence(face.getConfidence());
+        dto.setIsConfirmed(face.getIsConfirmed());
         if (face.getPerson() != null) {
             dto.setPersonId(face.getPerson().getId());
             dto.setPersonName(face.getPerson().getName());

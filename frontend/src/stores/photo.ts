@@ -61,6 +61,7 @@ export interface FaceFace {
   personId?: number
   personName?: string
   personDescription?: string
+  isConfirmed?: boolean
   photoFilename?: string
   photoThumbnailPath?: string
   photoOriginalPath?: string
@@ -175,6 +176,21 @@ export const usePhotoStore = defineStore('photo', () => {
     }
   }
 
+  const fetchPhotosByTag = async (tagId: number, page = 0, size = 20) => {
+    loading.value = true
+    try {
+      const response = await api.post('/photos/filter', { tagIds: [tagId], page, size })
+      if (page === 0) {
+        photos.value = response.data.content
+      } else {
+        photos.value = [...photos.value, ...response.data.content]
+      }
+      return response.data
+    } finally {
+      loading.value = false
+    }
+  }
+
   const filterPhotos = async (filters: any, page = 0, size = 20) => {
     loading.value = true
     try {
@@ -200,6 +216,7 @@ export const usePhotoStore = defineStore('photo', () => {
     fetchPhotoWall,
     fetchRandomPhotos,
     fetchPhotoById,
+    fetchPhotosByTag,
     filterPhotos
   }
 })

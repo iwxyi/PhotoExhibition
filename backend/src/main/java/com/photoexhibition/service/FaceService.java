@@ -35,6 +35,8 @@ public class FaceService {
     private final FaceEmbeddingService faceEmbeddingService;
     @Value("${photo.scan.base-path}")
     private String photoBasePath;
+    @Value("${face.detection.confidence-threshold:0.25}")
+    private double detectionConfidenceThreshold;
 
     /**
      * 重新检测并保存某张照片的人脸信息
@@ -49,20 +51,20 @@ public class FaceService {
 
         List<Face> faces = new ArrayList<>();
         for (FaceRecognitionService.DetectedFace f : detected) {
-            // 更严格的过滤条件，大幅减少误检（特别是环境照片）
-            // 1. 置信度阈值提高到0.65（原来0.5），更严格
-            if (f.getConfidence() < 0.65) {
+            // 放宽过滤，减少漏检
+            // 1. 置信度阈值从配置读取（默认0.25，原0.5）
+            if (f.getConfidence() < detectionConfidenceThreshold) {
                 log.debug("跳过低置信度人脸: conf={}, file={}", f.getConfidence(), imageFile.getName());
                 continue;
             }
-            // 2. 面积阈值提高到0.1（原来0.08），确保人脸足够大且明显
-            if (f.getWidth() < 0.1 || f.getHeight() < 0.1) {
+            // 2. 面积阈值放宽到0.06（原0.1）
+            if (f.getWidth() < 0.06 || f.getHeight() < 0.06) {
                 log.debug("跳过过小人脸: w={}, h={}, file={}", f.getWidth(), f.getHeight(), imageFile.getName());
                 continue;
             }
-            // 3. 宽高比范围收紧到0.75-1.3（原来0.7-1.4），更符合真实人脸比例
+            // 3. 宽高比范围放宽到0.6-1.6（原0.75-1.3）
             double ratio = f.getHeight() > 0 ? f.getWidth() / f.getHeight() : 1.0;
-            if (ratio < 0.75 || ratio > 1.3) {
+            if (ratio < 0.6 || ratio > 1.6) {
                 log.debug("跳过异常比例的人脸: ratio={}, file={}", ratio, imageFile.getName());
                 continue;
             }
@@ -72,22 +74,22 @@ public class FaceService {
             double w = Math.max(0.0, Math.min(1.0 - x, f.getWidth()));
             double h = Math.max(0.0, Math.min(1.0 - y, f.getHeight()));
             // 5. 裁剪后面积检查，确保裁剪后仍然足够大
-            if (w < 0.08 || h < 0.08) {
+            if (w < 0.05 || h < 0.05) {
                 log.debug("裁剪后过小人脸: w={}, h={}, file={}", w, h, imageFile.getName());
                 continue;
             }
-            // 6. 位置合理性检查：人脸不应该太靠近边缘（避免误检边缘区域），边缘区域扩大到10%
+            // 6. 位置合理性检查：人脸不应该太靠近边缘（避免误检边缘区域），边缘区域放宽到4%
             double centerX = x + w / 2;
             double centerY = y + h / 2;
-            double edgeMargin = 0.10; // 边缘10%区域
+            double edgeMargin = 0.04; // 边缘4%区域
             if (centerX < edgeMargin || centerX > 1.0 - edgeMargin || 
                 centerY < edgeMargin || centerY > 1.0 - edgeMargin) {
                 log.debug("跳过边缘位置人脸: center=({}, {}), file={}", centerX, centerY, imageFile.getName());
                 continue;
             }
-            // 7. 面积合理性检查：人脸区域面积应该足够大（至少占图片的1%）
+            // 7. 面积合理性检查：人脸区域面积应该足够大（至少占图片的0.5%）
             double area = w * h;
-            if (area < 0.01) {
+            if (area < 0.005) {
                 log.debug("跳过面积过小的人脸: area={}, file={}", area, imageFile.getName());
                 continue;
             }
@@ -109,7 +111,13 @@ public class FaceService {
             faces.add(saved);
         }
 
-        photo.setFaces(faces);
+        // 使用原集合引用，避免 orphan 触发
+        if (photo.getFaces() != null) {
+            photo.getFaces().clear();
+            photo.getFaces().addAll(faces);
+        } else {
+            photo.setFaces(new ArrayList<>(faces));
+        }
         log.debug("保存人脸 {} 个，photoId={}", faces.size(), photo.getId());
         return faces;
     }

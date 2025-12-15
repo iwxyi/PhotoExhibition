@@ -54,10 +54,18 @@
 
       <!-- 操作面板 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- API操作面板 -->
+        <!-- 扫描面板 -->
         <div class="bg-gray-800 rounded-lg p-6">
-          <h2 class="text-xl font-light mb-4">API操作</h2>
-          <div class="space-y-4">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-light">扫描</h2>
+            <div class="text-sm text-gray-400 flex items-center gap-2">
+              <span v-if="scanning" class="inline-flex items-center gap-2 text-blue-300">
+                <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span> 扫描中...
+              </span>
+              <span v-else class="text-gray-500">空闲</span>
+            </div>
+          </div>
+          <div class="space-y-3">
             <button
               @click="triggerScan"
               :disabled="scanning"
@@ -65,6 +73,20 @@
             >
               {{ scanning ? '扫描中...' : '触发图片扫描' }}
             </button>
+            <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-sm text-gray-300 space-y-1">
+              <div class="flex justify-between">
+                <span>最后触发时间</span>
+                <span>{{ lastScanTime || '—' }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>状态</span>
+                <span>{{ scanStatus }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>进度</span>
+                <span>{{ scanProgressText }}</span>
+              </div>
+            </div>
             <div class="text-sm text-gray-400">
               <p>• 手动触发图片目录扫描</p>
               <p>• 提取EXIF信息并生成缩略图</p>
@@ -182,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/api'
@@ -197,6 +219,14 @@ const stats = ref({
 })
 
 const scanning = ref(false)
+const lastScanTime = ref<string | null>(null)
+const scanProgress = ref<{ current: number; total: number }>({ current: 0, total: 0 })
+const scanStatus = computed(() => (scanning.value ? '扫描中' : '空闲'))
+const scanProgressText = computed(() => {
+  const { current, total } = scanProgress.value
+  if (!total) return '0 / 0'
+  return `${current} / ${total} (${Math.min(100, Math.floor((current / total) * 100))}%)`
+})
 const selectedApi = ref('')
 const testing = ref(false)
 const apiResponse = ref<any>(null)
@@ -231,6 +261,7 @@ const loadStats = async () => {
 
 const triggerScan = async () => {
   scanning.value = true
+  lastScanTime.value = new Date().toLocaleString('zh-CN')
   try {
     await api.post('/admin/scan')
     alert('扫描任务已触发')
@@ -238,6 +269,23 @@ const triggerScan = async () => {
     alert('触发扫描失败: ' + (error.response?.data?.message || error.message))
   } finally {
     scanning.value = false
+  }
+}
+
+const fetchScanStatus = async () => {
+  try {
+    const res = await api.get('/admin/scan/status')
+    const data = res.data || {}
+    scanning.value = !!data.scanning
+    scanProgress.value = {
+      current: data.current ?? 0,
+      total: data.total ?? 0
+    }
+    if (data.lastScanStart) {
+      lastScanTime.value = new Date(data.lastScanStart).toLocaleString('zh-CN')
+    }
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -320,8 +368,19 @@ const handleLogout = () => {
   router.push('/admin/login')
 }
 
-onMounted(() => {
-  loadStats()
+let scanTimer: number | null = null
+
+onMounted(async () => {
+  await loadStats()
+  await fetchScanStatus()
+  scanTimer = window.setInterval(fetchScanStatus, 5000)
+})
+
+onUnmounted(() => {
+  if (scanTimer) {
+    clearInterval(scanTimer)
+    scanTimer = null
+  }
 })
 
 const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))

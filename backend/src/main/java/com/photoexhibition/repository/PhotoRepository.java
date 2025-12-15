@@ -54,9 +54,15 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   @Param("maxIso") Integer maxIso,
                                   Pageable pageable);
 
-    @Query(value = "SELECT DISTINCT p.* FROM photo p " +
+    @Query(
+        value = "SELECT DISTINCT p.* FROM photo p " +
+                "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
+                "WHERE pt.tag_id IN (:tagIds)",
+        countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
            "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
-           "WHERE pt.tag_id IN :tagIds", nativeQuery = true)
+                     "WHERE pt.tag_id IN (:tagIds)",
+        nativeQuery = true
+    )
     Page<Photo> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();

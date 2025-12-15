@@ -24,9 +24,8 @@
                   <input type="checkbox" class="accent-blue-500" :checked="allSelected" @change="toggleAll" />
                 </th>
                 <th class="py-2 pr-4">ID</th>
+                <th class="py-2 pr-4">缩略图</th>
                 <th class="py-2 pr-4">文件名</th>
-                <th class="py-2 pr-4">相机</th>
-                <th class="py-2 pr-4">镜头</th>
                 <th class="py-2 pr-4">尺寸</th>
                 <th class="py-2 pr-4">格式</th>
                 <th class="py-2 pr-4">拍摄时间</th>
@@ -39,9 +38,40 @@
                   <input type="checkbox" class="accent-blue-500" v-model="selectedIds" :value="p.id" />
                 </td>
                 <td class="py-2 pr-4">{{ p.id }}</td>
-                <td class="py-2 pr-4 whitespace-nowrap">{{ p.filename }}</td>
-                <td class="py-2 pr-4">{{ p.cameraModel || '-' }}</td>
-                <td class="py-2 pr-4">{{ p.lensModel || '-' }}</td>
+                <td class="py-2 pr-4">
+                  <div
+                    class="w-16 h-16 bg-gray-700 rounded overflow-hidden border border-gray-600 flex items-center justify-center cursor-pointer"
+                    @click="openPhoto(p.id)"
+                    @mouseenter="showPreview(p)"
+                    @mousemove="movePreview"
+                    @mouseleave="hidePreview"
+                  >
+                    <img
+                      v-if="p.thumbnailPath || p.webpPath || p.originalPath"
+                      :src="getThumbUrl(p)"
+                      :alt="p.filename"
+                      class="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    <span v-else class="text-xs text-gray-500">无图</span>
+                  </div>
+                </td>
+                <td class="py-2 pr-4 whitespace-nowrap">
+                  <div class="flex flex-col gap-1">
+                    <span>{{ p.filename }}</span>
+                    <div class="flex flex-wrap gap-1">
+                      <span
+                        v-for="t in p.tags || []"
+                        :key="t.id"
+                        class="px-2 py-0.5 rounded-full text-xs cursor-pointer"
+                        :style="{ backgroundColor: t.color || 'rgba(59,130,246,0.1)', color: t.color ? '#fff' : '#93c5fd' }"
+                        @click.stop="openTag(t)"
+                      >
+                        {{ t.name }}
+                      </span>
+                    </div>
+                  </div>
+                </td>
                 <td class="py-2 pr-4">{{ p.width }} x {{ p.height }}</td>
                 <td class="py-2 pr-4">{{ p.format }}</td>
                 <td class="py-2 pr-4 whitespace-nowrap">{{ formatDate(p.takenAt) }}</td>
@@ -54,9 +84,21 @@
         </div>
 
         <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
-          <span>第 {{ page + 1 }} 页 / 共 {{ totalPages }} 页</span>
-          <div class="space-x-2">
+          <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
+          <div class="flex items-center gap-2">
             <button @click="prev" :disabled="page===0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">上一页</button>
+            <div class="flex items-center gap-1">
+              <button
+                v-for="pnum in pageNumbers"
+                :key="pnum"
+                @click="jumpTo(pnum)"
+                :disabled="loading"
+                class="px-3 py-1 rounded border border-gray-700"
+                :class="pnum === page ? 'bg-blue-600 border-blue-500' : 'bg-gray-700 hover:bg-gray-600'"
+              >
+                {{ pnum + 1 }}
+              </button>
+            </div>
             <button @click="next" :disabled="page>=totalPages-1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">下一页</button>
           </div>
         </div>
@@ -109,13 +151,36 @@
           </div>
         </div>
       </div>
+      <div class="mt-4 flex items-center justify-between">
+        <button
+          class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm disabled:opacity-50"
+          :disabled="rescanLoading"
+          @click="rescanFaces"
+        >
+          {{ rescanLoading ? '重建中...' : '重建人脸' }}
+        </button>
+        <span class="text-xs text-gray-400" v-if="rescanMessage">{{ rescanMessage }}</span>
+      </div>
     </div>
   </div>
+
+  <transition name="fade">
+    <div
+      v-if="previewVisible"
+      class="preview-float bg-gray-900"
+      :style="previewStyle"
+    >
+      <img :src="previewUrl" alt="预览" class="w-full h-full object-contain" />
+    </div>
+  </transition>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api'
+
+const router = useRouter()
 
 const photos = ref<any[]>([])
 const loading = ref(false)
@@ -129,6 +194,24 @@ const faces = ref<any[]>([])
 const faceLoading = ref(false)
 const savingFaceId = ref<number | null>(null)
 const activePhoto = ref<any | null>(null)
+const rescanLoading = ref(false)
+const rescanMessage = ref('')
+const previewVisible = ref(false)
+const previewUrl = ref('')
+const previewStyle = ref<{ left: string; top: string }>({ left: '0px', top: '0px' })
+const pageNumbers = computed(() => {
+  const total = Math.max(totalPages.value, 1)
+  const current = page.value
+  const span = 2 // 前后各2页
+  let start = Math.max(0, current - span)
+  let end = Math.min(total - 1, current + span)
+  // 保证固定长度（最多5个），必要时向两侧补齐
+  while (end - start < span * 2 && end < total - 1) end++
+  while (end - start < span * 2 && start > 0) start--
+  const list = []
+  for (let i = start; i <= end; i++) list.push(i)
+  return list
+})
 
 const load = async () => {
   loading.value = true
@@ -156,6 +239,13 @@ const formatDate = (val?: string) => {
   return val.slice(0, 10)
 }
 
+const getThumbUrl = (p: any) => {
+  if (p.thumbnailPath) return `/api/files${p.thumbnailPath}`
+  if (p.webpPath) return `/api/files${p.webpPath}`
+  if (p.originalPath) return `/api/files${p.originalPath}`
+  return ''
+}
+
 const formatPercent = (val?: number) => {
   if (val === undefined || val === null) return '-'
   return `${(val * 100).toFixed(0)}%`
@@ -178,6 +268,10 @@ const deleteSelected = async () => {
   await load()
 }
 
+const openPhoto = (photoId: number) => {
+  window.open(`/photo/${photoId}`, '_blank')
+}
+
 const openFaceDialog = async (photo: any) => {
   activePhoto.value = photo
   showFaceDialog.value = true
@@ -192,6 +286,7 @@ const closeFaceDialog = () => {
 
 const loadFaces = async (photoId: number) => {
   faceLoading.value = true
+  rescanMessage.value = ''
   try {
     const res = await api.get(`/admin/photos/${photoId}/faces`)
     faces.value = res.data || []
@@ -220,6 +315,21 @@ const saveFace = async (face: any) => {
   }
 }
 
+const rescanFaces = async () => {
+  if (!activePhoto.value?.id) return
+  rescanLoading.value = true
+  rescanMessage.value = ''
+  try {
+    const res = await api.post(`/admin/photos/${activePhoto.value.id}/rescan-faces`)
+    rescanMessage.value = res.data?.message || '重建完成'
+    await loadFaces(activePhoto.value.id)
+  } catch (e: any) {
+    rescanMessage.value = e?.response?.data?.error || e?.message || '重建失败'
+  } finally {
+    rescanLoading.value = false
+  }
+}
+
 const prev = () => {
   if (page.value === 0) return
   page.value--
@@ -230,7 +340,51 @@ const next = () => {
   page.value++
   load()
 }
+const openTag = (tag: any) => {
+  if (!tag?.id) return
+  router.push({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+}
+
+const showPreview = (p: any) => {
+  previewUrl.value = getThumbUrl(p)
+  previewVisible.value = !!previewUrl.value
+}
+
+const movePreview = (e: MouseEvent) => {
+  if (!previewVisible.value) return
+  const offset = 16
+  const x = e.clientX + offset
+  const y = e.clientY + offset
+  const maxX = window.innerWidth - 220
+  const maxY = window.innerHeight - 220
+  previewStyle.value = {
+    left: `${Math.min(x, maxX)}px`,
+    top: `${Math.min(y, maxY)}px`
+  }
+}
+
+const hidePreview = () => {
+  previewVisible.value = false
+  previewUrl.value = ''
+}
+const jumpTo = (p: number) => {
+  if (p < 0 || p >= totalPages.value || p === page.value) return
+  page.value = p
+  load()
+}
 
 onMounted(() => load())
 </script>
 
+<style scoped>
+.preview-float {
+  position: fixed;
+  z-index: 9999;
+  width: 220px;
+  height: 220px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+</style>

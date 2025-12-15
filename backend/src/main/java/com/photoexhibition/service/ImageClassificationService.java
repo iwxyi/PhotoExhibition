@@ -6,11 +6,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.FloatBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -204,15 +212,50 @@ public class ImageClassificationService implements AutoCloseable {
         int newW = (int) (w * scale);
         int newH = (int) (h * scale);
 
+        // 确保至少等于targetSize（避免浮点数精度问题导致尺寸过小）
+        newW = Math.max(newW, targetSize);
+        newH = Math.max(newH, targetSize);
+
         // 缩放图像
         Image scaled = img.getScaledInstance(newW, newH, Image.SCALE_SMOOTH);
         BufferedImage resized = new BufferedImage(newW, newH, BufferedImage.TYPE_INT_RGB);
-        resized.getGraphics().drawImage(scaled, 0, 0, null);
+        Graphics2D g = resized.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(scaled, 0, 0, null);
+        g.dispose();
 
-        // 居中裁剪
-        int x = (newW - targetSize) / 2;
-        int y = (newH - targetSize) / 2;
-        return resized.getSubimage(Math.max(0, x), Math.max(0, y), targetSize, targetSize);
+        // 居中裁剪，确保不超出边界
+        int x = Math.max(0, (newW - targetSize) / 2);
+        int y = Math.max(0, (newH - targetSize) / 2);
+        
+        // 确保裁剪区域不超出图像边界（双重检查）
+        int cropWidth = Math.min(targetSize, newW - x);
+        int cropHeight = Math.min(targetSize, newH - y);
+        
+        // 验证裁剪区域有效性
+        if (x + cropWidth > newW || y + cropHeight > newH) {
+            // 如果仍然超出边界，使用安全的裁剪尺寸
+            cropWidth = Math.min(cropWidth, newW - x);
+            cropHeight = Math.min(cropHeight, newH - y);
+        }
+        
+        // 如果裁剪区域小于目标尺寸，创建填充图像
+        if (cropWidth < targetSize || cropHeight < targetSize) {
+            BufferedImage result = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2 = result.createGraphics();
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2.setColor(Color.BLACK);
+            g2.fillRect(0, 0, targetSize, targetSize);
+            // 居中绘制裁剪的部分
+            int offsetX = (targetSize - cropWidth) / 2;
+            int offsetY = (targetSize - cropHeight) / 2;
+            g2.drawImage(resized.getSubimage(x, y, cropWidth, cropHeight), 
+                        offsetX, offsetY, cropWidth, cropHeight, null);
+            g2.dispose();
+            return result;
+        }
+        
+        return resized.getSubimage(x, y, cropWidth, cropHeight);
     }
 
     /**

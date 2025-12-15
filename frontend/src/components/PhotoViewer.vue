@@ -161,9 +161,34 @@
                   <span
                     v-for="t in currentPhoto.tags.slice(0, 8)"
                     :key="t.id"
-                    class="px-2 py-1 bg-white/10 rounded"
+                    class="px-2 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20"
+                    @click.stop="openTag(t)"
                   >
                     {{ t.name }}
+                  </span>
+                </span>
+              </div>
+              <div v-if="confirmedPersons.length">
+                <span class="opacity-60">已确认人物：</span>
+                <span class="inline-flex flex-wrap gap-2 mt-1">
+                  <span
+                    v-for="p in confirmedPersons"
+                    :key="p.key"
+                    class="px-2 py-1 bg-green-500/20 border border-green-500/40 rounded"
+                  >
+                    {{ p.name }} ({{ p.count }} 张)
+                  </span>
+                </span>
+              </div>
+              <div v-if="unconfirmedPersons.length">
+                <span class="opacity-60">未确认人物：</span>
+                <span class="inline-flex flex-wrap gap-2 mt-1">
+                  <span
+                    v-for="p in unconfirmedPersons"
+                    :key="p.key"
+                    class="px-2 py-1 bg-yellow-500/20 border border-yellow-500/40 rounded"
+                  >
+                    {{ p.name }} ({{ p.count }} 张)
                   </span>
                 </span>
               </div>
@@ -219,6 +244,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Photo } from '@/stores/photo'
 
 const props = defineProps<{
@@ -263,6 +289,41 @@ const STORAGE_KEY = 'pe-info-collapsed'
 const THUMB_KEY = 'pe-thumb-height'
 
 const currentPhoto = computed(() => props.photos?.[currentIndex.value])
+const router = useRouter()
+const confirmedPersons = computed(() => {
+  const faces = currentPhoto.value?.faces || []
+  const map: Record<string, { key: string; name: string; count: number }> = {}
+  faces
+    .filter((f) => f.isConfirmed && f.personName)
+    .forEach((f) => {
+      const key = String(f.personId || f.personName)
+      if (!map[key]) {
+        map[key] = { key, name: f.personName || '未命名', count: 0 }
+      }
+      map[key].count += 1
+    })
+  return Object.values(map)
+})
+const unconfirmedPersons = computed(() => {
+  const faces = currentPhoto.value?.faces || []
+  const map: Record<string, { key: string; name: string; count: number }> = {}
+  faces
+    .filter((f) => !f.isConfirmed)
+    .forEach((f, idx) => {
+      const key = f.personId ? `p-${f.personId}` : `u-${f.personName || idx}`
+      const name = f.personName || '未命名'
+      if (!map[key]) {
+        map[key] = { key, name, count: 0 }
+      }
+      map[key].count += 1
+    })
+  return Object.values(map)
+})
+
+const openTag = (tag: any) => {
+  if (!tag?.id) return
+  router.push({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+}
 
 watch(
   () => props.visible,
