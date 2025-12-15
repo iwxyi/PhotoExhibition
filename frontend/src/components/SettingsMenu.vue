@@ -51,6 +51,28 @@
           </button>
         </div>
       </div>
+      <div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">标签语言</div>
+        <div class="flex gap-2">
+          <button
+            @click="setLanguage('zh')"
+            class="flex-1 px-2 py-1 text-xs rounded border"
+            :class="language === 'zh' ? activeBtnClass : inactiveBtnClass"
+          >
+            中文
+          </button>
+          <button
+            @click="setLanguage('en')"
+            class="flex-1 px-2 py-1 text-xs rounded border"
+            :class="language === 'en' ? activeBtnClass : inactiveBtnClass"
+          >
+            English
+          </button>
+        </div>
+        <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          注意：需要重启后端服务生效
+        </div>
+      </div>
       <div v-if="isPhotoWall">
         <div class="flex items-center justify-between">
           <span class="text-xs text-gray-500 dark:text-gray-400">视差滚动</span>
@@ -74,12 +96,14 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUiSettings } from '@/composables/useUiSettings'
+import { useLanguageStore } from '@/stores/language'
 
 const router = useRouter()
 const route = useRoute()
 const showSettings = ref(false)
 
 const { coverSize, previewSize, parallaxEnabled, setCoverSize, setPreviewSize, setParallaxEnabled } = useUiSettings()
+const { language, setLanguage } = useLanguageStore()
 
 // 判断是否在图墙页面
 const isPhotoWall = computed(() => route.path === '/wall')

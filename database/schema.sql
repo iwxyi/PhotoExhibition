@@ -78,13 +78,12 @@ CREATE TABLE IF NOT EXISTS `album_tag` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='相册标签关联表';
 
 -- 图片标签关联表
+-- 注意：JPA的@ManyToMany使用复合主键，不需要单独的id字段
 CREATE TABLE IF NOT EXISTS `photo_tag` (
-  `id` BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `photo_id` BIGINT(20) NOT NULL COMMENT '图片ID',
   `tag_id` BIGINT(20) NOT NULL COMMENT '标签ID',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_photo_tag` (`photo_id`, `tag_id`),
+  PRIMARY KEY (`photo_id`, `tag_id`),
   KEY `idx_tag_id` (`tag_id`),
   CONSTRAINT `fk_photo_tag_photo` FOREIGN KEY (`photo_id`) REFERENCES `photo` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_photo_tag_tag` FOREIGN KEY (`tag_id`) REFERENCES `tag` (`id`) ON DELETE CASCADE

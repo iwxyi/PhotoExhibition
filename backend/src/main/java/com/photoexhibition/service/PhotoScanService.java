@@ -449,6 +449,10 @@ public class PhotoScanService {
 
             // 合并相册标签到照片标签，便于搜索（复制一份避免懒加载问题）
             List<Tag> albumTags = album.getTags() == null ? new ArrayList<>() : new ArrayList<>(album.getTags());
+            Set<String> albumTagNames = albumTags.stream()
+                .map(Tag::getName)
+                .collect(java.util.stream.Collectors.toSet());
+            
             if (!albumTags.isEmpty()) {
                 if (photo.getTags() == null) {
                     photo.setTags(new java.util.HashSet<>());
@@ -457,7 +461,9 @@ public class PhotoScanService {
             }
 
             // 智能标签（含人脸信息）
-            smartTagService.applySmartTags(imageFile, photo, faces.size());
+            // 强制扫描时，删除旧智能标签后重新生成；普通扫描时追加
+            // 传递相册标签名称，确保不会误删相册标签
+            smartTagService.applySmartTags(imageFile, photo, faces.size(), force, albumTagNames);
 
             photoRepository.save(photo);
 
