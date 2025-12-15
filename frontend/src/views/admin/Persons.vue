@@ -715,7 +715,7 @@ const selectedItem = ref<PersonListItem | null>(null)
 const selectedPersonId = ref<number | null>(null)
 const selectedClusterIndex = ref<number | null>(null)
 const loadingPersons = ref(false)
-const clusterThreshold = ref(0.65)
+const clusterThreshold = ref(0.75) // 保守聚类算法，优先保证准确率
 
 // 编辑相关
 const editingPersonId = ref<number | null>(null)

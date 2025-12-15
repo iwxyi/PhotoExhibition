@@ -697,14 +697,19 @@ public class FaceService {
 
     /**
      * 自动聚合相似人脸（基于embedding相似度）
-     * 使用改进的聚类算法：使用组内平均向量作为代表，提高准确率
-     * 优化：使用更严格的聚类条件，减少误聚类
-     * @param threshold 相似度阈值，建议0.65-0.72
+     * 完全重写的保守聚类算法，优先保证准确率
+     * 核心策略：
+     * 1. 使用更高的基础阈值（0.78-0.82）
+     * 2. 新成员必须与组内至少3个已有人脸都相似（多点验证）
+     * 3. 要求与组内所有成员的平均相似度都要高（避免链式错误）
+     * 4. 最小样本约束：只有组内至少有3个人脸时，才允许新成员加入
+     * 5. 使用统计验证（中位数、75分位数）确保一致性
+     * @param threshold 相似度阈值，建议0.75-0.80（更保守）
      * @return 聚类结果列表
      */
     @Transactional(readOnly = true)
     public List<FaceClusterDTO> clusterSimilarFaces(double threshold) {
-        // 获取所有未分配且质量合格的人脸（有向量、框形合理、置信度足够）
+        // 获取所有未分配且质量合格的人脸
         List<Face> unassigned = faceRepository.findByPersonIsNull();
         List<Face> withEmbedding = unassigned.stream()
             .filter(this::isValidForClustering)
@@ -714,121 +719,126 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        // 改进的聚类算法：使用组内平均向量作为代表
-        // 优化：使用更严格的加入条件，需要与组内多个代表脸都相似才加入
-        // 增强：代表向量多样化、离群保护、分层阈值与最小样本约束
+        // 保守聚类算法：优先保证准确率，宁可分成多个小聚类，也不要错误合并
+        // 使用更高的实际阈值（在用户阈值基础上再加0.03-0.05）
+        final double strictThreshold = Math.max(threshold + 0.05, 0.78); // 最低0.78
+        
         List<List<Face>> groups = new ArrayList<>();
-        List<float[]> groupCentroids = new ArrayList<>(); // 每个组的平均向量
-        List<List<float[]>> groupRepresentatives = new ArrayList<>(); // 每个组的代表向量（用于更严格的匹配）
+        
+        // 按置信度降序排序，优先处理高质量人脸
+        withEmbedding.sort((a, b) -> Double.compare(
+            (b.getConfidence() != null ? b.getConfidence() : 0.0),
+            (a.getConfidence() != null ? a.getConfidence() : 0.0)
+        ));
 
-        for (Face face1 : withEmbedding) {
-            float[] vec1 = parseEmbedding(face1.getEmbedding());
-            if (vec1 == null) continue;
+        for (Face candidate : withEmbedding) {
+            float[] candidateVec = parseEmbedding(candidate.getEmbedding());
+            if (candidateVec == null) continue;
 
             Integer bestGroup = null;
-            double bestSimilarity = -1;
+            double bestAvgSimilarity = -1;
 
-            // 检查与所有组中心向量的相似度
+            // 检查与所有现有组的匹配度
             for (int g = 0; g < groups.size(); g++) {
-                float[] centroid = groupCentroids.get(g);
-                if (centroid == null) continue;
+                List<Face> group = groups.get(g);
+
+                // 多点验证：计算与组内所有成员的相似度
+                List<Double> similarities = new ArrayList<>();
+                int matchCount = 0;
                 
-                double sim = cosine(vec1, centroid);
-                
-                // 更严格的匹配：需要与组内多个代表向量相似，且与中心向量相似
-                // 对于小规模组（<=3），至少命中1个代表；大组（>3），至少命中2个代表
-                // 同时使用代表相似度的中位数/均值做离群保护
-                List<float[]> representatives = groupRepresentatives.get(g);
-                int requiredMatches = groups.get(g).size() <= 3 ? 1 : 2;
-                int currentMatches = 0;
-                List<Double> repSims = new ArrayList<>();
-                
-                // 检查与代表向量的相似度
-                for (float[] rep : representatives) {
-                    double repSim = cosine(vec1, rep);
-                    repSims.add(repSim);
-                    if (repSim >= threshold) {
-                        currentMatches++;
+                for (Face member : group) {
+                    float[] memberVec = parseEmbedding(member.getEmbedding());
+                    if (memberVec == null) continue;
+                    
+                    double sim = cosine(candidateVec, memberVec);
+                    similarities.add(sim);
+                    
+                    // 统计达到阈值的匹配数
+                    if (sim >= strictThreshold) {
+                        matchCount++;
                     }
                 }
 
-                // 代表相似度统计
-                double medianRepSim = repSims.isEmpty() ? 0 : quantile(repSims, 0.5);
-                double top3AvgSim = repSims.isEmpty() ? 0 : repSims.stream()
-                    .sorted((a, b) -> Double.compare(b, a))
-                    .limit(3)
-                    .mapToDouble(Double::doubleValue)
-                    .average()
-                    .orElse(0.0);
-                
-                // 如果与中心向量相似，也算一个匹配
-                if (sim >= threshold) {
-                    currentMatches++;
+                if (similarities.isEmpty()) continue;
+
+                // 计算统计指标
+                double avgSim = similarities.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+                double medianSim = quantile(similarities, 0.5);
+                double q75Sim = quantile(similarities, 0.75);
+                double minSim = similarities.stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
+
+                boolean canJoin = false;
+
+                if (group.size() < 3) {
+                    // 小组（1-2个人脸）：使用更严格的直接匹配
+                    // 要求与组内所有成员都高度相似（>= 严格阈值）
+                    // 这样可以避免早期错误合并，同时允许真正的同一人合并
+                    canJoin = matchCount == group.size() && avgSim >= strictThreshold && minSim >= (strictThreshold - 0.03);
+                } else {
+                    // 大组（3个或以上人脸）：使用多点验证和统计指标
+                    // 严格的加入条件（全部满足才可加入）：
+                    // 1. 至少与组内3个成员相似（多点验证，避免链式错误）
+                    // 2. 平均相似度 >= 严格阈值
+                    // 3. 中位数相似度 >= 严格阈值（确保一致性）
+                    // 4. 75分位数相似度 >= 严格阈值（大部分成员都相似）
+                    // 5. 最小相似度 >= 严格阈值 - 0.05（避免极端离群值）
+                    int requiredMatches = Math.min(3, group.size()); // 至少3个，但不超过组大小
+                    
+                    boolean passMultiPoint = matchCount >= requiredMatches;
+                    boolean passAvg = avgSim >= strictThreshold;
+                    boolean passMedian = medianSim >= strictThreshold;
+                    boolean passQ75 = q75Sim >= strictThreshold;
+                    boolean passMin = minSim >= (strictThreshold - 0.05);
+
+                    canJoin = passMultiPoint && passAvg && passMedian && passQ75 && passMin;
                 }
-                
-                // 需要满足：与中心向量相似 且 与足够多的代表向量相似
-                // 大组额外收紧阈值，降低跨人误合
-                final double dynamicThreshold = groups.get(g).size() >= 5
-                    ? threshold + 0.03  // 大组加严
-                    : threshold;
 
-                // 离群保护：代表相似度需要通过统计阈值
-                boolean passRepresentativeStats = (medianRepSim >= dynamicThreshold) && (top3AvgSim >= dynamicThreshold);
-
-                // 最小样本支持：若组内已有多张高相似代表，要求至少2个代表命中
-                long highSimCount = repSims.stream().filter(v -> v >= dynamicThreshold).count();
-                int requiredMatchesWithSupport = (groups.get(g).size() >= 2 && highSimCount >= 2)
-                    ? Math.max(requiredMatches, 2)
-                    : requiredMatches;
-
-                if (sim >= dynamicThreshold && currentMatches >= requiredMatchesWithSupport && passRepresentativeStats && sim > bestSimilarity) {
-                    bestSimilarity = sim;
-                    bestGroup = g;
+                if (canJoin) {
+                    // 选择平均相似度最高的组
+                    if (avgSim > bestAvgSimilarity) {
+                        bestAvgSimilarity = avgSim;
+                        bestGroup = g;
+                    }
                 }
             }
 
             if (bestGroup != null) {
-                // 加入现有组，并更新组中心向量和代表向量
-                groups.get(bestGroup).add(face1);
-                groupCentroids.set(bestGroup, updateCentroid(groups.get(bestGroup)));
-                
-                // 更新代表向量：保留置信度最高的几个作为代表
-                List<Face> groupFaces = groups.get(bestGroup);
-                List<float[]> newReps = groupFaces.stream()
-                    .sorted((a, b) -> Double.compare(
-                        (b.getConfidence() != null ? b.getConfidence() : 0.0),
-                        (a.getConfidence() != null ? a.getConfidence() : 0.0)
-                    ))
-                    .limit(Math.min(5, groupFaces.size())) // 最多保留5个代表
-                    .map(f -> parseEmbedding(f.getEmbedding()))
-                    .filter(v -> v != null)
-                    .collect(Collectors.toList());
-                groupRepresentatives.set(bestGroup, newReps);
+                // 加入现有组
+                groups.get(bestGroup).add(candidate);
             } else {
-                // 创建新组
+                // 创建新组（只有无法加入任何现有组时才创建）
                 List<Face> newGroup = new ArrayList<>();
-                newGroup.add(face1);
+                newGroup.add(candidate);
                 groups.add(newGroup);
-                groupCentroids.add(vec1.clone()); // 初始中心向量就是这个人脸
-                List<float[]> newReps = new ArrayList<>();
-                newReps.add(vec1.clone());
-                groupRepresentatives.add(newReps);
             }
         }
 
-        // 转换为DTO
+        // 后处理：对每个组进行离群值清理
         List<FaceClusterDTO> clusters = new ArrayList<>();
-        for (int i = 0; i < groups.size(); i++) {
-            List<Face> group = groups.get(i);
-            if (group.size() < 1) continue; // 至少需要1个人脸
+        for (List<Face> group : groups) {
+            if (group.size() < 1) continue;
 
-            // 离群清理：按与中心向量的相似度分位剔除极端低值
-            float[] centroid = groupCentroids.get(i);
-            List<Face> cleanedGroup = pruneGroupBySimilarity(group, centroid);
+            // 计算组中心向量
+            float[] centroid = updateCentroid(group);
+            if (centroid == null) continue;
+
+            // 离群值清理：移除与中心向量相似度低于阈值的人脸
+            List<Face> cleanedGroup = new ArrayList<>();
+            for (Face face : group) {
+                float[] vec = parseEmbedding(face.getEmbedding());
+                if (vec == null) continue;
+                double sim = cosine(centroid, vec);
+                // 使用稍微宽松的阈值进行清理（比加入阈值低0.02）
+                if (sim >= (strictThreshold - 0.02)) {
+                    cleanedGroup.add(face);
+                }
+            }
+
             if (cleanedGroup.isEmpty()) {
                 continue;
             }
 
+            // 转换为DTO
             FaceClusterDTO cluster = new FaceClusterDTO();
             List<FaceDTO> faceDTOs = cleanedGroup.stream()
                 .map(this::toDTO)
@@ -858,7 +868,8 @@ public class FaceService {
         // 按人脸数量降序排序
         clusters.sort((a, b) -> Integer.compare(b.getCount(), a.getCount()));
 
-        log.info("聚类完成: 共 {} 个未分配人脸，聚合成 {} 个组（阈值: {}）", withEmbedding.size(), clusters.size(), threshold);
+        log.info("保守聚类完成: 共 {} 个未分配人脸，聚合成 {} 个组（用户阈值: {}，实际阈值: {}）", 
+            withEmbedding.size(), clusters.size(), threshold, strictThreshold);
         return clusters;
     }
 
@@ -906,34 +917,6 @@ public class FaceService {
         }
         
         return centroid;
-    }
-
-    /**
-     * 基于与中心向量的相似度，剔除离群值（低于10分位的样本）
-     */
-    private List<Face> pruneGroupBySimilarity(List<Face> group, float[] centroid) {
-        if (group == null || group.isEmpty() || centroid == null) {
-            return group;
-        }
-        List<Double> sims = new ArrayList<>();
-        Map<Long, Double> simMap = new HashMap<>();
-        for (Face f : group) {
-            float[] vec = parseEmbedding(f.getEmbedding());
-            if (vec == null) continue;
-            double s = cosine(centroid, vec);
-            sims.add(s);
-            simMap.put(f.getId(), s);
-        }
-        if (sims.isEmpty()) return group;
-        double q10 = quantile(sims, 0.1);
-        // 稍微放宽一点，避免误杀：低于 q10 且小于 q10+0.02 才剔除
-        double cut = q10 + 0.02;
-        return group.stream()
-            .filter(f -> {
-                Double s = simMap.get(f.getId());
-                return s == null || s >= cut;
-            })
-            .collect(Collectors.toList());
     }
 
     /**
