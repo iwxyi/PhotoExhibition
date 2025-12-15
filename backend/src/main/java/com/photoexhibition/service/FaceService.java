@@ -10,6 +10,7 @@ import com.photoexhibition.entity.Photo;
 import com.photoexhibition.dto.PersonSummaryDTO;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
+import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +32,7 @@ public class FaceService {
 
     private final FaceRepository faceRepository;
     private final PersonProfileRepository personProfileRepository;
+    private final PhotoRepository photoRepository;
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
     @Value("${photo.scan.base-path}")
@@ -45,7 +47,10 @@ public class FaceService {
     public List<Face> detectAndSaveFaces(File imageFile, Photo photo) {
         List<FaceRecognitionService.DetectedFace> detected = faceRecognitionService.detectFaces(imageFile);
 
+        // 使用托管的 Photo 实例，避免延迟加载集合触发异常
+        Photo targetPhoto = photo;
         if (photo.getId() != null) {
+            targetPhoto = photoRepository.findById(photo.getId()).orElse(photo);
             faceRepository.deleteByPhotoId(photo.getId());
         }
 
@@ -62,9 +67,9 @@ public class FaceService {
                 log.debug("跳过过小人脸: w={}, h={}, file={}", f.getWidth(), f.getHeight(), imageFile.getName());
                 continue;
             }
-            // 3. 宽高比范围放宽到0.6-1.6（原0.75-1.3）
+            // 3. 宽高比范围放宽到0.5-1.8（原0.75-1.3），避免长宽稍失衡被过滤
             double ratio = f.getHeight() > 0 ? f.getWidth() / f.getHeight() : 1.0;
-            if (ratio < 0.6 || ratio > 1.6) {
+            if (ratio < 0.5 || ratio > 1.8) {
                 log.debug("跳过异常比例的人脸: ratio={}, file={}", ratio, imageFile.getName());
                 continue;
             }
@@ -94,7 +99,7 @@ public class FaceService {
                 continue;
             }
             Face face = new Face();
-            face.setPhoto(photo);
+            face.setPhoto(targetPhoto);
             face.setX(x);
             face.setY(y);
             face.setWidth(w);
@@ -111,14 +116,14 @@ public class FaceService {
             faces.add(saved);
         }
 
-        // 使用原集合引用，避免 orphan 触发
-        if (photo.getFaces() != null) {
-            photo.getFaces().clear();
-            photo.getFaces().addAll(faces);
+        // 使用托管实体的集合引用，避免 orphan 与懒加载异常
+        if (targetPhoto.getFaces() != null) {
+            targetPhoto.getFaces().clear();
+            targetPhoto.getFaces().addAll(faces);
         } else {
-            photo.setFaces(new ArrayList<>(faces));
+            targetPhoto.setFaces(new ArrayList<>(faces));
         }
-        log.debug("保存人脸 {} 个，photoId={}", faces.size(), photo.getId());
+        log.debug("保存人脸 {} 个，photoId={}", faces.size(), targetPhoto.getId());
         return faces;
     }
 

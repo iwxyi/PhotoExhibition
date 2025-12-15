@@ -279,8 +279,8 @@ public class PhotoService {
         dto.setId(face.getId());
         dto.setPhotoId(face.getPhoto() != null ? face.getPhoto().getId() : null);
         dto.setPhotoFilename(face.getPhoto() != null ? face.getPhoto().getFilename() : null);
-        dto.setPhotoThumbnailPath(face.getPhoto() != null ? face.getPhoto().getThumbnailPath() : null);
-        dto.setPhotoOriginalPath(face.getPhoto() != null ? face.getPhoto().getOriginalPath() : null);
+        dto.setPhotoThumbnailPath(face.getPhoto() != null ? convertToRelativePath(face.getPhoto().getThumbnailPath()) : null);
+        dto.setPhotoOriginalPath(face.getPhoto() != null ? convertToRelativePath(face.getPhoto().getOriginalPath()) : null);
         dto.setX(face.getX());
         dto.setY(face.getY());
         dto.setWidth(face.getWidth());

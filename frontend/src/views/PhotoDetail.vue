@@ -165,18 +165,17 @@ const getImageUrl = (photo: any) => {
 
 const getFaceCropStyle = (face: any) => {
   if (!face?.width || !face?.height || face.width <= 0 || face.height <= 0) {
-    return { position: 'absolute', inset: 0, objectFit: 'cover' }
+    return { position: 'absolute', inset: 0, objectFit: 'cover', objectPosition: 'center center' }
   }
-  const scale = Math.max(1 / face.width, 1 / face.height)
-  const left = -(face.x || 0) * scale * 100
-  const top = -(face.y || 0) * scale * 100
+  const centerX = ((face.x || 0) + face.width / 2) * 100
+  const centerY = ((face.y || 0) + face.height / 2) * 100
   return {
     position: 'absolute',
-    width: `${scale * 100}%`,
-    height: `${scale * 100}%`,
-    left: `${left}%`,
-    top: `${top}%`,
-    objectFit: 'cover'
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    objectPosition: `${centerX}% ${centerY}%`
   }
 }
 

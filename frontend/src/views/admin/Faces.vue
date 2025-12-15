@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api'
 
 interface FaceItem {
@@ -192,21 +192,18 @@ const getFaceCropStyle = (face: FaceItem) => {
   const hasSize = face.width && face.height && face.width > 0 && face.height > 0
   const thumb = face.photoThumbnailPath || face.photoOriginalPath
   if (!thumb || !hasSize) {
-    return { position: 'absolute', inset: 0, objectFit: 'cover' }
+    return { position: 'absolute', inset: 0, objectFit: 'cover', objectPosition: 'center center' }
   }
-  const w = Math.min(1, Math.max(0.06, face.width!))
-  const h = Math.min(1, Math.max(0.06, face.height!))
-  // 限制最大放大倍数，避免超大偏移空白
-  const scale = Math.min(2.5, Math.max(1, Math.max(1 / w, 1 / h)))
-  const left = clamp((-(face.x || 0) * scale * 100), -120, 120)
-  const top = clamp((-(face.y || 0) * scale * 100), -120, 120)
+  // 使用 object-position 居中到人脸中心，避免只显示一角
+  const centerX = ((face.x || 0) + face.width / 2) * 100
+  const centerY = ((face.y || 0) + face.height / 2) * 100
   return {
     position: 'absolute',
-    width: `${scale * 100}%`,
-    height: `${scale * 100}%`,
-    left: `${left}%`,
-    top: `${top}%`,
-    objectFit: 'cover'
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    objectPosition: `${centerX}% ${centerY}%`
   }
 }
 

@@ -27,6 +27,9 @@ public class FaceDetectionService implements AutoCloseable {
     @Value("${face.detection.enabled:false}")
     private boolean enabled;
 
+    @Value("${face.detection.input-size:640}")
+    private int inputSize;
+
     @Value("${face.detection.confidence-threshold:0.5}")
     private double confidenceThreshold;
 
@@ -57,13 +60,13 @@ public class FaceDetectionService implements AutoCloseable {
             }
 
             // 预处理图像
-            int inputSize = 640; // RetinaFace常用输入尺寸
-            BufferedImage resized = resizeImage(img, inputSize);
-            float[] inputTensor = preprocessImage(resized, inputSize);
+            int size = Math.max(320, Math.min(2048, inputSize)); // 限定范围，防止过大
+            BufferedImage resized = resizeImage(img, size);
+            float[] inputTensor = preprocessImage(resized, size);
 
             // 运行推理
-            OnnxTensor input = OnnxTensor.createTensor(env, FloatBuffer.wrap(inputTensor), 
-                new long[]{1, 3, inputSize, inputSize});
+            OnnxTensor input = OnnxTensor.createTensor(env, FloatBuffer.wrap(inputTensor),
+                new long[]{1, 3, size, size});
             
             try (OrtSession.Result result = detectionSession.run(
                 Collections.singletonMap(detectionSession.getInputNames().iterator().next(), input))) {
@@ -76,7 +79,7 @@ public class FaceDetectionService implements AutoCloseable {
                     float[][][] boxes = (float[][][]) boxesObj;
                     float[][] scores = (float[][]) scoresObj;
                     
-                    List<DetectedFace> faces = parseDetections(boxes, scores, img.getWidth(), img.getHeight(), inputSize);
+                    List<DetectedFace> faces = parseDetections(boxes, scores, img.getWidth(), img.getHeight(), size);
                     return applyNMS(faces);
                 }
             } finally {

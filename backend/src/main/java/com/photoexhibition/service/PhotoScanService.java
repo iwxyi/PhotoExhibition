@@ -68,6 +68,7 @@ public class PhotoScanService {
     private final SubjectDetectionService subjectDetectionService;
     private final FaceService faceService;
     private final SmartTagService smartTagService;
+    private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
     private final AtomicInteger scanCurrent = new AtomicInteger(0);
@@ -236,7 +237,7 @@ public class PhotoScanService {
     @Transactional(readOnly = true)
     public Map<String, Object> getScanStatus() {
         Map<String, Object> status = new HashMap<>();
-        status.put("scanning", isScanning.get());
+        status.put("scanning", isScanning.get() || activeScanCount.get() > 0);
         status.put("current", scanCurrent.get());
         status.put("total", scanTotal.get());
         status.put("lastScanStart", lastScanStart);
@@ -248,6 +249,7 @@ public class PhotoScanService {
         if (directoryPath == null || directoryPath.isEmpty()) {
             directoryPath = basePath;
         }
+        activeScanCount.incrementAndGet();
         try {
             isScanning.set(true);
             scanCurrent.set(0);
@@ -332,7 +334,9 @@ public class PhotoScanService {
             throw new RuntimeException("扫描目录失败: " + (e.getMessage() == null ? directoryPath : e.getMessage()), e);
         } finally {
             lastScanEnd = LocalDateTime.now();
-            isScanning.set(false);
+            if (activeScanCount.decrementAndGet() <= 0) {
+                isScanning.set(false);
+            }
         }
     }
 
