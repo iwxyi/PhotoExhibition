@@ -22,6 +22,9 @@ public class FaceRecognitionService {
 
     private FaceDetectionService faceDetectionService;
 
+    @org.springframework.beans.factory.annotation.Value("${face.detection.allow-simple-fallback:true}")
+    private boolean allowSimpleFallback;
+
     // 使用setter注入避免循环依赖
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setFaceDetectionService(FaceDetectionService faceDetectionService) {
@@ -42,13 +45,21 @@ public class FaceRecognitionService {
                         .map(f -> new DetectedFace(f.getX(), f.getY(), f.getWidth(), f.getHeight(), f.getConfidence()))
                         .collect(java.util.stream.Collectors.toList());
                 }
+                log.debug("专业检测模型未返回结果，简单检测={}", allowSimpleFallback);
             } catch (Exception e) {
                 log.debug("专业检测模型失败，回退到简单检测: {}", e.getMessage());
             }
+        } else {
+            log.debug("未注入专业检测服务，简单检测={}", allowSimpleFallback);
         }
         
-        // 回退到简单检测方法
-        return detectFacesSimple(imageFile);
+        // 回退到简单检测方法（可配置禁用以避免低精度框）
+        if (allowSimpleFallback) {
+            return detectFacesSimple(imageFile);
+        }
+
+        // 禁用回退时返回空结果，由上层决定是否处理
+        return java.util.Collections.emptyList();
     }
 
     /**

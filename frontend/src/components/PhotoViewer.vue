@@ -104,6 +104,23 @@
                 焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
               </div>
             </div>
+            <div
+              v-for="box in faceBoxes"
+              :key="box.id"
+              class="absolute pointer-events-none"
+              :style="box.style"
+            >
+              <div
+                class="absolute inset-0 border-2 rounded-sm shadow-lg"
+                :class="box.confirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
+              ></div>
+              <div
+                class="absolute -top-5 left-0 text-xs px-1 rounded whitespace-nowrap"
+                :class="box.confirmed ? 'bg-green-500/80 text-white' : 'bg-amber-500/80 text-white'"
+              >
+                {{ box.label }}
+              </div>
+            </div>
           </div>
 
           <!-- 左右切换按钮 -->
@@ -155,6 +172,15 @@
                   </button>
                 </span>
               </div>
+              <div v-if="currentPhoto?.faces?.length">
+                <span class="opacity-60">人脸框：</span>
+                <button
+                  class="ml-2 text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
+                  @click="showFaceBoxes = !showFaceBoxes"
+                >
+                  {{ showFaceBoxes ? '隐藏' : '显示' }}
+                </button>
+              </div>
               <div v-if="currentPhoto?.tags?.length">
                 <span class="opacity-60">标签：</span>
                 <span class="inline-flex flex-wrap gap-2 mt-1">
@@ -191,6 +217,30 @@
                     {{ p.name }} ({{ p.count }} 张)
                   </span>
                 </span>
+              </div>
+              <div v-if="currentPhoto?.faces?.length">
+                <span class="opacity-60">人脸列表：</span>
+                <div class="mt-2 grid grid-cols-2 gap-2">
+                  <div
+                    v-for="(f, idx) in currentPhoto.faces"
+                    :key="f.id || idx"
+                    class="flex items-center gap-2 p-1 rounded bg-white/5"
+                  >
+                    <div
+                      class="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0 border border-white/10"
+                      :style="getFaceAvatarStyle(f)"
+                      :title="getFaceTooltip(f)"
+                    ></div>
+                    <div class="text-xs truncate">
+                      <div class="font-semibold" :class="f.isConfirmed ? 'text-green-300' : 'text-amber-200'">
+                        {{ f.personName || '未命名' }}
+                      </div>
+                      <div class="text-[11px] text-gray-400 truncate">
+                        置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -270,6 +320,7 @@ const dragStartHeight = ref(0)
 const thumbSize = computed(() => Math.max(24, clampThumbHeight(thumbHeight.value - 24)))
 const isFullscreen = ref(false)
 const showFocusBox = ref(false)
+const showFaceBoxes = ref(false)
 const mainImage = ref<HTMLImageElement | null>(null)
 const imageContainer = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
@@ -608,6 +659,53 @@ const getThumbUrl = (photo: Photo) => {
   return getImageUrl(photo)
 }
 
+const resolveFaceAvatarUrl = (face: any) => {
+  const photo = currentPhoto.value
+  if (!photo) return ''
+  const firstPath = [
+    face.photoThumbnailPath,
+    face.photoOriginalPath,
+    photo.thumbnailPath,
+    photo.webpPath,
+    photo.originalPath
+  ].find(p => p && typeof p === 'string' && p.length > 0) || ''
+  const base = firstPath
+    ? firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
+    : getThumbUrl(photo) || ''
+  if (!base) return ''
+  const prefix = '/api/files'
+  if (base.startsWith(prefix)) {
+    const raw = base.slice(prefix.length)
+    return `${prefix}${encodeURI(raw)}`
+  }
+  return encodeURI(base)
+}
+
+const getFaceAvatarStyle = (face: any) => {
+  const base = resolveFaceAvatarUrl(face)
+  const hasSize = face?.width && face?.height && face.width > 0 && face.height > 0
+  if (!base) {
+    return { backgroundColor: '#374151', backgroundSize: 'cover', backgroundPosition: 'center center' }
+  }
+  if (!hasSize) {
+    return { backgroundImage: `url(${base})`, backgroundSize: 'cover', backgroundPosition: 'center center' }
+  }
+  const centerX = ((face.x || 0) + face.width / 2) * 100
+  const centerY = ((face.y || 0) + face.height / 2) * 100
+  return {
+    backgroundImage: `url(${base})`,
+    backgroundSize: 'cover',
+    backgroundPosition: `${centerX}% ${centerY}%`
+  }
+}
+
+const getFaceTooltip = (face: any) => {
+  const ratio = face?.width && face?.height ? (face.width / face.height).toFixed(2) : '-'
+  const area = face?.width && face?.height ? (face.width * face.height * 100).toFixed(2) + '%' : '-'
+  const conf = face?.confidence !== undefined ? (face.confidence * 100).toFixed(1) + '%' : '-'
+  return `比例: ${ratio}，面积: ${area}，置信度: ${conf}`
+}
+
 const onImageLoad = () => {
   if (mainImage.value) {
     // 确保图片已完全加载
@@ -624,77 +722,47 @@ const onImageLoad = () => {
   }
 }
 
-const getFocusBoxStyle = () => {
-  if (!currentPhoto.value || !mainImage.value || !imageContainer.value || !imageLoaded.value) return {}
+const getImageMetrics = () => {
+  if (!currentPhoto.value || !mainImage.value || !imageContainer.value || !imageLoaded.value) return null
   
-  const photo = currentPhoto.value
   const img = mainImage.value
   const container = imageContainer.value
+  if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return null
   
-  // 再次检查图片是否已加载完成（双重保险）
-  if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) {
-    return {}
-  }
-  
-  // 获取图片元素的边界矩形（这是图片元素占用的空间，可能包含空白）
   const imgRect = img.getBoundingClientRect()
   const containerRect = container.getBoundingClientRect()
-  
-  // 使用当前图片的实际原始尺寸（直接从 img 获取，确保是最新的）
   const naturalWidth = img.naturalWidth
   const naturalHeight = img.naturalHeight
-  
-  if (naturalWidth === 0 || naturalHeight === 0) return {}
-  
-  // 图片元素的显示尺寸（可能包含空白区域）
   const elementWidth = imgRect.width
   const elementHeight = imgRect.height
-  
-  // 计算 object-contain 的缩放比例
-  // object-contain 会保持宽高比，使用较小的缩放比例
   const scaleX = elementWidth / naturalWidth
   const scaleY = elementHeight / naturalHeight
   const baseScale = Math.min(scaleX, scaleY)
-  
-  // 计算图片实际显示的尺寸（基础缩放，不考虑用户缩放）
   const baseDisplayWidth = naturalWidth * baseScale
   const baseDisplayHeight = naturalHeight * baseScale
-  
-  // 计算图片在元素中的偏移（居中显示）
-  // 因为 object-contain，图片会在元素中居中
   const offsetX = (elementWidth - baseDisplayWidth) / 2
   const offsetY = (elementHeight - baseDisplayHeight) / 2
-  
-  // 计算图片在容器中的位置
   const imgOffsetX = imgRect.left - containerRect.left
   const imgOffsetY = imgRect.top - containerRect.top
   
-  // 焦点框大小基于基础显示尺寸的 20%（不考虑用户缩放，保持固定视觉大小）
+  return { baseDisplayWidth, baseDisplayHeight, offsetX, offsetY, imgOffsetX, imgOffsetY, naturalWidth, naturalHeight }
+}
+
+const getFocusBoxStyle = () => {
+  if (!currentPhoto.value || currentPhoto.value.focusX === undefined || currentPhoto.value.focusY === undefined) return {}
+  const metrics = getImageMetrics()
+  if (!metrics) return {}
+  const { baseDisplayWidth, baseDisplayHeight, offsetX, offsetY, imgOffsetX, imgOffsetY } = metrics
   const boxSize = Math.min(baseDisplayWidth, baseDisplayHeight) * 0.2 * scale.value
-  
-  // 计算焦点框的位置（基于百分比）
-  // focusX 和 focusY 是 0-100 的百分比，表示在原始图片上的位置
-  const focusXPercent = photo.focusX! / 100
-  const focusYPercent = photo.focusY! / 100
-  
-  // 将原始图片的焦点位置转换为基础显示图片上的坐标
-  const focusXOnBase = focusXPercent * baseDisplayWidth
-  const focusYOnBase = focusYPercent * baseDisplayHeight
-  
-  // 计算焦点框在基础显示图片上的位置（焦点位置是框的中心）
-  const boxLeftOnBase = focusXOnBase - (boxSize / scale.value) / 2
-  const boxTopOnBase = focusYOnBase - (boxSize / scale.value) / 2
-  
-  // 确保焦点框在基础显示图片范围内
   const baseBoxSize = boxSize / scale.value
+  const focusXOnBase = (currentPhoto.value.focusX! / 100) * baseDisplayWidth
+  const focusYOnBase = (currentPhoto.value.focusY! / 100) * baseDisplayHeight
+  const boxLeftOnBase = focusXOnBase - baseBoxSize / 2
+  const boxTopOnBase = focusYOnBase - baseBoxSize / 2
   const clampedLeft = Math.max(0, Math.min(boxLeftOnBase, baseDisplayWidth - baseBoxSize))
   const clampedTop = Math.max(0, Math.min(boxTopOnBase, baseDisplayHeight - baseBoxSize))
-  
-  // 转换为相对于容器的绝对位置
-  // 容器偏移 + 元素内偏移 + 图片上的位置 + 用户缩放和平移
   const left = imgOffsetX + offsetX + clampedLeft * scale.value + translateX.value
   const top = imgOffsetY + offsetY + clampedTop * scale.value + translateY.value
-  
   return {
     left: `${left}px`,
     top: `${top}px`,
@@ -702,6 +770,41 @@ const getFocusBoxStyle = () => {
     height: `${boxSize}px`
   }
 }
+
+const faceBoxes = computed(() => {
+  if (!showFaceBoxes.value || !currentPhoto.value?.faces?.length) return []
+  const metrics = getImageMetrics()
+  if (!metrics) return []
+  const { baseDisplayWidth, baseDisplayHeight, offsetX, offsetY, imgOffsetX, imgOffsetY, naturalWidth, naturalHeight } = metrics
+  return currentPhoto.value.faces
+    .filter(face => face.x !== undefined && face.y !== undefined && face.width && face.height)
+    .map((face, idx) => {
+      const usePixel = (face.x ?? 0) > 1 || (face.y ?? 0) > 1 || (face.width ?? 0) > 1 || (face.height ?? 0) > 1
+      const normX = usePixel ? (face.x || 0) / naturalWidth : (face.x || 0)
+      const normY = usePixel ? (face.y || 0) / naturalHeight : (face.y || 0)
+      const normW = usePixel ? (face.width || 0) / naturalWidth : (face.width || 0)
+      const normH = usePixel ? (face.height || 0) / naturalHeight : (face.height || 0)
+      const baseLeft = normX * baseDisplayWidth
+      const baseTop = normY * baseDisplayHeight
+      const baseWidth = normW * baseDisplayWidth
+      const baseHeight = normH * baseDisplayHeight
+      const left = imgOffsetX + offsetX + baseLeft * scale.value + translateX.value
+      const top = imgOffsetY + offsetY + baseTop * scale.value + translateY.value
+      const width = Math.max(8, baseWidth * scale.value)
+      const height = Math.max(8, baseHeight * scale.value)
+      return {
+        id: face.id ?? idx,
+        style: {
+          left: `${left}px`,
+          top: `${top}px`,
+          width: `${width}px`,
+          height: `${height}px`
+        },
+        confirmed: face.isConfirmed,
+        label: face.personName || (face.isConfirmed ? '未命名' : '未确认')
+      }
+    })
+})
 
 // 双击缩放
 const onDoubleClick = (e: MouseEvent) => {

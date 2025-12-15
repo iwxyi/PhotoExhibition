@@ -7,6 +7,7 @@ import com.photoexhibition.service.TagService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,8 +20,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
-import java.util.stream.Collectors;
-
 @RestController
 @RequestMapping("/tags")
 @RequiredArgsConstructor
@@ -36,13 +35,13 @@ public class TagController {
 
         if (page != null && size != null) {
             Page<Tag> tagPage = tagRepository.findAll(PageRequest.of(page, size));
+            List<TagDTO> dtoList = tagService.toDTOWithCounts(tagPage.getContent());
             Page<TagDTO> dtoPage = tagPage.map(this::toDTO);
+            // 替换为带计数的列表（保持分页信息）
+            dtoPage = new PageImpl<>(dtoList, tagPage.getPageable(), tagPage.getTotalElements());
             return ResponseEntity.ok(dtoPage);
         } else {
-            List<TagDTO> tags = tagRepository.findAll().stream()
-                .map(this::toDTO)
-                .collect(Collectors.toList());
-            return ResponseEntity.ok(tags);
+            return ResponseEntity.ok(tagService.findAll());
         }
     }
 
@@ -62,12 +61,6 @@ public class TagController {
         return ResponseEntity.ok().build();
     }
 
-    private TagDTO toDTO(Tag tag) {
-        TagDTO dto = new TagDTO();
-        dto.setId(tag.getId());
-        dto.setName(tag.getName());
-        dto.setColor(tag.getColor());
-        return dto;
-    }
+    private TagDTO toDTO(Tag tag) { return tagService.toDTO(tag); }
 }
 

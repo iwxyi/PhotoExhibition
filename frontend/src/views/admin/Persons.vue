@@ -47,9 +47,10 @@
               <input
                 v-if="editingPersonId === p.id"
                 v-model="editingName"
-                @blur="handleNameBlur(p)"
+                @blur="cancelEdit"
                 @keyup.enter="savePersonName(p)"
                 @keyup.esc="cancelEdit"
+                @focus="focusNameInput"
                 class="w-full px-1.5 py-0.5 bg-gray-600 border border-blue-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
                 @click.stop
                 :ref="el => { if (editingPersonId === p.id && el) (el as HTMLInputElement).focus() }"
@@ -84,9 +85,10 @@
               <input
                 v-if="editingPersonId === p.id"
                 v-model="editingName"
-                @blur="handleNameBlur(p)"
+                @blur="cancelEdit"
                 @keyup.enter="createPersonFromName(p)"
                 @keyup.esc="cancelEdit"
+                @focus="focusNameInput"
                 class="w-full px-1.5 py-0.5 bg-gray-600 border border-yellow-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-500"
                 @click.stop
                 :ref="el => { if (editingPersonId === p.id && el) (el as HTMLInputElement).focus() }"
@@ -121,12 +123,20 @@
               placeholder="添加备注..."
             ></textarea>
           </div>
-          <button
-            @click="deletePerson"
-            class="w-full px-2 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
-          >
-            删除人物
-          </button>
+          <div class="flex gap-2">
+            <button
+              @click="dissolvePerson"
+              class="flex-1 px-2 py-1.5 bg-amber-600 hover:bg-amber-700 rounded text-xs transition-colors"
+            >
+              解散人物
+            </button>
+            <button
+              @click="deletePerson"
+              class="flex-1 px-2 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+            >
+              删除人物
+            </button>
+          </div>
         </div>
       </div>
 
@@ -234,10 +244,7 @@
                   :class="selectedConfirmed.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'confirmed')"
                 >
-                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" :checked="selectedConfirmed.has(f.id)" @change.stop="toggleSelectConfirmed(f.id)" />
-                  </label>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -253,8 +260,14 @@
                     </button>
                   </div>
                   <div class="p-1.5">
-                    <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                      @dblclick.stop="openViewer(f)"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
                   </div>
                 </div>
                 <!-- 框选遮罩 -->
@@ -319,10 +332,7 @@
                   :class="selectedAuto.has(f.id) ? 'border-2 border-blue-500' : 'border-orange-600/50'"
                   @click="handleFaceClick($event, f.id, 'auto')"
                 >
-                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" :checked="selectedAuto.has(f.id)" @change.stop="toggleSelectAuto(f.id)" />
-                  </label>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -338,8 +348,14 @@
                     </button>
                   </div>
                   <div class="p-1.5">
-                    <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                      @dblclick.stop="openViewer(f)"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
                   </div>
                 </div>
                 <!-- 框选遮罩 -->
@@ -397,13 +413,10 @@
                   :class="selectedSimilar.has(f.id) ? 'border-2 border-blue-500' : 'border-green-600/50'"
                   @click="handleFaceClick($event, f.id, 'similar')"
                 >
-                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" :checked="selectedSimilar.has(f.id)" @change.stop="toggleSelectSimilar(f.id)" />
-                  </label>
                   <div class="absolute top-1 right-1 bg-green-600/80 px-1.5 py-0.5 rounded text-[10px] z-10">
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -419,8 +432,14 @@
                     </button>
                   </div>
                   <div class="p-1.5">
-                    <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                      @dblclick.stop="openViewer(f)"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
                   </div>
                 </div>
                 <!-- 框选遮罩 -->
@@ -478,13 +497,10 @@
                   :class="selectedSameFolder.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50'"
                   @click="handleFaceClick($event, f.id, 'sameFolder')"
                 >
-                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" :checked="selectedSameFolder.has(f.id)" @change.stop="toggleSelectSameFolder(f.id)" />
-                  </label>
                   <div class="absolute top-1 right-1 bg-purple-600/80 px-1.5 py-0.5 rounded text-[10px] z-10">
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -500,8 +516,14 @@
                     </button>
                   </div>
                   <div class="p-1.5">
-                    <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                      @dblclick.stop="openViewer(f)"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
                   </div>
                 </div>
                 <!-- 框选遮罩 -->
@@ -559,10 +581,7 @@
                   :class="selectedUnassigned.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'unassigned')"
                 >
-                  <label v-if="selectedItem.type === 'confirmed'" class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" :checked="selectedUnassigned.has(f.id)" @change.stop="toggleSelectUnassigned(f.id)" />
-                  </label>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -579,8 +598,14 @@
                     </button>
                   </div>
                   <div class="p-1.5">
-                    <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                      @dblclick.stop="openViewer(f)"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
                   </div>
                 </div>
                 <!-- 框选遮罩 -->
@@ -638,10 +663,7 @@
                   :class="selectedClusterFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'cluster')"
                 >
-                  <label class="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] z-10 cursor-pointer">
-                    <input type="checkbox" :checked="selectedClusterFaces.has(f.id)" @change.stop="toggleSelectCluster(f.id)" />
-                  </label>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -651,8 +673,14 @@
                     />
                   </div>
                   <div class="p-1.5">
-                    <div class="text-[10px] text-gray-300 truncate" :title="f.photoFilename">{{ f.photoFilename || '-' }}</div>
-                    <button @click.stop="openPhoto(f.photoId)" class="text-blue-400 text-[10px] hover:underline mt-0.5">查看</button>
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                      @dblclick.stop="openViewer(f)"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
                   </div>
                 </div>
                 <!-- 框选遮罩 -->
@@ -669,11 +697,17 @@
       </div>
     </div>
   </div>
+  <PhotoViewer
+    v-model:visible="viewerVisible"
+    :photos="viewerPhotos"
+    :start-index="viewerIndex"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { api } from '@/api'
+import PhotoViewer from '@/components/PhotoViewer.vue'
 
 interface PersonListItem {
   type: 'confirmed' | 'cluster'
@@ -776,6 +810,11 @@ const loadingUnassigned = ref(false)
 const personFaces = ref<FaceItem[]>([])
 const selectedClusterFaces = ref<Set<number>>(new Set())
 const loadingPersonFaces = ref(false)
+
+// 图片预览（复用通用 PhotoViewer）
+const viewerVisible = ref(false)
+const viewerPhotos = ref<any[]>([])
+const viewerIndex = ref(0)
 
 const startResize = (e: MouseEvent) => {
   isResizing.value = true
@@ -955,8 +994,8 @@ const loadUnassigned = async () => {
 
 const startEditName = (p: PersonListItem) => {
   editingPersonId.value = p.id
-  editingName.value = p.name || ''
-  originalName.value = p.name || ''
+  editingName.value = p.name || '未命名'
+  originalName.value = p.name || '未命名'
 }
 
 const cancelEdit = () => {
@@ -1034,13 +1073,9 @@ const createPersonFromName = async (p: PersonListItem) => {
   }
 }
 
-const handleNameBlur = (p: PersonListItem) => {
-  if (editingPersonId.value !== p.id) return
-  if (p.type === 'confirmed') {
-    savePersonName(p)
-  } else {
-    createPersonFromName(p)
-  }
+const focusNameInput = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  requestAnimationFrame(() => input.select())
 }
 
 const savePersonDescription = async () => {
@@ -1076,6 +1111,30 @@ const deletePerson = async () => {
     }
   } catch (e: any) {
     alert('删除失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const dissolvePerson = async () => {
+  if (!selectedPersonId.value || !selectedItem.value) return
+  const name = selectedItem.value.name || '未命名'
+  if (!confirm(`确定要解散人物 "${name}" 吗？所有关联人脸将恢复为未分配，并删除该人物。`)) return
+  try {
+    const ids = [
+      ...confirmedFaces.value.map(f => f.id),
+      ...autoAssignedFaces.value.map(f => f.id)
+    ]
+    for (const id of ids) {
+      await api.put(`/admin/faces/${id}/assign`, null, { params: { personId: null } })
+    }
+    await api.delete(`/admin/persons/${selectedPersonId.value}`)
+    await loadPersons()
+    selectedItem.value = null
+    selectedPersonId.value = null
+    if (persons.value.length > 0) {
+      selectPerson(persons.value[0])
+    }
+  } catch (e: any) {
+    alert('解散失败: ' + (e.response?.data?.error || e.message))
   }
 }
 
@@ -1546,38 +1605,95 @@ const getFaceThumb = (f: FaceItem) => {
   return getImageUrl(f.photoThumbnailPath || f.photoOriginalPath)
 }
 
+const getActiveFacesForViewer = () => {
+  if (selectedItem.value?.type === 'cluster' && tab.value === 'confirmed') {
+    return personFaces.value
+  }
+  switch (tab.value) {
+    case 'confirmed': return confirmedFaces.value
+    case 'auto': return autoAssignedFaces.value
+    case 'similar': return similarFaces.value
+    case 'sameFolder': return sameFolderFaces.value
+    case 'unassigned': return unassignedFaces.value
+    default: return []
+  }
+}
+
+const openViewer = (face: FaceItem) => {
+  const list = getActiveFacesForViewer()
+  const facesForViewer = list.length ? list : [face]
+  const photoMap = new Map<number | string, any>()
+
+  facesForViewer.forEach(f => {
+    const key = f.photoId ?? `face-${f.id}`
+    const original = f.photoOriginalPath || f.photoThumbnailPath || ''
+    const thumb = f.photoThumbnailPath || original
+    if (!photoMap.has(key)) {
+      photoMap.set(key, {
+        id: f.photoId ?? f.id,
+        filename: f.photoFilename || '',
+        originalPath: original,
+        thumbnailPath: thumb,
+        webpPath: undefined,
+        faces: [] as any[]
+      })
+    }
+    const photoEntry = photoMap.get(key)!
+    // 如果原图/缩略图后续遇到非空路径，进行补全
+    if (!photoEntry.originalPath && original) photoEntry.originalPath = original
+    if (!photoEntry.thumbnailPath && thumb) photoEntry.thumbnailPath = thumb
+    photoEntry.faces.push({
+      id: f.id,
+      x: f.x,
+      y: f.y,
+      width: f.width,
+      height: f.height,
+      personId: f.personId,
+      personName: f.personName,
+      isConfirmed: f.isConfirmed ?? (!!f.personId),
+      confidence: f.confidence,
+      photoThumbnailPath: f.photoThumbnailPath,
+      photoOriginalPath: f.photoOriginalPath
+    })
+  })
+
+  if (!photoMap.size) {
+    const fallback = {
+      id: face.photoId ?? face.id,
+      filename: face.photoFilename || '',
+      originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
+      thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
+      webpPath: undefined,
+      faces: []
+    }
+    viewerPhotos.value = [fallback]
+    viewerIndex.value = 0
+    viewerVisible.value = true
+    return
+  }
+
+  viewerPhotos.value = Array.from(photoMap.values())
+  const targetId = face.photoId ?? face.id
+  const idx = viewerPhotos.value.findIndex(p => p.id === targetId)
+  viewerIndex.value = idx >= 0 ? idx : 0
+  viewerVisible.value = true
+}
+
 const getFaceCropStyle = (face: FaceItem) => {
   const thumb = getFaceThumb(face)
   const hasSize = face.width && face.height && face.width > 0 && face.height > 0
-  
-  if (!thumb || !hasSize || !face.x || !face.y) {
-    return {}
+  if (!thumb || !hasSize) {
+    return { position: 'absolute', inset: 0, objectFit: 'cover', objectPosition: 'center center' }
   }
-  
-  const x = Math.max(0, Math.min(1, face.x))
-  const y = Math.max(0, Math.min(1, face.y))
-  const w = Math.max(0.01, Math.min(1, face.width!))
-  const h = Math.max(0.01, Math.min(1, face.height!))
-  
-  const scaleX = 1 / w
-  const scaleY = 1 / h
-  const scale = Math.min(3, Math.max(1, Math.min(scaleX, scaleY)))
-  
-  const faceCenterX = x + w / 2
-  const faceCenterY = y + h / 2
-  
-  const offsetX = (0.5 - faceCenterX) * scale * 100
-  const offsetY = (0.5 - faceCenterY) * scale * 100
-  
-  const maxOffset = 50
-  const clampedOffsetX = Math.min(maxOffset, Math.max(-maxOffset, offsetX))
-  const clampedOffsetY = Math.min(maxOffset, Math.max(-maxOffset, offsetY))
-  
+  const centerX = ((face.x || 0) + face.width / 2) * 100
+  const centerY = ((face.y || 0) + face.height / 2) * 100
   return {
-    width: `${scale * 100}%`,
-    height: `${scale * 100}%`,
-    objectPosition: `${50 + clampedOffsetX}% ${50 + clampedOffsetY}%`,
-    objectFit: 'cover'
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    objectPosition: `${centerX}% ${centerY}%`
   }
 }
 

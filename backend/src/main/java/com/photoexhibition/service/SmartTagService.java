@@ -105,7 +105,7 @@ public class SmartTagService {
             }
             if (!tagsToRemove.isEmpty()) {
                 photo.getTags().removeAll(tagsToRemove);
-                log.info("强制扫描：删除 {} 个旧智能标签，保留 {} 个标签（相册标签和手动标签）", 
+                log.info("强制扫描：删除 {} 个旧智能标签，保留 {} 个手动标签", 
                     tagsToRemove.size(), photo.getTags().size());
             }
         }

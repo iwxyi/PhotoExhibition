@@ -98,6 +98,11 @@ public class FaceService {
                 log.debug("跳过面积过小的人脸: area={}, file={}", area, imageFile.getName());
                 continue;
             }
+            // 8. 面积上限/尺寸上限，避免简单检测回退时出现“整个人”或“整张图”的大框
+            if (w > 0.6 || h > 0.6 || area > 0.25) {
+                log.debug("跳过面积过大的人脸: w={}, h={}, area={}, file={}", w, h, area, imageFile.getName());
+                continue;
+            }
             Face face = new Face();
             face.setPhoto(targetPhoto);
             face.setX(x);

@@ -7,5 +7,6 @@ public class TagDTO {
     private Long id;
     private String name;
     private String color;
+    private Long photoCount;
 }
 

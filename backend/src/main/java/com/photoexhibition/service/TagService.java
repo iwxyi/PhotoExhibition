@@ -3,11 +3,14 @@ package com.photoexhibition.service;
 import com.photoexhibition.dto.TagDTO;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.TagRepository;
+import com.photoexhibition.repository.TagRepository.TagCountProjection;
+import com.photoexhibition.repository.TagRepository.TagIdCountProjection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -17,7 +20,7 @@ public class TagService {
     private final TagRepository tagRepository;
 
     public List<TagDTO> findAll() {
-        return tagRepository.findAll().stream()
+        return tagRepository.findAllWithCount().stream()
             .map(this::toDTO)
             .collect(Collectors.toList());
     }
@@ -44,12 +47,33 @@ public class TagService {
         tagRepository.deleteById(id);
     }
 
-    private TagDTO toDTO(Tag tag) {
+    public TagDTO toDTO(TagCountProjection projection) {
+        TagDTO dto = new TagDTO();
+        dto.setId(projection.getId());
+        dto.setName(projection.getName());
+        dto.setColor(projection.getColor());
+        dto.setPhotoCount(projection.getPhotoCount() == null ? 0L : projection.getPhotoCount());
+        return dto;
+    }
+
+    public TagDTO toDTO(Tag tag) {
         TagDTO dto = new TagDTO();
         dto.setId(tag.getId());
         dto.setName(tag.getName());
         dto.setColor(tag.getColor());
+        dto.setPhotoCount(0L);
         return dto;
+    }
+
+    public List<TagDTO> toDTOWithCounts(List<Tag> tagList) {
+        List<Long> ids = tagList.stream().map(Tag::getId).collect(Collectors.toList());
+        Map<Long, Long> countMap = tagRepository.findCountsByIds(ids).stream()
+            .collect(Collectors.toMap(TagIdCountProjection::getId, TagIdCountProjection::getPhotoCount));
+        return tagList.stream().map(tag -> {
+            TagDTO dto = toDTO(tag);
+            dto.setPhotoCount(countMap.getOrDefault(tag.getId(), 0L));
+            return dto;
+        }).collect(Collectors.toList());
     }
 }
 

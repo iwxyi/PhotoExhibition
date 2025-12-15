@@ -73,10 +73,19 @@ public class SaliencyDetectionService implements AutoCloseable {
                 float[][] saliencyMap = null;
 
                 if (output instanceof float[][][][]) {
-                    // 形状: [1, 1, H, W] 或 [1, H, W, 1] 或 [1, H, W]
+                    // 形状可能是 [1, 1, H, W] 或 [1, H, W, 1] 或 [1, H, W]
                     float[][][][] map4d = (float[][][][]) output;
-                    // 尝试不同的维度顺序
-                    if (map4d[0].length > 0 && map4d[0][0].length > 0 && map4d[0][0][0].length > 0) {
+                    // 优先判断 [1,1,H,W]，否则再判断 [1,H,W,1]
+                    if (map4d[0].length == 1 && map4d[0][0].length > 0 && map4d[0][0][0].length > 0) {
+                        int h = map4d[0][0].length;
+                        int w = map4d[0][0][0].length;
+                        saliencyMap = new float[h][w];
+                        for (int i = 0; i < h; i++) {
+                            for (int j = 0; j < w; j++) {
+                                saliencyMap[i][j] = map4d[0][0][i][j];
+                            }
+                        }
+                    } else if (map4d[0].length > 0 && map4d[0][0].length > 0 && map4d[0][0][0].length > 0) {
                         // [1, H, W, 1] 格式
                         int h = map4d[0].length;
                         int w = map4d[0][0].length;
@@ -84,16 +93,6 @@ public class SaliencyDetectionService implements AutoCloseable {
                         for (int i = 0; i < h; i++) {
                             for (int j = 0; j < w; j++) {
                                 saliencyMap[i][j] = map4d[0][i][j][0];
-                            }
-                        }
-                    } else if (map4d[0].length > 0 && map4d[0][0].length > 0) {
-                        // [1, 1, H, W] 格式
-                        int h = map4d[0][0].length;
-                        int w = map4d[0][0][0].length;
-                        saliencyMap = new float[h][w];
-                        for (int i = 0; i < h; i++) {
-                            for (int j = 0; j < w; j++) {
-                                saliencyMap[i][j] = map4d[0][0][i][j];
                             }
                         }
                     }

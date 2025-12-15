@@ -13,7 +13,6 @@
         <div class="flex flex-wrap gap-4 mb-4">
           <input v-model="keyword" placeholder="搜索标签" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <button @click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
-          <button @click="editSelected" :disabled="selectedIds.length !== 1 || loading" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg text-sm disabled:opacity-50">编辑</button>
           <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50">删除</button>
         </div>
 
@@ -21,12 +20,16 @@
           <div
             v-for="t in pagedTags"
             :key="t.id"
-            class="bg-gray-700/60 rounded-lg p-3 flex items-center justify-between"
+            class="bg-gray-700/60 rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-gray-700"
+            @click="openTag(t)"
           >
             <div class="flex items-center gap-2">
-              <input type="checkbox" v-model="selectedIds" :value="t.id" class="accent-blue-500" />
+              <input type="checkbox" v-model="selectedIds" :value="t.id" class="accent-blue-500" @click.stop />
               <div>
-                <div class="text-sm font-semibold">{{ t.name }}</div>
+                <div class="text-sm font-semibold flex items-center gap-2">
+                  <span>{{ t.name }}</span>
+                  <span class="text-xs text-gray-300">({{ t.photoCount ?? 0 }})</span>
+                </div>
                 <div class="text-xs text-gray-300">ID: {{ t.id }}</div>
               </div>
             </div>
@@ -36,9 +39,7 @@
                 class="w-6 h-6 rounded border border-white/20"
                 :style="{ background: t.color }"
               ></div>
-              <button class="text-xs text-blue-300 hover:text-blue-200" @click="openTag(t)">查看图片</button>
-              <button class="text-xs text-amber-300 hover:text-amber-200" @click="editOne(t)">编辑</button>
-              <button class="text-xs text-red-300 hover:text-red-200" @click="deleteOne(t.id)">删</button>
+              <button class="text-xs text-amber-300 hover:text-amber-200" @click.stop="editOne(t)">编辑</button>
             </div>
           </div>
         </div>
@@ -68,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 
@@ -80,6 +81,7 @@ const size = ref(24)
 const total = ref(0)
 const selectedIds = ref<number[]>([])
 const router = useRouter()
+const PAGE_STORAGE_KEY = 'admin_tags_page'
 const pageNumbers = computed(() => {
   const totalPage = totalPages.value
   const current = page.value
@@ -100,6 +102,9 @@ const load = async () => {
     const list = res.data || []
     tags.value = list
     total.value = list.length
+    // 如果当前页超出范围，回退到最后一页
+    const maxPage = Math.max(0, Math.ceil(filteredTags.value.length / size.value) - 1)
+    if (page.value > maxPage) page.value = maxPage
   } finally {
     loading.value = false
   }
@@ -140,21 +145,6 @@ const editOne = async (t: any) => {
   await load()
 }
 
-const editSelected = async () => {
-  if (selectedIds.value.length !== 1) return
-  const t = tags.value.find((x: any) => x.id === selectedIds.value[0])
-  if (t) {
-    await editOne(t)
-  }
-}
-
-const deleteOne = async (id: number) => {
-  if (!window.confirm('确定删除该标签？将解除关联。')) return
-  await api.delete(`/tags/${id}`)
-  selectedIds.value = selectedIds.value.filter(x => x !== id)
-  await load()
-}
-
 const deleteSelected = async () => {
   if (selectedIds.value.length === 0) return
   if (!window.confirm(`确定删除选中的 ${selectedIds.value.length} 个标签？`)) return
@@ -170,6 +160,22 @@ const openTag = (tag: any) => {
   router.push({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
 }
 
-onMounted(() => load())
+// 分页持久化（会话级）
+const restorePage = () => {
+  const saved = sessionStorage.getItem(PAGE_STORAGE_KEY)
+  if (saved !== null) {
+    const num = parseInt(saved, 10)
+    if (!Number.isNaN(num) && num >= 0) page.value = num
+  }
+}
+
+watch(page, val => {
+  sessionStorage.setItem(PAGE_STORAGE_KEY, String(val))
+})
+
+onMounted(() => {
+  restorePage()
+  load()
+})
 </script>
 
