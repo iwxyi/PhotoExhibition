@@ -4,7 +4,6 @@
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-light">人脸管理</h1>
-          <p class="text-sm text-gray-400 mt-1">查看检测到的人脸，显示人物归属</p>
         </div>
         <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
       </div>

@@ -4,7 +4,6 @@
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-xl font-light">人物管理</h1>
-          <p class="text-xs text-gray-400 mt-0.5">基于人脸聚合的人物，支持快速批量操作</p>
         </div>
         <router-link to="/admin" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">返回</router-link>
       </div>
@@ -14,6 +13,7 @@
       <!-- 左侧人物头像列表 -->
       <div 
         class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0"
+        :class="{ 'pointer-events-none opacity-60': loadingPersons }"
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
         <div class="mb-3 space-y-2">
@@ -24,7 +24,12 @@
             class="w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <div class="flex items-center gap-2 text-[11px] text-gray-300">
-            <span class="whitespace-nowrap">聚类阈值</span>
+            <span
+              class="whitespace-nowrap"
+              :title="'调高更保守，调低更易合并同人。默认 0.70'"
+            >
+              聚类阈值
+            </span>
             <div class="flex-1 relative h-6 flex items-center">
               <div class="absolute left-0 right-0 h-[2px] bg-gray-600 rounded-full"></div>
               <div class="absolute left-0 right-0 flex justify-between px-[2px] pointer-events-none">
@@ -36,7 +41,7 @@
               </div>
               <input
                 type="range"
-                min="0.5"
+                min="0.1"
                 max="0.9"
                 step="0.01"
                 v-model.number="clusterThreshold"
@@ -45,14 +50,13 @@
             </div>
             <input
               type="number"
-              min="0.5"
+              min="0.1"
               max="0.9"
               step="0.01"
               v-model.number="clusterThreshold"
               class="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
-          <div class="text-[10px] text-gray-500">调高更保守，调低更易合并同人。默认 0.70</div>
         </div>
         <div 
           ref="personListContainer"
@@ -63,8 +67,8 @@
           <div
             v-for="p in visibleConfirmedPersons"
             :key="`confirmed-${p.id}`"
-            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border border-transparent bg-gray-800/70 hover:bg-gray-700/80"
-            :class="isSelected(p) ? 'border-2 border-blue-500 bg-gray-700/80' : ''"
+            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/70 hover:bg-gray-700/80"
+            :class="isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : ''"
             @click="selectPerson(p)"
           >
             <div 
@@ -74,21 +78,8 @@
               <img v-if="getPersonThumb(p)" :src="getPersonThumb(p)" class="w-full h-full object-cover" />
             </div>
             <div class="text-center w-full">
-              <input
-                v-if="editingPersonId === p.id"
-                v-model="editingName"
-                @blur="cancelEdit"
-                @keyup.enter="savePersonName(p)"
-                @keyup.esc="cancelEdit"
-                @focus="focusNameInput"
-                class="w-full px-1.5 py-0.5 bg-gray-600 border border-blue-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-                @click.stop
-                :ref="el => { if (editingPersonId === p.id && el) (el as HTMLInputElement).focus() }"
-              />
               <div
-                v-else
-                @click.stop="startEditName(p)"
-                class="font-medium text-xs truncate cursor-text hover:text-blue-400 transition-colors"
+                class="font-medium text-xs truncate"
                 :title="p.name || '未命名'"
               >
                 {{ p.name || '未命名' }}
@@ -101,8 +92,8 @@
           <div
             v-for="p in visibleClusterPersons"
             :key="`cluster-${p.id}`"
-            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border border-transparent bg-gray-800/60 hover:bg-gray-700/70"
-            :class="isSelected(p) ? 'border-2 border-yellow-500 bg-gray-700/80' : ''"
+            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/60 hover:bg-gray-700/70"
+            :class="isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : ''"
             @click="selectPerson(p)"
           >
             <div 
@@ -112,22 +103,8 @@
               <img v-if="getPersonThumb(p)" :src="getPersonThumb(p)" class="w-full h-full object-cover" />
             </div>
             <div class="text-center w-full">
-              <input
-                v-if="editingPersonId === p.id"
-                v-model="editingName"
-                @blur="cancelEdit"
-                @keyup.enter="createPersonFromName(p)"
-                @keyup.esc="cancelEdit"
-                @focus="focusNameInput"
-                class="w-full px-1.5 py-0.5 bg-gray-600 border border-yellow-500 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-500"
-                @click.stop
-                :ref="el => { if (editingPersonId === p.id && el) (el as HTMLInputElement).focus() }"
-                placeholder="输入姓名"
-              />
               <div
-                v-else
-                @click.stop="startEditName(p)"
-                class="font-medium text-xs truncate cursor-text hover:text-yellow-400 transition-colors text-yellow-400"
+                class="font-medium text-xs truncate text-yellow-400"
                 :title="p.name || '未命名'"
               >
                 {{ p.name || '未命名' }}
@@ -139,42 +116,63 @@
           <div v-if="!persons.length && !loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">暂无人物</div>
           <div v-if="loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
         </div>
-        <div class="mt-3 flex items-center justify-between text-[11px] text-gray-300">
-          <div>共 {{ persons.length }} 个</div>
-          <div class="flex items-center gap-2">
-            <button
-              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
-              :disabled="personPage <= 1"
-              @click="prevPersonPage"
-            >
-              上一页
-            </button>
+          <div class="mt-3 flex items-center justify-between text-[11px] text-gray-300">
+            <div>共 {{ persons.length }} 个</div>
             <div class="flex items-center gap-1">
-              <span>第</span>
-              <input
-                type="number"
-                min="1"
-                :max="personTotalPages"
-                v-model.number="personPage"
-                @blur="onPersonPageBlur"
-                @keyup.enter="onPersonPageBlur"
-                class="w-12 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <span>/ {{ personTotalPages }} 页</span>
+              <button
+                class="px-1.5 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
+                :disabled="personPage <= 1"
+                @click="prevPersonPage"
+              >
+                ‹
+              </button>
+              <div class="flex items-center gap-1">
+                <span>第</span>
+                <input
+                  type="number"
+                  min="1"
+                  :max="personTotalPages"
+                  v-model.number="personPage"
+                  @blur="onPersonPageBlur"
+                  @keyup.enter="onPersonPageBlur"
+                  class="no-spinner w-10 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <span>/ {{ personTotalPages }}</span>
+              </div>
+              <button
+                class="px-1.5 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
+                :disabled="personPage >= personTotalPages"
+                @click="nextPersonPage"
+              >
+                ›
+              </button>
             </div>
-            <button
-              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
-              :disabled="personPage >= personTotalPages"
-              @click="nextPersonPage"
-            >
-              下一页
-            </button>
           </div>
-        </div>
 
-        <!-- 选中人物的备注和删除按钮 -->
-        <div v-if="selectedItem && selectedItem.type === 'confirmed'" class="mt-3 pt-3 border-t border-gray-700 space-y-2">
+        <!-- 选中人物的姓名 / 备注 / 删除按钮 -->
+        <div v-if="selectedItem" class="mt-3 pt-3 border-t border-gray-700 space-y-2">
           <div>
+            <label class="text-[10px] text-gray-400 mb-1 block">姓名</label>
+            <div class="flex gap-2">
+              <input
+                v-model="selectedPersonName"
+                @blur="handleSelectedPersonNameBlur"
+                @keyup.enter="handleSelectedPersonNameEnter"
+                @keyup.esc="resetSelectedPersonName"
+                class="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                :placeholder="selectedItem.type === 'cluster' ? '人物姓名' : '修改姓名'"
+              />
+              <button
+                v-if="selectedItem.type === 'cluster'"
+                @click="createPersonFromSelectedCluster"
+                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs whitespace-nowrap"
+                :disabled="!selectedPersonName.trim() || savingPerson"
+              >
+                新建人物
+              </button>
+            </div>
+          </div>
+          <div v-if="selectedItem.type === 'confirmed'">
             <label class="text-[10px] text-gray-400 mb-1 block">备注</label>
             <textarea
               v-model="editingDescription"
@@ -185,7 +183,7 @@
               placeholder="添加备注..."
             ></textarea>
           </div>
-          <div class="flex gap-2">
+          <div v-if="selectedItem.type === 'confirmed'" class="flex gap-2">
             <button
               @click="dissolvePerson"
               class="flex-1 px-2 py-1.5 bg-amber-600 hover:bg-amber-700 rounded text-xs transition-colors"
@@ -212,7 +210,7 @@
       <div class="flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col min-w-0 relative">
         <!-- 全屏遮罩等待圈，阻止操作 -->
         <div
-          v-if="loadingPersons || loadingPersonFaces"
+          v-if="showLoadingOverlay"
           class="absolute inset-0 z-30 bg-black/50 flex items-center justify-center"
         >
           <div class="h-10 w-10 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
@@ -220,7 +218,12 @@
         <div v-if="!selectedItem" class="text-gray-400 text-xs text-center py-8 flex-1 flex items-center justify-center">
           请从左侧选择一个人物
         </div>
-        <div v-else class="flex-1 flex flex-col overflow-hidden">
+        <div
+          v-else
+          class="flex-1 flex flex-col overflow-hidden"
+          tabindex="0"
+          @keydown="handleFaceListKeydown"
+        >
           <div class="flex gap-1 mb-3 border-b border-gray-700 flex-shrink-0 overflow-x-auto items-center">
             <div class="flex gap-1 flex-1 overflow-x-auto">
               <button
@@ -378,10 +381,15 @@
                   </button>
                   <button
                     @click="confirmSelectedAuto"
-                    :disabled="selectedAuto.size === 0"
+                    :disabled="autoAssignedFaces.length === 0"
                     class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
                   >
-                    认领<template v-if="selectedAuto.size > 0"> ({{ selectedAuto.size }})</template>
+                    <template v-if="selectedAuto.size === 0">
+                      认领全部
+                    </template>
+                    <template v-else>
+                      认领 ({{ selectedAuto.size }})
+                    </template>
                   </button>
                   <button
                     @click="removeSelectedAuto"
@@ -456,7 +464,7 @@
             <!-- 相似推荐 -->
             <div v-if="tab === 'similar' && selectedItem.type === 'confirmed'">
               <div class="mb-2 flex items-center justify-between">
-                <span class="text-xs text-gray-400">按相似度排序的可能照片（60%-75%）</span>
+                <span class="text-xs text-gray-400">按相似度排序的可能照片（相似度≥ 60%）</span>
                 <div class="flex gap-2">
                   <button
                     @click="selectAllCurrentTab"
@@ -474,10 +482,15 @@
                   </button>
                   <button
                     @click="assignSelectedSimilar"
-                    :disabled="selectedSimilar.size === 0"
+                    :disabled="similarFaces.length === 0"
                     class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
                   >
-                    认领<template v-if="selectedSimilar.size > 0"> ({{ selectedSimilar.size }})</template>
+                    <template v-if="selectedSimilar.size === 0">
+                      认领全部
+                    </template>
+                    <template v-else>
+                      认领 ({{ selectedSimilar.size }})
+                    </template>
                   </button>
                 </div>
               </div>
@@ -510,7 +523,7 @@
                       loading="lazy"
                     />
                     <button
-                      @click.stop="assignFace(f.id, false)"
+                      @click.stop="assignFace(f.id, true)"
                       class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
@@ -548,7 +561,7 @@
             <!-- 套图推荐 -->
             <div v-if="tab === 'sameFolder' && selectedItem.type === 'confirmed'">
               <div class="mb-2 flex items-center justify-between">
-                <span class="text-xs text-gray-400">同一文件夹的相似人脸（50%-60%）</span>
+                <span class="text-xs text-gray-400">同一文件夹的相似人脸（按相似度排序）</span>
                 <div class="flex gap-2">
                   <button
                     @click="selectAllCurrentTab"
@@ -566,10 +579,15 @@
                   </button>
                   <button
                     @click="assignSelectedSameFolder"
-                    :disabled="selectedSameFolder.size === 0"
+                    :disabled="sameFolderFaces.length === 0"
                     class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
                   >
-                    认领<template v-if="selectedSameFolder.size > 0"> ({{ selectedSameFolder.size }})</template>
+                    <template v-if="selectedSameFolder.size === 0">
+                      认领全部
+                    </template>
+                    <template v-else>
+                      认领 ({{ selectedSameFolder.size }})
+                    </template>
                   </button>
                 </div>
               </div>
@@ -602,7 +620,7 @@
                       loading="lazy"
                     />
                     <button
-                      @click.stop="assignFace(f.id, false)"
+                      @click.stop="assignFace(f.id, true)"
                       class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
@@ -867,12 +885,15 @@ const selectedItem = ref<PersonListItem | null>(null)
 const selectedPersonId = ref<number | null>(null)
 const selectedClusterIndex = ref<number | null>(null)
 const loadingPersons = ref(false)
+// 右侧灰色等待蒙版，使用延迟显示避免快速切换时闪烁
+const showLoadingOverlay = ref(false)
+let loadingOverlayTimer: number | null = null
 const CLUSTER_THRESHOLD_KEY = 'pe-cluster-threshold'
 const DEFAULT_CLUSTER_THRESHOLD = 0.7
 const clusterThreshold = ref<number>(parseFloat(localStorage.getItem(CLUSTER_THRESHOLD_KEY) || `${DEFAULT_CLUSTER_THRESHOLD}`))
 const snapPoints = computed(() => {
   const arr: number[] = []
-  for (let v = 0.5; v <= 0.9001; v += 0.05) {
+  for (let v = 0.1; v <= 0.9001; v += 0.1) {
     arr.push(parseFloat(v.toFixed(2)))
   }
   return arr
@@ -912,7 +933,7 @@ const onPersonPageBlur = () => {
   else if (personPage.value > personTotalPages.value) personPage.value = personTotalPages.value
 }
 
-// 编辑相关
+// 编辑相关（列表不再内联编辑，仅右侧姓名输入框使用）
 const editingPersonId = ref<number | null>(null)
 const editingName = ref('')
 const originalName = ref('')
@@ -933,11 +954,12 @@ const personColumns = computed(() => {
   const width = containerWidth.value
   if (width <= 0) return 2
   if (width < 200) return 1
-  if (width < 280) return 2
-  if (width < 360) return 3
-  if (width < 440) return 4
-  if (width < 520) return 5
-  return 6
+  if (width < 260) return 2
+  if (width < 340) return 3
+  if (width < 420) return 4
+  if (width < 500) return 5
+  if (width < 580) return 6
+  return 7
 })
 
 const tab = ref<'confirmed' | 'auto' | 'similar' | 'sameFolder' | 'unassigned'>('confirmed')
@@ -1011,6 +1033,13 @@ const viewerVisible = ref(false)
 const viewerPhotos = ref<any[]>([])
 const viewerIndex = ref(0)
 
+// 键盘导航：记录当前激活的人脸索引
+const activeFaceIndex = ref<number | null>(null)
+
+// 右侧姓名编辑
+const selectedPersonName = ref('')
+const originalSelectedPersonName = ref('')
+
 const startResize = (e: MouseEvent) => {
   isResizing.value = true
   resizeStartX.value = e.clientX
@@ -1057,6 +1086,61 @@ const handleFaceScroll = (e: Event) => {
   }
 }
 
+const handleFaceListKeydown = (e: KeyboardEvent) => {
+  // PhotoViewer 打开时，优先交给 PhotoViewer 自己处理
+  if (viewerVisible.value) return
+  if (!selectedItem.value || loadingPersons.value || loadingPersonFaces.value) return
+
+  const faces = getCurrentVisibleFaceList()
+  if (!faces.length) return
+
+  const key = e.key
+
+  // Ctrl/Cmd + A: 全选当前标签页人脸
+  if ((e.ctrlKey || e.metaKey) && key.toLowerCase() === 'a') {
+    e.preventDefault()
+    selectAllCurrentTab()
+    return
+  }
+
+  // Esc: 清除选择
+  if (key === 'Escape') {
+    e.preventDefault()
+    const sel = getCurrentSelection(currentFaceTab.value)
+    sel.value = new Set()
+    activeFaceIndex.value = null
+    return
+  }
+
+  // 方向键：在网格中移动激活/选中人脸
+  if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+    e.preventDefault()
+    let idx = activeFaceIndex.value ?? 0
+
+    // 估算列数，用于上下移动（与分页估算一致）
+    const width = tabScrollContainer.value?.clientWidth || 960
+    const approxCardWidth = 160
+    const cols = Math.max(2, Math.floor(width / approxCardWidth))
+
+    if (key === 'ArrowLeft') idx = Math.max(0, idx - 1)
+    if (key === 'ArrowRight') idx = Math.min(faces.length - 1, idx + 1)
+    if (key === 'ArrowUp') idx = Math.max(0, idx - cols)
+    if (key === 'ArrowDown') idx = Math.min(faces.length - 1, idx + cols)
+
+    activeFaceIndex.value = idx
+    const face = faces[idx]
+    if (!face) return
+
+    // 更新选中集合：仅选中当前激活的人脸
+    const sel = getCurrentSelection(currentFaceTab.value)
+    sel.value = new Set([face.id])
+
+    // 同步 lastSelectedIndex，使用完整列表中的索引
+    const fullList = getCurrentFaceList(currentFaceTab.value)
+    lastSelectedIndex.value = fullList.findIndex(f => f.id === face.id)
+  }
+}
+
 const loadPersons = async () => {
   loadingPersons.value = true
   try {
@@ -1089,6 +1173,8 @@ const selectPerson = (p: PersonListItem) => {
   if (p.type === 'confirmed') {
     selectedPersonId.value = p.id
     selectedClusterIndex.value = null
+    selectedPersonName.value = p.name || '未命名'
+    originalSelectedPersonName.value = selectedPersonName.value
     editingDescription.value = p.description || ''
     originalDescription.value = p.description || ''
     tab.value = 'confirmed'
@@ -1096,6 +1182,8 @@ const selectPerson = (p: PersonListItem) => {
   } else {
     selectedPersonId.value = null
     selectedClusterIndex.value = p.id as number
+    selectedPersonName.value = ''
+    originalSelectedPersonName.value = ''
     editingDescription.value = ''
     originalDescription.value = ''
     tab.value = 'confirmed'
@@ -1111,6 +1199,40 @@ const loadAllFaces = async () => {
   loadSimilarFaces()
   loadSameFolderFaces()
   loadUnassigned()
+}
+
+// 人脸认领 / 移除后，刷新左侧人物数量并保持当前选中与页码
+const refreshPersonsAfterFaceChange = async () => {
+  const current = selectedItem.value
+    ? { id: selectedItem.value.id, type: selectedItem.value.type }
+    : null
+  const currentPage = personPage.value
+
+  await loadPersons()
+
+  if (current) {
+    const found = persons.value.find(
+      (p) => p.id === current.id && p.type === current.type
+    )
+    if (found) {
+      selectedItem.value = found
+      if (found.type === 'confirmed') {
+        selectedPersonId.value = found.id
+        selectedClusterIndex.value = null
+      } else {
+        selectedPersonId.value = null
+        selectedClusterIndex.value = found.id as number
+      }
+    }
+  }
+
+  if (personTotalPages.value > 0) {
+    const safePage = Math.min(
+      Math.max(currentPage || 1, 1),
+      personTotalPages.value
+    )
+    personPage.value = safePage
+  }
 }
 
 const loadConfirmedFaces = async () => {
@@ -1155,11 +1277,8 @@ const loadSimilarFaces = async () => {
     const res = await api.get(`/admin/persons/${selectedPersonId.value}/similar-unassigned`, {
       params: { top: 200, threshold: 0.6 }
     })
-    // 过滤相似度在60%-75%之间的
-    similarFaces.value = (res.data || []).filter((f: FaceItem) => {
-      const sim = f.similarity || 0
-      return sim >= 0.6 && sim < 0.75
-    })
+    // 不再设置相似度上限，只依赖后端的下限阈值
+    similarFaces.value = (res.data || []).filter((f: FaceItem) => (f.similarity || 0) >= 0.6)
     selectedSimilar.value.clear()
     resetFaceVisible('similar')
   } finally {
@@ -1209,10 +1328,28 @@ const loadUnassigned = async () => {
   }
 }
 
+// 监听 loading 状态，延迟显示等待蒙版，避免快速切换人物时闪烁
+watch(
+  () => loadingPersons.value || loadingPersonFaces.value || loadingConfirmed.value || loadingAuto.value || loadingSimilar.value || loadingSameFolder.value || loadingUnassigned.value,
+  (isLoading) => {
+    if (loadingOverlayTimer !== null) {
+      clearTimeout(loadingOverlayTimer)
+      loadingOverlayTimer = null
+    }
+    if (isLoading) {
+      // 延迟 150ms 再显示蒙版，如果期间请求很快完成，就不显示
+      loadingOverlayTimer = window.setTimeout(() => {
+        showLoadingOverlay.value = true
+        loadingOverlayTimer = null
+      }, 150)
+    } else {
+      showLoadingOverlay.value = false
+    }
+  }
+)
+
 const startEditName = (p: PersonListItem) => {
-  editingPersonId.value = p.id
-  editingName.value = p.name || '未命名'
-  originalName.value = p.name || '未命名'
+  // 保留空实现：列表不再通过点击姓名编辑，全部在右侧输入框完成
 }
 
 const cancelEdit = () => {
@@ -1225,20 +1362,32 @@ const cancelDescriptionEdit = () => {
 }
 
 const savePersonName = async (p: PersonListItem) => {
-  if (p.type !== 'confirmed' || !selectedPersonId.value) {
+  if (p.type !== 'confirmed') {
+    console.debug('[Persons] savePersonName skipped (not confirmed or no selectedPersonId)', {
+      personId: p.id,
+      itemType: p.type
+    })
     cancelEdit()
     return
   }
   
   const newName = editingName.value.trim()
   if (!newName || newName === originalName.value) {
+    console.debug('[Persons] savePersonName skipped (empty or unchanged)', {
+      newName,
+      originalName: originalName.value
+    })
     cancelEdit()
     return
   }
   
   savingPerson.value = true
   try {
-    await api.put(`/admin/persons/${selectedPersonId.value}`, {
+    console.debug('[Persons] savePersonName request', {
+      apiPersonId: p.id,
+      newName
+    })
+    await api.put(`/admin/persons/${p.id}`, {
       name: newName,
       description: p.description || ''
     })
@@ -1250,6 +1399,85 @@ const savePersonName = async (p: PersonListItem) => {
   } finally {
     savingPerson.value = false
   }
+}
+
+const saveSelectedPersonName = async () => {
+  if (!selectedItem.value || selectedItem.value.type !== 'confirmed') return
+  const newName = (selectedPersonName.value || '').trim()
+  if (!newName || newName === originalSelectedPersonName.value) {
+    selectedPersonName.value = originalSelectedPersonName.value
+    return
+  }
+  savingPerson.value = true
+  try {
+    await api.put(`/admin/persons/${selectedItem.value.id}`, {
+      name: newName,
+      description: selectedItem.value.description || ''
+    })
+    originalSelectedPersonName.value = newName
+    // 刷新人物列表，保持选中人物
+    const prevId = selectedItem.value.id
+    await loadPersons()
+    const found = persons.value.find(p => p.id === prevId && p.type === 'confirmed')
+    if (found) {
+      selectedItem.value = found
+      selectedPersonId.value = found.id
+    }
+  } catch (e: any) {
+    alert('保存姓名失败: ' + (e.response?.data?.error || e.message))
+    selectedPersonName.value = originalSelectedPersonName.value
+  } finally {
+    savingPerson.value = false
+  }
+}
+
+const resetSelectedPersonName = () => {
+  selectedPersonName.value = originalSelectedPersonName.value
+}
+
+const createPersonFromSelectedCluster = async () => {
+  if (!selectedItem.value || selectedItem.value.type !== 'cluster' || selectedClusterIndex.value === null) return
+  const name = (selectedPersonName.value || '').trim()
+  if (!name) return
+  savingPerson.value = true
+  try {
+    // 获取当前聚类的人脸ID
+    const res = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
+      params: { threshold: clusterThreshold.value }
+    })
+    const faces = res.data || []
+    const faceIds = faces.map((f: FaceItem) => f.id)
+
+    await api.post('/admin/persons/from-faces', {
+      faceIds,
+      name,
+      description: ''
+    })
+
+    // 重新加载人物列表，并选中新建或合并后的人物
+    await loadPersons()
+    const created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
+    if (created) {
+      selectPerson(created)
+    }
+  } catch (e: any) {
+    alert('创建人物失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    savingPerson.value = false
+  }
+}
+
+const handleSelectedPersonNameBlur = async () => {
+  if (!selectedItem.value) return
+  if (selectedItem.value.type === 'confirmed') {
+    await saveSelectedPersonName()
+  } else if (selectedItem.value.type === 'cluster') {
+    await createPersonFromSelectedCluster()
+  }
+}
+
+const handleSelectedPersonNameEnter = async () => {
+  await handleSelectedPersonNameBlur()
 }
 
 const createPersonFromName = async (p: PersonListItem) => {
@@ -1290,9 +1518,8 @@ const createPersonFromName = async (p: PersonListItem) => {
   }
 }
 
-const focusNameInput = (e: Event) => {
-  const input = e.target as HTMLInputElement
-  requestAnimationFrame(() => input.select())
+const focusNameInput = (_e: Event) => {
+  // 保留函数占位，但不再强制 select 文本，避免浏览器自动滚动/选区跳动
 }
 
 const savePersonDescription = async () => {
@@ -1366,16 +1593,33 @@ const assignFace = async (faceId: number, confirmed: boolean = true) => {
   await loadAllFaces()
 }
 
-const confirmFace = async (faceId: number) => {
-  await assignFace(faceId, true)
-}
-
 const confirmSelectedAuto = async () => {
-  const ids = Array.from(selectedAuto.value)
-  for (const id of ids) {
-    await confirmFace(id)
-  }
+  if (!selectedPersonId.value) return
+
+  const hasSelection = selectedAuto.value.size > 0
+  const targetIds = hasSelection
+    ? Array.from(selectedAuto.value)
+    : autoAssignedFaces.value.map(f => f.id)
+
+  if (targetIds.length === 0) return
+
+  // 批量认领：一口气提交所有人脸，再统一刷新
+  await Promise.all(
+    targetIds.map(id =>
+      api.put(`/admin/faces/${id}/assign`, null, {
+        params: { personId: selectedPersonId.value, confirmed: true }
+      })
+    )
+  )
+
   selectedAuto.value.clear()
+  await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
+
+  // 如果本人物已没有自动分配人脸，自动切换到“已确认”Tab
+  if (autoAssignedFaces.value.length === 0 && tab.value === 'auto') {
+    tab.value = 'confirmed'
+  }
 }
 
 const removeSelectedAuto = async () => {
@@ -1388,22 +1632,53 @@ const removeSelectedAuto = async () => {
   }
   selectedAuto.value.clear()
   await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
 }
 
 const assignSelectedSimilar = async () => {
-  const ids = Array.from(selectedSimilar.value)
-  for (const id of ids) {
-    await assignFace(id, false) // 自动分配，不确认
-  }
+  if (!selectedPersonId.value) return
+
+  const hasSelection = selectedSimilar.value.size > 0
+  const targetIds = hasSelection
+    ? Array.from(selectedSimilar.value)
+    : similarFaces.value.map(f => f.id)
+
+  if (targetIds.length === 0) return
+
+  await Promise.all(
+    targetIds.map(id =>
+      api.put(`/admin/faces/${id}/assign`, null, {
+        params: { personId: selectedPersonId.value, confirmed: true }
+      })
+    )
+  )
+
   selectedSimilar.value.clear()
+  await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
 }
 
 const assignSelectedSameFolder = async () => {
-  const ids = Array.from(selectedSameFolder.value)
-  for (const id of ids) {
-    await assignFace(id, false) // 自动分配，不确认
-  }
+  if (!selectedPersonId.value) return
+
+  const hasSelection = selectedSameFolder.value.size > 0
+  const targetIds = hasSelection
+    ? Array.from(selectedSameFolder.value)
+    : sameFolderFaces.value.map(f => f.id)
+
+  if (targetIds.length === 0) return
+
+  await Promise.all(
+    targetIds.map(id =>
+      api.put(`/admin/faces/${id}/assign`, null, {
+        params: { personId: selectedPersonId.value, confirmed: true }
+      })
+    )
+  )
+
   selectedSameFolder.value.clear()
+  await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
 }
 
 const assignSelectedUnassigned = async () => {
@@ -1412,6 +1687,7 @@ const assignSelectedUnassigned = async () => {
     await assignFace(id, false) // 自动分配，不确认
   }
   selectedUnassigned.value.clear()
+  await refreshPersonsAfterFaceChange()
 }
 
 const unassignFace = async (faceId: number) => {
@@ -1419,6 +1695,7 @@ const unassignFace = async (faceId: number) => {
     params: { personId: null } 
   })
   await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
 }
 
 const toggleSelectAuto = (id: number) => {
@@ -1718,6 +1995,11 @@ const handleFaceClick = (e: MouseEvent, faceId: number, tabType: string) => {
     selection.value = new Set([faceId])
     lastSelectedIndex.value = currentIndex
   }
+
+  // 更新键盘激活索引为当前点击的人脸（基于可见列表）
+  const visibleList = getCurrentVisibleFaceList()
+  const vIndex = visibleList.findIndex(f => f.id === faceId)
+  activeFaceIndex.value = vIndex >= 0 ? vIndex : null
 }
 
 // 反选
@@ -1748,6 +2030,7 @@ const removeSelectedConfirmed = async () => {
   }
   selectedConfirmed.value.clear()
   await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
 }
 
 // 批量移除聚类照片
@@ -1763,6 +2046,7 @@ const removeSelectedClusterFaces = async () => {
   }
   selectedClusterFaces.value.clear()
   await loadClusterFaces()
+  await refreshPersonsAfterFaceChange()
 }
 
 // 处理移除操作（根据tab类型）
@@ -1792,6 +2076,20 @@ const getCurrentSelectionCount = (): number => {
       return selectedUnassigned.value.size
     default:
       return 0
+  }
+}
+
+const getCurrentVisibleFaceList = (): FaceItem[] => {
+  if (selectedItem.value?.type === 'cluster' && tab.value === 'confirmed') {
+    return visibleClusterFaces.value
+  }
+  switch (tab.value) {
+    case 'confirmed': return visibleConfirmedFaces.value
+    case 'auto': return visibleAutoFaces.value
+    case 'similar': return visibleSimilarFaces.value
+    case 'sameFolder': return visibleSameFolderFaces.value
+    case 'unassigned': return visibleUnassignedFaces.value
+    default: return []
   }
 }
 
@@ -2002,7 +2300,6 @@ onMounted(() => {
   nextTick(() => {
     updateContainerWidth()
     recalcFacePageSize()
-    maybeFillPersonViewport()
     if (personListContainer.value && 'ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(() => {
         updateContainerWidth()
@@ -2037,12 +2334,13 @@ onBeforeUnmount(() => {
 })
 
 watch(clusterThreshold, (v) => {
-  // 限制范围
-  let val = Math.max(0.5, Math.min(0.9, v || DEFAULT_CLUSTER_THRESHOLD))
-  // 吸附到每 0.05 一档（0.50, 0.55, ... 0.90）
-  const snapped = Math.round(val / 0.05) * 0.05
-  val = Math.max(0.5, Math.min(0.9, snapped))
-  clusterThreshold.value = parseFloat(val.toFixed(2))
+  // 限制范围，但不再强制吸附，保证 spin 输入的数值可以精确生效
+  let val = v || DEFAULT_CLUSTER_THRESHOLD
+  if (Number.isNaN(val as any)) {
+    val = DEFAULT_CLUSTER_THRESHOLD
+  }
+  val = Math.max(0.1, Math.min(0.9, val))
+  clusterThreshold.value = parseFloat(Number(val).toFixed(2))
   localStorage.setItem(CLUSTER_THRESHOLD_KEY, String(clusterThreshold.value))
   if (thresholdTimer) {
     clearTimeout(thresholdTimer)
@@ -2095,5 +2393,15 @@ watch(clusterThreshold, (v) => {
 .cluster-slider::-moz-range-track {
   height: 2px;
   background: transparent;
+}
+
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.no-spinner[type='number'] {
+  -moz-appearance: textfield;
 }
 </style>

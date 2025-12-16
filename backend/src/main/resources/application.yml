@@ -99,9 +99,6 @@ face:
     nms-threshold: 0.4  # 非极大值抑制阈值
     input-size: 640  # 模型输入尺寸（RetinaFace 常用 640）
     allow-simple-fallback: false  # 是否允许回退到简单肤色检测（建议准确率优先时关闭）
-  # 人脸特征提取模型配置（用于识别）
-  embedding:
-    model-path: ./models/face_recognition.onnx  # 特征提取模型路径（R50/R100等）
   # 人脸过滤配置（用于FaceService二次筛选），可按需要调整
   filters:
     min-area: 0.0025   # 最小面积（相对整图），默认 0.25%，也就是1/20*1/20
@@ -111,8 +108,21 @@ face:
     min-ratio: 0.4    # 最小宽高比 w/h
     max-ratio: 2.5    # 最大宽高比 w/h
     max-faces-per-image: 36  # 单张图片最多保存人脸数
+  # 人脸特征提取模型配置（用于识别）
+  embedding:
+    model-path: ./models/face_recognition.onnx  # 特征提取模型路径（R50/R100等）
   clustering:
-    default-threshold: 0.7  # 聚类阈值默认 0.7，未在UI设置时使用
+    default-threshold: 0.6  # 聚类阈值默认 0.7，未在UI设置时使用
+    # 以下为可配置的聚类策略（可根据需求放宽或关闭严格校验）
+    threshold-bonus: 0.05       # 在用户阈值基础上额外增加的偏移量。默认0.05
+    min-threshold: 0.10         # 聚类最低阈值（防止过低导致误合并），可调低以更宽松
+    min-matches: 3              # 大组多点验证：至少匹配的成员数
+    min-group-size: 3           # 多少成员以上按“大组”规则，多点+统计
+    require-multi-point: true   # 是否开启多点验证（匹配若干成员才允许加入）
+    require-stats: true         # 是否开启统计指标校验（均值/中位/75分位/最小相似度）
+    small-group-strict: true    # 小组（成员数 < min-group-size）是否启用严格模式
+    min-sim-slack-small: 0.03   # 小组最小相似度允许的放宽值
+    min-sim-slack-large: 0.05   # 大组最小相似度允许的放宽值
 
 # 智能标签配置
 smart-tag:

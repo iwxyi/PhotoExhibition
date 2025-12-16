@@ -24,6 +24,7 @@ import java.io.File;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -55,6 +56,27 @@ public class FaceService {
     private double maxRatio;         // 最大宽高比
     @Value("${face.filters.max-faces-per-image:20}")
     private int maxFacesPerImage;    // 单张图片最多保存人脸数
+    // 聚类缓存（按阈值存储计算结果，避免重复计算）
+    private final Map<Double, List<FaceClusterDTO>> clusterCache = new ConcurrentHashMap<>();
+    // 聚类策略参数（可在 application.yml 配置）
+    @Value("${face.clustering.threshold-bonus:0.05}")
+    private double clusteringThresholdBonus; // 在用户阈值基础上增加的偏移
+    @Value("${face.clustering.min-threshold:0.78}")
+    private double clusteringMinThreshold;   // 聚类最低阈值
+    @Value("${face.clustering.min-matches:3}")
+    private int clusteringMinMatches;        // 多点验证需要的最少匹配数
+    @Value("${face.clustering.min-group-size:3}")
+    private int clusteringMinGroupSize;      // 进入“大组”判定的最小组大小
+    @Value("${face.clustering.require-multi-point:true}")
+    private boolean clusteringRequireMultiPoint; // 是否启用多点验证
+    @Value("${face.clustering.require-stats:true}")
+    private boolean clusteringRequireStats;      // 是否启用统计指标（均值/中位/75分位等）
+    @Value("${face.clustering.small-group-strict:true}")
+    private boolean clusteringSmallGroupStrict;  // 小组（成员数 < min-group-size）是否使用严格匹配
+    @Value("${face.clustering.min-sim-slack-small:0.03}")
+    private double clusteringMinSimSlackSmall;   // 小组最小相似度的放宽值
+    @Value("${face.clustering.min-sim-slack-large:0.05}")
+    private double clusteringMinSimSlackLarge;   // 大组最小相似度的放宽值
 
     /**
      * 重新检测并保存某张照片的人脸信息
@@ -167,6 +189,7 @@ public class FaceService {
             targetPhoto.setFaces(new ArrayList<>(faces));
         }
         log.debug("保存人脸 {} 个，photoId={}", faces.size(), targetPhoto.getId());
+        invalidateClusterCache();
         return faces;
     }
 
@@ -230,6 +253,7 @@ public class FaceService {
             }
             faceRepository.save(face);
         }
+        invalidateClusterCache();
         return toDTO(face);
     }
 
@@ -481,25 +505,42 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> listSameFolderSimilarFaces(Long personId, int top) {
-        // 获取该人物的已确认人脸
-        List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true, PageRequest.of(0, 10))
-            .getContent();
-        if (confirmedFaces.isEmpty()) {
+        // 获取该人物的已确认人脸和自动分配人脸，一起作为套图推荐的参考基准
+        List<Face> confirmedFaces = faceRepository
+                .findByPersonIdAndIsConfirmed(personId, true, PageRequest.of(0, 10))
+                .getContent();
+        List<Face> autoAssignedFaces = faceRepository
+                .findByPersonIdAndIsConfirmed(personId, false, PageRequest.of(0, 20))
+                .getContent();
+
+        List<Face> referenceFaces = new ArrayList<>();
+        referenceFaces.addAll(confirmedFaces);
+        referenceFaces.addAll(autoAssignedFaces);
+
+        if (referenceFaces.isEmpty()) {
             return new ArrayList<>();
         }
 
         // 构建路径前缀层级：同文件夹、上一级、再上一级（最多到 base-path 下两级：category/album）
         Set<String> folderPrefixes = new HashSet<>();
-        for (Face confirmed : confirmedFaces) {
-            String path = confirmed.getPhoto() != null ? confirmed.getPhoto().getOriginalPath() : null;
+        for (Face ref : referenceFaces) {
+            String path = ref.getPhoto() != null ? ref.getPhoto().getOriginalPath() : null;
             folderPrefixes.addAll(buildFolderPrefixes(path));
         }
         if (folderPrefixes.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 获取所有未分配人脸（含 embedding）
-        List<Face> unassignedFaces = faceRepository.findByPersonIsNull();
+        // 获取所有与这些人物照片同相册下的未分配人脸（含 embedding），避免全表扫描
+        Set<Long> albumIds = referenceFaces.stream()
+                .filter(f -> f.getPhoto() != null && f.getPhoto().getAlbumId() != null)
+                .map(f -> f.getPhoto().getAlbumId())
+                .collect(Collectors.toSet());
+        if (albumIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Face> unassignedFaces = faceRepository.findByPersonIsNullAndPhotoAlbumIdIn(albumIds);
         if (unassignedFaces.isEmpty()) {
             return new ArrayList<>();
         }
@@ -516,12 +557,12 @@ public class FaceService {
             if (unassignedVec == null) continue;
 
             double maxSim = -1;
-            for (Face confirmed : confirmedFaces) {
-                if (confirmed.getEmbedding() == null || confirmed.getEmbedding().isEmpty()) continue;
-                float[] confirmedVec = parseEmbedding(confirmed.getEmbedding());
-                if (confirmedVec == null) continue;
+            for (Face ref : referenceFaces) {
+                if (ref.getEmbedding() == null || ref.getEmbedding().isEmpty()) continue;
+                float[] refVec = parseEmbedding(ref.getEmbedding());
+                if (refVec == null) continue;
                 
-                double sim = cosine(unassignedVec, confirmedVec);
+                double sim = cosine(unassignedVec, refVec);
                 if (sim > maxSim) {
                     maxSim = sim;
                 }
@@ -775,9 +816,15 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        // 保守聚类算法：优先保证准确率，宁可分成多个小聚类，也不要错误合并
-        // 使用更高的实际阈值（在用户阈值基础上再加0.03-0.05）
-        final double strictThreshold = Math.max(threshold + 0.05, 0.78); // 最低0.78
+        // 聚类阈值可配置：在用户阈值基础上加偏移，并设定可配置下限
+        final double strictThreshold = Math.max(threshold + clusteringThresholdBonus, clusteringMinThreshold);
+
+        // 尝试从缓存命中
+        double cacheKey = roundThreshold(threshold);
+        List<FaceClusterDTO> cached = clusterCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
         
         List<List<Face>> groups = new ArrayList<>();
         
@@ -825,28 +872,27 @@ public class FaceService {
 
                 boolean canJoin = false;
 
-                if (group.size() < 3) {
-                    // 小组（1-2个人脸）：使用更严格的直接匹配
-                    // 要求与组内所有成员都高度相似（>= 严格阈值）
-                    // 这样可以避免早期错误合并，同时允许真正的同一人合并
-                    canJoin = matchCount == group.size() && avgSim >= strictThreshold && minSim >= (strictThreshold - 0.03);
+                if (group.size() < clusteringMinGroupSize) {
+                    // 小组：可配置是否使用严格匹配
+                    if (clusteringSmallGroupStrict) {
+                        canJoin = matchCount == group.size() && avgSim >= strictThreshold && minSim >= (strictThreshold - clusteringMinSimSlackSmall);
+                    } else {
+                        // 宽松模式：只要平均相似度达标即可
+                        canJoin = avgSim >= strictThreshold || minSim >= (strictThreshold - clusteringMinSimSlackSmall);
+                    }
                 } else {
                     // 大组（3个或以上人脸）：使用多点验证和统计指标
-                    // 严格的加入条件（全部满足才可加入）：
-                    // 1. 至少与组内3个成员相似（多点验证，避免链式错误）
-                    // 2. 平均相似度 >= 严格阈值
-                    // 3. 中位数相似度 >= 严格阈值（确保一致性）
-                    // 4. 75分位数相似度 >= 严格阈值（大部分成员都相似）
-                    // 5. 最小相似度 >= 严格阈值 - 0.05（避免极端离群值）
-                    int requiredMatches = Math.min(3, group.size()); // 至少3个，但不超过组大小
-                    
-                    boolean passMultiPoint = matchCount >= requiredMatches;
-                    boolean passAvg = avgSim >= strictThreshold;
-                    boolean passMedian = medianSim >= strictThreshold;
-                    boolean passQ75 = q75Sim >= strictThreshold;
-                    boolean passMin = minSim >= (strictThreshold - 0.05);
-
-                    canJoin = passMultiPoint && passAvg && passMedian && passQ75 && passMin;
+                    int requiredMatches = Math.min(clusteringMinMatches, group.size());
+                    boolean passMultiPoint = !clusteringRequireMultiPoint || matchCount >= requiredMatches;
+                    if (!clusteringRequireStats) {
+                        canJoin = passMultiPoint && avgSim >= strictThreshold;
+                    } else {
+                        boolean passAvg = avgSim >= strictThreshold;
+                        boolean passMedian = medianSim >= strictThreshold;
+                        boolean passQ75 = q75Sim >= strictThreshold;
+                        boolean passMin = minSim >= (strictThreshold - clusteringMinSimSlackLarge);
+                        canJoin = passMultiPoint && passAvg && passMedian && passQ75 && passMin;
+                    }
                 }
 
                 if (canJoin) {
@@ -926,7 +972,18 @@ public class FaceService {
 
         log.info("保守聚类完成: 共 {} 个未分配人脸，聚合成 {} 个组（用户阈值: {}，实际阈值: {}）", 
             withEmbedding.size(), clusters.size(), threshold, strictThreshold);
+        // 写入缓存（不可变拷贝）
+        clusterCache.put(cacheKey, new ArrayList<>(clusters));
         return clusters;
+    }
+
+    private double roundThreshold(double threshold) {
+        return Math.round(threshold * 1000.0) / 1000.0;
+    }
+
+    private void invalidateClusterCache() {
+        clusterCache.clear();
+        log.debug("聚类缓存已清空");
     }
 
     /**
@@ -1156,6 +1213,7 @@ public class FaceService {
         }
 
         log.info("创建人物并绑定人脸: personId={}, name={}, faceCount={}", person.getId(), person.getName(), faceIds.size());
+        invalidateClusterCache();
         return toDTO(person);
     }
 
@@ -1360,6 +1418,7 @@ public class FaceService {
         // 删除人物
         personProfileRepository.delete(person);
         log.info("已删除人物: {} (ID: {})，已解除 {} 张人脸的关联", person.getName(), personId, faces.size());
+        invalidateClusterCache();
     }
 
     private String convertToRelativePath(String absolutePath) {
