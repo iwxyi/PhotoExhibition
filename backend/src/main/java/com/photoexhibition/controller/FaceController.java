@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 import java.util.Map;
@@ -22,6 +23,8 @@ import java.util.ArrayList;
 public class FaceController {
 
     private final FaceService faceService;
+    @Value("${face.clustering.default-threshold:0.7}")
+    private double clusteringDefaultThreshold;
 
     /**
      * 人脸列表（分页）
@@ -187,8 +190,9 @@ public class FaceController {
      */
     @GetMapping("/persons/items")
     public ResponseEntity<List<PersonListItemDTO>> listPersonItems(
-            @RequestParam(defaultValue = "0.6") double threshold) {
-        return ResponseEntity.ok(faceService.listPersonItems(threshold));
+            @RequestParam(required = false) Double threshold) {
+        double t = threshold != null ? threshold : clusteringDefaultThreshold;
+        return ResponseEntity.ok(faceService.listPersonItems(t));
     }
 
     /**
@@ -198,8 +202,9 @@ public class FaceController {
     public ResponseEntity<List<FaceDTO>> similarUnassignedFaces(
             @PathVariable Long personId,
             @RequestParam(defaultValue = "50") int top,
-            @RequestParam(defaultValue = "0.6") double threshold) {
-        return ResponseEntity.ok(faceService.findSimilarUnassignedFaces(personId, top, threshold));
+            @RequestParam(required = false) Double threshold) {
+        double t = threshold != null ? threshold : clusteringDefaultThreshold;
+        return ResponseEntity.ok(faceService.findSimilarUnassignedFaces(personId, top, t));
     }
 
     /**

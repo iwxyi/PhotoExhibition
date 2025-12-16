@@ -144,13 +144,17 @@ public class FaceDetectionService implements AutoCloseable {
                         float[][][] scores = (float[][][]) scoresObj;
 
                         List<DetectedFace> facesPrior = parseDetectionsRetinaStyle(boxes, scores, img.getWidth(), img.getHeight(), size);
-                        for (int i = 0; i < Math.min(5, facesPrior.size()); i++) {
-                            DetectedFace f = facesPrior.get(i);
-                            log.debug("decoded(face prior)[{}]: x={} y={} w={} h={} area={}", i,
-                                    format4(f.getX()), format4(f.getY()), format4(f.getWidth()), format4(f.getHeight()),
-                                    format4(f.getWidth() * f.getHeight()));
+                        if (isVerboseLog()) {
+                            for (int i = 0; i < Math.min(5, facesPrior.size()); i++) {
+                                DetectedFace f = facesPrior.get(i);
+                                log.debug("decoded(face prior)[{}]: x={} y={} w={} h={} area={}", i,
+                                        format4(f.getX()), format4(f.getY()), format4(f.getWidth()), format4(f.getHeight()),
+                                        format4(f.getWidth() * f.getHeight()));
+                            }
                         }
-                        log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，解码方案=prior）", facesPrior.size());
+                        if (isVerboseLog()) {
+                            log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，解码方案=prior）", facesPrior.size());
+                        }
                         return applyNMS(facesPrior);
                     }
                     // 旧格式兜底：scores=[1,N]
@@ -159,7 +163,9 @@ public class FaceDetectionService implements AutoCloseable {
                         float[][] scores = (float[][]) scoresObj;
 
                         List<DetectedFace> faces = parseDetections(boxes, scores, img.getWidth(), img.getHeight(), size);
-                        log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，旧格式兜底）", faces.size());
+                        if (isVerboseLog()) {
+                            log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，旧格式兜底）", faces.size());
+                        }
                         return applyNMS(faces);
                     }
                     log.warn("人脸检测ONNX输出格式与当前解析逻辑不匹配，未返回检测结果。");
@@ -417,10 +423,12 @@ public class FaceDetectionService implements AutoCloseable {
             validCount++;
         }
 
-        log.debug("人脸检测ONNX（Retina风格）通过置信度阈值的候选框数量: {}/{}，最终保留（含几何过滤）: {}，最大人脸概率={}，阈值={}",
-                passedScoreCount, numAnchors, validCount,
-                String.format(java.util.Locale.ROOT, "%.4f", maxProb),
-                String.format(java.util.Locale.ROOT, "%.4f", effectiveThreshold));
+        if (isVerboseLog()) {
+            log.debug("人脸检测ONNX（Retina风格）通过置信度阈值的候选框数量: {}/{}，最终保留（含几何过滤）: {}，最大人脸概率={}，阈值={}",
+                    passedScoreCount, numAnchors, validCount,
+                    String.format(java.util.Locale.ROOT, "%.4f", maxProb),
+                    String.format(java.util.Locale.ROOT, "%.4f", effectiveThreshold));
+        }
 
         // 仅在详细模式下打印 TOP-K 调试信息
         if (isVerboseLog()) {
@@ -442,7 +450,7 @@ public class FaceDetectionService implements AutoCloseable {
             }
 
             // 打印解码后置信度最高的前5个框，便于对照原图
-            if (!faces.isEmpty()) {
+            if (!faces.isEmpty() && isVerboseLog()) {
                 List<DetectedFace> top = new ArrayList<>(faces);
                 top.sort((a, b) -> Double.compare(b.getConfidence(), a.getConfidence()));
                 for (int i = 0; i < Math.min(5, top.size()); i++) {
@@ -455,7 +463,7 @@ public class FaceDetectionService implements AutoCloseable {
             }
         }
 
-        if (validCount == 0) {
+        if (validCount == 0 && isVerboseLog()) {
             log.debug("人脸检测ONNX：在当前阈值下未保留任何候选框，建议暂时调低 face.detection.confidence-threshold 以观察效果。");
         }
         return faces;
@@ -728,12 +736,14 @@ public class FaceDetectionService implements AutoCloseable {
         FaceSetScore absStretchScore = evaluateFaces(absStretch);
         FaceSetScore normStretchScore = evaluateFaces(normStretch);
 
-        log.debug("解码评分: prior area={} score={} count={} mx={} mw={}, abs area={} score={} count={} mx={} mw={}, norm area={} score={} count={} mx={} mw={}, absStretch area={} score={} count={} mx={} mw={}, normStretch area={} score={} count={} mx={} mw={}",
-                format4(priorScore.medianArea), priorScore.score, prior.size(), format4(priorScore.medianX), format4(priorScore.medianW),
-                format4(absScore.medianArea), absScore.score, absolute.size(), format4(absScore.medianX), format4(absScore.medianW),
-                format4(normScore.medianArea), normScore.score, normalized.size(), format4(normScore.medianX), format4(normScore.medianW),
-                format4(absStretchScore.medianArea), absStretchScore.score, absStretch.size(), format4(absStretchScore.medianX), format4(absStretchScore.medianW),
-                format4(normStretchScore.medianArea), normStretchScore.score, normStretch.size(), format4(normStretchScore.medianX), format4(normStretchScore.medianW));
+        if (isVerboseLog()) {
+            log.debug("解码评分: prior area={} score={} count={} mx={} mw={}, abs area={} score={} count={} mx={} mw={}, norm area={} score={} count={} mx={} mw={}, absStretch area={} score={} count={} mx={} mw={}, normStretch area={} score={} count={} mx={} mw={}",
+                    format4(priorScore.medianArea), priorScore.score, prior.size(), format4(priorScore.medianX), format4(priorScore.medianW),
+                    format4(absScore.medianArea), absScore.score, absolute.size(), format4(absScore.medianX), format4(absScore.medianW),
+                    format4(normScore.medianArea), normScore.score, normalized.size(), format4(normScore.medianX), format4(normScore.medianW),
+                    format4(absStretchScore.medianArea), absStretchScore.score, absStretch.size(), format4(absStretchScore.medianX), format4(absStretchScore.medianW),
+                    format4(normStretchScore.medianArea), normStretchScore.score, normStretch.size(), format4(normStretchScore.medianX), format4(normStretchScore.medianW));
+        }
 
         List<FaceSetScore> scores = List.of(priorScore, absScore, normScore, absStretchScore, normStretchScore);
         List<List<DetectedFace>> sets = List.of(prior, absolute, normalized, absStretch, normStretch);

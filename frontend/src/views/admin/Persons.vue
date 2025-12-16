@@ -16,13 +16,43 @@
         class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0"
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
-        <div class="mb-3">
+        <div class="mb-3 space-y-2">
           <input
             v-model="personKeyword"
             @input="loadPersons"
             placeholder="搜索..."
             class="w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+          <div class="flex items-center gap-2 text-[11px] text-gray-300">
+            <span class="whitespace-nowrap">聚类阈值</span>
+            <div class="flex-1 relative h-6 flex items-center">
+              <div class="absolute left-0 right-0 h-[2px] bg-gray-600 rounded-full"></div>
+              <div class="absolute left-0 right-0 flex justify-between px-[2px] pointer-events-none">
+                <span
+                  v-for="p in snapPoints"
+                  :key="p"
+                  class="w-1.5 h-1.5 rounded-full bg-gray-500 opacity-70"
+                ></span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="0.9"
+                step="0.01"
+                v-model.number="clusterThreshold"
+                class="cluster-slider w-full relative z-10"
+              />
+            </div>
+            <input
+              type="number"
+              min="0.5"
+              max="0.9"
+              step="0.01"
+              v-model.number="clusterThreshold"
+              class="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div class="text-[10px] text-gray-500">调高更保守，调低更易合并同人。默认 0.70</div>
         </div>
         <div 
           ref="personListContainer"
@@ -31,7 +61,7 @@
         >
           <!-- 已确认人物 -->
           <div
-            v-for="p in confirmedPersons"
+            v-for="p in visibleConfirmedPersons"
             :key="`confirmed-${p.id}`"
             class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border border-transparent bg-gray-800/70 hover:bg-gray-700/80"
             :class="isSelected(p) ? 'border-2 border-blue-500 bg-gray-700/80' : ''"
@@ -69,7 +99,7 @@
           
           <!-- 未确认聚类 -->
           <div
-            v-for="p in clusterPersons"
+            v-for="p in visibleClusterPersons"
             :key="`cluster-${p.id}`"
             class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border border-transparent bg-gray-800/60 hover:bg-gray-700/70"
             :class="isSelected(p) ? 'border-2 border-yellow-500 bg-gray-700/80' : ''"
@@ -109,6 +139,38 @@
           <div v-if="!persons.length && !loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">暂无人物</div>
           <div v-if="loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
         </div>
+        <div class="mt-3 flex items-center justify-between text-[11px] text-gray-300">
+          <div>共 {{ persons.length }} 个</div>
+          <div class="flex items-center gap-2">
+            <button
+              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
+              :disabled="personPage <= 1"
+              @click="prevPersonPage"
+            >
+              上一页
+            </button>
+            <div class="flex items-center gap-1">
+              <span>第</span>
+              <input
+                type="number"
+                min="1"
+                :max="personTotalPages"
+                v-model.number="personPage"
+                @blur="onPersonPageBlur"
+                @keyup.enter="onPersonPageBlur"
+                class="w-12 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <span>/ {{ personTotalPages }} 页</span>
+            </div>
+            <button
+              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
+              :disabled="personPage >= personTotalPages"
+              @click="nextPersonPage"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
 
         <!-- 选中人物的备注和删除按钮 -->
         <div v-if="selectedItem && selectedItem.type === 'confirmed'" class="mt-3 pt-3 border-t border-gray-700 space-y-2">
@@ -147,7 +209,14 @@
       ></div>
 
       <!-- 右侧内容区域 -->
-      <div class="flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col min-w-0">
+      <div class="flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col min-w-0 relative">
+        <!-- 全屏遮罩等待圈，阻止操作 -->
+        <div
+          v-if="loadingPersons || loadingPersonFaces"
+          class="absolute inset-0 z-30 bg-black/50 flex items-center justify-center"
+        >
+          <div class="h-10 w-10 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+        </div>
         <div v-if="!selectedItem" class="text-gray-400 text-xs text-center py-8 flex-1 flex items-center justify-center">
           请从左侧选择一个人物
         </div>
@@ -198,7 +267,7 @@
           </div>
 
           <!-- Tab内容 -->
-          <div class="flex-1 overflow-y-auto pr-1">
+          <div class="flex-1 overflow-y-auto pr-1" ref="tabScrollContainer" @scroll.passive="handleFaceScroll">
             <!-- 已确认照片 -->
             <div v-if="tab === 'confirmed' && selectedItem.type === 'confirmed'">
               <div class="mb-2 flex items-center justify-between">
@@ -236,7 +305,7 @@
                 @mouseleave="handleMouseUp($event, 'confirmed')"
               >
                 <div
-                  v-for="(f, index) in confirmedFaces"
+                  v-for="(f, index) in visibleConfirmedFaces"
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
@@ -269,6 +338,14 @@
                       {{ f.photoFilename || '-' }}
                     </div>
                   </div>
+                </div>
+                <div
+                  v-for="n in facePlaceholderCounts.confirmed"
+                  :key="`confirmed-ph-${n}`"
+                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                >
+                  <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
+                  <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
                 </div>
                 <!-- 框选遮罩 -->
                 <div
@@ -324,7 +401,7 @@
                 @mouseleave="handleMouseUp($event, 'auto')"
               >
                 <div
-                  v-for="(f, index) in autoAssignedFaces"
+                  v-for="(f, index) in visibleAutoFaces"
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
@@ -357,6 +434,14 @@
                       {{ f.photoFilename || '-' }}
                     </div>
                   </div>
+                </div>
+                <div
+                  v-for="n in facePlaceholderCounts.auto"
+                  :key="`auto-ph-${n}`"
+                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                >
+                  <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
+                  <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
                 </div>
                 <!-- 框选遮罩 -->
                 <div
@@ -405,7 +490,7 @@
                 @mouseleave="handleMouseUp($event, 'similar')"
               >
                 <div
-                  v-for="(f, index) in similarFaces"
+                  v-for="(f, index) in visibleSimilarFaces"
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
@@ -441,6 +526,14 @@
                       {{ f.photoFilename || '-' }}
                     </div>
                   </div>
+                </div>
+                <div
+                  v-for="n in facePlaceholderCounts.similar"
+                  :key="`similar-ph-${n}`"
+                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                >
+                  <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
+                  <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
                 </div>
                 <!-- 框选遮罩 -->
                 <div
@@ -489,7 +582,7 @@
                 @mouseleave="handleMouseUp($event, 'sameFolder')"
               >
                 <div
-                  v-for="(f, index) in sameFolderFaces"
+                  v-for="(f, index) in visibleSameFolderFaces"
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
@@ -525,6 +618,14 @@
                       {{ f.photoFilename || '-' }}
                     </div>
                   </div>
+                </div>
+                <div
+                  v-for="n in facePlaceholderCounts.sameFolder"
+                  :key="`sameFolder-ph-${n}`"
+                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                >
+                  <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
+                  <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
                 </div>
                 <!-- 框选遮罩 -->
                 <div
@@ -573,7 +674,7 @@
                 @mouseleave="handleMouseUp($event, 'unassigned')"
               >
                 <div
-                  v-for="(f, index) in unassignedFaces"
+                  v-for="(f, index) in visibleUnassignedFaces"
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
@@ -607,6 +708,14 @@
                       {{ f.photoFilename || '-' }}
                     </div>
                   </div>
+                </div>
+                <div
+                  v-for="n in facePlaceholderCounts.unassigned"
+                  :key="`unassigned-ph-${n}`"
+                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                >
+                  <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
+                  <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
                 </div>
                 <!-- 框选遮罩 -->
                 <div
@@ -655,7 +764,7 @@
                 @mouseleave="handleMouseUp($event, 'cluster')"
               >
                 <div
-                  v-for="(f, index) in personFaces"
+                  v-for="(f, index) in visibleClusterFaces"
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
@@ -683,6 +792,14 @@
                     </div>
                   </div>
                 </div>
+                <div
+                  v-for="n in facePlaceholderCounts.cluster"
+                  :key="`cluster-ph-${n}`"
+                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                >
+                  <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
+                  <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
+                </div>
                 <!-- 框选遮罩 -->
                 <div
                   v-if="isSelecting && currentTab === 'cluster'"
@@ -701,11 +818,12 @@
     v-model:visible="viewerVisible"
     :photos="viewerPhotos"
     :start-index="viewerIndex"
+    :auto-show-faces="true"
   />
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount } from 'vue'
+import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
 import { api } from '@/api'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
@@ -749,7 +867,50 @@ const selectedItem = ref<PersonListItem | null>(null)
 const selectedPersonId = ref<number | null>(null)
 const selectedClusterIndex = ref<number | null>(null)
 const loadingPersons = ref(false)
-const clusterThreshold = ref(0.75) // 保守聚类算法，优先保证准确率
+const CLUSTER_THRESHOLD_KEY = 'pe-cluster-threshold'
+const DEFAULT_CLUSTER_THRESHOLD = 0.7
+const clusterThreshold = ref<number>(parseFloat(localStorage.getItem(CLUSTER_THRESHOLD_KEY) || `${DEFAULT_CLUSTER_THRESHOLD}`))
+const snapPoints = computed(() => {
+  const arr: number[] = []
+  for (let v = 0.5; v <= 0.9001; v += 0.05) {
+    arr.push(parseFloat(v.toFixed(2)))
+  }
+  return arr
+})
+let thresholdTimer: number | null = null
+
+// 左侧人物分页
+const PERSON_PAGE_SIZE = 24
+const personPage = ref(1)
+const personTotalPages = computed(() => Math.max(1, Math.ceil(Math.max(persons.value.length, 1) / PERSON_PAGE_SIZE)))
+const pagedPersons = computed(() => {
+  const start = (personPage.value - 1) * PERSON_PAGE_SIZE
+  return persons.value.slice(start, start + PERSON_PAGE_SIZE)
+})
+const visibleConfirmedPersons = computed(() => pagedPersons.value.filter(p => p.type === 'confirmed'))
+const visibleClusterPersons = computed(() => pagedPersons.value.filter(p => p.type === 'cluster'))
+
+watch(personPage, (v) => {
+  if (v < 1) personPage.value = 1
+  else if (v > personTotalPages.value) personPage.value = personTotalPages.value
+})
+
+const nextPersonPage = () => {
+  if (personPage.value < personTotalPages.value) personPage.value += 1
+}
+
+const prevPersonPage = () => {
+  if (personPage.value > 1) personPage.value -= 1
+}
+
+const onPersonPageBlur = () => {
+  if (!personPage.value || isNaN(personPage.value as any)) {
+    personPage.value = 1
+    return
+  }
+  if (personPage.value < 1) personPage.value = 1
+  else if (personPage.value > personTotalPages.value) personPage.value = personTotalPages.value
+}
 
 // 编辑相关
 const editingPersonId = ref<number | null>(null)
@@ -811,6 +972,40 @@ const personFaces = ref<FaceItem[]>([])
 const selectedClusterFaces = ref<Set<number>>(new Set())
 const loadingPersonFaces = ref(false)
 
+type FaceTab = 'confirmed' | 'auto' | 'similar' | 'sameFolder' | 'unassigned' | 'cluster'
+const FACE_ROWS_PER_PAGE = 3
+const facePageSize = ref(0)
+const faceVisibleLimits = reactive<Record<FaceTab, number>>({
+  confirmed: 0,
+  auto: 0,
+  similar: 0,
+  sameFolder: 0,
+  unassigned: 0,
+  cluster: 0
+})
+const facePlaceholderCounts = reactive<Record<FaceTab, number>>({
+  confirmed: 0,
+  auto: 0,
+  similar: 0,
+  sameFolder: 0,
+  unassigned: 0,
+  cluster: 0
+})
+const visibleFacesMap: Record<FaceTab, Ref<FaceItem[]>> = {
+  confirmed: ref<FaceItem[]>([]),
+  auto: ref<FaceItem[]>([]),
+  similar: ref<FaceItem[]>([]),
+  sameFolder: ref<FaceItem[]>([]),
+  unassigned: ref<FaceItem[]>([]),
+  cluster: ref<FaceItem[]>([])
+}
+const visibleConfirmedFaces = computed(() => visibleFacesMap.confirmed.value)
+const visibleAutoFaces = computed(() => visibleFacesMap.auto.value)
+const visibleSimilarFaces = computed(() => visibleFacesMap.similar.value)
+const visibleSameFolderFaces = computed(() => visibleFacesMap.sameFolder.value)
+const visibleUnassignedFaces = computed(() => visibleFacesMap.unassigned.value)
+const visibleClusterFaces = computed(() => visibleFacesMap.cluster.value)
+
 // 图片预览（复用通用 PhotoViewer）
 const viewerVisible = ref(false)
 const viewerPhotos = ref<any[]>([])
@@ -847,6 +1042,21 @@ const updateContainerWidth = () => {
   }
 }
 
+const currentFaceTab = computed<FaceTab>(() => {
+  if (selectedItem.value?.type === 'cluster') return 'cluster'
+  return (tab.value as FaceTab) || 'confirmed'
+})
+
+const handleFaceScroll = (e: Event) => {
+  const el = e.target as HTMLElement
+  const t = currentFaceTab.value
+  if (!t || (facePlaceholderCounts[t] || 0) <= 0) return
+  const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80
+  if (nearBottom) {
+    ensureMoreFaces(t)
+  }
+}
+
 const loadPersons = async () => {
   loadingPersons.value = true
   try {
@@ -859,6 +1069,7 @@ const loadPersons = async () => {
     persons.value = list
     confirmedPersons.value = list.filter(p => p.type === 'confirmed')
     clusterPersons.value = list.filter(p => p.type === 'cluster')
+    personPage.value = 1
     
     if (persons.value.length && !selectedItem.value) {
       selectPerson(persons.value[0])
@@ -911,6 +1122,7 @@ const loadConfirmedFaces = async () => {
     })
     confirmedFaces.value = res.data.content || res.data || []
     selectedConfirmed.value.clear()
+    resetFaceVisible('confirmed')
     
     // 如果已确认tab没有照片，自动切换到自动分配tab
     if (confirmedFaces.value.length === 0 && tab.value === 'confirmed' && selectedItem.value?.type === 'confirmed') {
@@ -930,6 +1142,7 @@ const loadAutoAssignedFaces = async () => {
     })
     autoAssignedFaces.value = res.data.content || res.data || []
     selectedAuto.value.clear()
+    resetFaceVisible('auto')
   } finally {
     loadingAuto.value = false
   }
@@ -948,6 +1161,7 @@ const loadSimilarFaces = async () => {
       return sim >= 0.6 && sim < 0.75
     })
     selectedSimilar.value.clear()
+    resetFaceVisible('similar')
   } finally {
     loadingSimilar.value = false
   }
@@ -962,6 +1176,7 @@ const loadSameFolderFaces = async () => {
     })
     sameFolderFaces.value = res.data || []
     selectedSameFolder.value.clear()
+    resetFaceVisible('sameFolder')
   } finally {
     loadingSameFolder.value = false
   }
@@ -976,6 +1191,7 @@ const loadClusterFaces = async () => {
     })
     personFaces.value = res.data || []
     selectedClusterFaces.value.clear()
+    resetFaceVisible('cluster')
   } finally {
     loadingPersonFaces.value = false
   }
@@ -987,6 +1203,7 @@ const loadUnassigned = async () => {
     const res = await api.get('/admin/faces/unassigned', { params: { page: 0, size: 200 } })
     unassignedFaces.value = res.data.content || res.data || []
     selectedUnassigned.value.clear()
+    resetFaceVisible('unassigned')
   } finally {
     loadingUnassigned.value = false
   }
@@ -1254,6 +1471,7 @@ const currentTab = ref<string>('')
 const lastSelectedIndex = ref<number | null>(null)
 
 // 容器引用
+const tabScrollContainer = ref<HTMLElement | null>(null)
 const confirmedContainer = ref<HTMLElement | null>(null)
 const autoContainer = ref<HTMLElement | null>(null)
 const similarContainer = ref<HTMLElement | null>(null)
@@ -1311,6 +1529,56 @@ const getCurrentSelection = (tabType: string): Ref<Set<number>> => {
     case 'cluster': return selectedClusterFaces
     default: return selectedConfirmed
   }
+}
+
+const setVisibleFaces = (tabType: FaceTab, limit?: number) => {
+  const list = getCurrentFaceList(tabType)
+  const size = limit !== undefined ? Math.min(list.length, limit) : list.length
+  visibleFacesMap[tabType].value = list.slice(0, size)
+  faceVisibleLimits[tabType] = size
+  facePlaceholderCounts[tabType] = Math.max(list.length - size, 0)
+  maybeFillFaceViewport(tabType)
+}
+
+const recalcFacePageSize = () => {
+  const width = tabScrollContainer.value?.clientWidth || 960
+  const approxCardWidth = 160
+  const cols = Math.max(2, Math.floor(width / approxCardWidth))
+  facePageSize.value = Math.max(cols * FACE_ROWS_PER_PAGE, cols * 2)
+  const t = currentFaceTab.value
+  if (t) {
+    const current = faceVisibleLimits[t] || 0
+    if (current > 0) {
+      setVisibleFaces(t, Math.min(getCurrentFaceList(t).length, Math.max(current, facePageSize.value * 2)))
+    }
+  }
+}
+
+const maybeFillFaceViewport = (tabType: FaceTab) => {
+  nextTick(() => {
+    const container = getCurrentContainer(tabType) || tabScrollContainer.value
+    if (!container) return
+    let safety = 0
+    while ((facePlaceholderCounts[tabType] || 0) > 0 && container.scrollHeight <= container.clientHeight + 40 && safety < 6) {
+      ensureMoreFaces(tabType)
+      safety++
+    }
+  })
+}
+
+const resetFaceVisible = (tabType: FaceTab) => {
+  recalcFacePageSize()
+  const list = getCurrentFaceList(tabType)
+  const baseLimit = facePageSize.value * 3 || list.length // 预加载至少三页
+  setVisibleFaces(tabType, Math.min(list.length, baseLimit))
+}
+
+const ensureMoreFaces = (tabType: FaceTab) => {
+  const list = getCurrentFaceList(tabType)
+  const current = faceVisibleLimits[tabType] || 0
+  if (current >= list.length) return
+  const next = Math.min(list.length, current + (facePageSize.value || list.length))
+  setVisibleFaces(tabType, next)
 }
 
 // 鼠标按下
@@ -1720,19 +1988,35 @@ watch(tab, (v) => {
   }
 })
 
+watch(currentFaceTab, (v) => {
+  if (v && (faceVisibleLimits[v] || 0) === 0 && getCurrentFaceList(v).length > 0) {
+    resetFaceVisible(v)
+  }
+})
+
 let resizeObserver: ResizeObserver | null = null
+let faceResizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   loadPersons()
   nextTick(() => {
     updateContainerWidth()
+    recalcFacePageSize()
+    maybeFillPersonViewport()
     if (personListContainer.value && 'ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(() => {
         updateContainerWidth()
       })
       resizeObserver.observe(personListContainer.value)
     }
+    if (tabScrollContainer.value && 'ResizeObserver' in window) {
+      faceResizeObserver = new ResizeObserver(() => {
+        recalcFacePageSize()
+      })
+      faceResizeObserver.observe(tabScrollContainer.value)
+    }
     window.addEventListener('resize', updateContainerWidth)
+    window.addEventListener('resize', recalcFacePageSize)
   })
 })
 
@@ -1744,6 +2028,72 @@ onBeforeUnmount(() => {
     resizeObserver.unobserve(personListContainer.value)
   }
   resizeObserver = null
+  if (faceResizeObserver && tabScrollContainer.value) {
+    faceResizeObserver.unobserve(tabScrollContainer.value)
+  }
+  faceResizeObserver = null
   window.removeEventListener('resize', updateContainerWidth)
+  window.removeEventListener('resize', recalcFacePageSize)
+})
+
+watch(clusterThreshold, (v) => {
+  // 限制范围
+  let val = Math.max(0.5, Math.min(0.9, v || DEFAULT_CLUSTER_THRESHOLD))
+  // 吸附到每 0.05 一档（0.50, 0.55, ... 0.90）
+  const snapped = Math.round(val / 0.05) * 0.05
+  val = Math.max(0.5, Math.min(0.9, snapped))
+  clusterThreshold.value = parseFloat(val.toFixed(2))
+  localStorage.setItem(CLUSTER_THRESHOLD_KEY, String(clusterThreshold.value))
+  if (thresholdTimer) {
+    clearTimeout(thresholdTimer)
+  }
+  thresholdTimer = window.setTimeout(async () => {
+    await loadPersons()
+    if (selectedItem.value?.type === 'cluster' && selectedClusterIndex.value !== null) {
+      await loadClusterFaces()
+    }
+  }, 200)
 })
 </script>
+
+<style scoped>
+.cluster-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+}
+.cluster-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #3b82f6;
+  border-radius: 9999px;
+  border: 2px solid #dbeafe;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25);
+  cursor: pointer;
+  /* 向上偏移，让圆点中心对齐中间那条线（根据 14px thumb + 2px 线条手调） */
+  margin-top: -6px;
+}
+.cluster-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #3b82f6;
+  border-radius: 9999px;
+  border: 2px solid #dbeafe;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25);
+  cursor: pointer;
+  margin-top: -6px;
+}
+.cluster-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: transparent;
+}
+.cluster-slider::-moz-range-track {
+  height: 2px;
+  background: transparent;
+}
+</style>

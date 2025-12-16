@@ -121,33 +121,46 @@
       <div v-else-if="!faces.length" class="text-gray-400">未检测到人脸</div>
       <div v-else class="space-y-4">
         <div v-for="face in faces" :key="face.id" class="border border-gray-700 rounded-lg p-4">
-          <div class="text-sm text-gray-400 mb-2">
-            位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
-            <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-sm text-gray-300 mb-1">姓名</label>
+          <div class="flex items-start gap-4">
+            <!-- 圆形人脸照片 - 更大尺寸，针对人脸居中放大裁切 -->
+            <div class="flex-shrink-0">
+              <div
+                v-if="getFaceImageUrl(face)"
+                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 overflow-hidden relative"
+                :style="getFaceCropStyle(face)"
+              >
+              </div>
+              <div
+                v-else
+                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center text-gray-500 text-xs"
+              >
+                无图
+              </div>
+            </div>
+            <!-- 名字和说明输入框 -->
+            <div class="flex-1 min-w-0 flex flex-col gap-3">
               <input
                 v-model="face.personName"
                 placeholder="输入姓名，留空则移除关联"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               />
-            </div>
-            <div>
-              <label class="block text-sm text-gray-300 mb-1">人物说明</label>
               <textarea
                 v-model="face.personDescription"
                 rows="2"
-                placeholder="例如：家庭成员、朋友、客户等"
+                placeholder="备注（例如：家庭成员、朋友、客户等）"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               ></textarea>
+              <!-- 位置、置信度信息 -->
+              <div class="text-xs text-gray-500">
+                位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
+                <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="text-right">
+                <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
+                  {{ savingFaceId===face.id ? '保存中...' : '保存' }}
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="mt-3 text-right">
-            <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
-              {{ savingFaceId===face.id ? '保存中...' : '保存' }}
-            </button>
           </div>
         </div>
       </div>
@@ -249,6 +262,52 @@ const getThumbUrl = (p: any) => {
 const formatPercent = (val?: number) => {
   if (val === undefined || val === null) return '-'
   return `${(val * 100).toFixed(0)}%`
+}
+
+const getFaceImageUrl = (face: any) => {
+  const paths = [
+    face.photoThumbnailPath,
+    face.photoOriginalPath,
+    activePhoto.value?.thumbnailPath,
+    activePhoto.value?.webpPath,
+    activePhoto.value?.originalPath
+  ]
+  const firstPath = paths.find(p => p && typeof p === 'string' && p.length > 0)
+  if (!firstPath) return ''
+  const base = firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
+  return encodeURI(base)
+}
+
+const getFaceCropStyle = (face: any) => {
+  const imageUrl = getFaceImageUrl(face)
+  if (!imageUrl) {
+    return {}
+  }
+  
+  const hasSize = face.width && face.height && face.width > 0 && face.height > 0
+  if (!hasSize) {
+    return {
+      backgroundImage: `url(${imageUrl})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center center'
+    }
+  }
+  
+  // 计算人脸中心位置（归一化坐标 0-1 转换为百分比）
+  const centerX = ((face.x || 0) + (face.width || 0) / 2) * 100
+  const centerY = ((face.y || 0) + (face.height || 0) / 2) * 100
+  
+  // 计算缩放比例：让人脸区域在圆形头像中占据更大空间，确保脸部清晰
+  // 人脸区域越小，缩放越大；最小2倍，最大3倍
+  const faceArea = (face.width || 0) * (face.height || 0)
+  const scale = Math.min(3, Math.max(2, 0.3 / Math.max(faceArea, 0.05)))
+  
+  return {
+    backgroundImage: `url(${imageUrl})`,
+    backgroundSize: `${scale * 100}%`,
+    backgroundPosition: `${centerX}% ${centerY}%`,
+    backgroundRepeat: 'no-repeat'
+  }
 }
 
 const allSelected = computed(() => photos.value.length > 0 && selectedIds.value.length === photos.value.length)

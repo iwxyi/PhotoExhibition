@@ -301,6 +301,8 @@ const props = defineProps<{
   photos: Photo[]
   visible: boolean
   startIndex?: number
+  /** 是否在打开时自动显示人脸框（例如人物管理中查看照片） */
+  autoShowFaces?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -387,6 +389,11 @@ watch(
         currentIndex.value = Math.min(Math.max(props.startIndex, 0), props.photos.length - 1)
       }
       scrollThumbIntoView()
+
+      // 如果开启了自动显示人脸框，并且当前照片有人脸，则默认打开人脸框
+      if (props.autoShowFaces && currentPhoto.value?.faces?.length) {
+        showFaceBoxes.value = true
+      }
     }
   },
   { immediate: true }

@@ -49,6 +49,7 @@ mkdir -p data/photos
 docker-compose up -d
 # 前端: http://localhost:3000
 # 后端: http://localhost:6060/api
+# 部分模型下载：https://github.com/deepinsight/insightface/tree/master/model_zoo
 ```
 
 ### 本地开发
@@ -64,33 +65,6 @@ mvn spring-boot:run
 cd frontend
 npm install
 npm run dev  # http://localhost:3000
-```
-
-## 配置要点（application.yml）
-```yaml
-photo:
-  scan:
-    base-path: /data/photos          # 图片根目录
-    supported-formats: jpg,jpeg,png,heic,raw
-    thumbnail-width: 400
-    thumbnail-height: 400
-    webp-quality: 0.85
-    scan-interval: 3600              # 秒
-  detection:
-    enabled: true                    # 开启专业检测模型（RetinaFace）
-    model-path: ./models/face_detection.onnx
-    confidence-threshold: 0.5
-    nms-threshold: 0.4
-  embedding:
-    model-path: ./models/face_recognition.onnx # R50/R100
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/photo_exhibition?...
-    username: root
-    password: your_password
-redis:
-  host: localhost
-  port: 6379
 ```
 
 ## 路径与标签约定
