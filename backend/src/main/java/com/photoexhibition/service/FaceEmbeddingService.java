@@ -114,9 +114,10 @@ public class FaceEmbeddingService implements AutoCloseable {
                 int r = (rgb >> 16) & 0xff;
                 int g = (rgb >> 8) & 0xff;
                 int b = rgb & 0xff;
-                out[idx] = (r - 127.5f) / 128f;
-                out[idx + w * h] = (g - 127.5f) / 128f;
-                out[idx + 2 * w * h] = (b - 127.5f) / 128f;
+                // ArcFace / InsightFace 通常使用 BGR 输入，减 127.5 并除以 128
+                out[idx] = (b - 127.5f) / 128f;           // B
+                out[idx + w * h] = (g - 127.5f) / 128f;   // G
+                out[idx + 2 * w * h] = (r - 127.5f) / 128f; // R
                 idx++;
             }
         }

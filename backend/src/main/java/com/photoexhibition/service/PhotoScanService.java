@@ -203,8 +203,8 @@ public class PhotoScanService {
             result.put("error", "文件不存在: " + photo.getOriginalPath());
             return result;
         }
-        // 调用现有人脸检测流程
-        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo);
+        // 调用现有人脸检测流程（单张重建时开启详细日志）
+        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo, true);
         int count = faces == null ? 0 : faces.size();
 
         // 安全更新关联集合，避免 orphan 触发
@@ -541,11 +541,11 @@ public class PhotoScanService {
                     faces = faceService.getFacesByPhoto(photo.getId());
                 } else {
                     // 虽然通过contentHash找到，但没有人脸数据，需要检测
-                    faces = faceService.detectAndSaveFaces(imageFile, photo);
+                    faces = faceService.detectAndSaveFaces(imageFile, photo, false);
                 }
             } else {
                 // 新照片或强制扫描，重新检测人脸
-                faces = faceService.detectAndSaveFaces(imageFile, photo);
+                faces = faceService.detectAndSaveFaces(imageFile, photo, false);
             }
 
             // 检测主体位置（使用已检测的人脸信息）

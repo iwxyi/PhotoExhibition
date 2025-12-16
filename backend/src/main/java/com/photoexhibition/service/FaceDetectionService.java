@@ -46,6 +46,13 @@ public class FaceDetectionService implements AutoCloseable {
     // 为了避免在低阈值时产生过多候选导致 NMS 和后处理过慢，限制参与 NMS 的最大候选数
     private static final int MAX_NMS_CANDIDATES = 2000;
 
+    // 控制人脸检测的详细日志（批量扫描时关闭，单张重建时开启）
+    public static final ThreadLocal<Boolean> VERBOSE_LOG = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    public static boolean isVerboseLog() {
+        return Boolean.TRUE.equals(VERBOSE_LOG.get());
+    }
+
     /**
      * 使用ONNX模型检测人脸
      * 如果模型未配置或加载失败，返回空列表（会回退到简单检测方法）
@@ -80,63 +87,82 @@ public class FaceDetectionService implements AutoCloseable {
             
             try (OrtSession.Result result = detectionSession.run(
                 Collections.singletonMap(detectionSession.getInputNames().iterator().next(), input))) {
-                // 调试输出：打印所有输出的名称、类型和shape，便于适配不同模型
-                try {
-                    int outputIndex = 0;
-                    for (String outName : detectionSession.getOutputNames()) {
-                        Object value = result.get(outputIndex);
-                        if (value instanceof OnnxTensor) {
-                            OnnxTensor tensor = (OnnxTensor) value;
-                            long[] shape = tensor.getInfo().getShape();
-                            log.debug("人脸检测ONNX输出[{}] name={} class={} shape={}",
-                                    outputIndex,
-                                    outName,
-                                    tensor.getClass().getName(),
-                                    java.util.Arrays.toString(shape));
-                        } else if (value != null) {
-                            log.debug("人脸检测ONNX输出[{}] name={} class={}",
-                                    outputIndex,
-                                    outName,
-                                    value.getClass().getName());
-                        } else {
-                            log.debug("人脸检测ONNX输出[{}] name={} 为null", outputIndex, outName);
+                // 调试输出：仅在详细模式下打印输出信息
+                if (isVerboseLog()) {
+                    try {
+                        int outputIndex = 0;
+                        for (String outName : detectionSession.getOutputNames()) {
+                            Object value = result.get(outputIndex);
+                            if (value instanceof OnnxTensor) {
+                                OnnxTensor tensor = (OnnxTensor) value;
+                                long[] shape = tensor.getInfo().getShape();
+                                log.debug("人脸检测ONNX输出[{}] name={} class={} shape={}",
+                                        outputIndex,
+                                        outName,
+                                        tensor.getClass().getName(),
+                                        java.util.Arrays.toString(shape));
+                            } else if (value != null) {
+                                log.debug("人脸检测ONNX输出[{}] name={} class={}",
+                                        outputIndex,
+                                        outName,
+                                        value.getClass().getName());
+                            } else {
+                                log.debug("人脸检测ONNX输出[{}] name={} 为null", outputIndex, outName);
+                            }
+                            outputIndex++;
                         }
-                        outputIndex++;
+                    } catch (Exception e) {
+                        log.debug("打印人脸检测ONNX输出信息时出错: {}", e.getMessage());
                     }
-                } catch (Exception e) {
-                    log.debug("打印人脸检测ONNX输出信息时出错: {}", e.getMessage());
                 }
 
-                // 解析输出（当前假定RetinaFace风格输出格式：bbox, confidence, landmark）
+                // 解析输出：使用 Retina 风格偏移解码（bbox 视为先验偏移）
                 if (result.size() >= 2) {
                     Object boxesObj = result.get(0).getValue();
                     Object scoresObj = result.get(1).getValue();
 
-                    log.debug("人脸检测ONNX原始输出类型: boxes={}, scores={}",
-                            boxesObj != null ? boxesObj.getClass().getName() : "null",
-                            scoresObj != null ? scoresObj.getClass().getName() : "null");
+                    if (isVerboseLog()) {
+                        log.debug("人脸检测ONNX原始输出类型: boxes={}, scores={}",
+                                boxesObj != null ? boxesObj.getClass().getName() : "null",
+                                scoresObj != null ? scoresObj.getClass().getName() : "null");
+                    }
 
-                    // 格式一：boxes=[1,N,4]，scores=[1,N,2]（常见RetinaFace实现）
+                    // 打印前几个 bbox 原始值，方便判断坐标格式
+                    if (isVerboseLog()) {
+                        try {
+                            if (boxesObj instanceof float[][][]) {
+                                float[][][] bb = (float[][][]) boxesObj;
+                                for (int i = 0; i < Math.min(3, bb[0].length); i++) {
+                                    log.debug("bbox sample[{}]={}", i, java.util.Arrays.toString(bb[0][i]));
+                                }
+                            }
+                        } catch (Exception ignore) {}
+                    }
+
                     if (boxesObj instanceof float[][][] && scoresObj instanceof float[][][]) {
                         float[][][] boxes = (float[][][]) boxesObj;
                         float[][][] scores = (float[][][]) scoresObj;
 
-                        List<DetectedFace> faces = parseDetectionsRetinaStyle(boxes, scores, img.getWidth(), img.getHeight(), size);
-                        log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS）", faces.size());
-                        return applyNMS(faces);
+                        List<DetectedFace> facesPrior = parseDetectionsRetinaStyle(boxes, scores, img.getWidth(), img.getHeight(), size);
+                        for (int i = 0; i < Math.min(5, facesPrior.size()); i++) {
+                            DetectedFace f = facesPrior.get(i);
+                            log.debug("decoded(face prior)[{}]: x={} y={} w={} h={} area={}", i,
+                                    format4(f.getX()), format4(f.getY()), format4(f.getWidth()), format4(f.getHeight()),
+                                    format4(f.getWidth() * f.getHeight()));
+                        }
+                        log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，解码方案=prior）", facesPrior.size());
+                        return applyNMS(facesPrior);
                     }
-                    // 旧格式：boxes=[1,N,4]，scores=[1,N]（如果以后换成这种，可以继续复用）
+                    // 旧格式兜底：scores=[1,N]
                     if (boxesObj instanceof float[][][] && scoresObj instanceof float[][]) {
                         float[][][] boxes = (float[][][]) boxesObj;
                         float[][] scores = (float[][]) scoresObj;
 
                         List<DetectedFace> faces = parseDetections(boxes, scores, img.getWidth(), img.getHeight(), size);
-                        log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，旧格式）", faces.size());
+                        log.debug("人脸检测ONNX解析得到 {} 个候选框（解析前未做NMS，旧格式兜底）", faces.size());
                         return applyNMS(faces);
-                    } else {
-                        // 如果类型不匹配，先只记录日志，后续根据日志调整解析逻辑
-                        log.warn("人脸检测ONNX输出格式与当前解析逻辑不匹配，暂不返回检测结果。请根据日志中的shape/类型调整解析代码。");
                     }
+                    log.warn("人脸检测ONNX输出格式与当前解析逻辑不匹配，未返回检测结果。");
                 } else {
                     log.warn("人脸检测ONNX返回的输出数量不足2个，当前解析逻辑无法处理。输出个数={}", result.size());
                 }
@@ -191,25 +217,29 @@ public class FaceDetectionService implements AutoCloseable {
         return resized;
     }
 
+    /**
+     * RetinaFace 预处理：BGR 顺序，减均值 [104,117,123]，不缩放到 [-1,1]
+     * 这里假定传入的 img 已经是 size x size 的 letterbox 图（由 resizeImage 生成）
+     */
     private float[] preprocessImage(BufferedImage img, int size) {
         float[] tensor = new float[3 * size * size];
         int idx = 0;
-        
+
         for (int y = 0; y < size; y++) {
             for (int x = 0; x < size; x++) {
                 int rgb = img.getRGB(x, y);
                 int r = (rgb >> 16) & 0xff;
                 int g = (rgb >> 8) & 0xff;
                 int b = rgb & 0xff;
-                
-                // 归一化到[0, 1]或[-1, 1]，根据模型要求调整
-                tensor[idx] = (r - 127.5f) / 128f;
-                tensor[idx + size * size] = (g - 127.5f) / 128f;
-                tensor[idx + 2 * size * size] = (b - 127.5f) / 128f;
+
+                // BGR 通道顺序
+                tensor[idx] = (b - 104.0f);                  // B
+                tensor[idx + size * size] = (g - 117.0f);    // G
+                tensor[idx + 2 * size * size] = (r - 123.0f);// R
                 idx++;
             }
         }
-        
+
         return tensor;
     }
 
@@ -392,22 +422,37 @@ public class FaceDetectionService implements AutoCloseable {
                 String.format(java.util.Locale.ROOT, "%.4f", maxProb),
                 String.format(java.util.Locale.ROOT, "%.4f", effectiveThreshold));
 
-        // 打印 TOP-K 调试信息，帮助分析坐标缩放是否正确
-        for (int k = 0; k < TOP_K_DEBUG; k++) {
-            if (topProbs[k] <= 0) continue;
-            double[] r = topRaw[k];
-            double[] n = topNorm[k];
-            log.debug("人脸检测ONNX TOP#{}: prob={} raw=({}, {}, {}, {}) norm=({}, {}, {}, {})",
-                    (k + 1),
-                    String.format(java.util.Locale.ROOT, "%.4f", topProbs[k]),
-                    String.format(java.util.Locale.ROOT, "%.1f", r[0]),
-                    String.format(java.util.Locale.ROOT, "%.1f", r[1]),
-                    String.format(java.util.Locale.ROOT, "%.1f", r[2]),
-                    String.format(java.util.Locale.ROOT, "%.1f", r[3]),
-                    String.format(java.util.Locale.ROOT, "%.4f", n[0]),
-                    String.format(java.util.Locale.ROOT, "%.4f", n[1]),
-                    String.format(java.util.Locale.ROOT, "%.4f", n[2]),
-                    String.format(java.util.Locale.ROOT, "%.4f", n[3]));
+        // 仅在详细模式下打印 TOP-K 调试信息
+        if (isVerboseLog()) {
+            for (int k = 0; k < TOP_K_DEBUG; k++) {
+                if (topProbs[k] <= 0) continue;
+                double[] r = topRaw[k];
+                double[] n = topNorm[k];
+                log.debug("人脸检测ONNX TOP#{}: prob={} raw=({}, {}, {}, {}) norm=({}, {}, {}, {})",
+                        (k + 1),
+                        String.format(java.util.Locale.ROOT, "%.4f", topProbs[k]),
+                        String.format(java.util.Locale.ROOT, "%.1f", r[0]),
+                        String.format(java.util.Locale.ROOT, "%.1f", r[1]),
+                        String.format(java.util.Locale.ROOT, "%.1f", r[2]),
+                        String.format(java.util.Locale.ROOT, "%.1f", r[3]),
+                        String.format(java.util.Locale.ROOT, "%.4f", n[0]),
+                        String.format(java.util.Locale.ROOT, "%.4f", n[1]),
+                        String.format(java.util.Locale.ROOT, "%.4f", n[2]),
+                        String.format(java.util.Locale.ROOT, "%.4f", n[3]));
+            }
+
+            // 打印解码后置信度最高的前5个框，便于对照原图
+            if (!faces.isEmpty()) {
+                List<DetectedFace> top = new ArrayList<>(faces);
+                top.sort((a, b) -> Double.compare(b.getConfidence(), a.getConfidence()));
+                for (int i = 0; i < Math.min(5, top.size()); i++) {
+                    DetectedFace f = top.get(i);
+                    log.debug("decoded(face prior)[{}]: conf={} x={} y={} w={} h={} area={}", i,
+                            format4(f.getConfidence()),
+                            format4(f.getX()), format4(f.getY()), format4(f.getWidth()), format4(f.getHeight()),
+                            format4(f.getWidth() * f.getHeight()));
+                }
+            }
         }
 
         if (validCount == 0) {
@@ -416,6 +461,359 @@ public class FaceDetectionService implements AutoCloseable {
         return faces;
     }
 
+    /**
+     * 解析绝对坐标输出（假设 boxes 已经是输入空间的 [x1,y1,x2,y2]）
+     */
+    private List<DetectedFace> parseDetectionsAbsolute(float[][][] boxes, float[][][] scores,
+                                                       int originalWidth, int originalHeight, int inputSize) {
+        List<DetectedFace> faces = new ArrayList<>();
+        if (boxes.length == 0 || boxes[0].length == 0 || scores.length == 0 || scores[0].length == 0) {
+            return faces;
+        }
+
+        int w = originalWidth;
+        int h = originalHeight;
+        double scale = (double) inputSize / Math.max(w, h);
+        double newW = w * scale;
+        double newH = h * scale;
+        double padX = (inputSize - newW) / 2.0;
+        double padY = (inputSize - newH) / 2.0;
+
+        int numAnchors = boxes[0].length;
+        for (int i = 0; i < numAnchors; i++) {
+            float[] scoreArr = scores[0][i];
+            if (scoreArr == null || scoreArr.length == 0) continue;
+
+            float bgLogit = scoreArr[0];
+            float faceLogit = scoreArr.length > 1 ? scoreArr[1] : scoreArr[0];
+            double maxLogit = Math.max(bgLogit, faceLogit);
+            double expBg = Math.exp(bgLogit - maxLogit);
+            double expFace = Math.exp(faceLogit - maxLogit);
+            double probFace = expFace / (expBg + expFace);
+            if (probFace < confidenceThreshold) continue;
+
+            float[] boxArr = boxes[0][i];
+            if (boxArr == null || boxArr.length < 4) continue;
+
+            double x1r = boxArr[0];
+            double y1r = boxArr[1];
+            double x2r = boxArr[2];
+            double y2r = boxArr[3];
+
+            double x1p = (x1r - padX) / scale;
+            double y1p = (y1r - padY) / scale;
+            double x2p = (x2r - padX) / scale;
+            double y2p = (y2r - padY) / scale;
+
+            x1p = Math.max(0.0, Math.min(w, x1p));
+            y1p = Math.max(0.0, Math.min(h, y1p));
+            x2p = Math.max(0.0, Math.min(w, x2p));
+            y2p = Math.max(0.0, Math.min(h, y2p));
+
+            double bw = x2p - x1p;
+            double bh = y2p - y1p;
+            if (bw <= 0 || bh <= 0) continue;
+
+            double xn = x1p / w;
+            double yn = y1p / h;
+            double wn = bw / w;
+            double hn = bh / h;
+            xn = Math.max(0.0, Math.min(1.0, xn));
+            yn = Math.max(0.0, Math.min(1.0, yn));
+            wn = Math.max(0.0, Math.min(1.0 - xn, wn));
+            hn = Math.max(0.0, Math.min(1.0 - yn, hn));
+
+            faces.add(new DetectedFace(xn, yn, wn, hn, probFace));
+        }
+        return faces;
+    }
+
+    /**
+     * 解析归一化绝对坐标输出（假设 boxes 已经是 [x1,y1,x2,y2]，范围约在0~1，对应 letterbox 后的输入空间）
+     */
+    private List<DetectedFace> parseDetectionsNormalized(float[][][] boxes, float[][][] scores,
+                                                         int originalWidth, int originalHeight, int inputSize) {
+        List<DetectedFace> faces = new ArrayList<>();
+        if (boxes.length == 0 || boxes[0].length == 0 || scores.length == 0 || scores[0].length == 0) {
+            return faces;
+        }
+
+        int numAnchors = boxes[0].length;
+        // 映射到原图：先把 [0,1] 归一化坐标映射到 letterbox 输入，再还原到原图
+        int w = originalWidth;
+        int h = originalHeight;
+        double scale = (double) inputSize / Math.max(w, h);
+        double newW = w * scale;
+        double newH = h * scale;
+        double padX = (inputSize - newW) / 2.0;
+        double padY = (inputSize - newH) / 2.0;
+
+        for (int i = 0; i < numAnchors; i++) {
+            float[] scoreArr = scores[0][i];
+            if (scoreArr == null || scoreArr.length == 0) continue;
+
+            float bgLogit = scoreArr[0];
+            float faceLogit = scoreArr.length > 1 ? scoreArr[1] : scoreArr[0];
+            double maxLogit = Math.max(bgLogit, faceLogit);
+            double expBg = Math.exp(bgLogit - maxLogit);
+            double expFace = Math.exp(faceLogit - maxLogit);
+            double probFace = expFace / (expBg + expFace);
+            if (probFace < confidenceThreshold) continue;
+
+            float[] boxArr = boxes[0][i];
+            if (boxArr == null || boxArr.length < 4) continue;
+
+            double x1n = boxArr[0];
+            double y1n = boxArr[1];
+            double x2n = boxArr[2];
+            double y2n = boxArr[3];
+
+            // 过滤明显无效的值
+            if (Double.isNaN(x1n) || Double.isNaN(y1n) || Double.isNaN(x2n) || Double.isNaN(y2n)) continue;
+
+            // 映射回原图
+            double x1p = (x1n * inputSize - padX) / scale;
+            double y1p = (y1n * inputSize - padY) / scale;
+            double x2p = (x2n * inputSize - padX) / scale;
+            double y2p = (y2n * inputSize - padY) / scale;
+
+            x1p = Math.max(0.0, Math.min(w, x1p));
+            y1p = Math.max(0.0, Math.min(h, y1p));
+            x2p = Math.max(0.0, Math.min(w, x2p));
+            y2p = Math.max(0.0, Math.min(h, y2p));
+
+            double bw = x2p - x1p;
+            double bh = y2p - y1p;
+            if (bw <= 0 || bh <= 0) continue;
+
+            double xn = x1p / w;
+            double yn = y1p / h;
+            double wn = bw / w;
+            double hn = bh / h;
+            xn = Math.max(0.0, Math.min(1.0, xn));
+            yn = Math.max(0.0, Math.min(1.0, yn));
+            wn = Math.max(0.0, Math.min(1.0 - xn, wn));
+            hn = Math.max(0.0, Math.min(1.0 - yn, hn));
+
+            faces.add(new DetectedFace(xn, yn, wn, hn, probFace));
+        }
+        return faces;
+    }
+
+    /**
+     * 解析绝对坐标（无 padding，等比拉伸到 inputSize）假设 boxes 是输入空间像素坐标
+     */
+    private List<DetectedFace> parseDetectionsAbsoluteStretch(float[][][] boxes, float[][][] scores,
+                                                              int originalWidth, int originalHeight, int inputSize) {
+        List<DetectedFace> faces = new ArrayList<>();
+        if (boxes.length == 0 || boxes[0].length == 0 || scores.length == 0 || scores[0].length == 0) {
+            return faces;
+        }
+
+        int w = originalWidth;
+        int h = originalHeight;
+
+        int numAnchors = boxes[0].length;
+        for (int i = 0; i < numAnchors; i++) {
+            float[] scoreArr = scores[0][i];
+            if (scoreArr == null || scoreArr.length == 0) continue;
+
+            float bgLogit = scoreArr[0];
+            float faceLogit = scoreArr.length > 1 ? scoreArr[1] : scoreArr[0];
+            double maxLogit = Math.max(bgLogit, faceLogit);
+            double expBg = Math.exp(bgLogit - maxLogit);
+            double expFace = Math.exp(faceLogit - maxLogit);
+            double probFace = expFace / (expBg + expFace);
+            if (probFace < confidenceThreshold) continue;
+
+            float[] boxArr = boxes[0][i];
+            if (boxArr == null || boxArr.length < 4) continue;
+
+            double x1p = (boxArr[0] / inputSize) * w;
+            double y1p = (boxArr[1] / inputSize) * h;
+            double x2p = (boxArr[2] / inputSize) * w;
+            double y2p = (boxArr[3] / inputSize) * h;
+
+            x1p = Math.max(0.0, Math.min(w, x1p));
+            y1p = Math.max(0.0, Math.min(h, y1p));
+            x2p = Math.max(0.0, Math.min(w, x2p));
+            y2p = Math.max(0.0, Math.min(h, y2p));
+
+            double bw = x2p - x1p;
+            double bh = y2p - y1p;
+            if (bw <= 0 || bh <= 0) continue;
+
+            double xn = x1p / w;
+            double yn = y1p / h;
+            double wn = bw / w;
+            double hn = bh / h;
+            xn = Math.max(0.0, Math.min(1.0, xn));
+            yn = Math.max(0.0, Math.min(1.0, yn));
+            wn = Math.max(0.0, Math.min(1.0 - xn, wn));
+            hn = Math.max(0.0, Math.min(1.0 - yn, hn));
+
+            faces.add(new DetectedFace(xn, yn, wn, hn, probFace));
+        }
+        return faces;
+    }
+
+    /**
+     * 解析归一化坐标（无 padding，等比拉伸到 inputSize），假设 boxes 是 0~1 范围
+     */
+    private List<DetectedFace> parseDetectionsNormalizedStretch(float[][][] boxes, float[][][] scores,
+                                                                int originalWidth, int originalHeight, int inputSize) {
+        List<DetectedFace> faces = new ArrayList<>();
+        if (boxes.length == 0 || boxes[0].length == 0 || scores.length == 0 || scores[0].length == 0) {
+            return faces;
+        }
+
+        int w = originalWidth;
+        int h = originalHeight;
+
+        int numAnchors = boxes[0].length;
+        for (int i = 0; i < numAnchors; i++) {
+            float[] scoreArr = scores[0][i];
+            if (scoreArr == null || scoreArr.length == 0) continue;
+
+            float bgLogit = scoreArr[0];
+            float faceLogit = scoreArr.length > 1 ? scoreArr[1] : scoreArr[0];
+            double maxLogit = Math.max(bgLogit, faceLogit);
+            double expBg = Math.exp(bgLogit - maxLogit);
+            double expFace = Math.exp(faceLogit - maxLogit);
+            double probFace = expFace / (expBg + expFace);
+            if (probFace < confidenceThreshold) continue;
+
+            float[] boxArr = boxes[0][i];
+            if (boxArr == null || boxArr.length < 4) continue;
+
+            double x1p = boxArr[0] * w;
+            double y1p = boxArr[1] * h;
+            double x2p = boxArr[2] * w;
+            double y2p = boxArr[3] * h;
+
+            x1p = Math.max(0.0, Math.min(w, x1p));
+            y1p = Math.max(0.0, Math.min(h, y1p));
+            x2p = Math.max(0.0, Math.min(w, x2p));
+            y2p = Math.max(0.0, Math.min(h, y2p));
+
+            double bw = x2p - x1p;
+            double bh = y2p - y1p;
+            if (bw <= 0 || bh <= 0) continue;
+
+            double xn = x1p / w;
+            double yn = y1p / h;
+            double wn = bw / w;
+            double hn = bh / h;
+            xn = Math.max(0.0, Math.min(1.0, xn));
+            yn = Math.max(0.0, Math.min(1.0, yn));
+            wn = Math.max(0.0, Math.min(1.0 - xn, wn));
+            hn = Math.max(0.0, Math.min(1.0 - yn, hn));
+
+            faces.add(new DetectedFace(xn, yn, wn, hn, probFace));
+        }
+        return faces;
+    }
+
+    /**
+     * 在两套解码结果中选择更合理的一套：
+     * - 优先选择中位数面积在 [0.01, 0.4] 之间的结果
+     * - 如都不满足，选择中位数面积较大的那一套
+     */
+    private List<DetectedFace> chooseDecodedResult(List<DetectedFace> prior, List<DetectedFace> absolute,
+                                                   List<DetectedFace> normalized, List<DetectedFace> absStretch,
+                                                   List<DetectedFace> normStretch) {
+        FaceSetScore priorScore = evaluateFaces(prior);
+        FaceSetScore absScore = evaluateFaces(absolute);
+        FaceSetScore normScore = evaluateFaces(normalized);
+        FaceSetScore absStretchScore = evaluateFaces(absStretch);
+        FaceSetScore normStretchScore = evaluateFaces(normStretch);
+
+        log.debug("解码评分: prior area={} score={} count={} mx={} mw={}, abs area={} score={} count={} mx={} mw={}, norm area={} score={} count={} mx={} mw={}, absStretch area={} score={} count={} mx={} mw={}, normStretch area={} score={} count={} mx={} mw={}",
+                format4(priorScore.medianArea), priorScore.score, prior.size(), format4(priorScore.medianX), format4(priorScore.medianW),
+                format4(absScore.medianArea), absScore.score, absolute.size(), format4(absScore.medianX), format4(absScore.medianW),
+                format4(normScore.medianArea), normScore.score, normalized.size(), format4(normScore.medianX), format4(normScore.medianW),
+                format4(absStretchScore.medianArea), absStretchScore.score, absStretch.size(), format4(absStretchScore.medianX), format4(absStretchScore.medianW),
+                format4(normStretchScore.medianArea), normStretchScore.score, normStretch.size(), format4(normStretchScore.medianX), format4(normStretchScore.medianW));
+
+        List<FaceSetScore> scores = List.of(priorScore, absScore, normScore, absStretchScore, normStretchScore);
+        List<List<DetectedFace>> sets = List.of(prior, absolute, normalized, absStretch, normStretch);
+
+        // 先按评分
+        int bestScore = scores.stream().mapToInt(s -> s.score).max().orElse(0);
+        if (bestScore > 0) {
+            double bestGap = Double.MAX_VALUE;
+            List<DetectedFace> bestSet = prior;
+            for (int i = 0; i < scores.size(); i++) {
+                if (scores.get(i).score != bestScore) continue;
+                // 过滤明显偏移：中位x接近0或w极小
+                if (scores.get(i).medianX < 0.01 || scores.get(i).medianW < 0.01) continue;
+                double m = scores.get(i).medianArea;
+                double targetMin = 0.05, targetMax = 0.3;
+                double gap = (m < targetMin) ? (targetMin - m) : (m > targetMax ? m - targetMax : 0);
+                if (gap < bestGap) {
+                    bestGap = gap;
+                    bestSet = sets.get(i);
+                }
+            }
+            return bestSet;
+        }
+
+        // 若评分都为0，选中位数面积较大且中位x不贴边的
+        double bestMedian = -1;
+        List<DetectedFace> bestSet = prior;
+        for (int i = 0; i < scores.size(); i++) {
+            if (scores.get(i).medianX < 0.01 || scores.get(i).medianW < 0.01) continue;
+            double m = scores.get(i).medianArea;
+            if (m > bestMedian) {
+                bestMedian = m;
+                bestSet = sets.get(i);
+            }
+        }
+        return bestSet;
+    }
+
+    /**
+     * 简单评分：中位数面积在 [0.01,0.4] 记为2；在[0.001,0.8]记为1；否则0
+     */
+    private FaceSetScore evaluateFaces(List<DetectedFace> faces) {
+        if (faces == null || faces.isEmpty()) return new FaceSetScore(0, 0, 0, 0);
+        List<Double> areas = new ArrayList<>();
+        List<Double> xs = new ArrayList<>();
+        List<Double> ws = new ArrayList<>();
+        for (DetectedFace f : faces) {
+            areas.add(f.getWidth() * f.getHeight());
+            xs.add(f.getX());
+            ws.add(f.getWidth());
+        }
+        areas.sort(Double::compareTo);
+        xs.sort(Double::compareTo);
+        ws.sort(Double::compareTo);
+        double median = areas.get(areas.size() / 2);
+        double medianX = xs.get(xs.size() / 2);
+        double medianW = ws.get(ws.size() / 2);
+        int score = 0;
+        if (median >= 0.01 && median <= 0.4) score = 2;
+        else if (median >= 0.001 && median <= 0.8) score = 1;
+        return new FaceSetScore(score, median, medianX, medianW);
+    }
+
+    private String format4(double v) {
+        return String.format(java.util.Locale.ROOT, "%.4f", v);
+    }
+
+    private static class FaceSetScore {
+        int score;
+        double medianArea;
+        double medianX;
+        double medianW;
+
+        FaceSetScore(int score, double medianArea, double medianX, double medianW) {
+            this.score = score;
+            this.medianArea = medianArea;
+            this.medianX = medianX;
+            this.medianW = medianW;
+        }
+    }
     /**
      * 旧格式解析：boxes=[1,N,4]，scores=[1,N]
      */

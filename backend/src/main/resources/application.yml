@@ -95,13 +95,22 @@ face:
   detection:
     enabled: true  # 设置为true启用专业检测模型，需要下载对应的ONNX模型文件
     model-path: ./models/face_detection.onnx  # 检测模型路径
-    confidence-threshold: 0.25  # 检测置信度阈值（放宽，减少漏检）
-    nms-threshold: 0.4  # 非极大值抑制阈值（略放宽，保留更多候选框）
-    input-size: 1024  # 模型输入尺寸（默认640），适当放大提高小脸置信度
+    confidence-threshold: 0.30  # 检测置信度阈值
+    nms-threshold: 0.4  # 非极大值抑制阈值
+    input-size: 640  # 模型输入尺寸（RetinaFace 常用 640）
     allow-simple-fallback: false  # 是否允许回退到简单肤色检测（建议准确率优先时关闭）
   # 人脸特征提取模型配置（用于识别）
   embedding:
     model-path: ./models/face_recognition.onnx  # 特征提取模型路径（R50/R100等）
+  # 人脸过滤配置（用于FaceService二次筛选），可按需要调整
+  filters:
+    min-area: 0.005   # 最小面积（相对整图），默认 0.5%
+    max-area: 0.5    # 最大面积（相对整图），默认 50%
+    max-width: 0.5    # 最大宽度占比，默认 50%
+    max-height: 0.5   # 最大高度占比，默认 50%
+    min-ratio: 0.4    # 最小宽高比 w/h
+    max-ratio: 2.5    # 最大宽高比 w/h
+    max-faces-per-image: 20  # 单张图片最多保存人脸数
 
 # 智能标签配置
 smart-tag:

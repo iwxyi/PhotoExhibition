@@ -40,13 +40,48 @@ public class FaceService {
     @Value("${face.detection.confidence-threshold:0.25}")
     private double detectionConfidenceThreshold;
 
+    // 以下过滤参数可通过 application.yml 调整
+    @Value("${face.filters.min-area:0.002}")
+    private double minArea;          // 最小面积（相对整图）
+    @Value("${face.filters.max-area:0.35}")
+    private double maxArea;          // 最大面积（相对整图）
+    @Value("${face.filters.max-width:0.5}")
+    private double maxWidth;         // 最大宽度占比
+    @Value("${face.filters.max-height:0.5}")
+    private double maxHeight;        // 最大高度占比
+    @Value("${face.filters.min-ratio:0.4}")
+    private double minRatio;         // 最小宽高比
+    @Value("${face.filters.max-ratio:2.5}")
+    private double maxRatio;         // 最大宽高比
+    @Value("${face.filters.max-faces-per-image:20}")
+    private int maxFacesPerImage;    // 单张图片最多保存人脸数
+
     /**
      * 重新检测并保存某张照片的人脸信息
      */
     @Transactional
     public List<Face> detectAndSaveFaces(File imageFile, Photo photo) {
-        List<FaceRecognitionService.DetectedFace> detected = faceRecognitionService.detectFaces(imageFile);
-        log.debug("人脸检测候选数量: {}，file={}", detected.size(), imageFile.getName());
+        return detectAndSaveFaces(imageFile, photo, false);
+    }
+
+    /**
+     * 重新检测并保存某张照片的人脸信息
+     * @param verbose 是否输出详细调试日志（单张重建时开启，批量扫描时关闭）
+     */
+    @Transactional
+    public List<Face> detectAndSaveFaces(File imageFile, Photo photo, boolean verbose) {
+        // 控制检测服务的详细日志开关
+        FaceDetectionService.VERBOSE_LOG.set(verbose);
+        List<FaceRecognitionService.DetectedFace> detected;
+        try {
+            detected = faceRecognitionService.detectFaces(imageFile);
+        } finally {
+            // 用完即清理，避免泄漏到其他线程
+            FaceDetectionService.VERBOSE_LOG.remove();
+        }
+        if (verbose) {
+            log.debug("人脸检测候选数量: {}，file={}", detected.size(), imageFile.getName());
+        }
 
         // 使用托管的 Photo 实例，避免延迟加载集合触发异常
         Photo targetPhoto = photo;
@@ -55,11 +90,11 @@ public class FaceService {
             faceRepository.deleteByPhotoId(photo.getId());
         }
 
-        // 排序并截取前20个最高置信度的人脸
+        // 排序并截取前 N 个最高置信度的人脸（N 可配置）
         detected.sort((a, b) -> Double.compare(b.getConfidence(), a.getConfidence()));
-        int MAX_FACES_PER_IMAGE = 20;
-        if (detected.size() > MAX_FACES_PER_IMAGE) {
-            detected = detected.subList(0, MAX_FACES_PER_IMAGE);
+        int limit = Math.max(1, maxFacesPerImage);
+        if (detected.size() > limit) {
+            detected = detected.subList(0, limit);
         }
 
         List<Face> faces = new ArrayList<>();
@@ -67,7 +102,9 @@ public class FaceService {
             // 仅做必要的过滤，尽量保留ONNX检测结果，避免过度过滤导致全部丢弃
             // 1. 置信度阈值从配置读取（默认0.25，原0.5）
             if (f.getConfidence() < detectionConfidenceThreshold) {
-                log.debug("跳过低置信度人脸: conf={}, file={}", f.getConfidence(), imageFile.getName());
+                if (verbose) {
+                    log.debug("跳过低置信度人脸: conf={}, file={}", f.getConfidence(), imageFile.getName());
+                }
                 continue;
             }
             // 2. 坐标归一化与裁剪，防止越界导致空白
@@ -78,22 +115,30 @@ public class FaceService {
             // 3. 面积/比例过滤：过滤极小噪点和极端比例框
             double area = w * h;
             if (area <= 0.0) {
-                log.debug("跳过无效面积人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+                if (verbose) {
+                    log.debug("跳过无效面积人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+                }
                 continue;
             }
-            // 最小面积 0.5%（避免 0.02% 这类噪点）
-            if (area < 0.005) {
-                log.debug("跳过面积过小的人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+            // 最小面积（可配置）
+            if (area < minArea) {
+                if (verbose) {
+                    log.debug("跳过面积过小的人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+                }
                 continue;
             }
-            // 最大面积 80%（避免整图）
-            if (area > 0.8) {
-                log.debug("跳过面积过大的人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+            // 最大面积 / 尺寸（可配置，避免整身/整图）
+            if (area > maxArea || w > maxWidth || h > maxHeight) {
+                if (verbose) {
+                    log.debug("跳过面积/尺寸过大的人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+                }
                 continue;
             }
             double ratio = h > 0 ? w / h : 1.0;
-            if (ratio < 0.4 || ratio > 2.5) {
-                log.debug("跳过异常比例人脸: ratio={}, w={}, h={}, file={}", ratio, w, h, imageFile.getName());
+            if (ratio < minRatio || ratio > maxRatio) {
+                if (verbose) {
+                    log.debug("跳过异常比例人脸: ratio={}, w={}, h={}, file={}", ratio, w, h, imageFile.getName());
+                }
                 continue;
             }
             Face face = new Face();
