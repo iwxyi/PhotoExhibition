@@ -33,6 +33,11 @@
                 <th class="py-2 pr-4">预览</th>
                 <th class="py-2 pr-4">文件名</th>
                 <th class="py-2 pr-4">人物</th>
+                <th class="py-2 pr-4">置信度</th>
+                <th class="py-2 pr-4">宽×高</th>
+                <th class="py-2 pr-4">比例</th>
+                <th class="py-2 pr-4">面积</th>
+                <th class="py-2 pr-4">坐标</th>
               </tr>
             </thead>
             <tbody>
@@ -65,9 +70,16 @@
                 <td class="py-3 pr-4 text-gray-200">
                   {{ face.personName || '未分配' }}
                 </td>
+                <td class="py-3 pr-4 text-gray-200">{{ formatConfidence(face.confidence) }}</td>
+                <td class="py-3 pr-4 text-gray-200">
+                  {{ formatPercent(face.width) }} × {{ formatPercent(face.height) }}
+                </td>
+                <td class="py-3 pr-4 text-gray-200">{{ formatRatio(face.width, face.height) }}</td>
+                <td class="py-3 pr-4 text-gray-200">{{ formatArea(face.width, face.height) }}</td>
+                <td class="py-3 pr-4 text-gray-200">{{ formatPoint(face.x, face.y) }}</td>
               </tr>
               <tr v-if="!faces.length && !loading">
-                <td colspan="4" class="py-6 text-center text-gray-400">暂无数据</td>
+                <td colspan="9" class="py-6 text-center text-gray-400">暂无数据</td>
               </tr>
             </tbody>
           </table>
@@ -100,8 +112,21 @@
       v-if="previewVisible"
       class="preview-float bg-gray-900"
       :style="previewStyle"
+      ref="previewContainer"
     >
-      <img :src="previewUrl" alt="预览" class="w-full h-full object-contain" />
+      <div class="relative w-full h-full">
+        <img
+          :src="previewUrl"
+          alt="预览"
+          class="w-full h-full object-contain"
+          @load="onPreviewLoad"
+        />
+        <div
+          v-if="previewFace && hasBox(previewFace)"
+          class="absolute border-2 border-amber-400/90 rounded-sm pointer-events-none"
+          :style="getPreviewBoxStyle(previewFace)"
+        />
+      </div>
     </div>
   </transition>
 </template>
@@ -121,6 +146,7 @@ interface FaceItem {
   width?: number
   height?: number
   personName?: string
+  confidence?: number
 }
 
 const faces = ref<FaceItem[]>([])
@@ -132,6 +158,9 @@ const keyword = ref('')
 const previewVisible = ref(false)
 const previewUrl = ref('')
 const previewStyle = ref<{ left: string; top: string }>({ left: '0px', top: '0px' })
+const previewFace = ref<FaceItem | null>(null)
+const previewNatural = ref<{ w: number; h: number }>({ w: 0, h: 0 })
+const previewContainer = ref<HTMLElement | null>(null)
 const pageNumbers = computed(() => {
   const total = Math.max(totalPages.value, 1)
   const current = page.value
@@ -188,6 +217,31 @@ const getImageUrl = (path?: string) => {
   return path.startsWith('http') ? path : `/api/files${path}`
 }
 
+const formatConfidence = (v?: number) => {
+  if (v === undefined || v === null) return '-'
+  return `${(v * 100).toFixed(1)}%`
+}
+
+const formatPercent = (v?: number) => {
+  if (v === undefined || v === null) return '-'
+  return `${(v * 100).toFixed(2)}%`
+}
+
+const formatRatio = (w?: number, h?: number) => {
+  if (!w || !h || h === 0) return '-'
+  return w > 0 && h > 0 ? (w / h).toFixed(2) : '-'
+}
+
+const formatArea = (w?: number, h?: number) => {
+  if (!w || !h) return '-'
+  return `${(w * h * 100).toFixed(2)}%`
+}
+
+const formatPoint = (x?: number, y?: number) => {
+  if (x === undefined || y === undefined || x === null || y === null) return '-'
+  return `(${formatPercent(x)}, ${formatPercent(y)})`
+}
+
 const getFaceCropStyle = (face: FaceItem) => {
   const hasSize = face.width && face.height && face.width > 0 && face.height > 0
   const thumb = face.photoThumbnailPath || face.photoOriginalPath
@@ -208,6 +262,41 @@ const getFaceCropStyle = (face: FaceItem) => {
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+const hasBox = (face: FaceItem) => {
+  return face.x !== undefined && face.y !== undefined && face.width !== undefined && face.height !== undefined
+}
+
+const getPreviewBoxStyle = (face: FaceItem) => {
+  if (!hasBox(face)) return {}
+  const containerW = previewContainer.value?.clientWidth || 220
+  const containerH = previewContainer.value?.clientHeight || 220
+  const natW = previewNatural.value.w
+  const natH = previewNatural.value.h
+
+  // 计算 object-contain 下的真实显示区域
+  let dispW = containerW
+  let dispH = containerH
+  let offsetX = 0
+  let offsetY = 0
+  if (natW > 0 && natH > 0) {
+    const scale = Math.min(containerW / natW, containerH / natH)
+    dispW = natW * scale
+    dispH = natH * scale
+    offsetX = (containerW - dispW) / 2
+    offsetY = (containerH - dispH) / 2
+  }
+
+  const x = clamp(face.x || 0, 0, 1)
+  const y = clamp(face.y || 0, 0, 1)
+  const w = clamp(face.width || 0, 0, 1 - x)
+  const h = clamp(face.height || 0, 0, 1 - y)
+  return {
+    left: `${offsetX + x * dispW}px`,
+    top: `${offsetY + y * dispH}px`,
+    width: `${w * dispW}px`,
+    height: `${h * dispH}px`
+  }
+}
 
 const openPhoto = (photoId: number) => {
   window.open(`/photo/${photoId}`, '_blank')
@@ -216,6 +305,7 @@ const openPhoto = (photoId: number) => {
 const showPreview = (face: FaceItem) => {
   previewUrl.value = getImageUrl(face.photoThumbnailPath || face.photoOriginalPath || '')
   previewVisible.value = !!previewUrl.value
+  previewFace.value = face
 }
 
 const movePreview = (e: MouseEvent) => {
@@ -235,6 +325,12 @@ const movePreview = (e: MouseEvent) => {
 const hidePreview = () => {
   previewVisible.value = false
   previewUrl.value = ''
+  previewFace.value = null
+}
+
+const onPreviewLoad = (e: Event) => {
+  const img = e.target as HTMLImageElement
+  previewNatural.value = { w: img.naturalWidth, h: img.naturalHeight }
 }
 
 onMounted(() => load())

@@ -96,7 +96,7 @@ face:
     enabled: true  # 设置为true启用专业检测模型，需要下载对应的ONNX模型文件
     model-path: ./models/face_detection.onnx  # 检测模型路径
     confidence-threshold: 0.25  # 检测置信度阈值（放宽，减少漏检）
-    nms-threshold: 0.5  # 非极大值抑制阈值（略放宽，保留更多候选框）
+    nms-threshold: 0.4  # 非极大值抑制阈值（略放宽，保留更多候选框）
     input-size: 1024  # 模型输入尺寸（默认640），适当放大提高小脸置信度
     allow-simple-fallback: false  # 是否允许回退到简单肤色检测（建议准确率优先时关闭）
   # 人脸特征提取模型配置（用于识别）

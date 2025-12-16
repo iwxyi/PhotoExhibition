@@ -46,6 +46,7 @@ public class FaceService {
     @Transactional
     public List<Face> detectAndSaveFaces(File imageFile, Photo photo) {
         List<FaceRecognitionService.DetectedFace> detected = faceRecognitionService.detectFaces(imageFile);
+        log.debug("人脸检测候选数量: {}，file={}", detected.size(), imageFile.getName());
 
         // 使用托管的 Photo 实例，避免延迟加载集合触发异常
         Photo targetPhoto = photo;
@@ -54,53 +55,45 @@ public class FaceService {
             faceRepository.deleteByPhotoId(photo.getId());
         }
 
+        // 排序并截取前20个最高置信度的人脸
+        detected.sort((a, b) -> Double.compare(b.getConfidence(), a.getConfidence()));
+        int MAX_FACES_PER_IMAGE = 20;
+        if (detected.size() > MAX_FACES_PER_IMAGE) {
+            detected = detected.subList(0, MAX_FACES_PER_IMAGE);
+        }
+
         List<Face> faces = new ArrayList<>();
         for (FaceRecognitionService.DetectedFace f : detected) {
-            // 放宽过滤，减少漏检
+            // 仅做必要的过滤，尽量保留ONNX检测结果，避免过度过滤导致全部丢弃
             // 1. 置信度阈值从配置读取（默认0.25，原0.5）
             if (f.getConfidence() < detectionConfidenceThreshold) {
                 log.debug("跳过低置信度人脸: conf={}, file={}", f.getConfidence(), imageFile.getName());
                 continue;
             }
-            // 2. 面积阈值放宽到0.06（原0.1）
-            if (f.getWidth() < 0.06 || f.getHeight() < 0.06) {
-                log.debug("跳过过小人脸: w={}, h={}, file={}", f.getWidth(), f.getHeight(), imageFile.getName());
-                continue;
-            }
-            // 3. 宽高比范围放宽到0.5-1.8（原0.75-1.3），避免长宽稍失衡被过滤
-            double ratio = f.getHeight() > 0 ? f.getWidth() / f.getHeight() : 1.0;
-            if (ratio < 0.5 || ratio > 1.8) {
-                log.debug("跳过异常比例的人脸: ratio={}, file={}", ratio, imageFile.getName());
-                continue;
-            }
-            // 4. 坐标归一化与裁剪，防止越界导致空白
+            // 2. 坐标归一化与裁剪，防止越界导致空白
             double x = Math.max(0.0, Math.min(1.0, f.getX()));
             double y = Math.max(0.0, Math.min(1.0, f.getY()));
             double w = Math.max(0.0, Math.min(1.0 - x, f.getWidth()));
             double h = Math.max(0.0, Math.min(1.0 - y, f.getHeight()));
-            // 5. 裁剪后面积检查，确保裁剪后仍然足够大
-            if (w < 0.05 || h < 0.05) {
-                log.debug("裁剪后过小人脸: w={}, h={}, file={}", w, h, imageFile.getName());
-                continue;
-            }
-            // 6. 位置合理性检查：人脸不应该太靠近边缘（避免误检边缘区域），边缘区域放宽到4%
-            double centerX = x + w / 2;
-            double centerY = y + h / 2;
-            double edgeMargin = 0.04; // 边缘4%区域
-            if (centerX < edgeMargin || centerX > 1.0 - edgeMargin || 
-                centerY < edgeMargin || centerY > 1.0 - edgeMargin) {
-                log.debug("跳过边缘位置人脸: center=({}, {}), file={}", centerX, centerY, imageFile.getName());
-                continue;
-            }
-            // 7. 面积合理性检查：人脸区域面积应该足够大（至少占图片的0.5%）
+            // 3. 面积/比例过滤：过滤极小噪点和极端比例框
             double area = w * h;
-            if (area < 0.005) {
-                log.debug("跳过面积过小的人脸: area={}, file={}", area, imageFile.getName());
+            if (area <= 0.0) {
+                log.debug("跳过无效面积人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
                 continue;
             }
-            // 8. 面积上限/尺寸上限，避免简单检测回退时出现“整个人”或“整张图”的大框
-            if (w > 0.6 || h > 0.6 || area > 0.25) {
-                log.debug("跳过面积过大的人脸: w={}, h={}, area={}, file={}", w, h, area, imageFile.getName());
+            // 最小面积 0.5%（避免 0.02% 这类噪点）
+            if (area < 0.005) {
+                log.debug("跳过面积过小的人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+                continue;
+            }
+            // 最大面积 80%（避免整图）
+            if (area > 0.8) {
+                log.debug("跳过面积过大的人脸: area={}, w={}, h={}, file={}", area, w, h, imageFile.getName());
+                continue;
+            }
+            double ratio = h > 0 ? w / h : 1.0;
+            if (ratio < 0.4 || ratio > 2.5) {
+                log.debug("跳过异常比例人脸: ratio={}, w={}, h={}, file={}", ratio, w, h, imageFile.getName());
                 continue;
             }
             Face face = new Face();
