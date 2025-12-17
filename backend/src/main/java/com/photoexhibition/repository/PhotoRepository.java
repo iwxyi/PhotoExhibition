@@ -65,6 +65,20 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     )
     Page<Photo> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
+    /**
+     * 按人物ID筛选照片（用于人物图墙）
+     */
+    @Query(
+        value = "SELECT DISTINCT p.* FROM photo p " +
+                "INNER JOIN photo_face f ON p.id = f.photo_id " +
+                "WHERE f.person_id = :personId",
+        countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
+                "INNER JOIN photo_face f ON p.id = f.photo_id " +
+                "WHERE f.person_id = :personId",
+        nativeQuery = true
+    )
+    Page<Photo> findByPersonId(@Param("personId") Long personId, Pageable pageable);
+
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();
 
     /**

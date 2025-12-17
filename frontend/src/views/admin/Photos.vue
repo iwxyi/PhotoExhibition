@@ -189,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 
@@ -401,7 +401,8 @@ const next = () => {
 }
 const openTag = (tag: any) => {
   if (!tag?.id) return
-  router.push({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  const route = router.resolve({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  window.open(route.href, '_blank')
 }
 
 const showPreview = (p: any) => {
@@ -432,7 +433,26 @@ const jumpTo = (p: number) => {
   load()
 }
 
-onMounted(() => load())
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    // 如果人脸弹窗打开，先关闭弹窗
+    if (showFaceDialog.value) {
+      showFaceDialog.value = false
+      return
+    }
+    // 否则返回首页
+    router.push('/admin')
+  }
+}
+
+onMounted(() => {
+  load()
+  window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
 </script>
 
 <style scoped>

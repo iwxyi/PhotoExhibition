@@ -82,8 +82,12 @@ public class PhotoService {
         Integer minIso = request.getMinIso();
         Integer maxIso = request.getMaxIso();
 
+        // 按人物筛选（优先级最高）
+        if (request.getPersonId() != null) {
+            photos = photoRepository.findByPersonId(request.getPersonId(), pageable);
+        }
         // 标签筛选
-        if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
+        else if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
             photos = photoRepository.findByTagIds(request.getTagIds(), pageable);
         }
         // EXIF筛选

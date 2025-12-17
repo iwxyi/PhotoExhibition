@@ -7,13 +7,16 @@ import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.dto.TagDTO;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -28,6 +31,7 @@ public class AlbumService {
 
     private final AlbumRepository albumRepository;
     private final PhotoRepository photoRepository;
+    private final TagRepository tagRepository;
     private final ObjectMapper objectMapper;
     
     @Value("${photo.scan.base-path}")
@@ -432,6 +436,52 @@ public class AlbumService {
             basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
         }
         return basePathResolved.normalize();
+    }
+
+    /**
+     * 为相册添加标签
+     */
+    @Transactional
+    public AlbumDTO addTagToAlbum(Long albumId, Long tagId) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+        Tag tag = tagRepository.findById(tagId)
+            .orElseThrow(() -> new RuntimeException("标签不存在"));
+        
+        if (album.getTags() == null) {
+            album.setTags(new ArrayList<>());
+        }
+        
+        // 检查是否已存在该标签
+        boolean exists = album.getTags().stream()
+            .anyMatch(t -> t.getId().equals(tagId));
+        
+        if (!exists) {
+            album.getTags().add(tag);
+            Album saved = albumRepository.save(album);
+            // 重新获取以确保标签关系被正确加载
+            saved = albumRepository.findById(saved.getId())
+                .orElseThrow(() -> new RuntimeException("相册不存在"));
+            return convertToDTO(saved);
+        }
+        
+        return convertToDTO(album);
+    }
+
+    /**
+     * 从相册移除标签
+     */
+    @Transactional
+    public AlbumDTO removeTagFromAlbum(Long albumId, Long tagId) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+        
+        if (album.getTags() != null) {
+            album.getTags().removeIf(t -> t.getId().equals(tagId));
+            albumRepository.save(album);
+        }
+        
+        return convertToDTO(album);
     }
 }
 

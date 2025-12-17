@@ -7,7 +7,7 @@
         <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
       </div>
 
-      <!-- 路径导航栏 -->
+      <!-- 路径导航栏（限制在 basePath 下，只显示相对路径） -->
       <div class="bg-gray-800 rounded-lg p-4 mb-4">
         <div class="flex items-center gap-2 flex-wrap">
           <button
@@ -34,9 +34,6 @@
           >
             返回上级
           </button>
-        </div>
-        <div class="mt-2 text-sm text-gray-400">
-          当前路径: {{ currentPath }}
         </div>
       </div>
 
@@ -375,12 +372,32 @@ const contextMenu = ref({
   item: null as FileItem | null
 })
 
+const fileInput = ref<HTMLInputElement | null>(null)
+const dirInput = ref<HTMLInputElement | null>(null)
+
 const directories = computed(() => items.value.filter(item => item.isDirectory))
 const files = computed(() => items.value.filter(item => !item.isDirectory))
 
+const normalizePath = (p: string | null | undefined) => {
+  if (!p) return ''
+  return p.replace(/\\/g, '/')
+}
+
+const isUnderBase = (p: string | null | undefined) => {
+  if (!p) return false
+  if (!basePath.value) return true
+  const base = normalizePath(basePath.value)
+  const target = normalizePath(p)
+  if (!base) return true
+  const baseWithSlash = base.endsWith('/') ? base : base + '/'
+  return target === base || target.startsWith(baseWithSlash)
+}
+
 const pathParts = computed(() => {
   if (!currentPath.value || currentPath.value === basePath.value) return []
-  const relative = currentPath.value.replace(basePath.value, '').replace(/^[\/\\]+/, '')
+  const cur = normalizePath(currentPath.value)
+  const base = normalizePath(basePath.value)
+  const relative = cur.startsWith(base) ? cur.slice(base.length).replace(/^[\/\\]+/, '') : cur
   return relative.split(/[\/\\]+/).filter(p => p)
 })
 
@@ -404,8 +421,14 @@ const loadFiles = async (path?: string) => {
       params: { path: path || currentPath.value }
     })
     const data = res.data
-    currentPath.value = data.path || currentPath.value
-    parentPath.value = data.parent || null
+    const serverPath = data.path || currentPath.value || basePath.value
+    // 如果后端返回了绝对路径，而当前 basePath 是相对路径（如 ./data/photos），
+    // 则将 basePath 替换为该绝对路径，确保后续前端判断统一基于绝对路径
+    if (serverPath && basePath.value && !/^(\/|[A-Za-z]:[\\/])/.test(basePath.value)) {
+      basePath.value = normalizePath(serverPath)
+    }
+    currentPath.value = isUnderBase(serverPath) ? serverPath : basePath.value
+    parentPath.value = data.parent && isUnderBase(data.parent) ? data.parent : null
     
     const dirs = (data.directories || []).map((d: any) => ({
       name: d.name,
@@ -435,9 +458,13 @@ const loadFiles = async (path?: string) => {
 }
 
 const goToPath = (path: string) => {
-  currentPath.value = path
+  let target = path || basePath.value
+  if (!isUnderBase(target)) {
+    target = basePath.value
+  }
+  currentPath.value = target
   selectedPaths.value.clear()
-  loadFiles(path)
+  loadFiles(target)
 }
 
 const goToParent = () => {

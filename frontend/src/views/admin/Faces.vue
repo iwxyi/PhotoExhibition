@@ -131,8 +131,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api'
+
+const router = useRouter()
 
 interface FaceItem {
   id: number
@@ -332,7 +335,21 @@ const onPreviewLoad = (e: Event) => {
   previewNatural.value = { w: img.naturalWidth, h: img.naturalHeight }
 }
 
-onMounted(() => load())
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    // 返回首页
+    router.push('/admin')
+  }
+}
+
+onMounted(() => {
+  load()
+  window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
 </script>
 
 <style scoped>

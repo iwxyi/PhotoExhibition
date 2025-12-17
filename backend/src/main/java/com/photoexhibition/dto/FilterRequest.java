@@ -6,6 +6,7 @@ import java.util.List;
 @Data
 public class FilterRequest {
     private List<Long> tagIds;           // 标签ID列表
+    private Long personId;               // 人物ID（按人物筛选照片）
     private String cameraModel;          // 相机型号
     private String lensModel;            // 镜头型号
     private Double minAperture;          // 最小光圈

@@ -44,11 +44,11 @@
           <p class="text-3xl font-light">{{ stats.photos }}</p>
         </router-link>
         <router-link
-          to="/admin/tags"
+          to="/admin/persons"
           class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
         >
-          <h3 class="text-gray-400 text-sm mb-2">标签总数</h3>
-          <p class="text-3xl font-light">{{ stats.tags }}</p>
+          <h3 class="text-gray-400 text-sm mb-2">人物总数</h3>
+          <p class="text-3xl font-light">{{ stats.persons }}</p>
         </router-link>
       </div>
 
@@ -100,15 +100,17 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <router-link
               to="/admin/faces"
-              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
+              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
             >
-              人脸管理
+              <div class="text-center">人脸管理</div>
+              <div class="text-xs text-gray-400 text-center mt-1">{{ stats.faces }} 个</div>
             </router-link>
             <router-link
-              to="/admin/persons"
-              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
+              to="/admin/tags"
+              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
             >
-              人物管理
+              <div class="text-center">标签管理</div>
+              <div class="text-xs text-gray-400 text-center mt-1">{{ stats.tags }} 个</div>
             </router-link>
             <router-link
               to="/admin/migration"
@@ -215,7 +217,9 @@ const authStore = useAuthStore()
 const stats = ref({
   albums: 0,
   photos: 0,
-  tags: 0
+  tags: 0,
+  persons: 0,
+  faces: 0
 })
 
 const scanning = ref(false)
@@ -237,10 +241,12 @@ const thresholdInput = ref('')
 
 const loadStats = async () => {
   try {
-    const [albumsRes, photosRes, tagsRes] = await Promise.all([
+    const [albumsRes, photosRes, tagsRes, personsRes, facesRes] = await Promise.all([
       api.get('/albums', { params: { size: 1, page: 0 } }),
       api.get('/photos', { params: { size: 1, page: 0 } }),
-      api.get('/tags', { params: { size: 1, page: 0 } })
+      api.get('/tags', { params: { size: 1, page: 0 } }),
+      api.get('/admin/persons/items', { params: { threshold: 0.7 } }),
+      api.get('/admin/faces', { params: { size: 1, page: 0 } })
     ])
     
     const albumTotal = albumsRes.data.totalElements ?? albumsRes.data.total ?? 0
@@ -248,11 +254,17 @@ const loadStats = async () => {
     const tagTotal = Array.isArray(tagsRes.data)
       ? tagsRes.data.length
       : (tagsRes.data.totalElements ?? tagsRes.data.total ?? 0)
+    const personTotal = Array.isArray(personsRes.data)
+      ? personsRes.data.filter((p: any) => p.type === 'confirmed').length
+      : 0
+    const faceTotal = facesRes.data.totalElements ?? facesRes.data.total ?? 0
 
     stats.value = {
       albums: albumTotal,
       photos: photoTotal,
-      tags: tagTotal
+      tags: tagTotal,
+      persons: personTotal,
+      faces: faceTotal
     }
   } catch (error) {
     console.error('加载统计信息失败:', error)

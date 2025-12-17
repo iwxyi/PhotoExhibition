@@ -84,5 +84,27 @@ public class AlbumController {
     public ResponseEntity<java.util.List<String>> getCategories() {
         return ResponseEntity.ok(albumService.getCategories());
     }
+
+    /**
+     * 为相册添加标签
+     */
+    @PostMapping("/{albumId}/tags/{tagId}")
+    public ResponseEntity<AlbumDTO> addTagToAlbum(
+            @PathVariable Long albumId,
+            @PathVariable Long tagId) {
+        AlbumDTO album = albumService.addTagToAlbum(albumId, tagId);
+        return ResponseEntity.ok(album);
+    }
+
+    /**
+     * 从相册移除标签
+     */
+    @DeleteMapping("/{albumId}/tags/{tagId}")
+    public ResponseEntity<AlbumDTO> removeTagFromAlbum(
+            @PathVariable Long albumId,
+            @PathVariable Long tagId) {
+        AlbumDTO album = albumService.removeTagFromAlbum(albumId, tagId);
+        return ResponseEntity.ok(album);
+    }
 }
 

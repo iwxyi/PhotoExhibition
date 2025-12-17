@@ -191,6 +191,21 @@ export const usePhotoStore = defineStore('photo', () => {
     }
   }
 
+  const fetchPhotosByPerson = async (personId: number, page = 0, size = 20) => {
+    loading.value = true
+    try {
+      const response = await api.post('/photos/filter', { personId, page, size })
+      if (page === 0) {
+        photos.value = response.data.content
+      } else {
+        photos.value = [...photos.value, ...response.data.content]
+      }
+      return response.data
+    } finally {
+      loading.value = false
+    }
+  }
+
   const filterPhotos = async (filters: any, page = 0, size = 20) => {
     loading.value = true
     try {
@@ -217,6 +232,7 @@ export const usePhotoStore = defineStore('photo', () => {
     fetchRandomPhotos,
     fetchPhotoById,
     fetchPhotosByTag,
+    fetchPhotosByPerson,
     filterPhotos
   }
 })

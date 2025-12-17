@@ -67,8 +67,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api'
+
+const router = useRouter()
 
 const source = ref('')
 const target = ref('')
@@ -141,9 +144,21 @@ const remove = async () => {
   }
 }
 
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    // 返回首页
+    router.push('/admin')
+  }
+}
+
 onMounted(() => {
   loadBasePath()
   loadDirs()
+  window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
 

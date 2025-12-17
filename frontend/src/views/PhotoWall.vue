@@ -109,6 +109,8 @@ const itemPositions = ref<Array<{ left: number; top: number }>>([])
 const parallaxOffsets = ref<number[]>([])
 const activeTagId = ref<number | null>(null)
 const activeTagName = ref<string | null>(null)
+const activePersonId = ref<number | null>(null)
+const activePersonName = ref<string | null>(null)
 
 // 根据预览尺寸计算列数
 const columnCount = computed(() => {
@@ -328,9 +330,11 @@ const loadMore = async () => {
   try {
     isLoadingMore.value = true
     currentPage.value++
-    const data = activeTagId.value
-      ? await photoStore.fetchPhotosByTag(activeTagId.value, currentPage.value)
-      : await photoStore.fetchPhotoWall(currentPage.value)
+    const data = activePersonId.value
+      ? await photoStore.fetchPhotosByPerson(activePersonId.value, currentPage.value)
+      : activeTagId.value
+        ? await photoStore.fetchPhotosByTag(activeTagId.value, currentPage.value)
+        : await photoStore.fetchPhotoWall(currentPage.value)
     
     if (!data || !data.content || data.content.length === 0) {
       hasMore.value = false
@@ -432,7 +436,7 @@ onMounted(async () => {
   try {
     // 初始化窗口宽度
     windowWidth.value = window.innerWidth
-    hydrateTagFromRoute()
+    hydrateFromRoute()
     await loadInitial()
     window.addEventListener('scroll', handleScroll, { passive: true })
     window.addEventListener('resize', handleResize)
@@ -478,28 +482,41 @@ onActivated(() => {
 const loadInitial = async () => {
   currentPage.value = 0
   hasMore.value = true
-  if (activeTagId.value) {
+  if (activePersonId.value) {
+    await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
+  } else if (activeTagId.value) {
     await photoStore.fetchPhotosByTag(activeTagId.value, 0)
   } else {
     await photoStore.fetchPhotoWall(0)
   }
 }
 
-const hydrateTagFromRoute = () => {
+const hydrateFromRoute = () => {
   const tagIdParam = route.query.tagId
   const tagNameParam = route.query.tagName
   activeTagId.value = tagIdParam ? Number(tagIdParam) : null
   activeTagName.value = tagNameParam ? String(tagNameParam) : null
+
+  const personIdParam = route.query.personId
+  const personNameParam = route.query.personName
+  activePersonId.value = personIdParam ? Number(personIdParam) : null
+  activePersonName.value = personNameParam ? String(personNameParam) : null
 }
 
 const clearTag = async () => {
-  await router.push({ path: '/wall', query: {} })
+  await router.push({
+    path: '/wall',
+    query: {
+      personId: activePersonId.value || undefined,
+      personName: activePersonName.value || undefined
+    }
+  })
 }
 
 watch(
-  () => route.query.tagId,
+  () => [route.query.tagId, route.query.personId],
   async () => {
-    hydrateTagFromRoute()
+    hydrateFromRoute()
     await loadInitial()
     nextTick(() => {
       setTimeout(() => {

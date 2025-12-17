@@ -842,8 +842,11 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+
+const router = useRouter()
 
 interface PersonListItem {
   type: 'confirmed' | 'cluster'
@@ -2314,8 +2317,20 @@ onMounted(() => {
     }
     window.addEventListener('resize', updateContainerWidth)
     window.addEventListener('resize', recalcFacePageSize)
+    window.addEventListener('keydown', handleGlobalKeydown)
   })
 })
+
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    // PhotoViewer 打开时，交给 PhotoViewer 自己处理（它会自己关闭）
+    if (viewerVisible.value) {
+      return
+    }
+    // 否则返回首页
+    router.push('/admin')
+  }
+}
 
 onBeforeUnmount(() => {
   if (isResizing.value) {
@@ -2331,6 +2346,7 @@ onBeforeUnmount(() => {
   faceResizeObserver = null
   window.removeEventListener('resize', updateContainerWidth)
   window.removeEventListener('resize', recalcFacePageSize)
+  window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
 watch(clusterThreshold, (v) => {
