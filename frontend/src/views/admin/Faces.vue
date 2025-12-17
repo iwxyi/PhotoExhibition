@@ -1,14 +1,14 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen admin-shell text-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-light">人脸管理</h1>
         </div>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
+        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
       </div>
 
-      <div class="bg-gray-800 rounded-lg p-4 mb-6">
+      <div class="glass-panel p-4 mb-6">
         <div class="flex flex-wrap gap-4 items-center">
           <input
             v-model="keyword"
@@ -23,7 +23,7 @@
         </div>
       </div>
 
-      <div class="bg-gray-800 rounded-lg p-4">
+      <div class="glass-panel p-4">
         <div class="overflow-auto">
           <table class="min-w-full text-sm">
             <thead class="text-left text-gray-400">

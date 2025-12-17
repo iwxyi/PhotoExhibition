@@ -1,15 +1,15 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen admin-shell text-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-light">相册管理</h1>
         <div class="space-x-3">
-          <button @click="load" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50">刷新</button>
-          <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
+          <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
+          <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
         </div>
       </div>
 
-      <div class="bg-gray-800 rounded-lg p-4 mb-6">
+      <div class="glass-panel p-4 mb-6">
         <div class="flex flex-wrap gap-4">
           <input v-model="keyword" placeholder="搜索名称/路径" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <button @click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
@@ -20,12 +20,10 @@
         <div
           v-for="album in albums"
           :key="album.id"
-          class="bg-gray-800 rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 transition-all flex flex-col cursor-default"
-          @contextmenu.prevent="openContextMenu($event, album)"
+          class="glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
         >
           <!-- 三合一封面预览（左竖 + 右上/右下） -->
-          <!-- 缩小高度，让卡片更紧凑；高度随宽度响应调整 -->
-          <div class="relative h-32 md:h-36 lg:h-40 bg-gray-900 overflow-hidden flex-shrink-0">
+          <div class="relative h-40 md:h-44 lg:h-48 bg-gray-900 overflow-hidden flex-shrink-0">
             <template v-if="album.coverImages && (album.coverImages.leftVertical || album.coverImages.rightTop || album.coverImages.rightBottom)">
               <div class="grid h-full w-full grid-cols-[2fr,3fr] grid-rows-2 gap-[2px]">
                 <!-- 左侧竖图（占两行） -->
@@ -88,8 +86,7 @@
                 <h3 class="text-base font-medium truncate" :title="album.displayTitle || album.name">
                   {{ album.displayTitle || album.name }}
                 </h3>
-                <!-- 时间放在标题行最右侧，右对齐且不换行 -->
-                <span class="text-xs text-gray-500 flex-shrink-0 text-right whitespace-nowrap">
+                <span class="text-xs text-gray-500 flex-shrink-0">
                   {{ formatDate(album.takenAt) }}
                 </span>
               </div>
@@ -126,41 +123,41 @@
               </div>
         </div>
 
-            <!-- 操作改为右键菜单触发，这里不再显示按钮 -->
+            <!-- 固定在底部的操作栏 -->
+            <div class="flex gap-1.5 flex-shrink-0 mt-2">
+              <button
+                @click="addTag(album)"
+                class="flex-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-colors"
+              >
+                标签
+              </button>
+              <button
+                @click="editDescription(album)"
+                class="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+              >
+                备注
+              </button>
+              <button
+                @click="editName(album)"
+                class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+                title="重命名"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+              <button
+                @click="deleteAlbum(album)"
+                class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+                title="删除"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-
-      <!-- 右键菜单 -->
-      <div
-        v-if="contextMenu.visible"
-        class="fixed z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg min-w-[140px] text-sm"
-        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-      >
-        <button
-          class="w-full text-left px-4 py-2 hover:bg-gray-700 rounded-t-lg"
-          @click="handleMenuAddTag"
-        >
-          添加标签
-        </button>
-        <button
-          class="w-full text-left px-4 py-2 hover:bg-gray-700"
-          @click="handleMenuEditDescription"
-        >
-          编辑备注
-        </button>
-        <button
-          class="w-full text-left px-4 py-2 hover:bg-gray-700"
-          @click="handleMenuEditName"
-        >
-          重命名
-        </button>
-        <button
-          class="w-full text-left px-4 py-2 hover:bg-red-600 text-red-300 rounded-b-lg"
-          @click="handleMenuDelete"
-        >
-          删除相册
-        </button>
       </div>
     </div>
 
@@ -240,19 +237,6 @@ const allTags = ref<any[]>([])
 const tagDialogVisible = ref(false)
 const tagKeyword = ref('')
 const currentAlbum = ref<any>(null)
-
-// 右键菜单状态
-const contextMenu = ref<{
-  visible: boolean
-  x: number
-  y: number
-  album: any | null
-}>({
-  visible: false,
-  x: 0,
-  y: 0,
-  album: null
-})
 
 const load = async () => {
   loading.value = true
@@ -447,61 +431,14 @@ const deleteAlbum = async (album: any) => {
   }
 }
 
-const openContextMenu = (e: MouseEvent, album: any) => {
-  contextMenu.value = {
-    visible: true,
-    x: e.clientX,
-    y: e.clientY,
-    album
-  }
-}
-
-const closeContextMenu = () => {
-  contextMenu.value.visible = false
-  contextMenu.value.album = null
-}
-
-const handleMenuAddTag = () => {
-  if (!contextMenu.value.album) return
-  const album = contextMenu.value.album
-  closeContextMenu()
-  addTag(album)
-}
-
-const handleMenuEditDescription = () => {
-  if (!contextMenu.value.album) return
-  const album = contextMenu.value.album
-  closeContextMenu()
-  editDescription(album)
-}
-
-const handleMenuEditName = () => {
-  if (!contextMenu.value.album) return
-  const album = contextMenu.value.album
-  closeContextMenu()
-  editName(album)
-}
-
-const handleMenuDelete = () => {
-  if (!contextMenu.value.album) return
-  const album = contextMenu.value.album
-  closeContextMenu()
-  deleteAlbum(album)
-}
-
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
-    // 1. 先关闭右键菜单
-    if (contextMenu.value.visible) {
-      closeContextMenu()
-      return
-    }
-    // 2. 再关闭标签弹窗
+    // 如果标签弹窗打开，先关闭弹窗
     if (tagDialogVisible.value) {
       tagDialogVisible.value = false
       return
     }
-    // 3. 都没有时才返回后台首页
+    // 否则返回首页
     router.push('/admin')
   }
 }
@@ -512,12 +449,9 @@ onMounted(async () => {
   await load()
   console.log('相册管理页面加载完成，相册数:', albums.value.length, '标签数:', allTags.value.length)
   window.addEventListener('keydown', handleGlobalKeydown)
-  // 点击空白处关闭右键菜单
-  window.addEventListener('click', closeContextMenu)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
-  window.removeEventListener('click', closeContextMenu)
 })
 </script>

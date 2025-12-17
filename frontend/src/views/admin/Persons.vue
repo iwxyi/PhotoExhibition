@@ -831,13 +831,13 @@
         </div>
       </div>
     </div>
+    <PhotoViewer
+      v-model:visible="viewerVisible"
+      :photos="viewerPhotos"
+      :start-index="viewerIndex"
+      :auto-show-faces="true"
+    />
   </div>
-  <PhotoViewer
-    v-model:visible="viewerVisible"
-    :photos="viewerPhotos"
-    :start-index="viewerIndex"
-    :auto-show-faces="true"
-  />
 </template>
 
 <script setup lang="ts">

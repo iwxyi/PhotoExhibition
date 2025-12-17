@@ -73,8 +73,9 @@
         <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0">
           <div class="relative w-full h-full flex items-center justify-center overflow-hidden" ref="imageContainer">
             <div
-              class="relative inline-block"
-              :style="getImageTransformStyle()"
+              class="relative inline-block viewer-open-anim"
+              :class="{ 'viewer-open-anim--active': isOpeningFromThumb }"
+              :style="[getImageTransformStyle(), openAnimStyle]"
               @wheel="onWheelZoom"
               @touchstart="onTouchStartZoom"
               @touchmove="onTouchMoveZoom"
@@ -281,6 +282,8 @@ const props = defineProps<{
   startIndex?: number
   /** 是否在打开时自动显示人脸框（例如人物管理中查看照片） */
   autoShowFaces?: boolean
+  /** 可选：从缩略图平滑放大时的初始矩形（相对于视口） */
+  originRect?: { top: number; left: number; width: number; height: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -305,6 +308,10 @@ const mainImage = ref<HTMLImageElement | null>(null)
 const imageContainer = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
+
+// 缩略图到查看器的开场动画
+const isOpeningFromThumb = ref(false)
+const openAnimStyle = ref<Record<string, string>>({})
 
 // 缩放相关状态
 const scale = ref(1)
@@ -355,6 +362,42 @@ watch(
       // 如果开启了自动显示人脸框，并且当前照片有人脸，则默认打开人脸框
       if (props.autoShowFaces && currentPhoto.value?.faces?.length) {
         showFaceBoxes.value = true
+      }
+
+      // 如果提供了缩略图矩形信息，则计算从缩略图平滑放大的动画参数
+      if (props.originRect) {
+        nextTick(() => {
+          if (!imageContainer.value || !mainImage.value) return
+          const containerRect = imageContainer.value.getBoundingClientRect()
+          const targetRect = mainImage.value.getBoundingClientRect()
+          const origin = props.originRect!
+
+          // 以容器中心为坐标系，计算缩略图中心与目标中心的偏移
+          const originCenterX = origin.left + origin.width / 2
+          const originCenterY = origin.top + origin.height / 2
+          const targetCenterX = targetRect.left + targetRect.width / 2
+          const targetCenterY = targetRect.top + targetRect.height / 2
+
+          const tx = originCenterX - targetCenterX
+          const ty = originCenterY - targetCenterY
+
+          // 使用宽度比作为初始缩放近似值，并且始终从「略小」放大到 1，避免从大缩小的观感
+          const ratio = origin.width / Math.max(targetRect.width, 1)
+          const scaleApprox = Math.max(0.4, Math.min(1, ratio))
+
+          openAnimStyle.value = {
+            '--pe-open-tx': `${tx}px`,
+            '--pe-open-ty': `${ty}px`,
+            '--pe-open-scale': String(scaleApprox)
+          }
+          isOpeningFromThumb.value = true
+
+          // 动画结束后重置标记，仅保留最终状态
+          setTimeout(() => {
+            isOpeningFromThumb.value = false
+            openAnimStyle.value = {}
+          }, 260)
+        })
       }
     }
   },

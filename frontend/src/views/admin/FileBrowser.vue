@@ -1,14 +1,14 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen admin-shell text-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <!-- 头部 -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-light">文件浏览器</h1>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
+        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
       </div>
 
       <!-- 路径导航栏（限制在 basePath 下，只显示相对路径） -->
-      <div class="bg-gray-800 rounded-lg p-4 mb-4">
+      <div class="glass-panel p-4 mb-4">
         <div class="flex items-center gap-2 flex-wrap">
           <button
             @click="goToPath(basePath)"
@@ -38,7 +38,7 @@
       </div>
 
       <!-- 工具栏 -->
-      <div class="bg-gray-800 rounded-lg p-4 mb-4 flex items-center gap-2 flex-wrap">
+      <div class="glass-panel p-4 mb-4 flex items-center gap-2 flex-wrap">
         <button
           @click="showCreateDialog = true"
           class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm"
@@ -47,7 +47,7 @@
         </button>
         <button
           @click="refresh"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap min-w-[90px]"
+          class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg text-sm whitespace-nowrap min-w-[90px] border border-white/10"
         >
           刷新
         </button>
@@ -103,7 +103,7 @@
 
       <!-- 文件列表 -->
       <div
-        class="bg-gray-800 rounded-lg p-4"
+        class="glass-panel p-4"
         @dragover.prevent
         @drop.prevent="handleDrop"
       >

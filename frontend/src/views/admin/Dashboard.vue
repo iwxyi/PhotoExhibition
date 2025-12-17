@@ -1,23 +1,35 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen admin-shell text-white">
     <!-- 顶部导航 -->
-    <nav class="bg-gray-800 border-b border-gray-700">
+    <nav class="glass-toolbar">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
           <div class="flex items-center">
-            <h1 class="text-xl font-light">管理后台</h1>
+            <h1 class="text-xl font-light tracking-wide">管理后台</h1>
           </div>
           <div class="flex items-center space-x-4">
-            <span class="text-gray-400">欢迎，{{ authStore.username }}</span>
+            <button
+              @click="themeStore.toggleTheme"
+              class="p-2 rounded-full bg-black/20 hover:bg-black/35 border border-white/15 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80"
+              :title="themeStore.isDark ? '切换为浅色模式' : '切换为深色模式'"
+            >
+              <svg v-if="!themeStore.isDark" class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+              <svg v-else class="w-4 h-4 text-sky-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </button>
+            <span class="text-gray-200/80 text-sm">欢迎，{{ authStore.username }}</span>
             <button
               @click="handleLogout"
-              class="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              class="px-3 py-1.5 text-xs bg-gray-900/70 hover:bg-gray-800 rounded-lg transition-colors border border-white/15"
             >
               退出登录
             </button>
             <router-link
               to="/"
-              class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+              class="btn-primary text-xs"
             >
               返回首页
             </router-link>
@@ -26,110 +38,107 @@
       </div>
     </nav>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <!-- 统计卡片 -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <router-link
-          to="/admin/albums"
-          class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
-        >
-          <h3 class="text-gray-400 text-sm mb-2">相册总数</h3>
-          <p class="text-3xl font-light">{{ stats.albums }}</p>
-        </router-link>
-        <router-link
-          to="/admin/photos"
-          class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
-        >
-          <h3 class="text-gray-400 text-sm mb-2">图片总数</h3>
-          <p class="text-3xl font-light">{{ stats.photos }}</p>
-        </router-link>
-        <router-link
-          to="/admin/persons"
-          class="bg-gray-800 rounded-lg p-6 block hover:bg-gray-700 transition-colors"
-        >
-          <h3 class="text-gray-400 text-sm mb-2">人物总数</h3>
-          <p class="text-3xl font-light">{{ stats.persons }}</p>
-        </router-link>
-      </div>
-
-      <!-- 操作面板 -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- 扫描面板 -->
-        <div class="bg-gray-800 rounded-lg p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-light">扫描</h2>
-            <div class="text-sm text-gray-400 flex items-center gap-2">
-              <span v-if="scanning" class="inline-flex items-center gap-2 text-blue-300">
-                <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span> 扫描中...
-              </span>
-              <span v-else class="text-gray-500">空闲</span>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <!-- Hero 区域 -->
+      <section class="admin-hero">
+        <div class="admin-hero-gradient"></div>
+        <div class="admin-hero-particle admin-hero-particle--small"></div>
+        <div class="admin-hero-particle admin-hero-particle--medium"></div>
+        <div class="admin-hero-particle admin-hero-particle--large"></div>
+        <div class="admin-hero-content">
+          <div class="space-y-4">
+            <div class="admin-hero-metric">
+              <span class="admin-hero-metric-dot"></span>
+              <span>Photo Exhibition · Admin</span>
+            </div>
+            <div>
+              <h2 class="text-2xl sm:text-3xl lg:text-4xl font-light tracking-wide mb-2">
+                智能相册中枢
+              </h2>
+              <p class="text-sm sm:text-base text-slate-300/90 max-w-xl">
+                统一管理相册、标签、人脸与文件系统，配合自动扫描与 AI 能力，让你的作品集始终保持有序而精彩。
+              </p>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-1">
+              <router-link
+                to="/admin/albums"
+                class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+              >
+                <div class="admin-hero-stat-label">相册</div>
+                <div class="admin-hero-stat-value">{{ stats.albums }}</div>
+              </router-link>
+              <router-link
+                to="/admin/photos"
+                class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+              >
+                <div class="admin-hero-stat-label">照片</div>
+                <div class="admin-hero-stat-value">{{ stats.photos }}</div>
+              </router-link>
+              <router-link
+                to="/admin/persons"
+                class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+              >
+                <div class="admin-hero-stat-label">已识别人脸</div>
+                <div class="admin-hero-stat-value">{{ stats.faces }}</div>
+              </router-link>
             </div>
           </div>
-          <div class="space-y-3">
-            <button
-              @click="triggerScan"
-              :disabled="scanning"
-              class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {{ scanning ? '扫描中...' : '触发图片扫描' }}
-            </button>
-            <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-sm text-gray-300 space-y-1">
-              <div class="flex justify-between">
-                <span>最后触发时间</span>
-                <span>{{ lastScanTime || '—' }}</span>
+          <div class="admin-hero-secondary space-y-3">
+            <div class="flex items-center justify-between gap-4">
+              <div class="text-xs text-slate-300/90">
+                <div class="font-medium mb-1">最近扫描状态</div>
+                <div class="space-y-0.5">
+                  <p>状态：<span class="text-sky-300">{{ scanStatus }}</span></p>
+                  <p>进度：<span class="text-sky-300">{{ scanProgressText }}</span></p>
+                  <p>时间：<span class="text-slate-300">{{ lastScanTime || '—' }}</span></p>
+                </div>
               </div>
-              <div class="flex justify-between">
-                <span>状态</span>
-                <span>{{ scanStatus }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>进度</span>
-                <span>{{ scanProgressText }}</span>
-              </div>
-            </div>
-            <div class="text-sm text-gray-400">
-              <p>• 手动触发图片目录扫描</p>
-              <p>• 提取EXIF信息并生成缩略图</p>
+              <button
+                @click="triggerScan"
+                :disabled="scanning"
+                class="btn-primary text-xs disabled:opacity-60"
+              >
+                {{ scanning ? '扫描中…' : '立即触发扫描' }}
+              </button>
             </div>
           </div>
         </div>
+      </section>
 
-        <!-- 数据管理 -->
-        <div class="bg-gray-800 rounded-lg p-6">
-          <h2 class="text-xl font-light mb-4">数据管理</h2>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <router-link
-              to="/admin/faces"
-              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-            >
-              <div class="text-center">人脸管理</div>
-              <div class="text-xs text-gray-400 text-center mt-1">{{ stats.faces }} 个</div>
-            </router-link>
-            <router-link
-              to="/admin/tags"
-              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-            >
-              <div class="text-center">标签管理</div>
-              <div class="text-xs text-gray-400 text-center mt-1">{{ stats.tags }} 个</div>
-            </router-link>
-            <router-link
-              to="/admin/migration"
-              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
-            >
-              数据迁移
-            </router-link>
-            <router-link
-              to="/admin/file-browser"
-              class="block px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-center"
-            >
-              文件浏览器
-            </router-link>
-          </div>
+      <!-- 数据管理 -->
+      <div class="glass-panel p-6 admin-card-animate admin-card-4">
+        <h2 class="text-xl font-light mb-4">数据管理</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <router-link
+            to="/admin/tags"
+            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors border border-white/10"
+          >
+            <div class="text-center">标签管理</div>
+            <div class="text-xs text-gray-400 text-center mt-1">{{ stats.tags }} 个</div>
+          </router-link>
+          <router-link
+            to="/admin/migration"
+            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
+          >
+            数据迁移
+          </router-link>
+          <router-link
+            to="/admin/file-browser"
+            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
+          >
+            文件浏览器
+          </router-link>
+          <router-link
+            to="/admin/theme"
+            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
+          >
+            主题与风格
+          </router-link>
         </div>
       </div>
 
       <!-- API测试工具 -->
-      <div class="mt-8 bg-gray-800 rounded-lg p-6">
+      <div class="glass-panel p-6">
         <h2 class="text-xl font-light mb-4">API测试工具</h2>
         <div class="space-y-4">
           <div>
@@ -209,10 +218,12 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { api } from '@/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 
 const stats = ref({
   albums: 0,

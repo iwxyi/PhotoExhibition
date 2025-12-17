@@ -1,13 +1,13 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen admin-shell text-white">
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-light">数据迁移</h1>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
+        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
       </div>
 
       <!-- 移动/重命名 -->
-      <div class="bg-gray-800 rounded-lg p-6 space-y-4">
+      <div class="glass-panel p-6 space-y-4">
         <h2 class="text-xl font-light">移动 / 重命名目录</h2>
         <div class="space-y-3">
           <div class="flex gap-2 flex-wrap">
@@ -25,7 +25,7 @@
           <button
             @click="move"
             :disabled="loading || !source || !target"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+            class="btn-primary disabled:opacity-50"
           >
             {{ loading ? '执行中...' : '执行移动/重命名' }}
           </button>
@@ -33,7 +33,7 @@
       </div>
 
       <!-- 删除目录 -->
-      <div class="bg-gray-800 rounded-lg p-6 space-y-4">
+      <div class="glass-panel p-6 space-y-4">
         <h2 class="text-xl font-light text-red-300">删除目录（谨慎）</h2>
         <div class="space-y-3">
           <div class="flex gap-2 flex-wrap">
@@ -59,7 +59,7 @@
       </div>
 
       <!-- 结果提示 -->
-      <div v-if="message" class="bg-gray-800 rounded-lg p-4 text-sm" :class="error ? 'text-red-300' : 'text-green-300'">
+      <div v-if="message" class="glass-panel p-4 text-sm" :class="error ? 'text-red-300' : 'text-green-300'">
         {{ message }}
       </div>
     </div>

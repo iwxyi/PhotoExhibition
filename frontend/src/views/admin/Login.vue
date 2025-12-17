@@ -1,6 +1,6 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-900 px-4">
-    <div class="max-w-md w-full space-y-8">
+  <div class="min-h-screen admin-shell flex items-center justify-center px-4">
+    <div class="max-w-md w-full space-y-8 glass-panel px-6 py-8">
       <div>
         <h2 class="mt-6 text-center text-3xl font-extralight text-white">
           管理员登录

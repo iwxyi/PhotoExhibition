@@ -143,17 +143,32 @@ public class AlbumService {
             verticalPhoto = photos.get(0);
         }
 
-        // 横图兜底：不够两张，用剩余未使用的照片补齐
-        if (horizontalPhotos.size() < 2) {
+        // 确保横图不与竖图重复，并优先使用真正的横图
+        // 当整组照片都是横图时，避免左竖图和右上图使用同一张
+        List<Photo> cleanHorizontal = new java.util.ArrayList<>(2);
+        for (Photo p : photos) {
+            if (p.getId().equals(verticalPhoto.getId())) {
+                continue;
+            }
+            if (p.getHeight() != null && p.getWidth() != null && p.getWidth() > p.getHeight()) {
+                cleanHorizontal.add(p);
+            }
+            if (cleanHorizontal.size() >= 2) {
+                break;
+            }
+        }
+        // 横图兜底：不够两张，用剩余未使用的照片补齐（仍然避免与竖图和已选横图重复）
+        if (cleanHorizontal.size() < 2) {
             for (Photo p : photos) {
-                if (horizontalPhotos.size() >= 2) break;
+                if (cleanHorizontal.size() >= 2) break;
                 if (p.getId().equals(verticalPhoto.getId())) continue;
-                boolean alreadyUsed = horizontalPhotos.stream().anyMatch(h -> h.getId().equals(p.getId()));
+                boolean alreadyUsed = cleanHorizontal.stream().anyMatch(h -> h.getId().equals(p.getId()));
                 if (!alreadyUsed) {
-                    horizontalPhotos.add(p);
+                    cleanHorizontal.add(p);
                 }
             }
         }
+        horizontalPhotos = cleanHorizontal;
 
         // 赋值封面
         cover.setLeftVertical(convertPhotoToDTO(verticalPhoto));

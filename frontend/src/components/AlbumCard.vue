@@ -2,7 +2,11 @@
   <div
     class="photo-card cursor-pointer group space-y-1 w-full mx-auto"
     :class="cardSizeClass"
+    role="button"
+    tabindex="0"
     @click="$emit('click')"
+    @keydown.enter.prevent="$emit('click')"
+    @keydown.space.prevent="$emit('click')"
   >
     <!-- 封面布局：左侧竖图 + 右侧上下两张横图 -->
     <div class="grid grid-cols-2 gap-0.5 relative w-full" :class="coverSizeClass">

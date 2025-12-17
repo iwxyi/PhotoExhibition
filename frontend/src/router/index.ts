@@ -41,6 +41,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/admin/theme',
+    name: 'AdminTheme',
+    component: () => import('@/views/admin/Theme.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/admin/albums',
     name: 'AdminAlbums',
     component: () => import('@/views/admin/Albums.vue'),

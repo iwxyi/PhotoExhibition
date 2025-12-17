@@ -28,7 +28,7 @@
             v-for="(photo, idx) in photos"
             :key="photo.id"
             class="photo-card cursor-pointer"
-            @click="openViewer(idx)"
+            @click="openViewer(idx, $event)"
           >
             <img
               :src="getImageUrl(photo)"
@@ -49,6 +49,7 @@
       v-model:visible="viewerVisible"
       :photos="photos"
       :start-index="viewerIndex"
+      :origin-rect="viewerOriginRect"
     />
   </div>
 </template>
@@ -69,6 +70,7 @@ const loading = computed(() => photoStore.loading)
 
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
+const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -80,8 +82,24 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const openViewer = (idx: number) => {
+const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
+
+  // 以图片本身为主，避免外层卡片比查看器中的图片更大导致“从大缩小”的观感
+  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
+  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  if (rectSource) {
+    const rect = rectSource.getBoundingClientRect()
+    viewerOriginRect.value = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    }
+  } else {
+    viewerOriginRect.value = null
+  }
+
   viewerVisible.value = true
 }
 

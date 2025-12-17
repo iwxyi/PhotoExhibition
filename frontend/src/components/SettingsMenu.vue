@@ -2,7 +2,7 @@
   <div class="relative">
     <button
       @click="toggleSettings"
-      class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
       title="设置"
     >
       <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -12,7 +12,7 @@
     </button>
     <div
       v-if="showSettings"
-      class="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 p-3 space-y-3"
+      class="absolute right-0 mt-2 w-64 glass-panel z-50 p-3 space-y-3"
     >
       <div class="flex items-center justify-between">
         <span class="text-sm text-gray-700 dark:text-gray-200">进入后台</span>
@@ -73,6 +73,21 @@
           注意：需要重启后端服务生效
         </div>
       </div>
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">深色模式</span>
+          <button
+            @click="toggleDark"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+            :class="isDark ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+          >
+            <span
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+              :class="isDark ? 'translate-x-6' : 'translate-x-1'"
+            ></span>
+          </button>
+        </div>
+      </div>
       <div v-if="isPhotoWall">
         <div class="flex items-center justify-between">
           <span class="text-xs text-gray-500 dark:text-gray-400">视差滚动</span>
@@ -97,6 +112,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useLanguageStore } from '@/stores/language'
+import { useThemeStore } from '@/stores/theme'
 
 const router = useRouter()
 const route = useRoute()
@@ -104,6 +120,7 @@ const showSettings = ref(false)
 
 const { coverSize, previewSize, parallaxEnabled, setCoverSize, setPreviewSize, setParallaxEnabled } = useUiSettings()
 const { language, setLanguage } = useLanguageStore()
+const themeStore = useThemeStore()
 
 // 判断是否在图墙页面
 const isPhotoWall = computed(() => route.path === '/wall')
@@ -122,8 +139,14 @@ const previewOptions = [
 const activeBtnClass = 'border-gray-900 dark:border-white bg-gray-900 dark:bg-white text-white dark:text-gray-900'
 const inactiveBtnClass = 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
 
+const isDark = computed(() => themeStore.isDark)
+
 const toggleSettings = () => {
   showSettings.value = !showSettings.value
+}
+
+const toggleDark = () => {
+  themeStore.toggleTheme()
 }
 
 const goAdmin = () => {

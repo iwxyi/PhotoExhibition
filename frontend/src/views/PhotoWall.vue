@@ -36,7 +36,7 @@
           :ref="el => setItemRef(el, idx)"
           class="masonry-item photo-card cursor-pointer"
           :style="getItemStyle(idx)"
-          @click="openViewer(idx)"
+          @click="openViewer(idx, $event)"
         >
           <div class="masonry-image-wrapper">
             <img
@@ -72,6 +72,7 @@
       v-model:visible="viewerVisible"
       :photos="photos"
       :start-index="viewerIndex"
+      :origin-rect="viewerOriginRect"
     />
   </div>
 </template>
@@ -98,6 +99,7 @@ const currentPage = ref(0)
 const hasMore = ref(true)
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
+const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const savedScrollTop = ref(0)
 const masonryContainer = ref<HTMLElement | null>(null)
 const isLoadingMore = ref(false)
@@ -229,8 +231,23 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const openViewer = (idx: number) => {
+const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
+
+  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
+  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  if (rectSource) {
+    const rect = rectSource.getBoundingClientRect()
+    viewerOriginRect.value = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    }
+  } else {
+    viewerOriginRect.value = null
+  }
+
   viewerVisible.value = true
 }
 

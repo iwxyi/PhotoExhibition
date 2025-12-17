@@ -1,15 +1,15 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen admin-shell text-white">
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-light">标签管理</h1>
         <div class="space-x-3">
-          <button @click="load" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50">刷新</button>
-          <router-link to="/admin" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">返回</router-link>
+          <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
+          <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
         </div>
       </div>
 
-      <div class="bg-gray-800 rounded-lg p-4 flex flex-col max-h-[calc(100vh-140px)]">
+      <div class="glass-panel p-4 flex flex-col max-h-[calc(100vh-140px)]">
         <!-- 顶部操作栏 -->
         <div class="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0">
           <div class="flex flex-wrap items-center gap-3">

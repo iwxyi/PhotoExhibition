@@ -41,7 +41,7 @@
           v-for="(photo, idx) in photos"
           :key="`photo-${photo.id}-${idx}`"
           class="photo-card cursor-pointer group"
-          @click="openViewer(idx)"
+          @click="openViewer(idx, $event)"
         >
           <div class="aspect-square overflow-hidden rounded-lg">
             <img
@@ -75,6 +75,7 @@
       v-model:visible="viewerVisible"
       :photos="photos"
       :start-index="viewerIndex"
+      :origin-rect="viewerOriginRect"
     />
   </div>
 </template>
@@ -112,14 +113,30 @@ const getImageUrl = (photo: any) => {
 
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
+const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const gridClass = computed(() => {
   if (previewSize.value === 'sm') return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4'
   if (previewSize.value === 'lg') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-7'
   return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
 })
 
-const openViewer = (idx: number) => {
+const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
+
+  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
+  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  if (rectSource) {
+    const rect = rectSource.getBoundingClientRect()
+    viewerOriginRect.value = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    }
+  } else {
+    viewerOriginRect.value = null
+  }
+
   viewerVisible.value = true
 }
 
