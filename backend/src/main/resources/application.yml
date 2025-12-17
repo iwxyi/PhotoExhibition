@@ -95,7 +95,7 @@ face:
   detection:
     enabled: true  # 设置为true启用专业检测模型，需要下载对应的ONNX模型文件
     model-path: ./models/face_detection.onnx  # 检测模型路径
-    confidence-threshold: 0.30  # 检测置信度阈值
+    confidence-threshold: 0.6  # 检测置信度阈值
     nms-threshold: 0.4  # 非极大值抑制阈值
     input-size: 640  # 模型输入尺寸（RetinaFace 常用 640）
     allow-simple-fallback: false  # 是否允许回退到简单肤色检测（建议准确率优先时关闭）
