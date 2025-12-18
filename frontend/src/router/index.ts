@@ -11,7 +11,8 @@ const routes = [
   {
     path: '/album/:id',
     name: 'Album',
-    component: () => import('@/views/AlbumDetail.vue')
+    component: () => import('@/views/AlbumDetail.vue'),
+    meta: { transitionName: 'none' } // 禁用页面过渡动画，只使用FLIP动画
   },
   {
     path: '/photo/:id',

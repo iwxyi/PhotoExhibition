@@ -104,86 +104,86 @@
         </div>
       </div>
     </div>
-    <!-- 人脸标注弹窗 -->
-    <div v-if="showFaceDialog" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="closeFaceDialog">
+  <!-- 人脸标注弹窗 -->
+  <div v-if="showFaceDialog" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="closeFaceDialog">
       <div class="glass-panel w-full max-w-3xl p-6 max-h-[80vh] overflow-y-auto">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="text-lg font-light">人脸标注 - {{ activePhoto?.filename }}</h3>
-            <p class="text-sm text-gray-400">可为检测到的人脸设置姓名和说明</p>
-          </div>
-          <button @click="closeFaceDialog" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">关闭</button>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-lg font-light">人脸标注 - {{ activePhoto?.filename }}</h3>
+          <p class="text-sm text-gray-400">可为检测到的人脸设置姓名和说明</p>
         </div>
+        <button @click="closeFaceDialog" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">关闭</button>
+      </div>
 
-        <div v-if="faceLoading" class="text-gray-400">加载中...</div>
-        <div v-else-if="!faces.length" class="text-gray-400">未检测到人脸</div>
-        <div v-else class="space-y-4">
-          <div v-for="face in faces" :key="face.id" class="border border-gray-700 rounded-lg p-4">
-            <div class="flex items-start gap-4">
-              <!-- 圆形人脸照片 - 更大尺寸，针对人脸居中放大裁切 -->
-              <div class="flex-shrink-0">
-                <div
-                  v-if="getFaceImageUrl(face)"
-                  class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 overflow-hidden relative"
-                  :style="getFaceCropStyle(face)"
-                >
-                </div>
-                <div
-                  v-else
-                  class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center text-gray-500 text-xs"
-                >
-                  无图
-                </div>
+      <div v-if="faceLoading" class="text-gray-400">加载中...</div>
+      <div v-else-if="!faces.length" class="text-gray-400">未检测到人脸</div>
+      <div v-else class="space-y-4">
+        <div v-for="face in faces" :key="face.id" class="border border-gray-700 rounded-lg p-4">
+          <div class="flex items-start gap-4">
+            <!-- 圆形人脸照片 - 更大尺寸，针对人脸居中放大裁切 -->
+            <div class="flex-shrink-0">
+              <div
+                v-if="getFaceImageUrl(face)"
+                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 overflow-hidden relative"
+                :style="getFaceCropStyle(face)"
+              >
               </div>
-              <!-- 名字和说明输入框 -->
-              <div class="flex-1 min-w-0 flex flex-col gap-3">
-                <input
-                  v-model="face.personName"
-                  placeholder="输入姓名，留空则移除关联"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
-                <textarea
-                  v-model="face.personDescription"
-                  rows="2"
-                  placeholder="备注（例如：家庭成员、朋友、客户等）"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                ></textarea>
-                <!-- 位置、置信度信息 -->
-                <div class="text-xs text-gray-500">
-                  位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
-                  <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
-                </div>
-                <div class="text-right">
-                  <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
-                    {{ savingFaceId===face.id ? '保存中...' : '保存' }}
-                  </button>
-                </div>
+              <div
+                v-else
+                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center text-gray-500 text-xs"
+              >
+                无图
+              </div>
+            </div>
+            <!-- 名字和说明输入框 -->
+            <div class="flex-1 min-w-0 flex flex-col gap-3">
+              <input
+                v-model="face.personName"
+                placeholder="输入姓名，留空则移除关联"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+              <textarea
+                v-model="face.personDescription"
+                rows="2"
+                placeholder="备注（例如：家庭成员、朋友、客户等）"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              ></textarea>
+              <!-- 位置、置信度信息 -->
+              <div class="text-xs text-gray-500">
+                位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
+                <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="text-right">
+                <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
+                  {{ savingFaceId===face.id ? '保存中...' : '保存' }}
+                </button>
               </div>
             </div>
           </div>
         </div>
-        <div class="mt-4 flex items-center justify-between">
-          <button
-            class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm disabled:opacity-50"
-            :disabled="rescanLoading"
-            @click="rescanFaces"
-          >
-            {{ rescanLoading ? '重建中...' : '重建人脸' }}
-          </button>
-          <span class="text-xs text-gray-400" v-if="rescanMessage">{{ rescanMessage }}</span>
-        </div>
+      </div>
+      <div class="mt-4 flex items-center justify-between">
+        <button
+          class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm disabled:opacity-50"
+          :disabled="rescanLoading"
+          @click="rescanFaces"
+        >
+          {{ rescanLoading ? '重建中...' : '重建人脸' }}
+        </button>
+        <span class="text-xs text-gray-400" v-if="rescanMessage">{{ rescanMessage }}</span>
       </div>
     </div>
+  </div>
 
-    <transition name="fade">
-      <div
-        v-if="previewVisible"
-        class="preview-float bg-gray-900"
-        :style="previewStyle"
-      >
-        <img :src="previewUrl" alt="预览" class="w-full h-full object-contain" />
-      </div>
-    </transition>
+  <transition name="fade">
+    <div
+      v-if="previewVisible"
+      class="preview-float bg-gray-900"
+      :style="previewStyle"
+    >
+      <img :src="previewUrl" alt="预览" class="w-full h-full object-contain" />
+    </div>
+  </transition>
   </div>
 </template>
 

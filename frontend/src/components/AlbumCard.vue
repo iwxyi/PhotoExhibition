@@ -4,14 +4,15 @@
     :class="cardSizeClass"
     role="button"
     tabindex="0"
-    @click="$emit('click')"
-    @keydown.enter.prevent="$emit('click')"
-    @keydown.space.prevent="$emit('click')"
+    @click="handleClick"
+    @keydown.enter.prevent="handleClick"
+    @keydown.space.prevent="handleClick"
+    ref="cardRef"
   >
     <!-- 封面布局：左侧竖图 + 右侧上下两张横图 -->
     <div class="grid grid-cols-2 gap-0.5 relative w-full" :class="coverSizeClass">
       <!-- 左侧竖图 -->
-      <div class="row-span-2 overflow-hidden rounded-l-lg">
+      <div class="row-span-2 overflow-hidden rounded-l-lg" ref="leftImageRef">
         <img
           v-if="leftImage"
           :src="getImageUrl(leftImage)"
@@ -25,7 +26,7 @@
       </div>
 
       <!-- 右侧上方横图 -->
-      <div class="overflow-hidden rounded-tr-lg">
+      <div class="overflow-hidden rounded-tr-lg" ref="rightTopImageRef">
         <img
           v-if="rightTopImage"
           :src="getImageUrl(rightTopImage)"
@@ -37,7 +38,7 @@
       </div>
 
       <!-- 右侧下方横图 -->
-      <div class="overflow-hidden rounded-br-lg relative">
+      <div class="overflow-hidden rounded-br-lg relative" ref="rightBottomImageRef">
         <img
           v-if="rightBottomImage"
           :src="getImageUrl(rightBottomImage)"
@@ -70,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Album } from '@/stores/photo'
 
 type Size = 'sm' | 'md' | 'lg'
@@ -79,6 +80,15 @@ const props = defineProps<{
   album: Album
   size?: Size
 }>()
+
+const emit = defineEmits<{
+  click: []
+}>()
+
+const cardRef = ref<HTMLElement>()
+const leftImageRef = ref<HTMLElement>()
+const rightTopImageRef = ref<HTMLElement>()
+const rightBottomImageRef = ref<HTMLElement>()
 
 const leftImage = computed(() => props.album.coverImages?.leftVertical)
 const rightTopImage = computed(() => props.album.coverImages?.rightTop)
@@ -112,6 +122,44 @@ const getImageUrl = (photo: any) => {
     return `/api/files${photo.thumbnailPath}`
   }
   return `/api/files${photo.originalPath}`
+}
+
+const handleClick = () => {
+  // 记录三张封面图的位置和对应的照片ID
+  const coverRects: Array<{ photoId: number; rect: DOMRect }> = []
+  
+  if (leftImage.value && leftImageRef.value) {
+    const rect = leftImageRef.value.getBoundingClientRect()
+    coverRects.push({ photoId: leftImage.value.id, rect })
+  }
+  
+  if (rightTopImage.value && rightTopImageRef.value) {
+    const rect = rightTopImageRef.value.getBoundingClientRect()
+    coverRects.push({ photoId: rightTopImage.value.id, rect })
+  }
+  
+  if (rightBottomImage.value && rightBottomImageRef.value) {
+    const rect = rightBottomImageRef.value.getBoundingClientRect()
+    coverRects.push({ photoId: rightBottomImage.value.id, rect })
+  }
+  
+  // 保存到 sessionStorage，供 AlbumDetail 使用
+  if (coverRects.length > 0) {
+    sessionStorage.setItem(
+      `album-cover-rects-${props.album.id}`,
+      JSON.stringify(coverRects.map(({ photoId, rect }) => ({
+        photoId,
+        rect: {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height
+        }
+      })))
+    )
+  }
+  
+  emit('click')
 }
 </script>
 

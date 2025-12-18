@@ -4,7 +4,7 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-16">
           <router-link to="/" class="text-2xl font-light tracking-wider">摄影展</router-link>
-          <button @click="$router.back()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button @click="handleBack" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             返回
           </button>
         </div>
@@ -12,11 +12,7 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div v-if="loading" class="flex justify-center items-center h-96">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
-      </div>
-
-      <div v-else-if="album">
+      <div v-if="album">
         <div class="mb-12">
           <h1 class="text-4xl font-light mb-4">{{ album.name }}</h1>
           <p v-if="album.description" class="text-gray-600 dark:text-gray-400 mb-4">{{ album.description }}</p>
@@ -28,7 +24,9 @@
             v-for="(photo, idx) in photos"
             :key="photo.id"
             class="photo-card cursor-pointer"
+            :style="isTransitioning && transitionPhotoIds.includes(photo.id) ? { visibility: 'hidden', transition: 'none' } : {}"
             @click="openViewer(idx, $event)"
+            :ref="el => setPhotoRef(el, photo.id)"
           >
             <img
               :src="getImageUrl(photo)"
@@ -55,8 +53,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
@@ -72,6 +70,11 @@ const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 
+const photoRefs = ref<Map<number, HTMLElement>>(new Map())
+const isTransitioning = ref(false)
+const transitionPhotoIds = ref<number[]>([])
+let transitionClones: HTMLElement[] = []
+
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
     return `/api/files${photo.webpPath}`
@@ -82,10 +85,18 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
+const setPhotoRef = (el: HTMLElement | null, photoId: number) => {
+  if (el) {
+    photoRefs.value.set(photoId, el)
+  } else {
+    photoRefs.value.delete(photoId)
+  }
+}
+
 const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
 
-  // 以图片本身为主，避免外层卡片比查看器中的图片更大导致“从大缩小”的观感
+  // 以图片本身为主，避免外层卡片比查看器中的图片更大导致"从大缩小"的观感
   const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
   const rectSource = img || (e.currentTarget as HTMLElement | null)
   if (rectSource) {
@@ -103,25 +114,394 @@ const openViewer = (idx: number, e: MouseEvent) => {
   viewerVisible.value = true
 }
 
+const handleBack = async () => {
+  if (viewerVisible.value) {
+    viewerVisible.value = false
+    return
+  }
+  
+  // 执行反向动画后跳转
+  await performReverseTransition()
+  router.back()
+}
+
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     if (viewerVisible.value) {
       viewerVisible.value = false
     } else {
-      router.back()
+      handleBack()
     }
   }
 }
 
+// 执行从封面到详情页的 FLIP 动画
+const performCoverTransition = async () => {
+  const albumId = parseInt(route.params.id as string)
+  const storageKey = `album-cover-rects-${albumId}`
+  const storedData = sessionStorage.getItem(storageKey)
+  
+  if (!storedData || photos.value.length === 0) {
+    return
+  }
+  
+  try {
+    const coverRects: Array<{ photoId: number; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
+    
+    // 等待 DOM 更新完成
+    await nextTick()
+    
+    // 找到对应的照片元素
+    const transitions: Array<{
+      photoId: number
+      fromRect: DOMRect
+      toRect: DOMRect
+      img: HTMLImageElement
+    }> = []
+    
+    for (const { photoId, rect: fromRectData } of coverRects) {
+      const photoElement = photoRefs.value.get(photoId)
+      if (!photoElement) continue
+      
+      const img = photoElement.querySelector('img') as HTMLImageElement
+      if (!img) continue
+      
+      const toRect = photoElement.getBoundingClientRect()
+      
+      transitions.push({
+        photoId,
+        fromRect: new DOMRect(fromRectData.left, fromRectData.top, fromRectData.width, fromRectData.height),
+        toRect,
+        img
+      })
+    }
+    
+    if (transitions.length === 0) {
+      sessionStorage.removeItem(storageKey)
+      return
+    }
+    
+    // 创建临时克隆元素
+    transitionClones = []
+    // transitionPhotoIds 和 isTransitioning 已经在 onMounted 中设置了
+    // 如果 transitions 为空，清理状态
+    if (transitions.length === 0) {
+      transitionPhotoIds.value = []
+      isTransitioning.value = false
+    }
+    
+    for (const { photoId, fromRect, toRect, img } of transitions) {
+      // 确保图片已经加载完成
+      if (!img.complete) {
+        await new Promise((resolve) => {
+          if (img.complete) {
+            resolve(undefined)
+          } else {
+            img.onload = () => resolve(undefined)
+            img.onerror = () => resolve(undefined) // 即使加载失败也继续
+          }
+        })
+      }
+      
+      const clone = img.cloneNode(true) as HTMLImageElement
+      // 确保克隆的图片也使用相同的 src
+      clone.src = img.src
+      clone.style.position = 'fixed'
+      clone.style.top = `${fromRect.top}px`
+      clone.style.left = `${fromRect.left}px`
+      clone.style.width = `${fromRect.width}px`
+      clone.style.height = `${fromRect.height}px`
+      clone.style.objectFit = 'cover'
+      clone.style.zIndex = '9999'
+      clone.style.pointerEvents = 'none'
+      clone.style.borderRadius = '8px'
+      clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+      clone.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
+      clone.style.willChange = 'transform, width, height, top, left'
+      
+      document.body.appendChild(clone)
+      transitionClones.push(clone)
+      
+      // 完全隐藏原始图片（使用 visibility 而不是 opacity，避免过渡效果）
+      const photoElement = photoRefs.value.get(photoId)
+      if (photoElement) {
+        photoElement.style.visibility = 'hidden'
+        photoElement.style.pointerEvents = 'none'
+        photoElement.style.transition = 'none' // 禁用所有过渡效果
+      }
+      
+      // 触发动画
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          clone.style.top = `${toRect.top}px`
+          clone.style.left = `${toRect.left}px`
+          clone.style.width = `${toRect.width}px`
+          clone.style.height = `${toRect.height}px`
+        })
+      })
+    }
+    
+    // 动画完成后（600ms），无缝切换
+    const cleanupTimer = setTimeout(() => {
+      // 使用 requestAnimationFrame 确保在下一帧执行，避免闪烁
+      requestAnimationFrame(() => {
+        // 先让原始图片可见
+        transitions.forEach(({ photoId }) => {
+          const photoElement = photoRefs.value.get(photoId)
+          if (photoElement) {
+            photoElement.style.visibility = 'visible'
+            photoElement.style.pointerEvents = ''
+          }
+        })
+        
+        // 在同一帧中立即移除克隆元素
+        requestAnimationFrame(() => {
+          transitionClones.forEach(clone => {
+            clone.remove()
+          })
+          transitionClones = []
+          
+          // 恢复原始图片的样式
+          transitions.forEach(({ photoId }) => {
+            const photoElement = photoRefs.value.get(photoId)
+            if (photoElement) {
+              photoElement.style.visibility = ''
+              photoElement.style.pointerEvents = ''
+              photoElement.style.transition = ''
+            }
+          })
+          
+          isTransitioning.value = false
+          transitionPhotoIds.value = []
+          // 不要在这里清除 sessionStorage，保留它以便返回时执行反向动画
+          // sessionStorage.removeItem(storageKey)
+        })
+      })
+    }, 600)
+    
+    // 保存清理定时器，以便在组件卸载时清理
+    ;(window as any).__albumTransitionCleanupTimer = cleanupTimer
+    
+  } catch (error) {
+    console.error('执行封面过渡动画失败:', error)
+    sessionStorage.removeItem(storageKey)
+    isTransitioning.value = false
+    transitionPhotoIds.value = []
+  }
+}
+
+// 执行返回时的反向 FLIP 动画
+const performReverseTransition = async (): Promise<void> => {
+  const albumId = parseInt(route.params.id as string)
+  const storageKey = `album-cover-rects-${albumId}`
+  const storedData = sessionStorage.getItem(storageKey)
+  
+  if (!storedData || photos.value.length === 0) {
+    // 即使没有存储数据，也要等待一小段时间，确保路由跳转不会太快
+    await new Promise(resolve => setTimeout(resolve, 50))
+    return
+  }
+  
+  try {
+    const coverRects: Array<{ photoId: number; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
+    
+    // 找到对应的照片元素
+    const transitions: Array<{
+      photoId: number
+      fromRect: DOMRect
+      toRect: DOMRect
+      img: HTMLImageElement
+    }> = []
+    
+    for (const { photoId, rect: toRectData } of coverRects) {
+      const photoElement = photoRefs.value.get(photoId)
+      if (!photoElement) continue
+      
+      const img = photoElement.querySelector('img') as HTMLImageElement
+      if (!img) continue
+      
+      const fromRect = photoElement.getBoundingClientRect()
+      
+      transitions.push({
+        photoId,
+        fromRect,
+        toRect: new DOMRect(toRectData.left, toRectData.top, toRectData.width, toRectData.height),
+        img
+      })
+    }
+    
+    if (transitions.length === 0) {
+      // 即使没有找到对应的照片元素，也要等待一小段时间，确保路由跳转不会太快
+      await new Promise(resolve => setTimeout(resolve, 50))
+      return
+    }
+    
+    // 创建临时克隆元素
+    const clones: HTMLElement[] = []
+    
+    for (const { photoId, fromRect, toRect, img } of transitions) {
+      const clone = img.cloneNode(true) as HTMLImageElement
+      clone.src = img.src // 确保克隆的图片也使用相同的 src
+      clone.style.position = 'fixed'
+      clone.style.top = `${fromRect.top}px`
+      clone.style.left = `${fromRect.left}px`
+      clone.style.width = `${fromRect.width}px`
+      clone.style.height = `${fromRect.height}px`
+      clone.style.objectFit = 'cover'
+      clone.style.zIndex = '9999'
+      clone.style.pointerEvents = 'none'
+      clone.style.borderRadius = '8px'
+      clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+      clone.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
+      clone.style.willChange = 'transform, width, height, top, left'
+      
+      document.body.appendChild(clone)
+      clones.push(clone)
+      
+      // 隐藏原始图片（使用 visibility 而不是 opacity，避免过渡效果）
+      const photoElement = photoRefs.value.get(photoId)
+      if (photoElement) {
+        photoElement.style.visibility = 'hidden'
+        photoElement.style.pointerEvents = 'none'
+        photoElement.style.transition = 'none' // 禁用所有过渡效果
+      }
+      
+      // 触发动画
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          clone.style.top = `${toRect.top}px`
+          clone.style.left = `${toRect.left}px`
+          clone.style.width = `${toRect.width}px`
+          clone.style.height = `${toRect.height}px`
+        })
+      })
+    }
+    
+    // 等待动画完成
+    await new Promise(resolve => setTimeout(resolve, 600))
+    
+    // 清理克隆元素
+    clones.forEach(clone => {
+      clone.remove()
+    })
+    
+    // 恢复原始图片显示（虽然即将卸载，但为了完整性）
+    transitions.forEach(({ photoId }) => {
+      const photoElement = photoRefs.value.get(photoId)
+      if (photoElement) {
+        photoElement.style.visibility = ''
+        photoElement.style.pointerEvents = ''
+        photoElement.style.transition = ''
+      }
+    })
+    
+    // 标记已经执行了反向动画，以便 Home 页面知道
+    sessionStorage.setItem('album-reverse-transition-complete', 'true')
+    
+    // 动画完成后清除 sessionStorage
+    sessionStorage.removeItem(storageKey)
+    
+  } catch (error) {
+    console.error('执行反向过渡动画失败:', error)
+    // 即使出错也清除 sessionStorage，避免残留数据
+    sessionStorage.removeItem(storageKey)
+  }
+}
+
+// 拦截所有离开相册页面的操作（包括浏览器返回按钮、ESC键等）
+onBeforeRouteLeave(async (to, from, next) => {
+  // 如果 PhotoViewer 打开，先关闭它，不执行动画
+  if (viewerVisible.value) {
+    viewerVisible.value = false
+    next()
+    return
+  }
+  
+  // 执行反向动画（无论是否成功都继续导航）
+  try {
+    await performReverseTransition()
+  } catch (error) {
+    console.error('反向动画执行失败:', error)
+  }
+  
+  // 动画完成后继续导航
+  next()
+})
+
 onMounted(async () => {
   const albumId = parseInt(route.params.id as string)
+  const storageKey = `album-cover-rects-${albumId}`
+  const storedData = sessionStorage.getItem(storageKey)
+  
+  // 如果有需要动画的图片，立即隐藏它们（在数据加载前）
+  if (storedData) {
+    try {
+      const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
+      const photoIdsToHide = coverRects.map(r => r.photoId)
+      
+      // 在数据加载前，先标记需要隐藏的图片
+      transitionPhotoIds.value = photoIdsToHide
+      isTransitioning.value = true
+    } catch (e) {
+      // 忽略解析错误
+    }
+  }
+  
   await photoStore.fetchAlbumById(albumId)
   await photoStore.fetchPhotosByAlbum(albumId)
   window.addEventListener('keydown', handleKeydown)
+  
+  // 等待照片元素渲染完成
+  await nextTick()
+  
+  // 如果有需要隐藏的图片，立即隐藏它们
+  if (transitionPhotoIds.value.length > 0) {
+    transitionPhotoIds.value.forEach(photoId => {
+      const photoElement = photoRefs.value.get(photoId)
+      if (photoElement) {
+        photoElement.style.visibility = 'hidden'
+        photoElement.style.transition = 'none'
+      }
+    })
+  }
+  
+  // 再等待一帧，确保所有图片都已渲染
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  
+  // 执行封面过渡动画（不需要等待页面切换动画，因为已禁用）
+  await performCoverTransition()
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  
+  // 清理所有临时克隆元素
+  transitionClones.forEach(clone => {
+    clone.remove()
+  })
+  transitionClones = []
+  
+  // 清理定时器
+  if ((window as any).__albumTransitionCleanupTimer) {
+    clearTimeout((window as any).__albumTransitionCleanupTimer)
+    delete (window as any).__albumTransitionCleanupTimer
+  }
+  if ((window as any).__albumTransitionRemoveTimer) {
+    clearTimeout((window as any).__albumTransitionRemoveTimer)
+    delete (window as any).__albumTransitionRemoveTimer
+  }
+  
+  // 恢复所有照片的显示
+  photoRefs.value.forEach((photoElement) => {
+    photoElement.style.visibility = ''
+    photoElement.style.pointerEvents = ''
+    photoElement.style.transition = ''
+  })
+  
+  // 组件卸载时清除 sessionStorage（如果还没有被清除）
+  const albumId = parseInt(route.params.id as string)
+  const storageKey = `album-cover-rects-${albumId}`
+  sessionStorage.removeItem(storageKey)
 })
 </script>
 

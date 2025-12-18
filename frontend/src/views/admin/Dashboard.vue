@@ -60,27 +60,27 @@
               </p>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-1">
-              <router-link
-                to="/admin/albums"
+        <router-link
+          to="/admin/albums"
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
-              >
+        >
                 <div class="admin-hero-stat-label">相册</div>
                 <div class="admin-hero-stat-value">{{ stats.albums }}</div>
-              </router-link>
-              <router-link
-                to="/admin/photos"
+        </router-link>
+        <router-link
+          to="/admin/photos"
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
-              >
+        >
                 <div class="admin-hero-stat-label">照片</div>
                 <div class="admin-hero-stat-value">{{ stats.photos }}</div>
-              </router-link>
-              <router-link
-                to="/admin/persons"
+        </router-link>
+        <router-link
+          to="/admin/persons"
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
-              >
+        >
                 <div class="admin-hero-stat-label">已识别人脸</div>
                 <div class="admin-hero-stat-value">{{ stats.faces }}</div>
-              </router-link>
+        </router-link>
             </div>
           </div>
           <div class="admin-hero-secondary space-y-3">
@@ -93,41 +93,41 @@
                   <p>时间：<span class="text-slate-300">{{ lastScanTime || '—' }}</span></p>
                 </div>
               </div>
-              <button
-                @click="triggerScan"
-                :disabled="scanning"
+            <button
+              @click="triggerScan"
+              :disabled="scanning"
                 class="btn-primary text-xs disabled:opacity-60"
-              >
+            >
                 {{ scanning ? '扫描中…' : '立即触发扫描' }}
-              </button>
+            </button>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 数据管理 -->
+        <!-- 数据管理 -->
       <div class="glass-panel p-6 admin-card-animate admin-card-4">
-        <h2 class="text-xl font-light mb-4">数据管理</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <router-link
-            to="/admin/tags"
+          <h2 class="text-xl font-light mb-4">数据管理</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <router-link
+              to="/admin/tags"
             class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors border border-white/10"
-          >
-            <div class="text-center">标签管理</div>
-            <div class="text-xs text-gray-400 text-center mt-1">{{ stats.tags }} 个</div>
-          </router-link>
-          <router-link
-            to="/admin/migration"
+            >
+              <div class="text-center">标签管理</div>
+              <div class="text-xs text-gray-400 text-center mt-1">{{ stats.tags }} 个</div>
+            </router-link>
+            <router-link
+              to="/admin/migration"
             class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
-          >
-            数据迁移
-          </router-link>
-          <router-link
-            to="/admin/file-browser"
+            >
+              数据迁移
+            </router-link>
+            <router-link
+              to="/admin/file-browser"
             class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
-          >
-            文件浏览器
-          </router-link>
+            >
+              文件浏览器
+            </router-link>
           <router-link
             to="/admin/theme"
             class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"

@@ -314,10 +314,43 @@
   filter: blur(0);
 }
 
-/* 无障碍：尊重用户“减少动态效果”设置 */
+/* 仅淡入淡出，无缩放效果（用于相册详情页，避免与FLIP动画冲突） */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 200ms ease;
+  will-change: opacity;
+}
+
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
+}
+
+.page-fade-enter-to,
+.page-fade-leave-from {
+  opacity: 1;
+}
+
+/* 无过渡动画（用于相册详情页，只使用FLIP动画） */
+.page-none-enter-active,
+.page-none-leave-active {
+  transition: none;
+}
+
+.page-none-enter-from,
+.page-none-leave-to,
+.page-none-enter-to,
+.page-none-leave-from {
+  opacity: 1;
+  transform: none;
+}
+
+/* 无障碍：尊重用户"减少动态效果"设置 */
 @media (prefers-reduced-motion: reduce) {
   .page-fade-slide-enter-active,
-  .page-fade-slide-leave-active {
+  .page-fade-slide-leave-active,
+  .page-fade-enter-active,
+  .page-fade-leave-active {
     transition: none !important;
     animation: none !important;
   }
@@ -387,5 +420,10 @@
   100% {
     transform: translate(0, 0) scale(1);
   }
+}
+
+/* 相册封面到详情页的过渡动画 */
+.album-photo-transition {
+  transition: opacity 0.3s ease;
 }
 
