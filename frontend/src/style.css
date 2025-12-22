@@ -216,7 +216,8 @@
     @apply text-xs text-slate-200/90;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: center;
+    align-items: center;
     gap: 4px;
     padding: 10px 12px;
     border-radius: 999px;
@@ -261,7 +262,7 @@
   /* 卡片进场动画（stagger） */
   .admin-card-animate {
     opacity: 0;
-    transform: translateY(8px) scale(0.99);
+    transform: translateY(8px);
     filter: blur(1px);
     animation-name: card-fade-up;
     animation-duration: 400ms;
@@ -290,28 +291,18 @@
   }
 }
 
-/* 全局路由切换动画 */
+/* 全局路由切换动画 - 已禁用动画效果 */
 .page-fade-slide-enter-active,
 .page-fade-slide-leave-active {
-  transition:
-    opacity 260ms ease,
-    transform 260ms ease,
-    filter 260ms ease;
-  will-change: opacity, transform, filter;
+  transition: none;
 }
 
 .page-fade-slide-enter-from,
-.page-fade-slide-leave-to {
-  opacity: 0;
-  transform: translateY(4px) scale(0.99);
-  filter: blur(1px);
-}
-
+.page-fade-slide-leave-to,
 .page-fade-slide-enter-to,
 .page-fade-slide-leave-from {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0);
+  transform: none;
+  filter: none;
 }
 
 /* 仅淡入淡出，无缩放效果（用于相册详情页，避免与FLIP动画冲突） */
@@ -395,12 +386,12 @@
 @keyframes card-fade-up {
   0% {
     opacity: 0;
-    transform: translateY(8px) scale(0.99);
+    transform: translateY(8px);
     filter: blur(1px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
     filter: blur(0);
   }
 }

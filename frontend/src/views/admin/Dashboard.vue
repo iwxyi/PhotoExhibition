@@ -29,7 +29,7 @@
             </button>
             <router-link
               to="/"
-              class="btn-primary text-xs"
+              class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors border border-blue-500/30"
             >
               返回首页
             </router-link>
@@ -63,6 +63,7 @@
         <router-link
           to="/admin/albums"
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+                style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">相册</div>
                 <div class="admin-hero-stat-value">{{ stats.albums }}</div>
@@ -70,6 +71,7 @@
         <router-link
           to="/admin/photos"
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+                style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">照片</div>
                 <div class="admin-hero-stat-value">{{ stats.photos }}</div>
@@ -77,6 +79,7 @@
         <router-link
           to="/admin/persons"
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+                style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">已识别人脸</div>
                 <div class="admin-hero-stat-value">{{ stats.faces }}</div>
@@ -96,7 +99,7 @@
             <button
               @click="triggerScan"
               :disabled="scanning"
-                class="btn-primary text-xs disabled:opacity-60"
+                class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60 border border-blue-500/30"
             >
                 {{ scanning ? '扫描中…' : '立即触发扫描' }}
             </button>
@@ -105,41 +108,41 @@
         </div>
       </section>
 
-        <!-- 数据管理 -->
-      <div class="glass-panel p-6 admin-card-animate admin-card-4">
-          <h2 class="text-xl font-light mb-4">数据管理</h2>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <!-- 数据管理和API测试工具 -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="glass-panel p-4 admin-card-animate admin-card-4">
+          <h2 class="text-lg font-light mb-3">数据管理</h2>
+          <div class="grid grid-cols-2 gap-2">
             <router-link
               to="/admin/tags"
-            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors border border-white/10"
+            class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors border border-white/10 text-sm"
             >
               <div class="text-center">标签管理</div>
-              <div class="text-xs text-gray-400 text-center mt-1">{{ stats.tags }} 个</div>
+              <div class="text-xs text-gray-400 text-center mt-0.5">{{ stats.tags }} 个</div>
             </router-link>
             <router-link
               to="/admin/migration"
-            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
+            class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
             >
               数据迁移
             </router-link>
             <router-link
               to="/admin/file-browser"
-            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
+            class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
             >
               文件浏览器
             </router-link>
           <router-link
             to="/admin/theme"
-            class="block px-4 py-3 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10"
+            class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
           >
             主题与风格
           </router-link>
+          </div>
         </div>
-      </div>
 
-      <!-- API测试工具 -->
-      <div class="glass-panel p-6">
-        <h2 class="text-xl font-light mb-4">API测试工具</h2>
+        <div class="glass-panel p-4">
+        <h2 class="text-lg font-light mb-3">API测试工具</h2>
         <div class="space-y-4">
           <div>
             <label class="block text-sm text-gray-400 mb-2">选择API端点</label>
@@ -209,6 +212,7 @@
             <pre class="bg-gray-900 p-4 rounded-lg overflow-auto text-sm">{{ JSON.stringify(apiResponse, null, 2) }}</pre>
           </div>
         </div>
+      </div>
       </div>
     </div>
   </div>

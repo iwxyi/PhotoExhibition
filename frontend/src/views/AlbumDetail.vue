@@ -26,7 +26,7 @@
             class="photo-card cursor-pointer"
             :style="isTransitioning && transitionPhotoIds.includes(photo.id) ? { visibility: 'hidden', transition: 'none' } : {}"
             @click="openViewer(idx, $event)"
-            :ref="el => setPhotoRef(el, photo.id)"
+            :ref="(el: Element | ComponentPublicInstance | null) => setPhotoRef(el as Element | null, photo.id)"
           >
             <img
               :src="getImageUrl(photo)"
@@ -53,8 +53,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
@@ -85,9 +85,10 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const setPhotoRef = (el: HTMLElement | null, photoId: number) => {
-  if (el) {
-    photoRefs.value.set(photoId, el)
+const setPhotoRef = (el: Element | null, photoId: number) => {
+  const domEl = el as HTMLElement | null
+  if (domEl) {
+    photoRefs.value.set(photoId, domEl)
   } else {
     photoRefs.value.delete(photoId)
   }
@@ -119,10 +120,9 @@ const handleBack = async () => {
     viewerVisible.value = false
     return
   }
-  
-  // 执行反向动画后跳转
-  await performReverseTransition()
-  router.back()
+
+  // 启动返回动画并立即返回相册列表，由 Home 页面继续完成缩回到封面的效果
+  startBackTransitionAndNavigate()
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
@@ -290,58 +290,35 @@ const performCoverTransition = async () => {
   }
 }
 
-// 执行返回时的反向 FLIP 动画
-const performReverseTransition = async (): Promise<void> => {
+// 启动返回相册列表时的克隆动画（真正的缩回动画在 Home 页执行）
+const startBackTransitionAndNavigate = () => {
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  
+
+  // 如果没有封面位置信息，直接返回
   if (!storedData || photos.value.length === 0) {
-    // 即使没有存储数据，也要等待一小段时间，确保路由跳转不会太快
-    await new Promise(resolve => setTimeout(resolve, 50))
+    router.back()
     return
   }
-  
+
   try {
-    const coverRects: Array<{ photoId: number; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
-    
-    // 找到对应的照片元素
-    const transitions: Array<{
-      photoId: number
-      fromRect: DOMRect
-      toRect: DOMRect
-      img: HTMLImageElement
-    }> = []
-    
-    for (const { photoId, rect: toRectData } of coverRects) {
+    const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
+
+    const usedPhotoIds: number[] = []
+
+    // 为三张封面对应的照片创建克隆元素，停留在当前详情页的位置
+    for (const { photoId } of coverRects) {
       const photoElement = photoRefs.value.get(photoId)
       if (!photoElement) continue
-      
+
       const img = photoElement.querySelector('img') as HTMLImageElement
       if (!img) continue
-      
+
       const fromRect = photoElement.getBoundingClientRect()
-      
-      transitions.push({
-        photoId,
-        fromRect,
-        toRect: new DOMRect(toRectData.left, toRectData.top, toRectData.width, toRectData.height),
-        img
-      })
-    }
-    
-    if (transitions.length === 0) {
-      // 即使没有找到对应的照片元素，也要等待一小段时间，确保路由跳转不会太快
-      await new Promise(resolve => setTimeout(resolve, 50))
-      return
-    }
-    
-    // 创建临时克隆元素
-    const clones: HTMLElement[] = []
-    
-    for (const { photoId, fromRect, toRect, img } of transitions) {
+
       const clone = img.cloneNode(true) as HTMLImageElement
-      clone.src = img.src // 确保克隆的图片也使用相同的 src
+      clone.src = img.src
       clone.style.position = 'fixed'
       clone.style.top = `${fromRect.top}px`
       clone.style.left = `${fromRect.left}px`
@@ -354,79 +331,35 @@ const performReverseTransition = async (): Promise<void> => {
       clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
       clone.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
       clone.style.willChange = 'transform, width, height, top, left'
-      
+      clone.classList.add('album-back-clone')
+      clone.dataset.albumId = String(albumId)
+      clone.dataset.photoId = String(photoId)
+
       document.body.appendChild(clone)
-      clones.push(clone)
-      
-      // 隐藏原始图片（使用 visibility 而不是 opacity，避免过渡效果）
-      const photoElement = photoRefs.value.get(photoId)
-      if (photoElement) {
-        photoElement.style.visibility = 'hidden'
-        photoElement.style.pointerEvents = 'none'
-        photoElement.style.transition = 'none' // 禁用所有过渡效果
-      }
-      
-      // 触发动画
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          clone.style.top = `${toRect.top}px`
-          clone.style.left = `${toRect.left}px`
-          clone.style.width = `${toRect.width}px`
-          clone.style.height = `${toRect.height}px`
-        })
-      })
+      usedPhotoIds.push(photoId)
     }
-    
-    // 等待动画完成
-    await new Promise(resolve => setTimeout(resolve, 600))
-    
-    // 清理克隆元素
-    clones.forEach(clone => {
-      clone.remove()
-    })
-    
-    // 恢复原始图片显示（虽然即将卸载，但为了完整性）
-    transitions.forEach(({ photoId }) => {
-      const photoElement = photoRefs.value.get(photoId)
-      if (photoElement) {
-        photoElement.style.visibility = ''
-        photoElement.style.pointerEvents = ''
-        photoElement.style.transition = ''
-      }
-    })
-    
-    // 标记已经执行了反向动画，以便 Home 页面知道
-    sessionStorage.setItem('album-reverse-transition-complete', 'true')
-    
-    // 动画完成后清除 sessionStorage
-    sessionStorage.removeItem(storageKey)
-    
+
+    // 如果没有创建任何克隆，直接返回
+    if (usedPhotoIds.length === 0) {
+      router.back()
+      return
+    }
+
+    // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画
+    sessionStorage.setItem(
+      'album-back-transition',
+      JSON.stringify({
+        albumId,
+        photoIds: usedPhotoIds
+      })
+    )
   } catch (error) {
-    console.error('执行反向过渡动画失败:', error)
-    // 即使出错也清除 sessionStorage，避免残留数据
-    sessionStorage.removeItem(storageKey)
+    console.error('启动返回相册列表动画失败:', error)
+  } finally {
+    // 不等待动画，立刻执行返回路由，让用户感觉是“边返回边动画”
+    router.back()
   }
 }
-
-// 拦截所有离开相册页面的操作（包括浏览器返回按钮、ESC键等）
-onBeforeRouteLeave(async (to, from, next) => {
-  // 如果 PhotoViewer 打开，先关闭它，不执行动画
-  if (viewerVisible.value) {
-    viewerVisible.value = false
-    next()
-    return
-  }
-  
-  // 执行反向动画（无论是否成功都继续导航）
-  try {
-    await performReverseTransition()
-  } catch (error) {
-    console.error('反向动画执行失败:', error)
-  }
-  
-  // 动画完成后继续导航
-  next()
-})
 
 onMounted(async () => {
   const albumId = parseInt(route.params.id as string)
