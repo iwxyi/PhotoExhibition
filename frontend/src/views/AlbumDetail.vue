@@ -24,7 +24,7 @@
             v-for="(photo, idx) in photos"
             :key="photo.id"
             class="photo-card cursor-pointer"
-            :style="isTransitioning && transitionPhotoIds.includes(photo.id) ? { visibility: 'hidden', transition: 'none' } : {}"
+            :style="getPhotoStyle(photo.id, idx)"
             @click="openViewer(idx, $event)"
             :ref="(el: Element | ComponentPublicInstance | null) => setPhotoRef(el as Element | null, photo.id)"
           >
@@ -73,6 +73,8 @@ const viewerOriginRect = ref<{ top: number; left: number; width: number; height:
 const photoRefs = ref<Map<number, HTMLElement>>(new Map())
 const isTransitioning = ref(false)
 const transitionPhotoIds = ref<number[]>([])
+const remainingPhotosVisible = ref(false)
+const remainingPhotoIndexes = ref<Map<number, number>>(new Map())
 let transitionClones: HTMLElement[] = []
 
 const getImageUrl = (photo: any) => {
@@ -83,6 +85,41 @@ const getImageUrl = (photo: any) => {
     return `/api/files${photo.thumbnailPath}`
   }
   return `/api/files${photo.originalPath}`
+}
+
+const getPhotoStyle = (photoId: number, idx: number) => {
+  // 如果是封面图片且正在过渡，隐藏它们
+  if (isTransitioning.value && transitionPhotoIds.value.includes(photoId)) {
+    return { visibility: 'hidden', transition: 'none' }
+  }
+
+  // 如果动画还没有开始，为剩余图片添加初始动画样式
+  if (!remainingPhotosVisible.value && !transitionPhotoIds.value.includes(photoId)) {
+    return {
+      opacity: '0',
+      transform: 'translateY(30px)',
+      transition: 'none'
+    }
+  }
+
+  // 如果动画已经开始，添加渐进动画
+  if (remainingPhotosVisible.value && !transitionPhotoIds.value.includes(photoId)) {
+    const index = remainingPhotoIndexes.value.get(photoId) || 0
+    // 使用非线性延迟：前面的图片延迟少，后面的图片延迟相对更多，但不是完全线性
+    const baseDelay = Math.min(index * 20, 80) // 最大延迟80ms，比之前更短
+    const randomFactor = Math.random() * 15 // 添加轻微的随机性使动画更自然
+    const delay = Math.max(0, baseDelay + randomFactor - 7)
+
+    return {
+      opacity: '1',
+      transform: 'translateY(0)',
+      transition: 'all 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+      transitionDelay: `${delay}ms`
+    }
+  }
+
+  // 默认样式
+  return {}
 }
 
 const setPhotoRef = (el: Element | null, photoId: number) => {
@@ -136,13 +173,13 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 // 执行从封面到详情页的 FLIP 动画
-const performCoverTransition = async () => {
+const performCoverTransition = async (): Promise<boolean> => {
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  
+
   if (!storedData || photos.value.length === 0) {
-    return
+    return false
   }
   
   try {
@@ -188,8 +225,14 @@ const performCoverTransition = async () => {
     if (transitions.length === 0) {
       transitionPhotoIds.value = []
       isTransitioning.value = false
+      return false
     }
     
+    // 在封面动画开始前，同时开始剩余图片的动画
+    nextTick(() => {
+      remainingPhotosVisible.value = true
+    })
+
     for (const { photoId, fromRect, toRect, img } of transitions) {
       // 确保图片已经加载完成
       if (!img.complete) {
@@ -216,7 +259,8 @@ const performCoverTransition = async () => {
       clone.style.pointerEvents = 'none'
       clone.style.borderRadius = '8px'
       clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-      clone.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
+      // 使用更快且非线性的 easing，使打开封面更有弹性且更快
+      clone.style.transition = 'all 380ms cubic-bezier(0.22, 1, 0.36, 1)'
       clone.style.willChange = 'transform, width, height, top, left'
       
       document.body.appendChild(clone)
@@ -241,7 +285,7 @@ const performCoverTransition = async () => {
       })
     }
     
-    // 动画完成后（600ms），无缝切换
+    // 动画完成后（约 420ms），无缝切换
     const cleanupTimer = setTimeout(() => {
       // 使用 requestAnimationFrame 确保在下一帧执行，避免闪烁
       requestAnimationFrame(() => {
@@ -253,14 +297,14 @@ const performCoverTransition = async () => {
             photoElement.style.pointerEvents = ''
           }
         })
-        
+
         // 在同一帧中立即移除克隆元素
         requestAnimationFrame(() => {
           transitionClones.forEach(clone => {
             clone.remove()
           })
           transitionClones = []
-          
+
           // 恢复原始图片的样式
           transitions.forEach(({ photoId }) => {
             const photoElement = photoRefs.value.get(photoId)
@@ -270,23 +314,26 @@ const performCoverTransition = async () => {
               photoElement.style.transition = ''
             }
           })
-          
+
           isTransitioning.value = false
           transitionPhotoIds.value = []
+
           // 不要在这里清除 sessionStorage，保留它以便返回时执行反向动画
           // sessionStorage.removeItem(storageKey)
         })
       })
-    }, 600)
+    }, 420)
     
     // 保存清理定时器，以便在组件卸载时清理
     ;(window as any).__albumTransitionCleanupTimer = cleanupTimer
     
+    return true
   } catch (error) {
     console.error('执行封面过渡动画失败:', error)
     sessionStorage.removeItem(storageKey)
     isTransitioning.value = false
     transitionPhotoIds.value = []
+    return false
   }
 }
 
@@ -329,7 +376,8 @@ const startBackTransitionAndNavigate = () => {
       clone.style.pointerEvents = 'none'
       clone.style.borderRadius = '8px'
       clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-      clone.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
+      // 反向/返回克隆也使用更快且非线性的 easing，保持与打开动画一致
+      clone.style.transition = 'all 380ms cubic-bezier(0.22, 1, 0.36, 1)'
       clone.style.willChange = 'transform, width, height, top, left'
       clone.classList.add('album-back-clone')
       clone.dataset.albumId = String(albumId)
@@ -380,6 +428,9 @@ onMounted(async () => {
     }
   }
   
+  // 清除可能遗留的上一相册图片，避免在加载新相册前闪现旧内容
+  photoStore.photos = []
+  photoStore.currentAlbum = null
   await photoStore.fetchAlbumById(albumId)
   await photoStore.fetchPhotosByAlbum(albumId)
   window.addEventListener('keydown', handleKeydown)
@@ -401,8 +452,21 @@ onMounted(async () => {
   // 再等待一帧，确保所有图片都已渲染
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
   
+  // 在开始封面动画之前，先准备剩余图片的动画数据
+  let remainingIndex = 0
+  photos.value.forEach((photo) => {
+    if (!transitionPhotoIds.value.includes(photo.id)) {
+      remainingPhotoIndexes.value.set(photo.id, remainingIndex++)
+    }
+  })
+
   // 执行封面过渡动画（不需要等待页面切换动画，因为已禁用）
-  await performCoverTransition()
+  const hasCoverTransition = await performCoverTransition()
+
+  // 如果没有封面动画，直接开始剩余图片动画
+  if (!hasCoverTransition) {
+    remainingPhotosVisible.value = true
+  }
 })
 
 onUnmounted(() => {
