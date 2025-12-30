@@ -170,6 +170,44 @@ public class AdminController {
     }
 
     /**
+     * 重新分析所有相册的氛围信息
+     */
+    @PostMapping("/atmosphere/reanalyze-all")
+    public ResponseEntity<Map<String, Object>> reanalyzeAllAtmosphere() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            photoScanService.reanalyzeAllAtmosphere();
+            resp.put("message", "氛围信息重新分析任务已异步启动");
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "氛围分析失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 重新分析指定相册的氛围信息
+     */
+    @PostMapping("/albums/{id}/reanalyze-atmosphere")
+    public ResponseEntity<Map<String, Object>> reanalyzeAlbumAtmosphere(@PathVariable Long id) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            photoScanService.reanalyzeAlbumAtmosphere(id);
+            resp.put("message", "相册氛围信息重新分析完成");
+            resp.put("albumId", id);
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "氛围分析失败");
+            resp.put("albumId", id);
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
      * 批量操作
      */
     @PostMapping("/photos/batch")

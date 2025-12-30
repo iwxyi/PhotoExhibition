@@ -28,5 +28,11 @@ public class AlbumDTO {
      * 相册的拍摄日期（取最早的照片拍摄时间），用于前端显示
      */
     private LocalDateTime takenAt;
+
+    // 氛围信息
+    private String backgroundColor;
+    private String foregroundColor;
+    private String navbarColor;
+    private List<AtmosphereEffectDTO> atmosphereEffects;
 }
 

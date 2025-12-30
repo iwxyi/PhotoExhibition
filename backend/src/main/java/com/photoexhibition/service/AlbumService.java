@@ -2,6 +2,7 @@ package com.photoexhibition.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.photoexhibition.dto.AlbumDTO;
+import com.photoexhibition.dto.AtmosphereEffectDTO;
 import com.photoexhibition.dto.CoverImagesDTO;
 import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.dto.TagDTO;
@@ -202,6 +203,24 @@ public class AlbumService {
         photoRepository.findTopByAlbumIdOrderByTakenAtAsc(album.getId())
             .map(Photo::getTakenAt)
             .ifPresent(dto::setTakenAt);
+
+        // 设置氛围信息
+        dto.setBackgroundColor(album.getBackgroundColor());
+        dto.setForegroundColor(album.getForegroundColor());
+        dto.setNavbarColor(album.getNavbarColor());
+
+        // 解析氛围特效
+        if (album.getAtmosphereEffects() != null) {
+            try {
+                java.util.List<AtmosphereEffectDTO> effects = objectMapper.readValue(
+                    album.getAtmosphereEffects(),
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, AtmosphereEffectDTO.class)
+                );
+                dto.setAtmosphereEffects(effects);
+            } catch (Exception e) {
+                // 忽略解析错误
+            }
+        }
 
         if (album.getTags() != null) {
             dto.setTags(album.getTags().stream()

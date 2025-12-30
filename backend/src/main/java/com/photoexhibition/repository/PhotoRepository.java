@@ -95,5 +95,11 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      * 按相册ID批量删除
      */
     void deleteByAlbumIdIn(List<Long> albumIds);
+
+    /**
+     * 统计指定相册在指定时间之后更新的照片数量
+     */
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.albumId = :albumId AND p.updatedAt > :since")
+    Long countPhotosUpdatedAfter(@Param("albumId") Long albumId, @Param("since") java.time.LocalDateTime since);
 }
 

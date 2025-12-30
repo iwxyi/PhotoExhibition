@@ -5,13 +5,20 @@ CREATE TABLE IF NOT EXISTS `album` (
   `id` BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `name` VARCHAR(255) NOT NULL COMMENT '相册名称',
   `path` VARCHAR(500) NOT NULL COMMENT '文件夹路径',
+  `path_hash` VARCHAR(64) DEFAULT NULL COMMENT '路径哈希（用于唯一性检查）',
   `cover_image_id` BIGINT(20) DEFAULT NULL COMMENT '封面图片ID',
   `description` TEXT COMMENT '相册描述',
   `photo_count` INT(11) DEFAULT 0 COMMENT '照片数量',
+  -- 氛围信息字段
+  `background_color` VARCHAR(20) DEFAULT NULL COMMENT '背景颜色（HEX）',
+  `foreground_color` VARCHAR(20) DEFAULT NULL COMMENT '前景色（HEX）',
+  `navbar_color` VARCHAR(20) DEFAULT NULL COMMENT '导航栏颜色（HEX）',
+  `atmosphere_effects` JSON DEFAULT NULL COMMENT '氛围特效配置（JSON数组）',
+  `atmosphere_last_updated` DATETIME DEFAULT NULL COMMENT '氛围信息最后更新时间',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_path` (`path`),
+  UNIQUE KEY `uk_path_hash` (`path_hash`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='相册表';
 

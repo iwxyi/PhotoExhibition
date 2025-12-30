@@ -88,6 +88,21 @@
           </button>
         </div>
       </div>
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">相册氛围</span>
+          <button
+            @click="setAtmosphereEnabled(!atmosphereEnabled)"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+            :class="atmosphereEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+          >
+            <span
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+              :class="atmosphereEnabled ? 'translate-x-6' : 'translate-x-1'"
+            ></span>
+          </button>
+        </div>
+      </div>
       <div v-if="isPhotoWall">
         <div class="flex items-center justify-between">
           <span class="text-xs text-gray-500 dark:text-gray-400">视差滚动</span>
@@ -118,7 +133,7 @@ const router = useRouter()
 const route = useRoute()
 const showSettings = ref(false)
 
-const { coverSize, previewSize, parallaxEnabled, setCoverSize, setPreviewSize, setParallaxEnabled } = useUiSettings()
+const { coverSize, previewSize, parallaxEnabled, atmosphereEnabled, setCoverSize, setPreviewSize, setParallaxEnabled, setAtmosphereEnabled } = useUiSettings()
 const { language, setLanguage } = useLanguageStore()
 const themeStore = useThemeStore()
 

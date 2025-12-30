@@ -1,23 +1,18 @@
 <template>
-  <div class="min-h-screen bg-white dark:bg-gray-900">
-    <nav class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16">
-          <router-link to="/" class="text-2xl font-light tracking-wider">摄影展</router-link>
-          <button @click="handleBack" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
-            返回
-          </button>
-        </div>
-      </div>
+  <div class="min-h-screen transition-colors duration-1000" :style="backgroundStyle">
+    <nav class="fixed top-4 right-4 z-50">
+      <button @click="handleBack" class="bg-black/20 backdrop-blur-md text-white px-4 py-2 rounded-full hover:bg-black/30 transition-colors duration-200">
+        返回
+      </button>
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div v-if="album">
-        <div class="mb-12">
-          <h1 class="text-4xl font-light mb-4">{{ album.name }}</h1>
-          <p v-if="album.description" class="text-gray-600 dark:text-gray-400 mb-4">{{ album.description }}</p>
-          <p class="text-sm text-gray-500 dark:text-gray-500">{{ album.photoCount }} 张照片</p>
-        </div>
+        <div v-if="album">
+          <div class="mb-12">
+            <h1 class="text-4xl font-light mb-4" :style="textStyle">{{ album.name }}</h1>
+            <p v-if="album.description" class="mb-4" :style="{ ...textStyle, opacity: 0.8 }">{{ album.description }}</p>
+            <p class="text-sm" :style="{ ...textStyle, opacity: 0.6 }">{{ album.photoCount }} 张照片</p>
+          </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           <div
@@ -49,6 +44,9 @@
       :start-index="viewerIndex"
       :origin-rect="viewerOriginRect"
     />
+
+    <!-- 氛围特效 -->
+    <AtmosphereEffects :effects="albumAtmosphereEffects" />
   </div>
 </template>
 
@@ -56,7 +54,10 @@
 import { computed, onMounted, onUnmounted, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
+import { useUiSettings } from '@/composables/useUiSettings'
+import { useThemeStore } from '@/stores/theme'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,6 +66,77 @@ const photoStore = usePhotoStore()
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)
+
+const { atmosphereEnabled } = useUiSettings()
+
+// 获取主题store
+const themeStore = useThemeStore()
+
+// 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
+const backgroundStyle = computed(() => {
+  if (atmosphereEnabled.value && album.value?.backgroundColor) {
+    // 启用氛围时使用相册的背景颜色
+    const baseColor = album.value.backgroundColor
+    return {
+      backgroundColor: baseColor
+    }
+  } else if (!atmosphereEnabled.value) {
+    // 关闭氛围时使用默认的主题背景
+    return {
+      backgroundColor: themeStore.isDark ? '#1a1a1a' : '#ffffff'
+    }
+  }
+  return {}
+})
+
+// 导航栏样式（基于相册的导航栏颜色或默认主题）
+const navbarStyle = computed(() => {
+  if (atmosphereEnabled.value && album.value?.navbarColor) {
+    // 启用氛围时使用相册的导航栏颜色
+    const baseColor = album.value.navbarColor
+    return {
+      backgroundColor: `${baseColor}CC` // 添加透明度
+    }
+  } else if (!atmosphereEnabled.value) {
+    // 关闭氛围时使用默认的主题背景
+    const baseColor = themeStore.isDark ? '#2d3748' : '#f7fafc'
+    return {
+      backgroundColor: `${baseColor}CC` // 添加透明度
+    }
+  }
+  return {}
+})
+
+// 文字样式（确保在任何背景下都有足够对比度）
+const textStyle = computed(() => {
+  if (atmosphereEnabled.value && album.value?.backgroundColor) {
+    // 启用氛围时，根据相册背景色选择文字颜色
+    const bgBrightness = getBrightness(album.value.backgroundColor)
+    const isLightBackground = bgBrightness > 0.5
+
+    if (isLightBackground) {
+      // 浅色背景 -> 使用深色文字
+      return { color: '#1a1a1a' }
+    } else {
+      // 深色背景 -> 使用浅色文字
+      return { color: '#ffffff' }
+    }
+  } else if (!atmosphereEnabled.value) {
+    // 关闭氛围时使用默认的主题文字颜色
+    return {
+      color: themeStore.isDark ? '#ffffff' : '#1a1a1a'
+    }
+  }
+  return {}
+})
+
+// 氛围特效列表
+const albumAtmosphereEffects = computed(() => {
+  if (!atmosphereEnabled.value) {
+    return []
+  }
+  return album.value?.atmosphereEffects || []
+})
 
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
@@ -164,9 +236,12 @@ const handleBack = async () => {
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
+    e.preventDefault() // 防止浏览器默认行为
     if (viewerVisible.value) {
+      // 直接关闭查看器，不要等待
       viewerVisible.value = false
     } else {
+      // 使用完整的返回动画逻辑（与按钮点击保持一致）
       handleBack()
     }
   }
@@ -343,9 +418,11 @@ const startBackTransitionAndNavigate = () => {
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
 
-  // 如果没有封面位置信息，直接返回
+  // 立即执行路由跳转，让用户感觉响应更快
+  router.back()
+
+  // 如果没有封面位置信息，不需要创建克隆元素
   if (!storedData || photos.value.length === 0) {
-    router.back()
     return
   }
 
@@ -387,9 +464,8 @@ const startBackTransitionAndNavigate = () => {
       usedPhotoIds.push(photoId)
     }
 
-    // 如果没有创建任何克隆，直接返回
+    // 如果没有创建任何克隆，不需要记录动画数据
     if (usedPhotoIds.length === 0) {
-      router.back()
       return
     }
 
@@ -403,9 +479,6 @@ const startBackTransitionAndNavigate = () => {
     )
   } catch (error) {
     console.error('启动返回相册列表动画失败:', error)
-  } finally {
-    // 不等待动画，立刻执行返回路由，让用户感觉是“边返回边动画”
-    router.back()
   }
 }
 
@@ -500,5 +573,49 @@ onUnmounted(() => {
   const storageKey = `album-cover-rects-${albumId}`
   sessionStorage.removeItem(storageKey)
 })
+
+// 颜色处理工具函数
+const hexToRgb = (hex: string) => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : null
+}
+
+const rgbToHex = (r: number, g: number, b: number) => {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)
+}
+
+const lightenColor = (hex: string, factor: number) => {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return hex
+
+  const r = Math.min(255, Math.round(rgb.r + (255 - rgb.r) * factor))
+  const g = Math.min(255, Math.round(rgb.g + (255 - rgb.g) * factor))
+  const b = Math.min(255, Math.round(rgb.b + (255 - rgb.b) * factor))
+
+  return rgbToHex(r, g, b)
+}
+
+const darkenColor = (hex: string, factor: number) => {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return hex
+
+  const r = Math.max(0, Math.round(rgb.r * (1 - factor)))
+  const g = Math.max(0, Math.round(rgb.g * (1 - factor)))
+  const b = Math.max(0, Math.round(rgb.b * (1 - factor)))
+
+  return rgbToHex(r, g, b)
+}
+
+const getBrightness = (hex: string) => {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return 0.5
+
+  // 使用相对亮度公式
+  return (rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114) / 255
+}
 </script>
 

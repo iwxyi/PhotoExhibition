@@ -68,6 +68,8 @@ public class PhotoScanService {
     private final SubjectDetectionService subjectDetectionService;
     private final FaceService faceService;
     private final SmartTagService smartTagService;
+    private final AlbumAtmosphereAnalysisService atmosphereAnalysisService;
+    private final AtmosphereEffectsService atmosphereEffectsService;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -82,7 +84,9 @@ public class PhotoScanService {
                            ColorAnalysisService colorAnalysisService,
                            SubjectDetectionService subjectDetectionService,
                            FaceService faceService,
-                           SmartTagService smartTagService) {
+                           SmartTagService smartTagService,
+                           AlbumAtmosphereAnalysisService atmosphereAnalysisService,
+                           AtmosphereEffectsService atmosphereEffectsService) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
         this.tagRepository = tagRepository;
@@ -90,6 +94,8 @@ public class PhotoScanService {
         this.subjectDetectionService = subjectDetectionService;
         this.faceService = faceService;
         this.smartTagService = smartTagService;
+        this.atmosphereAnalysisService = atmosphereAnalysisService;
+        this.atmosphereEffectsService = atmosphereEffectsService;
     }
     
     @PreDestroy
@@ -245,6 +251,37 @@ public class PhotoScanService {
         return status;
     }
 
+    /**
+     * 重新分析所有相册的氛围信息
+     */
+    @Async
+    @Transactional
+    public void reanalyzeAllAtmosphere() {
+        log.info("开始重新分析所有相册的氛围信息");
+        try {
+            atmosphereAnalysisService.analyzeAllAlbumsAtmosphere();
+            atmosphereEffectsService.analyzeAllAlbumsEffects();
+            log.info("所有相册氛围信息重新分析完成");
+        } catch (Exception e) {
+            log.error("重新分析氛围信息失败", e);
+        }
+    }
+
+    /**
+     * 重新分析指定相册的氛围信息
+     */
+    @Transactional
+    public void reanalyzeAlbumAtmosphere(Long albumId) {
+        log.info("重新分析相册 {} 的氛围信息", albumId);
+        try {
+            atmosphereAnalysisService.analyzeAlbumAtmosphere(albumId);
+            atmosphereEffectsService.analyzeAlbumEffects(albumId);
+            log.info("相册 {} 氛围信息重新分析完成", albumId);
+        } catch (Exception e) {
+            log.error("重新分析相册 {} 氛围信息失败", albumId, e);
+        }
+    }
+
     private void scanDirectoryInternal(String directoryPath, boolean force) {
         if (directoryPath == null || directoryPath.isEmpty()) {
             directoryPath = basePath;
@@ -382,6 +419,18 @@ public class PhotoScanService {
             // 更新相册照片数量
             album.setPhotoCount(photoRepository.countByAlbumId(album.getId()).intValue());
             albumRepository.save(album);
+
+            // 增量分析相册氛围（如果需要）
+            try {
+                if (atmosphereAnalysisService.needsAtmosphereUpdate(album.getId())) {
+                    atmosphereAnalysisService.analyzeAlbumAtmosphere(album.getId());
+                }
+                if (atmosphereEffectsService.needsEffectsUpdate(album.getId())) {
+                    atmosphereEffectsService.analyzeAlbumEffects(album.getId());
+                }
+            } catch (Exception e) {
+                log.warn("相册 {} 氛围分析失败: {}", album.getName(), e.getMessage());
+            }
 
         } catch (IllegalStateException e) {
             // 应用关闭时的异常，静默处理

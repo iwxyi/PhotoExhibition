@@ -31,6 +31,22 @@ public class Album {
     @Column(name = "photo_count")
     private Integer photoCount = 0;
 
+    // 氛围信息字段
+    @Column(name = "background_color", length = 20)
+    private String backgroundColor;
+
+    @Column(name = "foreground_color", length = 20)
+    private String foregroundColor;
+
+    @Column(name = "navbar_color", length = 20)
+    private String navbarColor;
+
+    @Column(name = "atmosphere_effects", columnDefinition = "JSON")
+    private String atmosphereEffects;
+
+    @Column(name = "atmosphere_last_updated")
+    private LocalDateTime atmosphereLastUpdated;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

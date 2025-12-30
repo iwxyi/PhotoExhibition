@@ -7,6 +7,7 @@ const COVER_KEY = 'pe-cover-size'
 const PREVIEW_KEY = 'pe-preview-size'
 const THUMB_KEY = 'pe-thumb-height'
 const PARALLAX_KEY = 'pe-parallax-enabled'
+const ATMOSPHERE_KEY = 'pe-atmosphere-enabled'
 
 const previewSizeMap: Record<PreviewSize, number> = {
   sm: 80,
@@ -17,6 +18,7 @@ const previewSizeMap: Record<PreviewSize, number> = {
 const coverSize = ref<CoverSize>((localStorage.getItem(COVER_KEY) as CoverSize) || 'md')
 const previewSize = ref<PreviewSize>((localStorage.getItem(PREVIEW_KEY) as PreviewSize) || 'md')
 const parallaxEnabled = ref<boolean>(localStorage.getItem(PARALLAX_KEY) !== 'false') // 默认启用
+const atmosphereEnabled = ref<boolean>(localStorage.getItem(ATMOSPHERE_KEY) !== 'false') // 默认启用
 
 export function useUiSettings() {
   const setCoverSize = (val: CoverSize) => {
@@ -35,13 +37,20 @@ export function useUiSettings() {
     localStorage.setItem(PARALLAX_KEY, String(val))
   }
 
+  const setAtmosphereEnabled = (val: boolean) => {
+    atmosphereEnabled.value = val
+    localStorage.setItem(ATMOSPHERE_KEY, String(val))
+  }
+
   return {
     coverSize,
     previewSize,
     parallaxEnabled,
+    atmosphereEnabled,
     setCoverSize,
     setPreviewSize,
     setParallaxEnabled,
+    setAtmosphereEnabled,
     previewSizeMap
   }
 }
