@@ -14,28 +14,32 @@
             <p class="text-sm" :style="{ ...textStyle, opacity: 0.6 }">{{ album.photoCount }} 张照片</p>
           </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <div
-            v-for="(photo, idx) in photos"
-            :key="photo.id"
-            class="photo-card cursor-pointer"
-            :style="getPhotoStyle(photo.id, idx)"
-            @click="openViewer(idx, $event)"
-            :ref="(el: Element | ComponentPublicInstance | null) => setPhotoRef(el as Element | null, photo.id)"
-          >
-            <img
-              :src="getImageUrl(photo)"
-              :alt="photo.filename"
-              class="photo-image w-full h-full"
-              loading="lazy"
-            />
-            <div class="gradient-overlay">
-              <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
-                <p class="text-sm font-light">{{ photo.filename }}</p>
+        <MasonryLayout
+          :items="masonryItems"
+          :column-count="columnCount"
+          :gap="24"
+        >
+          <template #default="{ item: photo, index }">
+            <div
+              class="photo-card cursor-pointer"
+              :style="getPhotoStyle(photo)"
+              @click="openViewer(index, $event)"
+              :ref="(el: Element | ComponentPublicInstance | null) => setPhotoRef(el as Element | null, photo.id)"
+            >
+              <img
+                :src="getImageUrl(photo)"
+                :alt="photo.filename"
+                class="photo-image w-full h-full"
+                loading="lazy"
+              />
+              <div class="gradient-overlay">
+                <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
+                  <p class="text-sm font-light">{{ photo.filename }}</p>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          </template>
+        </MasonryLayout>
       </div>
     </main>
     <PhotoViewer
@@ -51,13 +55,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, onUnmounted, ref, nextTick, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useThemeStore } from '@/stores/theme'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
+import MasonryLayout from '@/components/MasonryLayout.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,7 +70,6 @@ const photoStore = usePhotoStore()
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
-const loading = computed(() => photoStore.loading)
 
 const { atmosphereEnabled } = useUiSettings()
 
@@ -76,42 +80,25 @@ const themeStore = useThemeStore()
 const backgroundStyle = computed(() => {
   if (atmosphereEnabled.value && album.value?.backgroundColor) {
     // 启用氛围时使用相册的背景颜色
-    const baseColor = album.value.backgroundColor
+    const baseColor = album.value.backgroundColor!
     return {
       backgroundColor: baseColor
     }
   } else if (!atmosphereEnabled.value) {
-    // 关闭氛围时使用默认的主题背景
+    // 关闭氛围时使用纯色背景，与主页一致
     return {
-      backgroundColor: themeStore.isDark ? '#1a1a1a' : '#ffffff'
+      backgroundColor: themeStore.isDark ? '#000000' : '#ffffff'
     }
   }
   return {}
 })
 
-// 导航栏样式（基于相册的导航栏颜色或默认主题）
-const navbarStyle = computed(() => {
-  if (atmosphereEnabled.value && album.value?.navbarColor) {
-    // 启用氛围时使用相册的导航栏颜色
-    const baseColor = album.value.navbarColor
-    return {
-      backgroundColor: `${baseColor}CC` // 添加透明度
-    }
-  } else if (!atmosphereEnabled.value) {
-    // 关闭氛围时使用默认的主题背景
-    const baseColor = themeStore.isDark ? '#2d3748' : '#f7fafc'
-    return {
-      backgroundColor: `${baseColor}CC` // 添加透明度
-    }
-  }
-  return {}
-})
 
 // 文字样式（确保在任何背景下都有足够对比度）
 const textStyle = computed(() => {
   if (atmosphereEnabled.value && album.value?.backgroundColor) {
     // 启用氛围时，根据相册背景色选择文字颜色
-    const bgBrightness = getBrightness(album.value.backgroundColor)
+    const bgBrightness = getBrightness(album.value.backgroundColor!)
     const isLightBackground = bgBrightness > 0.5
 
     if (isLightBackground) {
@@ -135,7 +122,28 @@ const albumAtmosphereEffects = computed(() => {
   if (!atmosphereEnabled.value) {
     return []
   }
-  return album.value?.atmosphereEffects || []
+  return album.value?.atmosphereEffects || [] as any[]
+})
+
+// 计算列数（响应式）
+const columnCount = computed(() => {
+  if (typeof window === 'undefined') return 3
+
+  const width = window.innerWidth
+  if (width >= 1280) return 4
+  if (width >= 1024) return 3
+  if (width >= 640) return 2
+  return 1
+})
+
+// 转换照片数据为瀑布流组件需要的格式
+const masonryItems = computed(() => {
+  return photos.value.map(photo => ({
+    id: photo.id,
+    data: photo,
+    width: photo.width || 1,
+    height: photo.height || 1
+  }))
 })
 
 const viewerVisible = ref(false)
@@ -159,10 +167,14 @@ const getImageUrl = (photo: any) => {
   return `/api/files${photo.originalPath}`
 }
 
-const getPhotoStyle = (photoId: number, idx: number) => {
+const getPhotoStyle = (photo: any) => {
+  const photoId = photo.id
   // 如果是封面图片且正在过渡，隐藏它们
   if (isTransitioning.value && transitionPhotoIds.value.includes(photoId)) {
-    return { visibility: 'hidden', transition: 'none' }
+    return {
+      visibility: 'hidden' as const,
+      transition: 'none'
+    }
   }
 
   // 如果动画还没有开始，为剩余图片添加初始动画样式
@@ -318,7 +330,7 @@ const performCoverTransition = async (): Promise<boolean> => {
     
     if (transitions.length === 0) {
       sessionStorage.removeItem(storageKey)
-      return
+      return true
     }
     
     // 创建临时克隆元素
@@ -635,31 +647,7 @@ const hexToRgb = (hex: string) => {
   } : null
 }
 
-const rgbToHex = (r: number, g: number, b: number) => {
-  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)
-}
 
-const lightenColor = (hex: string, factor: number) => {
-  const rgb = hexToRgb(hex)
-  if (!rgb) return hex
-
-  const r = Math.min(255, Math.round(rgb.r + (255 - rgb.r) * factor))
-  const g = Math.min(255, Math.round(rgb.g + (255 - rgb.g) * factor))
-  const b = Math.min(255, Math.round(rgb.b + (255 - rgb.b) * factor))
-
-  return rgbToHex(r, g, b)
-}
-
-const darkenColor = (hex: string, factor: number) => {
-  const rgb = hexToRgb(hex)
-  if (!rgb) return hex
-
-  const r = Math.max(0, Math.round(rgb.r * (1 - factor)))
-  const g = Math.max(0, Math.round(rgb.g * (1 - factor)))
-  const b = Math.max(0, Math.round(rgb.b * (1 - factor)))
-
-  return rgbToHex(r, g, b)
-}
 
 const getBrightness = (hex: string) => {
   const rgb = hexToRgb(hex)

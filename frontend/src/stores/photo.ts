@@ -14,6 +14,10 @@ export interface Album {
   takenAt?: string
   tags?: Tag[]
   coverImages?: CoverImages
+  backgroundColor?: string
+  foregroundColor?: string
+  navbarColor?: string
+  atmosphereEffects?: any[]
   createdAt: string
   updatedAt: string
 }

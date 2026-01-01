@@ -21,6 +21,7 @@
 
   .dark {
     --pe-surface-bg: rgba(15, 23, 42, 0.88);
+    --pe-surface-bg-rgb: 15, 23, 42;
     --pe-surface-border: rgba(148, 163, 184, 0.35);
     --pe-surface-shadow: 0 22px 55px rgba(0, 0, 0, 0.75);
     --pe-admin-bg: radial-gradient(circle at top left, #020617, #0b1120);
@@ -28,23 +29,50 @@
 
   body {
     @apply text-gray-900 dark:text-gray-100 transition-colors duration-300;
-    background: radial-gradient(circle at top left, #e0f2fe, #f8fafc);
+    background-color: #ffffff;
     overflow-y: scroll; /* keep vertical scrollbar space stable to avoid horizontal shift on route change */
     scrollbar-gutter: stable;
   }
 
   body.dark,
   .dark body {
-    background: radial-gradient(circle at top left, #020617, #0b1120);
+    background-color: #000000;
   }
 }
 
 @layer components {
   .photo-card {
-    @apply relative overflow-hidden rounded-lg shadow-lg transition-all duration-300 hover:shadow-2xl hover:-translate-y-1;
+    @apply relative overflow-hidden rounded-lg shadow-lg transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 mb-6;
     will-change: transform;
     /* 使用transform-gpu提升性能 */
     transform: translateZ(0);
+    /* 瀑布流中图片的最大宽度 */
+    max-width: 100%;
+    break-inside: avoid;
+  }
+
+  /* 瀑布流容器 */
+  .masonry-container {
+    column-count: 1;
+    column-gap: 1.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .masonry-container {
+      column-count: 2;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .masonry-container {
+      column-count: 3;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .masonry-container {
+      column-count: 4;
+    }
   }
 
   .photo-image {
@@ -78,20 +106,17 @@
 
   /* 通用毛玻璃面板：用于前台与后台的卡片、弹窗等 */
   .glass-panel {
-    background: var(--pe-surface-bg);
     border-radius: var(--pe-radius-lg);
     border: 1px solid var(--pe-surface-border);
     box-shadow: var(--pe-surface-shadow);
     backdrop-filter: blur(var(--pe-glass-blur));
     -webkit-backdrop-filter: blur(var(--pe-glass-blur));
     /* Fallback for browsers that don't support backdrop-filter */
-    background: rgba(255, 255, 255, 0.95);
     background: rgba(var(--pe-surface-bg-rgb, 248, 250, 252), 0.95);
+    /* Main background - must come after fallback to override it */
+    background: var(--pe-surface-bg);
   }
 
-  .dark .glass-panel {
-    background: rgba(var(--pe-surface-bg-rgb-dark, 15, 23, 42), 0.95);
-  }
 
   .glass-toolbar {
     background: linear-gradient(

@@ -141,7 +141,7 @@
           </div>
         </div>
 
-        <div class="glass-panel p-4">
+        <div class="glass-panel p-4 admin-card-animate admin-card-4">
         <h2 class="text-lg font-light mb-3">API测试工具</h2>
         <div class="space-y-4">
           <div>

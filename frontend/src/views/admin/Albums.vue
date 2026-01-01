@@ -5,6 +5,9 @@
         <h1 class="text-2xl font-light">相册管理</h1>
         <div class="space-x-3">
           <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
+          <button @click="forceScanAndRebuild" :disabled="loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg border border-red-500/30 transition-colors disabled:opacity-50">
+            强制扫描并重建
+          </button>
           <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
         </div>
       </div>
@@ -422,12 +425,75 @@ const editName = async (album: any) => {
 
 const deleteAlbum = async (album: any) => {
   if (!window.confirm(`确定删除相册"${album.displayTitle || album.name}"吗？`)) return
-  
+
   try {
     await api.delete(`/albums/${album.id}`)
     await load()
   } catch (e: any) {
     alert('删除相册失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const forceScanAndRebuild = async () => {
+  const confirmed = window.confirm(
+    '⚠️ 强制扫描并重建警告 ⚠️\n\n' +
+    '此操作将：\n' +
+    '• 重新扫描所有照片（重建缩略图、人脸、标签）\n' +
+    '• 重新分析所有相册的氛围信息（背景色、前景色、导航栏色等）\n\n' +
+    '这可能需要很长时间，确定要继续吗？'
+  )
+
+  if (!confirmed) return
+
+  loading.value = true
+
+  try {
+    // 第一步：强制扫描照片
+    console.log('开始强制扫描照片...')
+    const scanResponse = await api.post('/admin/scan/force')
+    console.log('强制扫描任务已启动:', scanResponse.data)
+
+    // 等待扫描完成（简单轮询）
+    let scanCompleted = false
+    let attempts = 0
+    const maxAttempts = 300 // 5分钟超时
+
+    while (!scanCompleted && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      const statusResponse = await api.get('/admin/scan/status')
+      const status = statusResponse.data
+      console.log('扫描状态:', status)
+
+      if (!status.scanning) {
+        scanCompleted = true
+        console.log('扫描完成')
+      }
+      attempts++
+    }
+
+    if (!scanCompleted) {
+      throw new Error('扫描超时，请稍后手动检查扫描状态')
+    }
+
+    // 第二步：重新分析相册氛围信息
+    console.log('开始重新分析相册氛围信息...')
+    const atmosphereResponse = await api.post('/admin/atmosphere/reanalyze-all')
+    console.log('氛围分析任务已启动:', atmosphereResponse.data)
+
+    alert('✅ 强制扫描并重建任务已完成！\n\n' +
+          '• 照片扫描：完成\n' +
+          '• 氛围信息重建：完成\n\n' +
+          '请刷新页面查看最新结果。')
+
+    // 重新加载相册数据
+    await load()
+
+  } catch (error: any) {
+    console.error('强制扫描并重建失败:', error)
+    const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message
+    alert('❌ 强制扫描并重建失败: ' + errorMsg)
+  } finally {
+    loading.value = false
   }
 }
 
