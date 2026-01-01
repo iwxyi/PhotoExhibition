@@ -444,6 +444,26 @@
   }
 }
 
+/* 按钮动画增强 */
+@keyframes button-pulse {
+  0%, 100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-pulse {
+  animation: button-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 优化按钮的GPU加速 */
+.btn-animated {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
 /* 相册封面到详情页的过渡动画 */
 .album-photo-transition {
   transition: opacity 0.3s ease;

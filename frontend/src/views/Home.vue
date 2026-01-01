@@ -13,14 +13,15 @@
           <div class="flex items-center space-x-4">
             <button
               @click="themeStore.toggleTheme"
-              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
             >
-              <svg v-if="!themeStore.isDark" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg v-if="!themeStore.isDark" class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
               </svg>
-              <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg v-else class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
+              <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
             <FilterPanel v-model:show="showFilter" />
             <SettingsMenu />
@@ -30,20 +31,26 @@
     </nav>
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12" style="contain: layout style paint;">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint;">
       <!-- 分类 Tabs -->
       <div class="mb-6">
-        <div class="flex gap-2 overflow-x-auto pb-2">
+        <div class="flex gap-2 overflow-x-auto pb-2 px-2 py-1">
           <button
             v-for="c in ['全部', ...categories]"
             :key="c"
             @click="selectCategory(c)"
-            class="px-4 py-2 rounded-full border transition-colors"
+            class="px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden font-medium text-sm"
+            style="transform-origin: center;"
             :class="c === activeCategory
-              ? 'bg-gray-900 text-white border-gray-800 dark:bg-white dark:text-gray-900 dark:border-white'
+              ? 'bg-gray-900 text-white border-gray-800 dark:bg-white dark:text-gray-900 dark:border-white shadow-lg ring-2 ring-gray-900/20 dark:ring-white/20 scale-102'
               : 'bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700'"
           >
-            {{ c }}
+            <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">{{ c }}</span>
+            <div
+              v-if="c === activeCategory"
+              class="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full transition-all duration-300 animate-pulse"
+            ></div>
+            <div class="absolute inset-0 bg-gradient-to-r from-gray-500/10 to-gray-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-full"></div>
           </button>
         </div>
       </div>
@@ -112,6 +119,55 @@ const coverGridClass = computed(() => {
   }
   return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
 })
+
+// 动态计算当前网格布局的列数
+const getCurrentGridColumns = () => {
+  const size = coverSize.value
+  const width = window.innerWidth
+
+  if (size === 'sm') {
+    if (width >= 1280) return 5 // xl
+    if (width >= 1024) return 4 // lg
+    if (width >= 640) return 3 // sm
+    return 2 // default
+  }
+
+  if (size === 'lg') {
+    if (width >= 1024) return 4 // lg
+    if (width >= 768) return 3 // md
+    if (width >= 640) return 2 // sm
+    return 1 // default
+  }
+
+  // size === 'md' (default)
+  if (width >= 1280) return 5 // xl
+  if (width >= 1024) return 4 // lg
+  if (width >= 768) return 3 // md
+  if (width >= 640) return 2 // sm
+  return 1 // default
+}
+
+// 动态计算应该加载的相册数量
+const getDynamicLoadSize = () => {
+  const columns = getCurrentGridColumns()
+  const viewportHeight = window.innerHeight
+
+  // 估算每个相册卡片的高度（基于封面尺寸）
+  const cardHeight = coverSize.value === 'sm' ? 200 : coverSize.value === 'lg' ? 320 : 240
+  const gap = 24 // gap-6 = 1.5rem = 24px
+
+  // 计算一行的高度（卡片高度 + 间距）
+  const rowHeight = cardHeight + gap
+
+  // 计算视窗能显示多少行（加上一些缓冲）
+  const visibleRows = Math.ceil(viewportHeight / rowHeight) + 2 // 多加载2行作为缓冲
+
+  // 计算总共需要多少个相册（列数 × 行数）
+  const totalNeeded = columns * visibleRows
+
+  // 最少加载一个完整行，最多不超过50个（避免一次性加载太多）
+  return Math.max(columns, Math.min(totalNeeded, 50))
+}
 
 const goToAlbum = (id: number) => {
   router.push(`/album/${id}`)
@@ -358,7 +414,9 @@ const loadMore = async () => {
     
     // 直接调用 API，不通过 store，避免触发 loading
     const { api } = await import('@/api')
-    const params: any = { page: currentPage.value, size: 12 }
+    // 无限滚动时加载当前显示列数的2倍作为增量
+    const loadSize = Math.max(12, getCurrentGridColumns() * 2)
+    const params: any = { page: currentPage.value, size: loadSize }
     if (cat) params.category = cat
     const response = await api.get('/albums', { params })
     const data = response.data
@@ -426,7 +484,8 @@ const handleScroll = () => {
 onMounted(async () => {
   try {
     await photoStore.fetchCategories()
-    const data = await photoStore.fetchAlbums(0, 12, undefined)
+    const loadSize = getDynamicLoadSize()
+    const data = await photoStore.fetchAlbums(0, loadSize, undefined)
     hasMore.value = !data.last
     window.addEventListener('scroll', handleScroll, { passive: true })
 
@@ -475,7 +534,8 @@ const selectCategory = async (c: string) => {
   currentPage.value = 0
   hasMore.value = true
   const cat = c === '全部' ? undefined : c
-  const data = await photoStore.fetchAlbums(0, 12, cat)
+  const loadSize = getDynamicLoadSize()
+  const data = await photoStore.fetchAlbums(0, loadSize, cat)
   hasMore.value = !data.last
 }
 </script>
