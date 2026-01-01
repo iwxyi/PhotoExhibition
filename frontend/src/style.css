@@ -13,14 +13,14 @@
     --pe-glass-blur: 18px;
     --pe-radius-lg: 16px;
 
-    --pe-surface-bg: rgba(248, 250, 252, 0.85);
+    --pe-surface-bg: rgba(248, 250, 252, 0.92);
     --pe-surface-border: rgba(148, 163, 184, 0.35);
     --pe-surface-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
     --pe-admin-bg: radial-gradient(circle at top left, #0f172a, #020617);
   }
 
   .dark {
-    --pe-surface-bg: rgba(15, 23, 42, 0.78);
+    --pe-surface-bg: rgba(15, 23, 42, 0.88);
     --pe-surface-border: rgba(148, 163, 184, 0.35);
     --pe-surface-shadow: 0 22px 55px rgba(0, 0, 0, 0.75);
     --pe-admin-bg: radial-gradient(circle at top left, #020617, #0b1120);
@@ -42,14 +42,38 @@
 @layer components {
   .photo-card {
     @apply relative overflow-hidden rounded-lg shadow-lg transition-all duration-300 hover:shadow-2xl hover:-translate-y-1;
+    will-change: transform;
+    /* 使用transform-gpu提升性能 */
+    transform: translateZ(0);
   }
 
   .photo-image {
     @apply w-full h-full object-cover transition-transform duration-500 group-hover:scale-110;
+    will-change: transform;
+    /* 优化图片渲染和滚动性能 */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    /* 防止滚动时的闪烁 */
+    backface-visibility: hidden;
+    /* 优化GPU加速 */
+    transform: translateZ(0);
+  }
+
+  /* 滚动时禁用hover效果以提升性能 */
+  @media (prefers-reduced-motion: no-preference) {
+    .photo-card:hover .photo-image {
+      transform: scale(1.1);
+    }
+  }
+
+  /* 在滚动时减少动画 */
+  html:not(:focus-within) .photo-card:hover {
+    transform: translateY(0);
   }
 
   .gradient-overlay {
     @apply absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300;
+    will-change: opacity;
   }
 
   /* 通用毛玻璃面板：用于前台与后台的卡片、弹窗等 */
@@ -60,6 +84,13 @@
     box-shadow: var(--pe-surface-shadow);
     backdrop-filter: blur(var(--pe-glass-blur));
     -webkit-backdrop-filter: blur(var(--pe-glass-blur));
+    /* Fallback for browsers that don't support backdrop-filter */
+    background: rgba(255, 255, 255, 0.95);
+    background: rgba(var(--pe-surface-bg-rgb, 248, 250, 252), 0.95);
+  }
+
+  .dark .glass-panel {
+    background: rgba(var(--pe-surface-bg-rgb-dark, 15, 23, 42), 0.95);
   }
 
   .glass-toolbar {

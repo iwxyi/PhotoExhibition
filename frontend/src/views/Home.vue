@@ -30,7 +30,7 @@
     </nav>
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12" style="contain: layout style paint;">
       <!-- 分类 Tabs -->
       <div class="mb-6">
         <div class="flex gap-2 overflow-x-auto pb-2">
@@ -55,6 +55,7 @@
       <div
         v-if="albums.length > 0"
         :class="coverGridClass"
+        style="contain: layout style;"
       >
         <AlbumCard
           v-for="album in albums"
@@ -391,20 +392,35 @@ const loadMore = async () => {
   }
 }
 
-// 防抖滚动处理
-let scrollTimer: ReturnType<typeof setTimeout> | null = null
+// 节流滚动处理，优化滚动性能
+let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
+let lastScrollCheck = 0
+const SCROLL_THROTTLE_MS = 16 // ~60fps
+const LOAD_THRESHOLD = 800 // 距离底部800px时开始加载
+
 const handleScroll = () => {
-  if (scrollTimer) clearTimeout(scrollTimer)
-  scrollTimer = setTimeout(() => {
+  const now = Date.now()
+
+  // 节流控制：确保不会过于频繁执行
+  if (now - lastScrollCheck < SCROLL_THROTTLE_MS) return
+  lastScrollCheck = now
+
+  // 清除之前的定时器
+  if (scrollThrottleTimer) {
+    clearTimeout(scrollThrottleTimer)
+  }
+
+  // 使用微任务延迟执行，避免在滚动过程中阻塞UI
+  scrollThrottleTimer = setTimeout(() => {
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
-    
-    // 距离底部 800px 时开始加载
-    if (scrollTop + windowHeight >= documentHeight - 800) {
+
+    // 距离底部LOAD_THRESHOLD像素时开始加载
+    if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
       loadMore()
     }
-  }, 100)
+  }, 0)
 }
 
 onMounted(async () => {
@@ -426,7 +442,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
-  if (scrollTimer) clearTimeout(scrollTimer)
+  if (scrollThrottleTimer) clearTimeout(scrollThrottleTimer)
 })
 
 onActivated(() => {

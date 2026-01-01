@@ -1,6 +1,6 @@
 <template>
   <div
-    class="photo-card cursor-pointer group space-y-1 w-full mx-auto"
+    class="photo-card cursor-pointer group space-y-1 w-full mx-auto transform-gpu"
     :class="cardSizeClass"
     :data-album-id="album.id"
     role="button"
@@ -18,9 +18,12 @@
           v-if="leftImage"
           :src="getImageUrl(leftImage)"
           :alt="album.name"
-        class="photo-image w-full h-full"
-        :data-photo-id="leftImage.id"
+          class="photo-image w-full h-full"
+          :data-photo-id="leftImage.id"
           loading="lazy"
+          decoding="async"
+          @load="handleImageLoad"
+          @error="handleImageError"
         />
         <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
           <span class="text-gray-400">暂无图片</span>
@@ -36,6 +39,9 @@
           class="photo-image w-full h-full"
           :data-photo-id="rightTopImage.id"
           loading="lazy"
+          decoding="async"
+          @load="handleImageLoad"
+          @error="handleImageError"
         />
         <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800"></div>
       </div>
@@ -49,6 +55,9 @@
           class="photo-image w-full h-full"
           :data-photo-id="rightBottomImage.id"
           loading="lazy"
+          decoding="async"
+          @load="handleImageLoad"
+          @error="handleImageError"
         />
         <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800"></div>
 
@@ -97,6 +106,19 @@ const rightBottomImageRef = ref<HTMLElement>()
 const leftImage = computed(() => props.album.coverImages?.leftVertical)
 const rightTopImage = computed(() => props.album.coverImages?.rightTop)
 const rightBottomImage = computed(() => props.album.coverImages?.rightBottom)
+
+// 图片加载优化
+const handleImageLoad = (event: Event) => {
+  const img = event.target as HTMLImageElement
+  // 添加loaded类用于可能的后续样式优化
+  img.classList.add('loaded')
+}
+
+const handleImageError = (event: Event) => {
+  const img = event.target as HTMLImageElement
+  // 错误处理，移除broken图片
+  img.style.display = 'none'
+}
 
 const takenDateText = computed(() => {
   if (!props.album.takenAt) return ''
