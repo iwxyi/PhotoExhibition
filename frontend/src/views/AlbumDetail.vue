@@ -1,6 +1,19 @@
 <template>
   <div class="min-h-screen transition-colors duration-1000" :style="backgroundStyle">
     <nav class="fixed top-4 right-4 z-50">
+      <!-- multi-select toolbar (placed before X so X stays at far right) -->
+      <div v-if="multiSelectActive" class="inline-flex items-center gap-2 mr-3">
+        <span :class="themeStore.isDark ? 'text-white/90' : 'text-gray-900'" class="text-sm mr-2">已选 {{ selectedIds.size }} 张</span>
+        <button class="btn-primary px-3 py-1 text-sm" @click="selectAll">全选</button>
+        <button class="btn-primary px-3 py-1 text-sm ml-1" @click="invertSelection">反选</button>
+        <button class="btn-primary px-3 py-1 text-sm ml-1" @click="downloadSelected" title="下载选中">
+          ⤓
+        </button>
+        <button class="btn-primary px-3 py-1 text-sm ml-1" @click="downloadZipSelected" title="下载 ZIP（服务器/回退兼容）">
+          🗜
+        </button>
+      </div>
+
       <button
         @click="handleBack"
         @mousemove="onBackButtonMouseMove"
@@ -19,6 +32,12 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <!-- download progress bar -->
+      <div v-if="downloadInProgress" class="fixed left-0 right-0 top-0 z-50">
+        <div class="h-1 bg-gray-200 dark:bg-gray-800 w-full">
+          <div :style="{ width: downloadProgress + '%' }" class="h-1 bg-blue-600 transition-width duration-200"></div>
+        </div>
+      </div>
         <div v-if="album">
           <div class="mb-12">
             <h1 class="text-4xl font-light mb-4" :style="textStyle">{{ album.name }}</h1>
@@ -35,15 +54,39 @@
             <div
               class="photo-card cursor-pointer"
               :style="getPhotoStyle(photo)"
-              @click="openViewer(index, $event)"
+              :data-photo-id="photo.id"
+              @pointerdown="onPhotoPointerDown(photo, index, $event)"
+              @pointerup="onPhotoPointerUp(photo, index, $event)"
+              @click="handlePhotoClick(photo, index, $event)"
               :ref="(el: Element | ComponentPublicInstance | null) => setPhotoRef(el as Element | null, photo.id)"
             >
+              <!-- multi-select checkbox (shown only in multiselect mode) -->
+              <div v-if="multiSelectActive" class="absolute top-3 left-3 z-40">
+                <input
+                  type="checkbox"
+                  class="select-checkbox"
+                  :checked="selectedIds.has(photo.id)"
+                  @click.stop.prevent="toggleSelect(photo.id, index)"
+                  aria-label="选择图片"
+                />
+              </div>
               <img
                 :src="getImageUrl(photo)"
                 :alt="photo.filename"
                 class="photo-image w-full h-full"
                 loading="lazy"
               />
+              <!-- magnifier (shown in multiselect mode) -->
+              <button
+                v-if="multiSelectActive"
+                class="absolute bottom-3 right-3 z-40 btn-magnify"
+                @pointerdown.stop
+                @pointerup.stop
+                @click.stop="openViewer(index, $event)"
+                title="查看原图"
+              >
+                🔍
+              </button>
               <div class="gradient-overlay">
                 <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
                   <p class="text-sm font-light">{{ photo.filename }}</p>
@@ -168,6 +211,70 @@ const transitionPhotoIds = ref<number[]>([])
 const remainingPhotosVisible = ref(false)
 const remainingPhotoIndexes = ref<Map<number, number>>(new Map())
 let transitionClones: HTMLElement[] = []
+// multi-select state
+const multiSelectActive = ref(false)
+const selectedIds = ref<Set<number>>(new Set())
+const lastSelectedIndex = ref<number | null>(null)
+
+// long press / sliding state
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+let sliding = false
+let slideInitialPressedWasSelected = false
+let slideLastProcessedId: number | null = null
+// whether the last interaction was a long-press (suppress click)
+const longPressActivated = ref(false)
+
+const toggleSelect = (photoId: number, idx?: number) => {
+  // Work with a new Set to ensure Vue reactivity picks up changes
+  const prev = new Set(selectedIds.value)
+  if (prev.has(photoId)) prev.delete(photoId)
+  else prev.add(photoId)
+  selectedIds.value = prev
+  // update lastSelectedIndex for range selection
+  if (typeof idx === 'number') lastSelectedIndex.value = idx
+}
+
+const clearMultiSelect = () => {
+  multiSelectActive.value = false
+  selectedIds.value = new Set()
+  lastSelectedIndex.value = null
+}
+
+/* startLongPressFor removed (logic in onPhotoPointerDown) */
+
+const endPress = () => {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  sliding = false
+  slideLastProcessedId = null
+}
+
+// helper to get photoId under point
+const photoIdAtPoint = (x: number, y: number) => {
+  const el = document.elementFromPoint(x, y) as HTMLElement | null
+  if (!el) return null
+  const card = el.closest('.photo-card') as HTMLElement | null
+  if (!card) return null
+  const idAttr = card.getAttribute('data-photo-id')
+  return idAttr ? Number(idAttr) : null
+}
+
+// range select between lastSelectedIndex and idx inclusive
+const selectRange = (fromIdx: number | null, toIdx: number) => {
+  if (fromIdx === null) {
+    lastSelectedIndex.value = toIdx
+    selectedIds.value.add(masonryItems.value[toIdx].id as number)
+    return
+  }
+  const a = Math.min(fromIdx, toIdx)
+  const b = Math.max(fromIdx, toIdx)
+  for (let i = a; i <= b; i++) {
+    selectedIds.value.add(masonryItems.value[i].id as number)
+  }
+  lastSelectedIndex.value = toIdx
+}
 
 const getImageUrl = (photo: any) => {
   if (photo.webpPath) {
@@ -248,8 +355,264 @@ const openViewer = (idx: number, e: MouseEvent) => {
   viewerVisible.value = true
 }
 
+// Handle photo interactions: click / long-press / sliding selection
+const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
+  // start long-press timer
+  if (longPressTimer) clearTimeout(longPressTimer)
+  const photoId = photo.id
+  const wasSelected = selectedIds.value.has(photoId)
+  // adjust long-press duration by input type for better UX
+  const ptrType = (e as any).pointerType || 'mouse'
+  const useDuration = ptrType === 'touch' ? 450 : 600
+  // remember pointer start for mouse drag detection
+  const startX = (e as any).clientX || 0
+  const startY = (e as any).clientY || 0
+
+  longPressTimer = setTimeout(() => {
+    // long press triggered
+    longPressActivated.value = true
+    if (!multiSelectActive.value) {
+      // activate multi-select and select pressed (use new Set for reactivity)
+      multiSelectActive.value = true
+      selectedIds.value = new Set([...selectedIds.value, photoId])
+      lastSelectedIndex.value = idx
+      // sliding initial state
+      slideInitialPressedWasSelected = wasSelected
+      sliding = true
+      slideLastProcessedId = photoId
+    } else {
+      // already in multi-select: treat as range-select between lastSelectedIndex and this idx
+      selectRange(lastSelectedIndex.value, idx)
+    }
+  }, useDuration)
+
+  // start pointer capture for sliding
+  const target = e.currentTarget as HTMLElement | null
+  try { (target as any)?.setPointerCapture?.((e as any).pointerId) } catch (e) {}
+  // listen for pointermove globally
+  const onMove = (ev: PointerEvent) => {
+    // mouse drag: if pointer is mouse and movement passes threshold, start sliding immediately
+    const pType = (ev as any).pointerType || 'mouse'
+    if (pType === 'mouse' && !sliding) {
+      const dx = Math.abs((ev as any).clientX - startX)
+      const dy = Math.abs((ev as any).clientY - startY)
+      const moveThreshold = 6
+      if (dx > moveThreshold || dy > moveThreshold) {
+        // begin sliding selection for mouse drag
+        if (!multiSelectActive.value) {
+          multiSelectActive.value = true
+          slideInitialPressedWasSelected = wasSelected
+          sliding = true
+          slideLastProcessedId = photoId
+          longPressActivated.value = true
+          // ensure initial selection state set
+          selectedIds.value = new Set([...selectedIds.value, photoId])
+        } else {
+          // if already multi-select, treat drag start similarly
+          slideInitialPressedWasSelected = wasSelected
+          sliding = true
+          slideLastProcessedId = photoId
+          longPressActivated.value = true
+        }
+        // cancel longPressTimer since we've started sliding
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
+      }
+    }
+    if (!sliding) return
+    const pid = photoIdAtPoint(ev.clientX, ev.clientY)
+    if (!pid || pid === slideLastProcessedId) return
+    slideLastProcessedId = pid
+    const shouldSelect = !slideInitialPressedWasSelected
+    // use new Set copies to ensure reactivity updates
+    const cur = new Set(selectedIds.value)
+    if (shouldSelect) cur.add(pid)
+    else cur.delete(pid)
+    selectedIds.value = cur
+  }
+  window.addEventListener('pointermove', onMove)
+
+  // attach a one-time cleanup when pointerup
+  const onUp = () => {
+    endPress()
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    try { (target as any)?.releasePointerCapture?.((e as any).pointerId) } catch (e) {}
+    // clear long-press activation shortly after pointer up to prevent click
+    if (longPressActivated.value) {
+      setTimeout(() => { longPressActivated.value = false }, 50)
+    }
+  }
+  window.addEventListener('pointerup', onUp)
+}
+
+const onPhotoPointerUp = (_photo: any, _idx: number, _e: PointerEvent) => {
+  // If longPressTimer didn't fire, this was a normal press -> do nothing special here
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  sliding = false
+  slideLastProcessedId = null
+}
+
+const handlePhotoClick = (photo: any, idx: number, e: MouseEvent) => {
+  const photoId = photo.id
+  if (longPressActivated.value) {
+    // suppress click caused by long-press release
+    longPressActivated.value = false
+    return
+  }
+  if (multiSelectActive.value) {
+    // toggle selection
+    toggleSelect(photoId, idx)
+    return
+  }
+  // otherwise open viewer
+  openViewer(idx, e)
+}
+
+// bulk actions
+const selectAll = () => {
+  const allIds = masonryItems.value.map(i => i.id as number)
+  selectedIds.value = new Set(allIds)
+}
+
+const invertSelection = () => {
+  const allIds = masonryItems.value.map(i => i.id as number)
+  const cur = new Set<number>()
+  allIds.forEach(id => {
+    if (!selectedIds.value.has(id)) cur.add(id)
+  })
+  selectedIds.value = cur
+}
+
+const downloadSelected = async () => {
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) return
+  downloadInProgress.value = true
+  downloadProgress.value = 0
+  // sequentially fetch and trigger download to maximize compatibility
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]
+    const photo = photos.value.find((p: any) => p.id === id)
+    if (!photo) continue
+    const url = getImageUrl(photo)
+    try {
+      const resp = await fetch(url, { credentials: 'same-origin' })
+      if (!resp.ok) throw new Error('fetch failed')
+      const blob = await resp.blob()
+      const extMatch = (photo.originalPath || photo.webpPath || '').split('.').pop() || 'jpg'
+      const filename = `${photo.filename || 'photo'}.${extMatch}`
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(blobUrl)
+      // small delay to avoid browser download throttling
+      await new Promise(r => setTimeout(r, 120))
+      // update progress after each download
+      downloadProgress.value = Math.round(((i + 1) / ids.length) * 100)
+    } catch (e) {
+      // fallback: open in new tab
+      window.open(url, '_blank')
+    }
+  }
+  // finish
+  downloadInProgress.value = false
+  downloadProgress.value = 0
+}
+
+const downloadZipSelected = async () => {
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) return
+  downloadInProgress.value = true
+  downloadProgress.value = 0
+  // try server-side zip endpoint first
+  try {
+    const albumId = album.value?.id
+    const endpoint = albumId ? `/api/albums/${albumId}/download-zip` : '/api/photos/zip'
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    })
+    if (resp.ok) {
+      const blob = await resp.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = `${album.value?.name || 'photos'}.zip`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(blobUrl)
+      return
+    }
+  } catch (e) {
+    console.warn('zip download server failed, fallback to client-side', e)
+  }
+  // try client-side zip using JSZip
+  try {
+    // @ts-ignore - dynamic import of optional dependency
+    const JSZipModule = await import('jszip')
+    const JSZip = JSZipModule.default || JSZipModule
+    const zip = new JSZip()
+    let fetched = 0
+    for (const id of ids) {
+      const photo = photos.value.find((p: any) => p.id === id)
+      if (!photo) continue
+      const url = getImageUrl(photo)
+      try {
+        const resp = await fetch(url, { credentials: 'same-origin' })
+        if (!resp.ok) throw new Error('fetch failed')
+        const blob = await resp.blob()
+        const extMatch = (photo.originalPath || photo.webpPath || '').split('.').pop() || 'jpg'
+        const filename = `${photo.filename || 'photo'}.${extMatch}`
+        zip.file(filename, blob)
+        fetched++
+        // update progress during fetch phase (0-60%)
+        downloadProgress.value = Math.round((fetched / ids.length) * 60)
+      } catch (err) {
+        console.warn('fetch for zip failed', id, err)
+      }
+    }
+    const content = await zip.generateAsync({ type: 'blob' }, (meta: any) => {
+      // meta.percent provided by JSZip
+      const percent = Math.min(100, Math.round(meta.percent || 0))
+      // map meta.percent (0-100) to 60-99 range considering fetch progress
+      downloadProgress.value = 60 + Math.round((percent / 100) * 39)
+    })
+    const blobUrl = URL.createObjectURL(content)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = `${album.value?.name || 'photos'}.zip`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(blobUrl)
+    downloadProgress.value = 100
+    setTimeout(() => {
+      downloadInProgress.value = false
+      downloadProgress.value = 0
+    }, 600)
+    return
+  } catch (e) {
+    console.warn('client-side zip failed or JSZip not available, fallback to sequential downloads', e)
+    await downloadSelected()
+    downloadInProgress.value = false
+  }
+}
 const handleBack = async () => {
   console.log('[AlbumDetail] handleBack called at', Date.now())
+
+  // 如果多选激活，优先关闭多选
+  if (multiSelectActive.value) {
+    clearMultiSelect()
+    return
+  }
 
   if (viewerVisible.value) {
     viewerVisible.value = false
@@ -289,6 +652,11 @@ const handleBack = async () => {
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     e.preventDefault() // 防止浏览器默认行为
+    // 优先关闭多选模式
+    if (multiSelectActive.value) {
+      clearMultiSelect()
+      return
+    }
     if (viewerVisible.value) {
       // 直接关闭查看器，不要等待
       viewerVisible.value = false
@@ -340,6 +708,10 @@ const onBackButtonMouseDown = (e: MouseEvent) => {
   el.appendChild(ripple)
   setTimeout(() => ripple.remove(), 600)
 }
+
+// download progress UI state
+const downloadInProgress = ref(false)
+const downloadProgress = ref(0)
 
 // 执行从封面到详情页的 FLIP 动画
 const performCoverTransition = async (): Promise<boolean> => {
