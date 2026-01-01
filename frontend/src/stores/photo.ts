@@ -98,10 +98,17 @@ export const usePhotoStore = defineStore('photo', () => {
       const params: any = { page, size }
       if (category) params.category = category
       const response = await api.get('/albums', { params })
+      // 合并并去重（按 id）
+      const incoming: Album[] = response.data.content || []
       if (page === 0) {
-        albums.value = response.data.content
+        albums.value = incoming
       } else {
-        albums.value = [...albums.value, ...response.data.content]
+        const merged = [...albums.value, ...incoming]
+        const seen = new Map<number, Album>()
+        merged.forEach(a => {
+          if (!seen.has(a.id)) seen.set(a.id, a)
+        })
+        albums.value = Array.from(seen.values())
       }
       return response.data
     } finally {

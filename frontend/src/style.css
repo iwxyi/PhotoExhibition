@@ -347,6 +347,85 @@
   }
 }
 
+/* 返回叉按钮交互样式（相册详情右上角） */
+.btn-back {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 日间模式使用偏深色，夜间通过 .dark 覆盖为白色 */
+  color: #0f172a;
+  background: transparent;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 220ms ease;
+  will-change: transform;
+  transform-style: preserve-3d;
+  outline: none;
+}
+
+.btn-back svg {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.btn-back::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72px;
+  height: 72px;
+  transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(255,255,255,0.12), rgba(255,255,255,0.02));
+  opacity: 0;
+  transition: transform 350ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease;
+  pointer-events: none;
+}
+
+.btn-back:hover {
+  transform: translateY(-4px) rotateX(var(--rX, 0)) rotateY(var(--rY, 0)) translateX(var(--tx, 0)) translateY(var(--ty, 0));
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+.btn-back:hover::after {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+.btn-back:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.btn-ripple {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  transform: translate(-50%, -50%) scale(0);
+  pointer-events: none;
+  animation: btn-ripple-anim 560ms cubic-bezier(.2,.9,.2,1) forwards;
+  z-index: 1;
+}
+
+@keyframes btn-ripple-anim {
+  to {
+    transform: translate(-50%, -50%) scale(12);
+    opacity: 0;
+  }
+}
+
+/* 夜间主题覆盖：X 使用白色以保证可见性 */
+.dark .btn-back {
+  color: #ffffff;
+}
+
 /* 全局路由切换动画 - 已禁用动画效果 */
 .page-fade-slide-enter-active,
 .page-fade-slide-leave-active {

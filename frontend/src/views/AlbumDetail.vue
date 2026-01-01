@@ -1,8 +1,20 @@
 <template>
   <div class="min-h-screen transition-colors duration-1000" :style="backgroundStyle">
     <nav class="fixed top-4 right-4 z-50">
-      <button @click="handleBack" class="bg-black/20 backdrop-blur-md text-white px-4 py-2 rounded-full hover:bg-black/30 transition-colors duration-200">
-        返回
+      <button
+        @click="handleBack"
+        @mousemove="onBackButtonMouseMove"
+        @mouseleave="onBackButtonMouseLeave"
+        @mousedown="onBackButtonMouseDown"
+        class="btn-back"
+        ref="backButtonRef"
+        aria-label="关闭"
+        title="关闭"
+      >
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
       </button>
     </nav>
 
@@ -285,6 +297,48 @@ const handleKeydown = (e: KeyboardEvent) => {
       handleBack()
     }
   }
+}
+
+// 返回按钮交互：悬停倾斜、点击水波、离开重置
+const backButtonRef = ref<HTMLElement | null>(null)
+const onBackButtonMouseMove = (e: MouseEvent) => {
+  const el = e.currentTarget as HTMLElement
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const dx = e.clientX - cx
+  const dy = e.clientY - cy
+  const ry = (dx / rect.width) * 10 // rotateY
+  const rx = -(dy / rect.height) * 6 // rotateX
+  el.style.setProperty('--rX', `${rx}deg`)
+  el.style.setProperty('--rY', `${ry}deg`)
+  el.style.setProperty('--tx', `${ry * 0.4}px`)
+  el.style.setProperty('--ty', `${rx * 0.2}px`)
+}
+
+const onBackButtonMouseLeave = (e: MouseEvent) => {
+  const el = e.currentTarget as HTMLElement
+  if (!el) return
+  el.style.setProperty('--rX', '0deg')
+  el.style.setProperty('--rY', '0deg')
+  el.style.setProperty('--tx', '0px')
+  el.style.setProperty('--ty', '0px')
+}
+
+const onBackButtonMouseDown = (e: MouseEvent) => {
+  const el = e.currentTarget as HTMLElement
+  if (!el) return
+  // ripple
+  const rect = el.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  const ripple = document.createElement('span')
+  ripple.className = 'btn-ripple'
+  ripple.style.left = `${x}px`
+  ripple.style.top = `${y}px`
+  el.appendChild(ripple)
+  setTimeout(() => ripple.remove(), 600)
 }
 
 // 执行从封面到详情页的 FLIP 动画
@@ -593,6 +647,8 @@ onMounted(async () => {
   await photoStore.fetchAlbumById(albumId)
   await photoStore.fetchPhotosByAlbum(albumId)
   window.addEventListener('keydown', handleKeydown)
+  // reference backButtonRef to satisfy linter (it's bound in template)
+  void backButtonRef.value
   
   // 等待照片元素渲染完成
   await nextTick()

@@ -426,10 +426,13 @@ const loadMore = async () => {
       return
     }
     
-    // 通过 store 追加数据，但不触发 loading
-    // 直接操作 store 的 albums ref
-    const currentAlbums = [...photoStore.albums]
-    photoStore.albums = [...currentAlbums, ...data.content]
+    // 通过 store 追加数据，但避免重复项（按 id 去重）
+    const merged = [...photoStore.albums, ...data.content]
+    const seen = new Map<number, any>()
+    merged.forEach((a: any) => {
+      if (!seen.has(a.id)) seen.set(a.id, a)
+    })
+    photoStore.albums = Array.from(seen.values())
     hasMore.value = !data.last
     
     // 恢复滚动位置
