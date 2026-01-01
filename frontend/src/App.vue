@@ -36,12 +36,7 @@ const getTransitionName = (route: any) => {
   if (route.meta.transitionName) {
     return route.meta.transitionName
   }
-  
-  // 如果是从 Album 返回到 Home，禁用过渡动画
-  if (route.name === 'Home' && previousRoute.value === 'Album') {
-    return 'none'
-  }
-  
+
   // 默认使用 page-fade-slide
   return 'page-fade-slide'
 }

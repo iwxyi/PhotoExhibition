@@ -118,16 +118,24 @@ const goToAlbum = (id: number) => {
 
 // 从相册详情返回时，让三张封面原图在列表页缩回到封面
 const performAlbumBackTransitionIfNeeded = async () => {
+  console.log('[Home] performAlbumBackTransitionIfNeeded called at', Date.now())
+
   const raw = sessionStorage.getItem('album-back-transition')
-  if (!raw) return
+  if (!raw) {
+    console.log('[Home] No album-back-transition data found')
+    return
+  }
 
   try {
     const data: { albumId: number; photoIds: number[] } = JSON.parse(raw)
     const albumId = data.albumId
 
+    console.log('[Home] Processing transition for album', albumId, 'at', Date.now())
+
     const coverKey = `album-cover-rects-${albumId}`
     const coverRaw = sessionStorage.getItem(coverKey)
     if (!coverRaw) {
+      console.log('[Home] No cover rects found for album', albumId)
       sessionStorage.removeItem('album-back-transition')
       return
     }
@@ -135,17 +143,35 @@ const performAlbumBackTransitionIfNeeded = async () => {
     const coverRects: Array<{ photoId: number; slot?: 'left' | 'rightTop' | 'rightBottom'; rect: { top: number; left: number; width: number; height: number } }> =
       JSON.parse(coverRaw)
 
+    console.log('[Home] Found cover rects:', coverRects.length, 'at', Date.now())
+
     // 找到当前页面上从详情页带过来的克隆元素
     const clones = Array.from(
       document.querySelectorAll<HTMLElement>(`.album-back-clone[data-album-id="${albumId}"]`)
     )
+    console.log('[Home] Looking for clones with selector:', `.album-back-clone[data-album-id="${albumId}"]`)
+    console.log('[Home] All album-back-clone elements:', document.querySelectorAll('.album-back-clone'))
+    console.log('[Home] Found clones:', clones.length, 'at', Date.now())
+
     if (!clones.length) {
+      console.log('[Home] No clones found for album', albumId)
+      sessionStorage.removeItem('album-back-transition')
+      return
+    }
+
+    // 等待一帧，确保页面布局稳定
+    console.log('[Home] Waiting for requestAnimationFrame...')
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    console.log('[Home] requestAnimationFrame resolved at', Date.now())
+
+    // 获取目标相册卡片，用于动画计算
+    const albumCard = document.querySelector<HTMLElement>(`.photo-card[data-album-id="${albumId}"]`)
+    if (!albumCard) {
       sessionStorage.removeItem('album-back-transition')
       return
     }
 
     // 隐藏目标相册的封面缩略图，避免克隆动画时显示重复图片
-    const albumCard = document.querySelector<HTMLElement>(`.photo-card[data-album-id="${albumId}"]`)
     const originalTransforms = new Map<number, { transform: string; transition: string }>()
     const targetRects = new Map<number, DOMRect>()
     // 先准备 overlays 变量以便在函数后续使用
@@ -225,6 +251,8 @@ const performAlbumBackTransitionIfNeeded = async () => {
       overlayClones.push(ovClone)
     })
 
+    console.log('[Home] Starting animation for', clones.length, 'clones at', Date.now())
+
     // 为每个克隆设置目标位置（使用刚计算的目标位置），开始缩回动画
     clones.forEach((clone) => {
       const photoId = Number(clone.dataset.photoId || '0')
@@ -246,6 +274,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
 
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
+          console.log('[Home] Animation started for clone', photoId, 'at', Date.now())
           clone.style.top = `${targetRect.top}px`
           clone.style.left = `${targetRect.left}px`
           clone.style.width = `${targetRect.width}px`
@@ -401,10 +430,21 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
+  console.log('[Home] onActivated called at', Date.now())
+
+  // 恢复用户离开时的滚动位置
+  requestAnimationFrame(() => {
+    console.log('[Home] Restoring scroll position to', savedScrollTop.value, 'at', Date.now())
+    window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
+  })
+
+  window.addEventListener('scroll', handleScroll, { passive: true })
+
+  // 每次从 Album 返回激活 Home 时，检查并执行封面缩回动画
+  // 使用单个 nextTick 确保页面完全渲染后再开始动画
+  console.log('[Home] Scheduling performAlbumBackTransitionIfNeeded at', Date.now())
   nextTick(() => {
-    window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    // 每次从 Album 返回激活 Home 时，检查并执行封面缩回动画
+    console.log('[Home] nextTick callback, calling performAlbumBackTransitionIfNeeded at', Date.now())
     performAlbumBackTransitionIfNeeded()
   })
 })

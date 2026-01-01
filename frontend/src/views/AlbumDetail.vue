@@ -225,10 +225,38 @@ const openViewer = (idx: number, e: MouseEvent) => {
 }
 
 const handleBack = async () => {
+  console.log('[AlbumDetail] handleBack called at', Date.now())
+
   if (viewerVisible.value) {
     viewerVisible.value = false
     return
   }
+
+  // 在路由切换前清理动画状态，让组件卸载更快
+  console.log('[AlbumDetail] Cleaning up animation state before navigation at', Date.now())
+
+  // 清理定时器
+  if ((window as any).__albumTransitionCleanupTimer) {
+    clearTimeout((window as any).__albumTransitionCleanupTimer)
+    delete (window as any).__albumTransitionCleanupTimer
+  }
+  if ((window as any).__albumTransitionRemoveTimer) {
+    clearTimeout((window as any).__albumTransitionRemoveTimer)
+    delete (window as any).__albumTransitionRemoveTimer
+  }
+
+  // 清理临时克隆元素
+  transitionClones.forEach(clone => {
+    clone.remove()
+  })
+  transitionClones = []
+
+  // 恢复所有照片的显示状态
+  photoRefs.value.forEach((photoElement) => {
+    photoElement.style.visibility = ''
+    photoElement.style.pointerEvents = ''
+    photoElement.style.transition = ''
+  })
 
   // 启动返回动画并立即返回相册列表，由 Home 页面继续完成缩回到封面的效果
   startBackTransitionAndNavigate()
@@ -414,71 +442,117 @@ const performCoverTransition = async (): Promise<boolean> => {
 
 // 启动返回相册列表时的克隆动画（真正的缩回动画在 Home 页执行）
 const startBackTransitionAndNavigate = () => {
+  console.log('[AlbumDetail] startBackTransitionAndNavigate called at', Date.now())
+
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
 
-  // 立即执行路由跳转，让用户感觉响应更快
-  router.back()
-
-  // 如果没有封面位置信息，不需要创建克隆元素
+  // 如果没有封面位置信息，直接跳转
   if (!storedData || photos.value.length === 0) {
+    console.log('[AlbumDetail] No stored data, direct navigation at', Date.now())
+    router.back()
     return
   }
 
   try {
     const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
-
     const usedPhotoIds: number[] = []
 
-    // 为三张封面对应的照片创建克隆元素，停留在当前详情页的位置
-    for (const { photoId } of coverRects) {
-      const photoElement = photoRefs.value.get(photoId)
-      if (!photoElement) continue
+    // 保存当前滚动位置
+    const currentScrollTop = window.scrollY || document.documentElement.scrollTop
+    const currentScrollLeft = window.scrollX || document.documentElement.scrollLeft
 
-      const img = photoElement.querySelector('img') as HTMLImageElement
-      if (!img) continue
+    console.log('[AlbumDetail] Scroll position saved:', currentScrollTop, 'at', Date.now())
 
-      const fromRect = photoElement.getBoundingClientRect()
-
-      const clone = img.cloneNode(true) as HTMLImageElement
-      clone.src = img.src
-      clone.style.position = 'fixed'
-      clone.style.top = `${fromRect.top}px`
-      clone.style.left = `${fromRect.left}px`
-      clone.style.width = `${fromRect.width}px`
-      clone.style.height = `${fromRect.height}px`
-      clone.style.objectFit = 'cover'
-      clone.style.zIndex = '9999'
-      clone.style.pointerEvents = 'none'
-      clone.style.borderRadius = '8px'
-      clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-      // 反向/返回克隆也使用更快且非线性的 easing，保持与打开动画一致
-      clone.style.transition = 'all 380ms cubic-bezier(0.22, 1, 0.36, 1)'
-      clone.style.willChange = 'transform, width, height, top, left'
-      clone.classList.add('album-back-clone')
-      clone.dataset.albumId = String(albumId)
-      clone.dataset.photoId = String(photoId)
-
-      document.body.appendChild(clone)
-      usedPhotoIds.push(photoId)
+    // 临时禁用滚动
+    const preventScroll = (e: Event) => {
+      e.preventDefault()
+      window.scrollTo(currentScrollLeft, currentScrollTop)
     }
 
-    // 如果没有创建任何克隆，不需要记录动画数据
-    if (usedPhotoIds.length === 0) {
-      return
-    }
+    // 添加滚动事件监听器，强制保持滚动位置
+    window.addEventListener('scroll', preventScroll, { passive: false })
+    window.addEventListener('wheel', preventScroll, { passive: false })
+    window.addEventListener('touchmove', preventScroll, { passive: false })
 
-    // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画
-    sessionStorage.setItem(
-      'album-back-transition',
-      JSON.stringify({
-        albumId,
-        photoIds: usedPhotoIds
-      })
-    )
+    console.log('[AlbumDetail] Scroll protection added at', Date.now())
+
+    // 使用 requestAnimationFrame 延迟创建克隆元素，避免影响当前页面布局
+    requestAnimationFrame(() => {
+      console.log('[AlbumDetail] requestAnimationFrame callback at', Date.now())
+
+      // 为三张封面对应的照片创建克隆元素，停留在当前详情页的位置
+      for (const { photoId } of coverRects) {
+        const photoElement = photoRefs.value.get(photoId)
+        if (!photoElement) continue
+
+        const img = photoElement.querySelector('img') as HTMLImageElement
+        if (!img) continue
+
+        const fromRect = photoElement.getBoundingClientRect()
+
+        const clone = img.cloneNode(true) as HTMLImageElement
+        clone.src = img.src
+        clone.style.position = 'fixed'
+        clone.style.top = `${fromRect.top}px`
+        clone.style.left = `${fromRect.left}px`
+        clone.style.width = `${fromRect.width}px`
+        clone.style.height = `${fromRect.height}px`
+        clone.style.objectFit = 'cover'
+        clone.style.zIndex = '9999'
+        clone.style.pointerEvents = 'none'
+        clone.style.borderRadius = '8px'
+        clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+        // 反向/返回克隆也使用更快且非线性的 easing，保持与打开动画一致
+        clone.style.transition = 'all 380ms cubic-bezier(0.22, 1, 0.36, 1)'
+        clone.style.willChange = 'transform, width, height, top, left'
+        clone.classList.add('album-back-clone')
+        clone.dataset.albumId = String(albumId)
+        clone.dataset.photoId = String(photoId)
+
+        document.body.appendChild(clone)
+        usedPhotoIds.push(photoId)
+      }
+
+      console.log('[AlbumDetail] Clones created, count:', usedPhotoIds.length, 'at', Date.now())
+
+      // 如果没有创建任何克隆，直接跳转
+      if (usedPhotoIds.length === 0) {
+        console.log('[AlbumDetail] No clones created, direct navigation at', Date.now())
+        router.back()
+        return
+      }
+
+      // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画
+      sessionStorage.setItem(
+        'album-back-transition',
+        JSON.stringify({
+          albumId,
+          photoIds: usedPhotoIds,
+          scrollTop: currentScrollTop,
+          scrollLeft: currentScrollLeft
+        })
+      )
+
+      console.log('[AlbumDetail] Session storage set at', Date.now())
+
+      // 立即跳转，让用户感觉响应更快
+      console.log('[AlbumDetail] Calling router.back() at', Date.now())
+      router.back()
+
+      // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
+      setTimeout(() => {
+        console.log('[AlbumDetail] Removing scroll protection at', Date.now())
+        window.removeEventListener('scroll', preventScroll)
+        window.removeEventListener('wheel', preventScroll)
+        window.removeEventListener('touchmove', preventScroll)
+      }, 0)
+    })
   } catch (error) {
     console.error('启动返回相册列表动画失败:', error)
+    // 出错时也要跳转
+    router.back()
   }
 }
 
@@ -543,35 +617,12 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  console.log('[AlbumDetail] onUnmounted called at', Date.now())
+
   window.removeEventListener('keydown', handleKeydown)
-  
-  // 清理所有临时克隆元素
-  transitionClones.forEach(clone => {
-    clone.remove()
-  })
-  transitionClones = []
-  
-  // 清理定时器
-  if ((window as any).__albumTransitionCleanupTimer) {
-    clearTimeout((window as any).__albumTransitionCleanupTimer)
-    delete (window as any).__albumTransitionCleanupTimer
-  }
-  if ((window as any).__albumTransitionRemoveTimer) {
-    clearTimeout((window as any).__albumTransitionRemoveTimer)
-    delete (window as any).__albumTransitionRemoveTimer
-  }
-  
-  // 恢复所有照片的显示
-  photoRefs.value.forEach((photoElement) => {
-    photoElement.style.visibility = ''
-    photoElement.style.pointerEvents = ''
-    photoElement.style.transition = ''
-  })
-  
-  // 组件卸载时清除 sessionStorage（如果还没有被清除）
-  const albumId = parseInt(route.params.id as string)
-  const storageKey = `album-cover-rects-${albumId}`
-  sessionStorage.removeItem(storageKey)
+
+  // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
+  console.log('[AlbumDetail] onUnmounted completed at', Date.now())
 })
 
 // 颜色处理工具函数

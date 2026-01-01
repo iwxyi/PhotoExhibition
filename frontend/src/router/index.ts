@@ -98,17 +98,16 @@ const router = createRouter({
     if (savedPosition) {
       return savedPosition
     }
-    // 需要默认保留的页面返回 false，保持当前滚动
-    if (['Home', 'Wall', 'Random'].includes((to.name || '') as string)) {
-      return false
-    }
-    return { left: 0, top: 0 }
+    // 让组件自己管理滚动位置，不在路由层面干预
+    return false
   }
 })
 
 router.beforeEach((to, from, next) => {
+  console.log('[Router] beforeEach:', from.name, '->', to.name, 'at', Date.now())
+
   const authStore = useAuthStore()
-  
+
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next('/admin/login')
   } else if (to.path === '/admin/login' && authStore.isAuthenticated) {
@@ -116,6 +115,10 @@ router.beforeEach((to, from, next) => {
   } else {
     next()
   }
+})
+
+router.afterEach((to, from) => {
+  console.log('[Router] afterEach:', from.name, '->', to.name, 'at', Date.now())
 })
 
 export default router
