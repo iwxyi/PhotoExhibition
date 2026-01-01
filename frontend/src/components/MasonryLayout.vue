@@ -74,24 +74,25 @@ const calculatePositions = () => {
   const columnHeights = new Array(props.columnCount).fill(0)
   const gap = props.gap || 16
 
+  // 当多列为最短时，优先选择最左侧的最短列（自然实现从左到右填充）
+  const tieEpsilon = 1 // 像素级阈值，用于处理浮点误差
+
   props.items.forEach((item) => {
-    // 找到当前高度最小的列
-    let minHeightIndex = 0
-    let minHeight = columnHeights[0]
-
-    for (let i = 1; i < props.columnCount; i++) {
-      if (columnHeights[i] < minHeight) {
-        minHeight = columnHeights[i]
-        minHeightIndex = i
-      }
-    }
-
-    // 计算图片尺寸
+    // 计算图片尺寸（提前计算以便后续使用）
     const size = calculateItemSize(item)
 
+    // 找到当前最短列高度
+    const minHeight = Math.min(...columnHeights)
+
+    // 找出所有视为最短的列（高度 <= minHeight + tieEpsilon）
+    const candidateIndex = columnHeights.findIndex(h => h <= minHeight + tieEpsilon)
+
+    // candidateIndex 已经是最左侧符合条件的列索引
+    const targetColumnIndex = candidateIndex >= 0 ? candidateIndex : columnHeights.indexOf(minHeight)
+
     // 计算位置
-    const x = minHeightIndex * (columnWidth.value + gap)
-    const y = minHeight
+    const x = targetColumnIndex * (columnWidth.value + gap)
+    const y = columnHeights[targetColumnIndex]
 
     // 创建样式对象
     const style: Record<string, any> = {
@@ -110,7 +111,7 @@ const calculatePositions = () => {
     })
 
     // 更新列高度
-    columnHeights[minHeightIndex] += size.height + gap
+    columnHeights[targetColumnIndex] += size.height + gap
   })
 
   // 设置容器高度为最高列的高度

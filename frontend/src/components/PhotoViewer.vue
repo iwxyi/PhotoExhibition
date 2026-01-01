@@ -85,6 +85,7 @@
             >
               <img
                 v-if="currentPhoto"
+                :key="mainImageKey"
                 :src="getImageUrl(currentPhoto)"
                 :alt="currentPhoto.filename"
                 class="select-none"
@@ -296,6 +297,7 @@ const modalRoot = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const thumbContainer = ref<HTMLElement | null>(null)
 const thumbItems = ref<HTMLElement[]>([])
+const mainImageKey = ref(0)
 const thumbHeight = ref<number>(parseInt(localStorage.getItem('pe-thumb-height') || '112', 10) || 112)
 const dragging = ref(false)
 const dragStartY = ref(0)
@@ -368,7 +370,6 @@ watch(
       if (props.originRect) {
         nextTick(() => {
           if (!imageContainer.value || !mainImage.value) return
-          const containerRect = imageContainer.value.getBoundingClientRect()
           const targetRect = mainImage.value.getBoundingClientRect()
           const origin = props.originRect!
 
@@ -409,11 +410,14 @@ onMounted(() => {
   infoCollapsed.value = saved === '1'
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onImageLoad)
+  // 监听 fullscreen 变化以便在进入/退出全屏时重新计算图片尺寸
+  document.addEventListener('fullscreenchange', onFullscreenChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', onImageLoad)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 
 const toggleInfo = () => {
@@ -471,6 +475,10 @@ const toggleFullscreen = async () => {
     if (!document.fullscreenElement) {
       await el.requestFullscreen()
       isFullscreen.value = true
+      // 等待一帧，确保渲染完成后重新计算图片尺寸
+      await nextTick()
+      onImageLoad()
+      resetZoom()
     } else {
       await document.exitFullscreen()
       isFullscreen.value = false
@@ -514,6 +522,19 @@ const onKeydown = (e: KeyboardEvent) => {
   } else if (e.key === 'ArrowRight') {
     next()
   }
+}
+
+// fullscreen change handler: 更新状态并在需要时重新计算图片布局
+const onFullscreenChange = async () => {
+  isFullscreen.value = !!document.fullscreenElement
+  // 等待 DOM 更新后重新计算图片尺寸/位置
+  await nextTick()
+  onImageLoad()
+  resetZoom()
+  // 强制重新渲染图片元素以清除任何残留样式（少量延迟以让浏览器完成布局变化）
+  setTimeout(() => {
+    mainImageKey.value = (mainImageKey.value || 0) + 1
+  }, 50)
 }
 
 // 触控板/鼠标滚轮缩放
@@ -897,6 +918,18 @@ const getImageStyle = (): Record<string, string> => {
   const container = imageContainer.value
   const containerRect = container.getBoundingClientRect()
   
+  // 当处于全屏模式时，优先让图片铺满视口（使用 cover），以消除上下留白。
+  if (isFullscreen.value) {
+    return {
+      width: '100vw',
+      height: '100vh',
+      maxWidth: 'none',
+      maxHeight: 'none',
+      objectFit: 'cover',
+      display: 'block'
+    }
+  }
+
   return {
     maxWidth: `${containerRect.width}px`,
     maxHeight: `${containerRect.height}px`,
