@@ -194,6 +194,8 @@ public class AlbumService {
         dto.setCoverImageId(album.getCoverImageId());
         dto.setDescription(album.getDescription());
         dto.setPhotoCount(album.getPhotoCount());
+        dto.setAggregateSubAlbums(album.getAggregateSubAlbums());
+        dto.setPhotoSortOrder(album.getPhotoSortOrder());
         dto.setCreatedAt(album.getCreatedAt());
         dto.setUpdatedAt(album.getUpdatedAt());
         dto.setDisplayTitle(buildDisplayTitle(album));
@@ -509,13 +511,76 @@ public class AlbumService {
     public AlbumDTO removeTagFromAlbum(Long albumId, Long tagId) {
         Album album = albumRepository.findById(albumId)
             .orElseThrow(() -> new RuntimeException("相册不存在"));
-        
+
         if (album.getTags() != null) {
             album.getTags().removeIf(t -> t.getId().equals(tagId));
             albumRepository.save(album);
         }
-        
+
         return convertToDTO(album);
+    }
+
+    /**
+     * 设置相册聚合下级相册
+     */
+    @Transactional
+    public AlbumDTO setAggregateSubAlbums(Long albumId, Boolean aggregate) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        album.setAggregateSubAlbums(aggregate != null ? aggregate : false);
+        Album saved = albumRepository.save(album);
+
+        return convertToDTO(saved);
+    }
+
+    /**
+     * 设置相册照片排序方式
+     */
+    @Transactional
+    public AlbumDTO setAlbumPhotoSortOrder(Long albumId, String sortOrder) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        // 如果传入null或空字符串，则清除相册级别的排序设置，使用全局设置
+        if (sortOrder == null || sortOrder.trim().isEmpty()) {
+            album.setPhotoSortOrder(null);
+        } else {
+            // 验证排序方式
+            if (!isValidSortOrder(sortOrder)) {
+                throw new IllegalArgumentException("无效的排序方式: " + sortOrder);
+            }
+            album.setPhotoSortOrder(sortOrder.trim());
+        }
+
+        Album saved = albumRepository.save(album);
+        return convertToDTO(saved);
+    }
+
+    /**
+     * 验证排序方式是否有效
+     */
+    private boolean isValidSortOrder(String sortOrder) {
+        return SystemConfigService.SORT_BY_TAKEN_AT_DESC.equals(sortOrder) ||
+               SystemConfigService.SORT_BY_TAKEN_AT_ASC.equals(sortOrder) ||
+               SystemConfigService.SORT_BY_FILENAME_DESC.equals(sortOrder) ||
+               SystemConfigService.SORT_BY_FILENAME_ASC.equals(sortOrder) ||
+               SystemConfigService.SORT_BY_CREATED_AT_DESC.equals(sortOrder) ||
+               SystemConfigService.SORT_BY_CREATED_AT_ASC.equals(sortOrder);
+    }
+
+    /**
+     * 设置相册聚合下级相册
+     */
+    @Transactional
+    public AlbumDTO setAggregateSubAlbums(Long albumId, Boolean aggregateSubAlbums) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        album.setAggregateSubAlbums(aggregateSubAlbums);
+        Album saved = albumRepository.save(album);
+
+        return convertToDTO(saved);
     }
 }
 

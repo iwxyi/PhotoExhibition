@@ -8,12 +8,15 @@ import com.photoexhibition.dto.TagDTO;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
+import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,8 +31,10 @@ public class PhotoService {
 
     private final PhotoRepository photoRepository;
     private final FaceRepository faceRepository;
+    private final AlbumRepository albumRepository;
     private final ObjectMapper objectMapper;
-    
+    private final SystemConfigService systemConfigService;
+
     @Value("${photo.scan.base-path}")
     private String photoBasePath;
 
@@ -38,7 +43,11 @@ public class PhotoService {
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
     public Page<PhotoDTO> getAllPhotos(Pageable pageable) {
-        Page<Photo> photos = photoRepository.findAll(pageable);
+        // 应用系统配置的排序方式
+        Sort sort = getPhotoSort();
+        Pageable sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+
+        Page<Photo> photos = photoRepository.findAll(sortedPageable);
         return photos.map(this::convertToDTO);
     }
 
@@ -60,8 +69,21 @@ public class PhotoService {
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
     public Page<PhotoDTO> getPhotosByAlbum(Long albumId, Pageable pageable) {
-        Page<Photo> photos = photoRepository.findByAlbumId(albumId, pageable);
-        return photos.map(this::convertToDTO);
+        // 应用相册或系统配置的排序方式
+        Sort sort = getPhotoSort(albumId);
+        Pageable sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+
+        // 检查相册是否开启了聚合下级相册
+        List<Long> albumIds = getAggregatedAlbumIds(albumId);
+
+        if (albumIds.size() == 1) {
+            // 没有聚合，直接查询单个相册
+            Page<Photo> photos = photoRepository.findByAlbumId(albumId, sortedPageable);
+            return photos.map(this::convertToDTO);
+        } else {
+            // 聚合模式，查询多个相册的照片
+            return getPhotosByAlbumIds(albumIds, sortedPageable);
+        }
     }
 
     /**
@@ -297,6 +319,156 @@ public class PhotoService {
             dto.setPersonDescription(face.getPerson().getDescription());
         }
         return dto;
+    }
+
+    /**
+     * 根据相册或系统配置获取照片排序方式
+     * 优先使用相册级别的排序设置，没有则使用系统配置
+     */
+    private Sort getPhotoSort() {
+        return getPhotoSort(null);
+    }
+
+    /**
+     * 根据相册或系统配置获取照片排序方式
+     * 优先使用相册级别的排序设置，没有则使用系统配置
+     */
+    private Sort getPhotoSort(Long albumId) {
+        String sortOrder = null;
+
+        // 优先使用相册级别的排序设置
+        if (albumId != null) {
+            java.util.Optional<com.photoexhibition.entity.Album> albumOpt = albumRepository.findById(albumId);
+            if (albumOpt.isPresent()) {
+                sortOrder = albumOpt.get().getPhotoSortOrder();
+            }
+        }
+
+        // 如果没有相册级别的设置，使用系统配置
+        if (sortOrder == null || sortOrder.trim().isEmpty()) {
+            sortOrder = systemConfigService.getPhotoSortOrder();
+        }
+
+        return getSortByOrderString(sortOrder);
+    }
+
+    /**
+     * 根据排序字符串获取Sort对象
+     */
+    private Sort getSortByOrderString(String sortOrder) {
+        switch (sortOrder) {
+            case SystemConfigService.SORT_BY_TAKEN_AT_DESC:
+                return Sort.by(Sort.Direction.DESC, "takenAt");
+            case SystemConfigService.SORT_BY_TAKEN_AT_ASC:
+                return Sort.by(Sort.Direction.ASC, "takenAt");
+            case SystemConfigService.SORT_BY_FILENAME_DESC:
+                return Sort.by(Sort.Direction.DESC, "filename");
+            case SystemConfigService.SORT_BY_FILENAME_ASC:
+                return Sort.by(Sort.Direction.ASC, "filename");
+            case SystemConfigService.SORT_BY_CREATED_AT_DESC:
+                return Sort.by(Sort.Direction.DESC, "createdAt");
+            case SystemConfigService.SORT_BY_CREATED_AT_ASC:
+                return Sort.by(Sort.Direction.ASC, "createdAt");
+            default:
+                // 默认按拍摄时间倒序
+                return Sort.by(Sort.Direction.DESC, "takenAt");
+        }
+    }
+
+    /**
+     * 获取需要聚合的相册ID列表
+     * 如果相册开启了聚合下级相册，返回该相册及其所有子相册的ID
+     * 否则只返回当前相册ID
+     */
+    private List<Long> getAggregatedAlbumIds(Long albumId) {
+        List<Long> albumIds = new java.util.ArrayList<>();
+        albumIds.add(albumId);
+
+        // 检查相册是否开启了聚合下级相册
+        albumRepository.findById(albumId).ifPresent(album -> {
+            if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+                // 递归获取所有子相册ID
+                addSubAlbumIds(album.getPath(), albumIds);
+            }
+        });
+
+        return albumIds;
+    }
+
+    /**
+     * 递归添加子相册ID到列表中
+     */
+    private void addSubAlbumIds(String parentPath, List<Long> albumIds) {
+        List<com.photoexhibition.entity.Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+        for (com.photoexhibition.entity.Album subAlbum : subAlbums) {
+            albumIds.add(subAlbum.getId());
+            // 如果子相册也开启了聚合，继续递归
+            if (Boolean.TRUE.equals(subAlbum.getAggregateSubAlbums())) {
+                addSubAlbumIds(subAlbum.getPath(), albumIds);
+            }
+        }
+    }
+
+    /**
+     * 获取多个相册中的所有照片（用于聚合模式）
+     */
+    private Page<PhotoDTO> getPhotosByAlbumIds(List<Long> albumIds, Pageable pageable) {
+        // 使用自定义查询获取多个相册的照片
+        List<Photo> allPhotos = new java.util.ArrayList<>();
+        int totalElements = 0;
+
+        // 分别查询每个相册的照片，然后合并
+        for (Long albumId : albumIds) {
+            List<Photo> albumPhotos = photoRepository.findByAlbumId(albumId, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+            allPhotos.addAll(albumPhotos);
+        }
+
+        // 手动排序所有照片，使用第一个相册的排序设置
+        Sort sort = getPhotoSort(albumIds.get(0));
+        allPhotos.sort((p1, p2) -> {
+            for (org.springframework.data.domain.Sort.Order order : sort) {
+                int cmp = 0;
+                String property = order.getProperty();
+                switch (property) {
+                    case "takenAt":
+                        cmp = compareNullable(p1.getTakenAt(), p2.getTakenAt());
+                        break;
+                    case "filename":
+                        cmp = compareNullable(p1.getFilename(), p2.getFilename());
+                        break;
+                    case "createdAt":
+                        cmp = compareNullable(p1.getCreatedAt(), p2.getCreatedAt());
+                        break;
+                }
+                if (cmp != 0) {
+                    return order.getDirection() == org.springframework.data.domain.Sort.Direction.DESC ? -cmp : cmp;
+                }
+            }
+            return 0;
+        });
+
+        totalElements = allPhotos.size();
+
+        // 手动分页
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), allPhotos.size());
+        List<Photo> pageContent = start < allPhotos.size() ? allPhotos.subList(start, end) : new java.util.ArrayList<>();
+
+        return new org.springframework.data.domain.PageImpl<>(
+            pageContent.stream().map(this::convertToDTO).collect(Collectors.toList()),
+            pageable,
+            totalElements
+        );
+    }
+
+    /**
+     * 比较可空的Comparable对象
+     */
+    private <T extends Comparable<T>> int compareNullable(T a, T b) {
+        if (a == null && b == null) return 0;
+        if (a == null) return -1;
+        if (b == null) return 1;
+        return a.compareTo(b);
     }
 }
 

@@ -88,6 +88,12 @@ const routes = [
     name: 'AdminFileBrowser',
     component: () => import('@/views/admin/FileBrowser.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/settings',
+    name: 'AdminSettings',
+    component: () => import('@/views/admin/Settings.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

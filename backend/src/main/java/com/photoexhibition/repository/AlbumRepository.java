@@ -54,5 +54,11 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     Optional<Album> findByIdWithTags(@Param("id") Long id);
 
     Optional<Album> findByPathHash(String pathHash);
+
+    /**
+     * 查找指定相册的所有直接子相册
+     */
+    @Query("SELECT a FROM Album a WHERE a.path LIKE CONCAT(:parentPath, '/%') AND a.path NOT LIKE CONCAT(:parentPath, '/%/%')")
+    List<Album> findDirectSubAlbums(@Param("parentPath") String parentPath);
 }
 

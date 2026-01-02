@@ -21,3 +21,4 @@ public class AtmosphereEffectDTO {
         this.config = config;
     }
 }
+

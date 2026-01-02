@@ -533,3 +533,4 @@ const getAutumnLeafStyle = (index: number) => {
   opacity: 1;
 }
 </style>
+

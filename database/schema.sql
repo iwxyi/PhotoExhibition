@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS `album` (
   `cover_image_id` BIGINT(20) DEFAULT NULL COMMENT '封面图片ID',
   `description` TEXT COMMENT '相册描述',
   `photo_count` INT(11) DEFAULT 0 COMMENT '照片数量',
+  `aggregate_sub_albums` TINYINT(1) DEFAULT 0 COMMENT '是否聚合下级相册',
+  `photo_sort_order` VARCHAR(50) DEFAULT NULL COMMENT '相册照片排序方式',
   -- 氛围信息字段
   `background_color` VARCHAR(20) DEFAULT NULL COMMENT '背景颜色（HEX）',
   `foreground_color` VARCHAR(20) DEFAULT NULL COMMENT '前景色（HEX）',

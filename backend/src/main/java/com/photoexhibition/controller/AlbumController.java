@@ -69,6 +69,33 @@ public class AlbumController {
     }
 
     /**
+     * 设置相册聚合下级相册
+     */
+    @PutMapping("/{id}/aggregate-sub-albums")
+    public ResponseEntity<AlbumDTO> setAggregateSubAlbums(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Boolean> request) {
+        Boolean aggregate = request.get("aggregateSubAlbums");
+        if (aggregate == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        AlbumDTO album = albumService.setAggregateSubAlbums(id, aggregate);
+        return ResponseEntity.ok(album);
+    }
+
+    /**
+     * 设置相册照片排序方式
+     */
+    @PutMapping("/{id}/photo-sort-order")
+    public ResponseEntity<AlbumDTO> setAlbumPhotoSortOrder(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Object> request) {
+        String sortOrder = (String) request.get("photoSortOrder");
+        AlbumDTO album = albumService.setAlbumPhotoSortOrder(id, sortOrder);
+        return ResponseEntity.ok(album);
+    }
+
+    /**
      * 删除相册
      */
     @DeleteMapping("/{id}")

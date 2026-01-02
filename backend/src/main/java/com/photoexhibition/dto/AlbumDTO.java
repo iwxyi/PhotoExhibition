@@ -12,6 +12,8 @@ public class AlbumDTO {
     private Long coverImageId;
     private String description;
     private Integer photoCount;
+    private Boolean aggregateSubAlbums;
+    private String photoSortOrder;
     /**
      * 展示用标题（去掉日期前缀、合并子目录），便于前端显示
      */

@@ -138,6 +138,12 @@
           >
             主题与风格
           </router-link>
+          <router-link
+            to="/admin/settings"
+            class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
+          >
+            系统设置
+          </router-link>
           </div>
         </div>
 

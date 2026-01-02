@@ -31,6 +31,12 @@ public class Album {
     @Column(name = "photo_count")
     private Integer photoCount = 0;
 
+    @Column(name = "aggregate_sub_albums")
+    private Boolean aggregateSubAlbums = false;
+
+    @Column(name = "photo_sort_order")
+    private String photoSortOrder;
+
     // 氛围信息字段
     @Column(name = "background_color", length = 20)
     private String backgroundColor;

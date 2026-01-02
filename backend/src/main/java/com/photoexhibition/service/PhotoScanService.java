@@ -21,6 +21,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -70,6 +72,7 @@ public class PhotoScanService {
     private final SmartTagService smartTagService;
     private final AlbumAtmosphereAnalysisService atmosphereAnalysisService;
     private final AtmosphereEffectsService atmosphereEffectsService;
+    private final SystemConfigService systemConfigService;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -86,7 +89,8 @@ public class PhotoScanService {
                            FaceService faceService,
                            SmartTagService smartTagService,
                            AlbumAtmosphereAnalysisService atmosphereAnalysisService,
-                           AtmosphereEffectsService atmosphereEffectsService) {
+                           AtmosphereEffectsService atmosphereEffectsService,
+                           SystemConfigService systemConfigService) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
         this.tagRepository = tagRepository;
@@ -96,6 +100,7 @@ public class PhotoScanService {
         this.smartTagService = smartTagService;
         this.atmosphereAnalysisService = atmosphereAnalysisService;
         this.atmosphereEffectsService = atmosphereEffectsService;
+        this.systemConfigService = systemConfigService;
     }
     
     @PreDestroy
@@ -381,6 +386,16 @@ public class PhotoScanService {
      * 处理相册目录
      */
     private void processAlbumDirectory(Path albumPath, boolean force) {
+        processAlbumDirectory(albumPath, force, null);
+    }
+
+    /**
+     * 处理相册目录（带层级控制）
+     * @param albumPath 相册路径
+     * @param force 是否强制扫描
+     * @param parentAlbum 如果当前目录超过最大层级，则使用父相册
+     */
+    private void processAlbumDirectory(Path albumPath, boolean force, Album parentAlbum) {
         // 检查应用是否正在关闭
         if (isShuttingDown.get()) {
             log.debug("应用正在关闭，跳过处理: {}", albumPath);
@@ -390,6 +405,63 @@ public class PhotoScanService {
         try {
             // 跳过.thumbnails目录
             if (albumPath.getFileName().toString().equals(".thumbnails")) {
+                return;
+            }
+
+            // 计算当前目录相对于base-path的层级深度
+            int depth = calculateAlbumDepth(albumPath);
+            int maxDepth = systemConfigService.getMaxAlbumDepth();
+
+            // 如果目录深度超过最大层级，不创建相册，将所有图片归属到父相册
+            if (depth > maxDepth) {
+                // 查找是否已存在该目录的相册记录，如果存在则删除
+                String albumPathStr = albumPath.toString();
+                String albumPathHash = calculateSha256(albumPathStr);
+                Optional<Album> existingAlbum = albumRepository.findByPathHash(albumPathHash);
+
+                if (existingAlbum.isPresent()) {
+                    Album albumToDelete = existingAlbum.get();
+                    log.info("删除超出层级的相册 {} (深度: {}, 最大深度: {})", albumToDelete.getName(), depth, maxDepth);
+
+                    // 将该相册的照片移动到父相册（如果有父相册）
+                    if (parentAlbum != null) {
+                        // 分页获取该相册的所有照片并移动到父相册
+                        int pageSize = 1000;
+                        int pageNumber = 0;
+                        int totalMoved = 0;
+
+                        while (true) {
+                            Page<Photo> photoPage = photoRepository.findByAlbumId(albumToDelete.getId(), PageRequest.of(pageNumber, pageSize));
+                            List<Photo> photos = photoPage.getContent();
+
+                            if (photos.isEmpty()) {
+                                break;
+                            }
+
+                            for (Photo photo : photos) {
+                                photo.setAlbumId(parentAlbum.getId());
+                                photoRepository.save(photo);
+                                totalMoved++;
+                            }
+
+                            pageNumber++;
+                            if (pageNumber >= photoPage.getTotalPages()) {
+                                break;
+                            }
+                        }
+
+                        log.info("已将 {} 张照片移动到父相册 {}", totalMoved, parentAlbum.getName());
+                    }
+
+                    // 删除相册
+                    albumRepository.delete(albumToDelete);
+                }
+
+                // 将所有图片归属到父相册中，并递归处理子目录
+                if (parentAlbum != null) {
+                    log.debug("目录 {} 超过最大相册层级 {}，将其图片归属到父相册 {}", albumPath, maxDepth, parentAlbum.getName());
+                    processAlbumImagesRecursively(albumPath, parentAlbum, force);
+                }
                 return;
             }
             
@@ -414,6 +486,15 @@ public class PhotoScanService {
 
             for (File imageFile : imageFiles) {
                 processPhotoFile(imageFile, album, force);
+            }
+
+            // 如果当前目录的深度没有超过最大层级，则递归处理子目录
+            if (depth <= maxDepth) {
+                try (Stream<Path> subPaths = Files.list(albumPath)) {
+                    subPaths.filter(Files::isDirectory)
+                        .filter(p -> !p.getFileName().toString().equals(".thumbnails"))
+                        .forEach(p -> processAlbumDirectory(p, force, album));
+                }
             }
 
             // 更新相册照片数量
@@ -850,6 +931,70 @@ public class PhotoScanService {
             return rel.replace("\\", "/");
         } catch (Exception e) {
             return absolutePath;
+        }
+    }
+
+    /**
+     * 计算相册目录的层级深度
+     * 深度计算规则：base-path/分类/顶级相册名/1级层级/2级层级/...
+     * 从"1级层级"开始计算深度，返回相对于base-path的深度（从第三级开始计数）
+     */
+    private int calculateAlbumDepth(Path albumPath) {
+        try {
+            // 获取base-path的绝对路径
+            Path basePathResolved = Paths.get(basePath);
+            if (!basePathResolved.isAbsolute()) {
+                String projectRoot = System.getProperty("user.dir");
+                if (projectRoot.endsWith("backend")) {
+                    projectRoot = new File(projectRoot).getParent();
+                }
+                String cleanPath = basePath.startsWith("./") ? basePath.substring(2) : basePath;
+                basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
+            }
+            basePathResolved = basePathResolved.normalize();
+
+            // 如果当前路径不在base-path下，返回0
+            if (!albumPath.startsWith(basePathResolved)) {
+                return 0;
+            }
+
+            // 计算相对路径的层级数
+            Path relative = basePathResolved.relativize(albumPath);
+            int nameCount = relative.getNameCount();
+
+            // 深度 = 层级数 - 2（减去base-path和第一级分类目录）
+            // 例如：base-path/分类/顶级相册名/1级层级 -> 深度为1
+            return Math.max(0, nameCount - 2);
+        } catch (Exception e) {
+            log.warn("计算相册深度失败: {}", albumPath, e);
+            return 0;
+        }
+    }
+
+    /**
+     * 递归处理目录及其子目录中的所有图片到指定相册
+     */
+    private void processAlbumImagesRecursively(Path directory, Album album, boolean force) {
+        // 检查应用是否正在关闭
+        if (isShuttingDown.get()) {
+            return;
+        }
+
+        try {
+            // 处理当前目录的图片
+            List<File> imageFiles = findImageFiles(directory.toFile());
+            for (File imageFile : imageFiles) {
+                processPhotoFile(imageFile, album, force);
+            }
+
+            // 递归处理子目录
+            try (Stream<Path> subPaths = Files.list(directory)) {
+                subPaths.filter(Files::isDirectory)
+                    .filter(p -> !p.getFileName().toString().equals(".thumbnails"))
+                    .forEach(p -> processAlbumImagesRecursively(p, album, force));
+            }
+        } catch (Exception e) {
+            log.warn("递归处理目录图片失败: {}", directory, e);
         }
     }
 }
