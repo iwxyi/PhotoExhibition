@@ -13,6 +13,7 @@ import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,14 +21,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AlbumService {
 
     private final AlbumRepository albumRepository;
@@ -39,7 +44,7 @@ public class AlbumService {
     private String photoBasePath;
 
     /**
-     * 获取所有相册并生成封面（只返回有照片的相册）
+     * 获取所有相册并生成封面（只返回有照片的相册或开启了聚合的相册）
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category) {
@@ -48,22 +53,42 @@ public class AlbumService {
             String prefix = buildCategoryPrefix(category);
             albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, pageable);
         } else {
-            // 只查询有照片的相册
-            albums = albumRepository.findAlbumsWithPhotos(pageable);
+            // 查询有照片的相册或开启了聚合功能的相册
+            albums = albumRepository.findAlbumsWithPhotosOrAggregation(pageable);
         }
-        return albums.map(this::convertToDTO);
+
+        // 过滤掉被聚合的相册
+        List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
+
+        // 重新创建Page对象
+        return new org.springframework.data.domain.PageImpl<>(
+            filteredAlbums.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
+            pageable,
+            filteredAlbums.size()
+        );
     }
 
     /**
-     * 筛选相册（只返回有照片的相册）
+     * 筛选相册（只返回有照片的相册或开启了聚合的相册）
      */
     public Page<AlbumDTO> filterAlbums(com.photoexhibition.dto.FilterRequest request, Pageable pageable) {
+        Page<Album> albums;
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
-            // 只查询有照片的相册
-            Page<Album> albums = albumRepository.findByTagIdsWithPhotos(request.getTagIds(), pageable);
-            return albums.map(this::convertToDTO);
+            // 查询有照片且带标签的相册，或开启了聚合功能的相册
+            albums = albumRepository.findByTagIdsWithPhotosOrAggregation(request.getTagIds(), pageable);
+        } else {
+            albums = albumRepository.findAlbumsWithPhotosOrAggregation(pageable);
         }
-        return getAllAlbumsWithCover(pageable, null);
+
+        // 过滤掉被聚合的相册
+        List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
+
+        // 重新创建Page对象
+        return new org.springframework.data.domain.PageImpl<>(
+            filteredAlbums.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
+            pageable,
+            filteredAlbums.size()
+        );
     }
 
     /**
@@ -108,9 +133,19 @@ public class AlbumService {
      * 获取相册封面图片组合（左侧竖图+右侧上下两张横图）
      */
     public CoverImagesDTO getAlbumCoverImages(Long albumId) {
-        List<Photo> photos = photoRepository.findByAlbumId(albumId,
-            org.springframework.data.domain.PageRequest.of(0, 20)) // 增加查询数量，确保能找到合适的图片
-            .getContent();
+        // 检查相册是否开启了聚合
+        List<Long> albumIds = getAggregatedAlbumIds(albumId);
+
+        List<Photo> photos = new java.util.ArrayList<>();
+        for (Long id : albumIds) {
+            List<Photo> albumPhotos = photoRepository.findByAlbumId(id,
+                org.springframework.data.domain.PageRequest.of(0, 10)) // 每个相册取10张照片
+                .getContent();
+            photos.addAll(albumPhotos);
+            if (photos.size() >= 30) { // 最多收集30张照片用于选择封面
+                break;
+            }
+        }
 
         CoverImagesDTO cover = new CoverImagesDTO();
 
@@ -196,15 +231,86 @@ public class AlbumService {
         dto.setPhotoCount(album.getPhotoCount());
         dto.setAggregateSubAlbums(album.getAggregateSubAlbums());
         dto.setPhotoSortOrder(album.getPhotoSortOrder());
+
+        // 检查是否有子文件夹（用于聚合功能）
+        boolean hasSubs = false;
+        try {
+            Path albumPath = Paths.get(album.getPath());
+            if (Files.exists(albumPath) && Files.isDirectory(albumPath)) {
+                try (Stream<Path> stream = Files.list(albumPath)) {
+                    hasSubs = stream.anyMatch(path -> Files.isDirectory(path) &&
+                        !path.getFileName().toString().equals(".thumbnails"));
+                }
+            }
+        } catch (Exception e) {
+            // 忽略错误，默认为没有子文件夹
+            log.debug("检查相册子文件夹失败: {} - {}", album.getName(), e.getMessage());
+        }
+        dto.setHasSubAlbums(hasSubs);
+
+        // 检查是否是顶级相册（不能聚合到上一级）
+        // 顶级相册是指在base-path/分类/下的相册
+        Path basePathResolved = resolveBasePath();
+        Path albumPath = Paths.get(album.getPath());
+        int depth = 0;
+        boolean pathMatches = false;
+
+        try {
+            pathMatches = albumPath.startsWith(basePathResolved);
+            if (pathMatches) {
+                Path relativePath = basePathResolved.relativize(albumPath);
+                depth = relativePath.getNameCount();
+            }
+        } catch (Exception e) {
+            log.debug("路径计算失败: {}", e.getMessage());
+        }
+
+        boolean isTop = (depth == 2);
+
+        // 如果路径匹配失败，使用备用逻辑：检查路径是否以basePath开头且相对深度为2
+        if (!pathMatches || depth == 0) {
+            String albumPathStr = album.getPath();
+            String basePathStr = basePathResolved.toString();
+            if (albumPathStr.startsWith(basePathStr)) {
+                String relative = albumPathStr.substring(basePathStr.length());
+                if (relative.startsWith("/")) {
+                    relative = relative.substring(1);
+                }
+                String[] parts = relative.split("/");
+                depth = parts.length;
+                isTop = (depth == 2);
+            }
+        }
+
+        dto.setIsTopLevel(isTop);
+
+        // 如果开启了聚合，计算所有子相册的照片总数
+        if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+            List<Long> aggregatedAlbumIds = getAggregatedAlbumIds(album.getId());
+            int totalPhotoCount = 0;
+            for (Long id : aggregatedAlbumIds) {
+                Long count = photoRepository.countByAlbumId(id);
+                totalPhotoCount += count.intValue();
+            }
+            dto.setPhotoCount(totalPhotoCount);
+        }
+
         dto.setCreatedAt(album.getCreatedAt());
         dto.setUpdatedAt(album.getUpdatedAt());
         dto.setDisplayTitle(buildDisplayTitle(album));
         dto.setCategory(extractCategory(album));
 
         // 设置相册拍摄时间：取相册最早的拍摄时间，若无则为空
-        photoRepository.findTopByAlbumIdOrderByTakenAtAsc(album.getId())
-            .map(Photo::getTakenAt)
-            .ifPresent(dto::setTakenAt);
+        // 对于聚合相册，如果没有直接图片，从子相册中取最早时间
+        java.util.Optional<java.time.LocalDateTime> takenAt = photoRepository.findTopByAlbumIdOrderByTakenAtAsc(album.getId())
+            .map(Photo::getTakenAt);
+
+        if (takenAt.isEmpty() && Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+            // 从子相册中找到最早的拍摄时间
+            takenAt = findEarliestTakenAtFromSubAlbums(album.getPath());
+        }
+
+        takenAt.ifPresent(dto::setTakenAt);
 
         // 设置氛围信息
         dto.setBackgroundColor(album.getBackgroundColor());
@@ -236,11 +342,14 @@ public class AlbumService {
                 .collect(Collectors.toList()));
         }
 
-        // 生成封面图片（只有有照片的相册才生成封面）
-        if (album.getPhotoCount() != null && album.getPhotoCount() > 0) {
+        // 生成封面图片（有照片的相册或开启了聚合的相册才生成封面）
+        boolean shouldGenerateCover = (album.getPhotoCount() != null && album.getPhotoCount() > 0) ||
+                                      Boolean.TRUE.equals(album.getAggregateSubAlbums());
+
+        if (shouldGenerateCover) {
             dto.setCoverImages(getAlbumCoverImages(album.getId()));
         } else {
-            // 没有照片的相册，设置空的封面
+            // 没有照片且未开启聚合的相册，设置空的封面
             dto.setCoverImages(new CoverImagesDTO());
         }
 
@@ -459,6 +568,54 @@ public class AlbumService {
         return base.resolve(category).toAbsolutePath().normalize().toString();
     }
 
+    /**
+     * 从子相册中找到最早的拍摄时间（用于聚合相册）
+     */
+    private java.util.Optional<java.time.LocalDateTime> findEarliestTakenAtFromSubAlbums(String parentPath) {
+        try {
+            // 查找所有直接子相册
+            java.util.List<Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+            if (subAlbums.isEmpty()) {
+                return java.util.Optional.empty();
+            }
+
+            java.time.LocalDateTime earliest = null;
+            for (Album subAlbum : subAlbums) {
+                // 递归查找子相册的最早时间
+                java.util.Optional<java.time.LocalDateTime> subTakenAt = findEarliestTakenAtFromAlbum(subAlbum);
+                if (subTakenAt.isPresent()) {
+                    if (earliest == null || subTakenAt.get().isBefore(earliest)) {
+                        earliest = subTakenAt.get();
+                    }
+                }
+            }
+            return java.util.Optional.ofNullable(earliest);
+        } catch (Exception e) {
+            log.warn("查找子相册最早拍摄时间失败: {}", e.getMessage());
+            return java.util.Optional.empty();
+        }
+    }
+
+    /**
+     * 从相册及其子相册中找到最早的拍摄时间
+     */
+    private java.util.Optional<java.time.LocalDateTime> findEarliestTakenAtFromAlbum(Album album) {
+        // 首先检查相册是否有直接图片
+        java.util.Optional<java.time.LocalDateTime> directTakenAt = photoRepository.findTopByAlbumIdOrderByTakenAtAsc(album.getId())
+            .map(Photo::getTakenAt);
+
+        if (directTakenAt.isPresent()) {
+            return directTakenAt;
+        }
+
+        // 如果没有直接图片且开启了聚合，递归查找子相册
+        if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+            return findEarliestTakenAtFromSubAlbums(album.getPath());
+        }
+
+        return java.util.Optional.empty();
+    }
+
     private Path resolveBasePath() {
         Path basePathResolved = Paths.get(photoBasePath);
         if (!basePathResolved.isAbsolute()) {
@@ -555,6 +712,117 @@ public class AlbumService {
 
         Album saved = albumRepository.save(album);
         return convertToDTO(saved);
+    }
+
+    /**
+     * 创建相册（如果不存在的话）
+     */
+    @Transactional
+    public AlbumDTO createAlbumIfNotExists(String path) {
+        // 检查路径是否已经存在相册
+        Optional<Album> existingAlbum = albumRepository.findByPath(path);
+        if (existingAlbum.isPresent()) {
+            return convertToDTO(existingAlbum.get());
+        }
+
+        // 检查路径是否存在且是目录
+        java.io.File dir = new java.io.File(path);
+        if (!dir.exists() || !dir.isDirectory()) {
+            throw new IllegalArgumentException("路径不存在或不是目录: " + path);
+        }
+
+        // 创建新相册
+        Album newAlbum = new Album();
+        newAlbum.setName(dir.getName());
+        newAlbum.setPath(path);
+        newAlbum.setPathHash(calculateSha256(path));
+
+        Album saved = albumRepository.save(newAlbum);
+        return convertToDTO(saved);
+    }
+
+    /**
+     * 计算字符串的SHA-256哈希
+     */
+    private String calculateSha256(String input) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("计算哈希失败", e);
+        }
+    }
+
+    /**
+     * 过滤掉被聚合的相册
+     * 如果一个相册被其父相册聚合了，就不在列表中显示
+     */
+    private List<Album> filterAggregatedAlbums(List<Album> albums) {
+        // 获取所有开启了聚合功能的相册
+        List<Album> aggregatingAlbums = albumRepository.findAlbumsWithAggregationEnabled();
+
+        // 收集所有被聚合的相册路径
+        java.util.Set<String> aggregatedPaths = new java.util.HashSet<>();
+        for (Album aggregatingAlbum : aggregatingAlbums) {
+            // 递归收集所有子相册路径
+            collectSubAlbumPaths(aggregatingAlbum.getPath(), aggregatedPaths);
+        }
+
+        // 过滤掉被聚合的相册
+        return albums.stream()
+            .filter(album -> !aggregatedPaths.contains(album.getPath()))
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * 递归收集指定相册的所有子相册路径
+     */
+    private void collectSubAlbumPaths(String parentPath, java.util.Set<String> paths) {
+        List<Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+        for (Album subAlbum : subAlbums) {
+            paths.add(subAlbum.getPath());
+            // 如果子相册也开启了聚合，继续递归收集
+            if (Boolean.TRUE.equals(subAlbum.getAggregateSubAlbums())) {
+                collectSubAlbumPaths(subAlbum.getPath(), paths);
+            }
+        }
+    }
+
+    /**
+     * 获取相册聚合的所有相册ID列表
+     */
+    private List<Long> getAggregatedAlbumIds(Long albumId) {
+        List<Long> albumIds = new java.util.ArrayList<>();
+        albumIds.add(albumId);
+
+        // 检查相册是否开启了聚合下级相册
+        albumRepository.findById(albumId).ifPresent(album -> {
+            if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+                // 递归获取所有子相册ID
+                addSubAlbumIds(album.getPath(), albumIds);
+            }
+        });
+
+        return albumIds;
+    }
+
+    /**
+     * 递归添加子相册ID到列表中
+     */
+    private void addSubAlbumIds(String parentPath, List<Long> albumIds) {
+        List<Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+        for (Album subAlbum : subAlbums) {
+            albumIds.add(subAlbum.getId());
+            // 如果子相册也开启了聚合，继续递归
+            if (Boolean.TRUE.equals(subAlbum.getAggregateSubAlbums())) {
+                addSubAlbumIds(subAlbum.getPath(), albumIds);
+            }
+        }
     }
 
     /**

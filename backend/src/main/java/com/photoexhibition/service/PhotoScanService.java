@@ -421,7 +421,8 @@ public class PhotoScanService {
 
                 if (existingAlbum.isPresent()) {
                     Album albumToDelete = existingAlbum.get();
-                    log.info("删除超出层级的相册 {} (深度: {}, 最大深度: {})", albumToDelete.getName(), depth, maxDepth);
+                    String relativePath = toRelativePath(albumToDelete.getPath());
+                    log.info("删除超出层级的相册 {} (深度: {}, 最大深度: {})", relativePath, depth, maxDepth);
 
                     // 将该相册的照片移动到父相册（如果有父相册）
                     if (parentAlbum != null) {
@@ -450,7 +451,8 @@ public class PhotoScanService {
                             }
                         }
 
-                        log.info("已将 {} 张照片移动到父相册 {}", totalMoved, parentAlbum.getName());
+                        String parentRelativePath = toRelativePath(parentAlbum.getPath());
+                        log.info("已将 {} 张照片移动到父相册 {}", totalMoved, parentRelativePath);
                     }
 
                     // 删除相册
@@ -482,7 +484,8 @@ public class PhotoScanService {
 
             // 扫描目录中的图片文件
             List<File> imageFiles = findImageFiles(albumPath.toFile());
-            log.info("相册 {}: {} 张图片", album.getName(), imageFiles.size());
+            String albumRelativePath = toRelativePath(album.getPath());
+            log.info("相册 {}: {} 张图片", albumRelativePath, imageFiles.size());
 
             for (File imageFile : imageFiles) {
                 processPhotoFile(imageFile, album, force);

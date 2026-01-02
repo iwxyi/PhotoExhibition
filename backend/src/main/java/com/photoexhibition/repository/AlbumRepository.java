@@ -25,12 +25,24 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT a FROM Album a WHERE a.photoCount > 0")
     Page<Album> findAlbumsWithPhotos(Pageable pageable);
+
+    /**
+     * 查询有照片的相册或开启了聚合功能的相册
+     */
+    @Query("SELECT a FROM Album a WHERE a.photoCount > 0 OR a.aggregateSubAlbums = true")
+    Page<Album> findAlbumsWithPhotosOrAggregation(Pageable pageable);
     
     /**
      * 根据标签查询有照片的相册
      */
     @Query("SELECT DISTINCT a FROM Album a JOIN a.tags t WHERE t.id IN :tagIds AND a.photoCount > 0")
     Page<Album> findByTagIdsWithPhotos(@Param("tagIds") List<Long> tagIds, Pageable pageable);
+
+    /**
+     * 根据标签查询有照片的相册或开启了聚合功能的相册
+     */
+    @Query("SELECT DISTINCT a FROM Album a LEFT JOIN a.tags t WHERE (t.id IN :tagIds AND a.photoCount > 0) OR a.aggregateSubAlbums = true")
+    Page<Album> findByTagIdsWithPhotosOrAggregation(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
     /**
      * 查询路径前缀匹配的相册
@@ -60,5 +72,11 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT a FROM Album a WHERE a.path LIKE CONCAT(:parentPath, '/%') AND a.path NOT LIKE CONCAT(:parentPath, '/%/%')")
     List<Album> findDirectSubAlbums(@Param("parentPath") String parentPath);
+
+    /**
+     * 查找所有开启了聚合下级相册功能的相册
+     */
+    @Query("SELECT a FROM Album a WHERE a.aggregateSubAlbums = true")
+    List<Album> findAlbumsWithAggregationEnabled();
 }
 

@@ -26,7 +26,11 @@
           class="glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
         >
           <!-- 三合一封面预览（左竖 + 右上/右下） -->
-          <div class="relative h-40 md:h-44 lg:h-48 bg-gray-900 overflow-hidden flex-shrink-0">
+          <div
+            class="relative h-40 md:h-44 lg:h-48 bg-gray-900 overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+            @click="openAlbum(album.id)"
+            title="点击查看相册"
+          >
             <template v-if="album.coverImages && (album.coverImages.leftVertical || album.coverImages.rightTop || album.coverImages.rightBottom)">
               <div class="grid h-full w-full grid-cols-[2fr,3fr] grid-rows-2 gap-[2px]">
                 <!-- 左侧竖图（占两行） -->
@@ -213,6 +217,7 @@
             </button>
             <!-- 聚合到上一级菜单项 -->
             <button
+              v-if="!isTopLevelAlbum(showMenuForAlbum)"
               @click="aggregateToParent(showMenuForAlbum)"
               class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
             >
@@ -534,10 +539,13 @@ const closeAllMenus = () => {
 }
 
 const hasSubAlbums = (album: any) => {
-  // 简单检查：如果相册路径不包含太多层级分隔符，可能有子相册
-  // 这里可以根据实际需求优化逻辑
-  const pathParts = album.path.split('/')
-  return pathParts.length >= 4 // base-path/分类/相册名/...
+  // 使用后端返回的hasSubAlbums字段
+  return album.hasSubAlbums === true
+}
+
+const isTopLevelAlbum = (album: any) => {
+  // 使用后端返回的isTopLevel字段
+  return album.isTopLevel === true
 }
 
 const toggleAggregateSubAlbums = async (album: any) => {
@@ -572,10 +580,30 @@ const aggregateToParent = async (album: any) => {
   const parentPath = pathParts.slice(0, -1).join('/')
 
   // 查找父相册
-  const parentAlbum = albums.value.find(a => a.path === parentPath)
+  let parentAlbum = albums.value.find(a => a.path === parentPath)
+
+  // 如果父相册不存在，尝试创建它
   if (!parentAlbum) {
-    alert('未找到父相册，无法执行聚合操作')
-    return
+    try {
+      console.log('父相册不存在，尝试创建:', parentPath)
+
+      // 直接创建父相册
+      const createResponse = await api.post('/albums', { path: parentPath })
+      parentAlbum = createResponse.data
+
+      if (!parentAlbum) {
+        alert('无法创建父相册，请检查文件夹路径是否正确')
+        return
+      }
+
+      // 将新创建的相册添加到列表中
+      albums.value.push(parentAlbum)
+
+    } catch (createError: any) {
+      console.error('创建父相册失败:', createError)
+      alert('创建父相册失败: ' + (createError.response?.data?.error || createError.message))
+      return
+    }
   }
 
   if (!confirm(`确定要将相册"${album.displayTitle || album.name}"聚合到父相册"${parentAlbum.displayTitle || parentAlbum.name}"吗？\n\n这将开启父相册的聚合下级相册功能。`)) {
@@ -604,6 +632,12 @@ const setAlbumSortOrder = async (album: any, sortOrder: string) => {
   } catch (e: any) {
     alert('设置排序方式失败: ' + (e.response?.data?.error || e.message))
   }
+}
+
+const openAlbum = (albumId: number) => {
+  // 在新页面打开相册详情
+  const url = `/album/${albumId}`
+  window.open(url, '_blank')
 }
 
 const forceScanAndRebuild = async () => {

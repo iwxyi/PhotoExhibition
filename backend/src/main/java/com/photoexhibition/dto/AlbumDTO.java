@@ -14,6 +14,8 @@ public class AlbumDTO {
     private Integer photoCount;
     private Boolean aggregateSubAlbums;
     private String photoSortOrder;
+    private Boolean hasSubAlbums;
+    private Boolean isTopLevel;
     /**
      * 展示用标题（去掉日期前缀、合并子目录），便于前端显示
      */

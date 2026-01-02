@@ -96,6 +96,24 @@ public class AlbumController {
     }
 
     /**
+     * 创建相册（如果路径存在但没有图片，也会创建）
+     */
+    @PostMapping
+    public ResponseEntity<AlbumDTO> createAlbum(@RequestBody java.util.Map<String, String> request) {
+        String path = request.get("path");
+        if (path == null || path.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(null);
+        }
+
+        try {
+            AlbumDTO album = albumService.createAlbumIfNotExists(path.trim());
+            return ResponseEntity.ok(album);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(null);
+        }
+    }
+
+    /**
      * 删除相册
      */
     @DeleteMapping("/{id}")
