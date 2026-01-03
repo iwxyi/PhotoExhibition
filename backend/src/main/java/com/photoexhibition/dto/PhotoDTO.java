@@ -33,6 +33,7 @@ public class PhotoDTO {
     private Double focusX; // 焦点X位置（百分比 0-100）
     private Double focusY; // 焦点Y位置（百分比 0-100）
     private Integer viewCount;
+    private Integer likeCount;
     private Boolean isFeatured;
     private List<TagDTO> tags;
     private List<FaceDTO> faces;

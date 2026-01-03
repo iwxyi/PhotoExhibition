@@ -88,6 +88,9 @@ public class Photo {
     @Column(name = "view_count")
     private Integer viewCount = 0;
 
+    @Column(name = "like_count")
+    private Integer likeCount = 0;
+
     @Column(name = "is_featured")
     private Boolean isFeatured = false;
 

@@ -241,6 +241,43 @@ public class PhotoService {
     }
 
     /**
+     * 点赞（增加 likeCount）
+     */
+    @Transactional
+    public int incrementLike(Long id) {
+        Photo photo = photoRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("图片不存在"));
+        Integer lc = photo.getLikeCount();
+        if (lc == null) lc = 0;
+        lc = lc + 1;
+        photo.setLikeCount(lc);
+        photoRepository.save(photo);
+        return lc;
+    }
+
+    /**
+     * 取消点赞（减少 likeCount，最低为 0）
+     */
+    @Transactional
+    public int decrementLike(Long id) {
+        Photo photo = photoRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("图片不存在"));
+        Integer lc = photo.getLikeCount();
+        if (lc == null) lc = 0;
+        lc = Math.max(0, lc - 1);
+        photo.setLikeCount(lc);
+        photoRepository.save(photo);
+        return lc;
+    }
+
+    /**
+     * 获取点赞数
+     */
+    public int getLikeCount(Long id) {
+        return photoRepository.findById(id).map(p -> p.getLikeCount() == null ? 0 : p.getLikeCount()).orElse(0);
+    }
+
+    /**
      * 转换为DTO
      */
     private PhotoDTO convertToDTO(Photo photo) {
@@ -293,6 +330,7 @@ public class PhotoService {
         dto.setFocusX(photo.getFocusX());
         dto.setFocusY(photo.getFocusY());
         dto.setViewCount(photo.getViewCount());
+        dto.setLikeCount(photo.getLikeCount() == null ? 0 : photo.getLikeCount());
         dto.setIsFeatured(photo.getIsFeatured());
         if (photo.getTags() != null) {
             dto.setTags(photo.getTags().stream().map(this::toTagDTO).collect(Collectors.toList()));

@@ -7,6 +7,23 @@
       :style="item.style"
     >
       <slot :item="item.data" :index="index" />
+      <!-- 点赞覆盖层 -->
+      <div
+        class="like-overlay"
+        :class="{ 'visible': (likedIds.has(item.data?.id) || (likesMap.get(item.data?.id) || 0) > 0) }"
+        @click.stop="likePhoto(item.data?.id)"
+        title="点赞"
+      >
+        <svg class="heart" viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg" :aria-hidden="true">
+          <path
+            :fill="likedIds.has(item.data?.id) ? '#e11d48' : 'none'"
+            stroke="currentColor"
+            stroke-width="1.5"
+            d="M12 21s-7-4.35-9.07-6.2A5.4 5.4 0 0 1 3 9.75C3 7.14 5.14 5 7.75 5c1.54 0 3.04.84 4.25 2.09C13.21 5.84 14.71 5 16.25 5 18.86 5 21 7.14 21 9.75c0 2.64-1.83 4.46-1.93 4.56C19.36 16.65 12 21 12 21z"
+          />
+        </svg>
+        <span v-if="(likesMap.get(item.data?.id) || 0) > 0" class="like-count">{{ likesMap.get(item.data?.id) }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -36,6 +53,72 @@ const props = defineProps<{
 
 const containerRef = ref<HTMLElement>()
 const positionedItems = ref<PositionedItem[]>([])
+
+// 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
+import { api } from '@/api'
+
+const likedIds = ref<Set<number>>(new Set())
+const likesMap = ref<Map<number, number>>(new Map())
+
+const loadLikedFromStorage = () => {
+  try {
+    const raw = localStorage.getItem('likedPhotos')
+    if (raw) {
+      const arr = JSON.parse(raw)
+      likedIds.value = new Set(arr)
+    }
+  } catch (e) {
+    likedIds.value = new Set()
+  }
+}
+
+const saveLikedToStorage = () => {
+  try {
+    localStorage.setItem('likedPhotos', JSON.stringify(Array.from(likedIds.value)))
+  } catch (e) {
+    // ignore
+  }
+}
+
+const likePhoto = async (photoId: number) => {
+  if (likedIds.value.has(photoId)) {
+    // unlike
+    try {
+      const res = await api.delete(`/photos/${photoId}/like`)
+      const newCount = res.data
+      likesMap.value.set(photoId, newCount)
+      likedIds.value.delete(photoId)
+      saveLikedToStorage()
+    } catch (e) {
+      console.error('unlike failed', e)
+    }
+  } else {
+    // like
+    try {
+      const res = await api.post(`/photos/${photoId}/like`)
+      const newCount = res.data
+      likesMap.value.set(photoId, newCount)
+      likedIds.value.add(photoId)
+      saveLikedToStorage()
+    } catch (e) {
+      console.error('like failed', e)
+    }
+  }
+}
+
+// 初始化 likesMap 与 likedIds
+watch(() => props.items, (items) => {
+  items.forEach(i => {
+    const pid = i.data?.id
+    if (pid != null) {
+      likesMap.value.set(pid, i.data?.likeCount || 0)
+    }
+  })
+}, { immediate: true, deep: true })
+
+onMounted(() => {
+  loadLikedFromStorage()
+})
 
 // 计算列宽
 const columnWidth = computed(() => {
@@ -172,5 +255,42 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
 .masonry-item {
   will-change: transform;
   transform: translateZ(0);
+}
+
+/* like overlay */
+.like-overlay {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 9999px;
+  background: rgba(0,0,0,0.28); /* 更低的不透明度，减少视觉干扰 */
+  color: #fff;
+  font-size: 12px;
+  opacity: 0; /* 默认隐藏，只有 hover 或 visible 才显示 */
+  transition: opacity 0.18s ease, transform 0.12s ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+/* 仅当鼠标悬浮在点赞按钮本身时显示（避免干扰看图） */
+.like-overlay:hover {
+  opacity: 0.95;
+}
+.like-overlay.visible {
+  /* 如果已有点赞，则常驻显示，但采用较低不透明度以不打扰查看 */
+  opacity: 0.6;
+}
+.like-overlay .heart {
+  color: #fff;
+  stroke: currentColor;
+}
+.like-overlay .heart[fill='#e11d48'] {
+  color: #e11d48;
+}
+.like-count {
+  font-weight: 600;
 }
 </style>

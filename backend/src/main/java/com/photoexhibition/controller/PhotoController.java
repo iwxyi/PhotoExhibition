@@ -25,7 +25,8 @@ public class PhotoController {
     public ResponseEntity<Page<PhotoDTO>> getPhotoWall(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        Pageable pageable = PageRequest.of(page, size);
+        // 强制图墙按拍摄时间倒序（最新在前）
+        Pageable pageable = PageRequest.of(page, size, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "takenAt"));
         Page<PhotoDTO> photos = photoService.getAllPhotos(pageable);
         return ResponseEntity.ok(photos);
     }
@@ -103,6 +104,24 @@ public class PhotoController {
     public ResponseEntity<Void> deletePhoto(@PathVariable Long id) {
         photoService.deletePhoto(id);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 点赞图片（匿名）
+     */
+    @PostMapping("/{id}/like")
+    public ResponseEntity<Integer> likePhoto(@PathVariable Long id) {
+        int newCount = photoService.incrementLike(id);
+        return ResponseEntity.ok(newCount);
+    }
+
+    /**
+     * 取消点赞图片（匿名）
+     */
+    @DeleteMapping("/{id}/like")
+    public ResponseEntity<Integer> unlikePhoto(@PathVariable Long id) {
+        int newCount = photoService.decrementLike(id);
+        return ResponseEntity.ok(newCount);
     }
 }
 
