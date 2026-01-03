@@ -11,7 +11,9 @@ import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PhotoService {
 
     private final PhotoRepository photoRepository;
@@ -84,6 +87,65 @@ public class PhotoService {
             // 聚合模式，查询多个相册的照片
             return getPhotosByAlbumIds(albumIds, sortedPageable);
         }
+    }
+
+    /**
+     * 获取相册的所有照片（不分页）
+     */
+    public Page<PhotoDTO> getAllPhotosByAlbum(Long albumId) {
+        // 检查相册是否开启了聚合下级相册
+        boolean isAggregated = albumRepository.findById(albumId)
+            .map(album -> {
+                Boolean agg = album.getAggregateSubAlbums();
+                return agg != null && agg;
+            })
+            .orElse(false);
+
+        List<Photo> allPhotos;
+        if (!isAggregated) {
+            // 没有聚合，直接查询单个相册的所有照片
+            allPhotos = new java.util.ArrayList<>(photoRepository.findByAlbumId(albumId, PageRequest.of(0, 1000)).getContent());
+        } else {
+            // 聚合模式：查找所有相关的相册ID，然后查询所有照片
+            List<Long> albumIds = getAggregatedAlbumIds(albumId);
+
+
+            allPhotos = new java.util.ArrayList<>();
+            for (Long id : albumIds) {
+                List<Photo> albumPhotos = photoRepository.findByAlbumId(id, PageRequest.of(0, 1000)).getContent();
+                allPhotos.addAll(albumPhotos);
+            }
+
+        }
+
+        // 排序
+        Sort sort = getPhotoSort(albumId);
+        allPhotos.sort((p1, p2) -> {
+            for (org.springframework.data.domain.Sort.Order order : sort) {
+                int cmp = 0;
+                String property = order.getProperty();
+                switch (property) {
+                    case "takenAt":
+                        cmp = compareNullable(p1.getTakenAt(), p2.getTakenAt());
+                        break;
+                    case "filename":
+                        cmp = compareNullable(p1.getFilename(), p2.getFilename());
+                        break;
+                    case "createdAt":
+                        cmp = compareNullable(p1.getCreatedAt(), p2.getCreatedAt());
+                        break;
+                    default:
+                        cmp = 0;
+                }
+                if (cmp != 0) {
+                    return order.isAscending() ? cmp : -cmp;
+                }
+            }
+            return 0;
+        });
+
+        List<PhotoDTO> dtos = allPhotos.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList());
+        return new org.springframework.data.domain.PageImpl<>(dtos, PageRequest.of(0, allPhotos.size()), allPhotos.size());
     }
 
     /**
@@ -333,7 +395,7 @@ public class PhotoService {
      * 根据相册或系统配置获取照片排序方式
      * 优先使用相册级别的排序设置，没有则使用系统配置
      */
-    private Sort getPhotoSort(Long albumId) {
+    public Sort getPhotoSort(Long albumId) {
         String sortOrder = null;
 
         // 优先使用相册级别的排序设置
@@ -400,6 +462,7 @@ public class PhotoService {
      */
     private void addSubAlbumIds(String parentPath, List<Long> albumIds) {
         List<com.photoexhibition.entity.Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+
         for (com.photoexhibition.entity.Album subAlbum : subAlbums) {
             albumIds.add(subAlbum.getId());
             // 如果子相册也开启了聚合，继续递归
@@ -419,7 +482,7 @@ public class PhotoService {
 
         // 分别查询每个相册的照片，然后合并
         for (Long albumId : albumIds) {
-            List<Photo> albumPhotos = photoRepository.findByAlbumId(albumId, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+            List<Photo> albumPhotos = photoRepository.findByAlbumId(albumId, PageRequest.of(0, 1000)).getContent();
             allPhotos.addAll(albumPhotos);
         }
 

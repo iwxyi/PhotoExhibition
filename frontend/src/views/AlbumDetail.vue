@@ -193,12 +193,19 @@ const columnCount = computed(() => {
 
 // 转换照片数据为瀑布流组件需要的格式
 const masonryItems = computed(() => {
-  return photos.value.map(photo => ({
+  const items = photos.value.map(photo => ({
     id: photo.id,
     data: photo,
     width: photo.width || 1,
     height: photo.height || 1
   }))
+  console.log("AlbumDetail: masonryItems computed, photos count:", photos.value.length, "items count:", items.length);
+  if (items.length > 0) {
+    console.log("AlbumDetail: first item:", items[0]);
+  } else if (photos.value.length === 0) {
+    console.warn("AlbumDetail: No photos in photos array!");
+  }
+  return items
 })
 
 const viewerVisible = ref(false)
@@ -606,7 +613,6 @@ const downloadZipSelected = async () => {
   }
 }
 const handleBack = async () => {
-  console.log('[AlbumDetail] handleBack called at', Date.now())
 
   // 如果多选激活，优先关闭多选
   if (multiSelectActive.value) {
@@ -620,7 +626,6 @@ const handleBack = async () => {
   }
 
   // 在路由切换前清理动画状态，让组件卸载更快
-  console.log('[AlbumDetail] Cleaning up animation state before navigation at', Date.now())
 
   // 清理定时器
   if ((window as any).__albumTransitionCleanupTimer) {
@@ -880,7 +885,6 @@ const performCoverTransition = async (): Promise<boolean> => {
 
 // 启动返回相册列表时的克隆动画（真正的缩回动画在 Home 页执行）
 const startBackTransitionAndNavigate = () => {
-  console.log('[AlbumDetail] startBackTransitionAndNavigate called at', Date.now())
 
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
@@ -1017,7 +1021,12 @@ onMounted(async () => {
   photoStore.photos = []
   photoStore.currentAlbum = null
   await photoStore.fetchAlbumById(albumId)
-  await photoStore.fetchPhotosByAlbum(albumId)
+
+  // 根据相册类型决定加载策略
+  const album = photoStore.currentAlbum
+
+  // 一次性加载该相册的所有照片（不分页），以便在相册详情中完整展示
+  await photoStore.fetchAllPhotosByAlbum(albumId)
   window.addEventListener('keydown', handleKeydown)
   // reference backButtonRef to satisfy linter (it's bound in template)
   void backButtonRef.value

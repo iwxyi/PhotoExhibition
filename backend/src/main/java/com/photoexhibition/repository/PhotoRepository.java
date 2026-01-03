@@ -89,7 +89,14 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     /**
      * 路径前缀查询
      */
-    List<Photo> findByOriginalPathStartingWith(String pathPrefix);
+    @Query("SELECT p FROM Photo p WHERE p.originalPath LIKE CONCAT(:pathPrefix, '%')")
+    List<Photo> findByOriginalPathStartingWith(@Param("pathPrefix") String pathPrefix);
+
+    /**
+     * 路径前缀计数
+     */
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.originalPath LIKE CONCAT(:pathPrefix, '%')")
+    Long countByOriginalPathStartingWith(@Param("pathPrefix") String pathPrefix);
 
     /**
      * 按相册ID批量删除

@@ -39,6 +39,7 @@ public class AlbumService {
     private final PhotoRepository photoRepository;
     private final TagRepository tagRepository;
     private final ObjectMapper objectMapper;
+    private final PhotoService photoService;
     
     @Value("${photo.scan.base-path}")
     private String photoBasePath;
@@ -136,14 +137,52 @@ public class AlbumService {
         // 检查相册是否开启了聚合
         List<Long> albumIds = getAggregatedAlbumIds(albumId);
 
-        List<Photo> photos = new java.util.ArrayList<>();
-        for (Long id : albumIds) {
-            List<Photo> albumPhotos = photoRepository.findByAlbumId(id,
-                org.springframework.data.domain.PageRequest.of(0, 10)) // 每个相册取10张照片
+        List<Photo> photos;
+        if (albumIds.size() == 1) {
+            // 非聚合相册：从单个相册取前 10 张照片（按相册排序）
+            org.springframework.data.domain.Sort sort = photoService.getPhotoSort(albumId);
+            photos = photoRepository.findByAlbumId(albumId,
+                org.springframework.data.domain.PageRequest.of(0, 10, sort))
                 .getContent();
-            photos.addAll(albumPhotos);
-            if (photos.size() >= 30) { // 最多收集30张照片用于选择封面
-                break;
+        } else {
+            // 聚合相册：获取所有照片并按瀑布流排序，然后取前几张
+            photos = new java.util.ArrayList<>();
+            for (Long id : albumIds) {
+                List<Photo> albumPhotos = photoRepository.findByAlbumId(id,
+                    org.springframework.data.domain.PageRequest.of(0, 1000)) // 每个相册取1000张
+                    .getContent();
+                photos.addAll(albumPhotos);
+            }
+
+            // 按相册排序规则对所有照片排序（与瀑布流排序一致）
+            org.springframework.data.domain.Sort sort = photoService.getPhotoSort(albumId);
+            photos.sort((p1, p2) -> {
+                for (org.springframework.data.domain.Sort.Order order : sort) {
+                    int cmp = 0;
+                    String property = order.getProperty();
+                    switch (property) {
+                        case "takenAt":
+                            cmp = compareNullable(p1.getTakenAt(), p2.getTakenAt());
+                            break;
+                        case "filename":
+                            cmp = compareNullable(p1.getFilename(), p2.getFilename());
+                            break;
+                        case "createdAt":
+                            cmp = compareNullable(p1.getCreatedAt(), p2.getCreatedAt());
+                            break;
+                        default:
+                            cmp = 0;
+                    }
+                    if (cmp != 0) {
+                        return order.isAscending() ? cmp : -cmp;
+                    }
+                }
+                return 0;
+            });
+
+            // 只取前10张用于生成封面（优先保证封面与瀑布流前端排序一致）
+            if (photos.size() > 10) {
+                photos = photos.subList(0, 10);
             }
         }
 
@@ -216,6 +255,16 @@ public class AlbumService {
         }
 
         return cover;
+    }
+
+    /**
+     * 比较可空的可比较对象
+     */
+    private <T extends Comparable<T>> int compareNullable(T a, T b) {
+        if (a == null && b == null) return 0;
+        if (a == null) return -1;
+        if (b == null) return 1;
+        return a.compareTo(b);
     }
 
     /**
@@ -837,18 +886,5 @@ public class AlbumService {
                SystemConfigService.SORT_BY_CREATED_AT_ASC.equals(sortOrder);
     }
 
-    /**
-     * 设置相册聚合下级相册
-     */
-    @Transactional
-    public AlbumDTO setAggregateSubAlbums(Long albumId, Boolean aggregateSubAlbums) {
-        Album album = albumRepository.findById(albumId)
-            .orElseThrow(() -> new RuntimeException("相册不存在"));
-
-        album.setAggregateSubAlbums(aggregateSubAlbums);
-        Album saved = albumRepository.save(album);
-
-        return convertToDTO(saved);
-    }
 }
 

@@ -144,6 +144,18 @@ export const usePhotoStore = defineStore('photo', () => {
     }
   }
 
+  const fetchAllPhotosByAlbum = async (albumId: number) => {
+    loading.value = true
+    try {
+      // 一次性获取所有照片，不分页
+      const response = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
+      photos.value = response.data.content || []
+      return response.data
+    } finally {
+      loading.value = false
+    }
+  }
+
   const fetchPhotoWall = async (page = 0, size = 20) => {
     loading.value = true
     try {
@@ -239,6 +251,7 @@ export const usePhotoStore = defineStore('photo', () => {
     fetchCategories,
     fetchAlbumById,
     fetchPhotosByAlbum,
+    fetchAllPhotosByAlbum,
     fetchPhotoWall,
     fetchRandomPhotos,
     fetchPhotoById,

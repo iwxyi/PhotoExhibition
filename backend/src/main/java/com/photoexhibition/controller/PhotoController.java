@@ -62,9 +62,16 @@ public class PhotoController {
     public ResponseEntity<Page<PhotoDTO>> getPhotosByAlbum(
             @PathVariable Long albumId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        Page<PhotoDTO> photos = photoService.getPhotosByAlbum(albumId, pageable);
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "false") boolean all) {
+        Page<PhotoDTO> photos;
+        if (all) {
+            // 返回所有照片，不分页
+            photos = photoService.getAllPhotosByAlbum(albumId);
+        } else {
+            Pageable pageable = PageRequest.of(page, size);
+            photos = photoService.getPhotosByAlbum(albumId, pageable);
+        }
         return ResponseEntity.ok(photos);
     }
 
