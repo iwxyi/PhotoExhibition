@@ -170,6 +170,8 @@ const getDynamicLoadSize = () => {
 }
 
 const goToAlbum = (id: number) => {
+  // 设置导航标志，表示这是从列表页正常导航到详情页
+  sessionStorage.setItem('album-navigation-active', 'true')
   router.push(`/album/${id}`)
 }
 
@@ -366,6 +368,8 @@ const performAlbumBackTransitionIfNeeded = async () => {
         sessionStorage.removeItem('album-back-transition')
         // 返回后可以清理这次点击生成的封面数据，避免后续干扰
         sessionStorage.removeItem(coverKey)
+        // 清理导航标志
+        sessionStorage.removeItem('album-navigation-active')
 
         if (albumCard) {
           // 恢复并启用 overlay（如果有）——使用之前保存的 overlays 列表

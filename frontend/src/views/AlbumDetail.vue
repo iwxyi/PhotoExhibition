@@ -883,6 +883,7 @@ const startBackTransitionAndNavigate = () => {
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
+  const shouldPerformBackTransition = sessionStorage.getItem('album-navigation-active') === 'true'
 
   // 如果没有封面位置信息，直接跳转
   if (!storedData || photos.value.length === 0) {
@@ -890,6 +891,16 @@ const startBackTransitionAndNavigate = () => {
     router.back()
     return
   }
+
+  // 如果不是从正常导航来的，也直接跳转
+  if (!shouldPerformBackTransition) {
+    // not from navigation — direct navigation
+    router.back()
+    return
+  }
+
+  // 确认要执行返回动画，现在可以安全地清除导航标志
+  sessionStorage.removeItem('album-navigation-active')
 
   try {
     const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
@@ -997,12 +1008,13 @@ onMounted(async () => {
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
   
-  // 如果有需要动画的图片，立即隐藏它们（在数据加载前）
-  if (storedData) {
+  // 如果有需要动画的图片，且是从正常导航来的，立即隐藏它们（在数据加载前）
+  const isFromNavigation = sessionStorage.getItem('album-navigation-active') === 'true'
+  if (storedData && isFromNavigation) {
     try {
       const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
       const photoIdsToHide = coverRects.map(r => r.photoId)
-      
+
       // 在数据加载前，先标记需要隐藏的图片
       transitionPhotoIds.value = photoIdsToHide
       isTransitioning.value = true
@@ -1027,9 +1039,9 @@ onMounted(async () => {
   
   // 等待照片元素渲染完成
   await nextTick()
-  
-  // 如果有需要隐藏的图片，立即隐藏它们
-  if (transitionPhotoIds.value.length > 0) {
+
+  if (isFromNavigation && transitionPhotoIds.value.length > 0) {
+    // 如果有需要隐藏的图片，立即隐藏它们
     transitionPhotoIds.value.forEach(photoId => {
       const photoElement = photoRefs.value.get(photoId)
       if (photoElement) {
@@ -1038,10 +1050,10 @@ onMounted(async () => {
       }
     })
   }
-  
+
   // 再等待一帧，确保所有图片都已渲染
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-  
+
   // 在开始封面动画之前，先准备剩余图片的动画数据
   let remainingIndex = 0
   photos.value.forEach((photo) => {
@@ -1050,18 +1062,28 @@ onMounted(async () => {
     }
   })
 
-  // 执行封面过渡动画（不需要等待页面切换动画，因为已禁用）
-  const hasCoverTransition = await performCoverTransition()
+  const hasCoverTransition = isFromNavigation ? await performCoverTransition() : false
 
   // 如果没有封面动画，直接开始剩余图片动画
   if (!hasCoverTransition) {
     remainingPhotosVisible.value = true
   }
+
+  // 注意：导航标志现在在开始返回动画时清除，而不是在这里
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
+
+  // 注意：不要在这里清理 album-cover-rects 数据，因为返回动画在 Home.vue 中执行，需要这些数据
+  // 这些数据会在 Home.vue 的返回动画完成后清理
+
+  // 清理可能遗留的动画定时器
+  if ((window as any).__albumTransitionCleanupTimer) {
+    clearTimeout((window as any).__albumTransitionCleanupTimer)
+    ;(window as any).__albumTransitionCleanupTimer = null
+  }
 })
 
 // 颜色处理工具函数
