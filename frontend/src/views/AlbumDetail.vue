@@ -134,7 +134,8 @@ const themeStore = useThemeStore()
 // 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
 const backgroundStyle = computed(() => {
   if (atmosphereEnabled.value && album.value?.backgroundColor) {
-    // 启用氛围时使用相册的背景颜色
+    // 启用氛围时，总是使用相册的背景颜色作为基础氛围
+    // 背景层特效会叠加在背景色之上
     const baseColor = album.value.backgroundColor!
     return {
       backgroundColor: baseColor

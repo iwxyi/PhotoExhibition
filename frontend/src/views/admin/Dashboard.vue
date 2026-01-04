@@ -263,14 +263,14 @@ const thresholdInput = ref('')
 const loadStats = async () => {
   try {
     const [albumsRes, photosRes, tagsRes, personsRes, facesRes] = await Promise.all([
-      api.get('/albums', { params: { size: 1, page: 0 } }),
+      api.get('/albums/count'),
       api.get('/photos', { params: { size: 1, page: 0 } }),
       api.get('/tags', { params: { size: 1, page: 0 } }),
       api.get('/admin/persons/items', { params: { threshold: 0.7 } }),
       api.get('/admin/faces', { params: { size: 1, page: 0 } })
     ])
-    
-    const albumTotal = albumsRes.data.totalElements ?? albumsRes.data.total ?? 0
+
+    const albumTotal = albumsRes.data ?? 0
     const photoTotal = photosRes.data.totalElements ?? photosRes.data.total ?? 0
     const tagTotal = Array.isArray(tagsRes.data)
       ? tagsRes.data.length

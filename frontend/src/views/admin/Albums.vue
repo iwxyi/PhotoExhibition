@@ -93,36 +93,56 @@
                 <h3 class="text-base font-medium truncate" :title="album.displayTitle || album.name">
                   {{ album.displayTitle || album.name }}
                 </h3>
-                <div class="flex items-center gap-2 flex-shrink-0">
-                  <span class="text-xs text-gray-500">
-                    {{ formatDate(album.takenAt) }}
-                  </span>
-                  <!-- 更多菜单按钮 -->
-                  <button
-                    @click="openMenu($event, album)"
-                    class="p-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
-                    title="更多操作"
-                  >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                    </svg>
-                  </button>
-                </div>
+                <span class="text-xs text-gray-500">
+                  {{ formatDate(album.takenAt) }}
+                </span>
               </div>
-              <p class="text-xs text-gray-400 mb-1 truncate" :title="album.relativePath">
-                {{ album.relativePath || album.path }}
-              </p>
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-xs text-gray-400 truncate flex-grow" :title="album.relativePath">
+                  {{ album.relativePath || album.path }}
+                </p>
+                <!-- 更多菜单按钮 -->
+                <button
+                  @click="openMenu($event, album)"
+                  class="p-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors flex-shrink-0"
+                  title="更多操作"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <!-- 可伸缩的中间区域 -->
             <div class="flex-grow min-h-0 mt-2">
+              <!-- 特效 -->
+              <div v-if="album.atmosphereEffects && album.atmosphereEffects.length > 0" class="mb-2">
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    v-for="effect in album.atmosphereEffects"
+                    :key="effect.type"
+                    class="px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-md text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500/30 transition-colors"
+                    :title="'点击编辑特效: ' + getEffectDisplayName(effect.type)"
+                    @click.stop="editAlbumEffects(album)"
+                  >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                    </svg>
+                    {{ getEffectDisplayName(effect.type) }}({{ getIntensityDisplay(effect.intensity || 'medium') }}|{{ effect.layer === 'background' ? '下' : '上' }})
+                  </span>
+                </div>
+              </div>
+
               <!-- 标签 -->
               <div v-if="album.tags && album.tags.length > 0" class="mb-2">
                 <div class="flex flex-wrap gap-1">
                   <span
                     v-for="t in album.tags"
                     :key="t.id"
-                    class="px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-xs inline-flex items-center gap-1"
+                    class="px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-blue-500/30 transition-colors"
+                    :title="'点击编辑标签'"
+                    @click.stop="editAlbumTags(album)"
                   >
                     {{ t.name }}
                     <button
@@ -178,6 +198,16 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
               编辑备注
+            </button>
+            <!-- 相册特效菜单项 -->
+            <button
+              @click="editAtmosphereEffects(showMenuForAlbum)"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+              相册特效
             </button>
             <!-- 重命名菜单项 -->
             <button
@@ -303,6 +333,108 @@
       </div>
     </div>
     </teleport>
+
+    <!-- 相册特效对话框 -->
+    <teleport to="body">
+      <div
+        v-if="effectsDialogVisible"
+        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        @click.self="closeAllMenus"
+      >
+        <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-auto text-gray-100">
+          <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
+          <p class="text-sm text-gray-400 mb-4">
+            为相册 <strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong> 设置氛围特效
+          </p>
+
+          <!-- 当前特效列表 -->
+          <div class="mb-4">
+            <h4 class="text-sm font-medium text-gray-300 mb-2">当前特效</h4>
+            <div v-if="currentEffects.length === 0" class="text-sm text-gray-500 italic">
+              暂无特效，可从下方添加
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="(effect, index) in currentEffects"
+                :key="index"
+                class="bg-gray-700/50 rounded p-3"
+              >
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium">{{ getEffectName(effect.type) }}</span>
+                    <span class="text-xs text-gray-400">({{ effect.intensity }})</span>
+                  </div>
+                  <button
+                    @click="removeEffect(index)"
+                    class="text-red-400 hover:text-red-300 text-sm"
+                    title="移除特效"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div class="flex items-center gap-4">
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-400">强度:</label>
+                    <select
+                      :value="effect.intensity || 'medium'"
+                      @change="updateEffectIntensity(index, $event.target.value)"
+                      class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+                    >
+                      <option value="low">低</option>
+                      <option value="medium">中</option>
+                      <option value="high">高</option>
+                    </select>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-400">层级:</label>
+                    <select
+                      :value="effect.layer || 'above'"
+                      @change="updateEffectLayer(index, $event.target.value)"
+                      class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+                    >
+                      <option value="above">图片上方</option>
+                      <option value="background">背景层</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 添加特效 -->
+          <div class="mb-4">
+            <h4 class="text-sm font-medium text-gray-300 mb-2">添加特效</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div
+                v-for="effect in availableEffects"
+                :key="effect.type"
+                class="border border-gray-600 rounded p-3 hover:border-blue-500/50 hover:bg-gray-700/30 cursor-pointer transition-colors"
+                @click="addEffect(effect)"
+              >
+                <div class="font-medium text-sm">{{ effect.name }}</div>
+                <div class="text-xs text-gray-400 mt-1">{{ effect.description }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button
+              @click="saveAtmosphereEffects"
+              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50"
+              :disabled="!currentAlbum"
+            >
+              保存
+            </button>
+            <button
+              @click="effectsDialogVisible = false"
+              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -324,6 +456,54 @@ const allTags = ref<any[]>([])
 const tagDialogVisible = ref(false)
 const tagKeyword = ref('')
 const currentAlbum = ref<any>(null)
+
+// 特效相关
+const effectsDialogVisible = ref(false)
+const availableEffects = ref([
+  {
+    type: 'snow',
+    name: '雪景',
+    description: '飘落的雪花特效',
+    intensityOptions: ['low', 'medium', 'high']
+  },
+  {
+    type: 'cherry_blossom',
+    name: '樱花',
+    description: '飘落的樱花瓣特效',
+    intensityOptions: ['low', 'medium', 'high']
+  },
+  {
+    type: 'birthday',
+    name: '生日',
+    description: '生日气球和彩带特效',
+    intensityOptions: ['low', 'medium', 'high']
+  },
+  {
+    type: 'meteor',
+    name: '流星',
+    description: '划过的流星特效',
+    intensityOptions: ['low', 'medium', 'high']
+  },
+  {
+    type: 'starry_sky',
+    name: '星空',
+    description: '闪烁的星星特效',
+    intensityOptions: ['low', 'medium', 'high']
+  },
+  {
+    type: 'fireworks',
+    name: '烟花',
+    description: '绽放的烟花特效',
+    intensityOptions: ['low', 'medium', 'high']
+  },
+  {
+    type: 'autumn_leaves',
+    name: '秋叶',
+    description: '飘落的秋叶特效',
+    intensityOptions: ['low', 'medium', 'high']
+  }
+])
+const currentEffects = ref<any[]>([])
 
 const load = async () => {
   loading.value = true
@@ -371,6 +551,45 @@ const loadAllTags = async () => {
     console.error('加载标签失败:', e)
     allTags.value = []
   }
+}
+
+// 获取特效的显示名称
+const getEffectDisplayName = (type: string) => {
+  const effectNames: Record<string, string> = {
+    snow: '下雪',
+    cherry_blossom: '樱花',
+    birthday: '生日',
+    meteor: '流星',
+    starry_sky: '星空',
+    fireworks: '烟花',
+    autumn_leaves: '秋叶'
+  }
+  return effectNames[type] || type
+}
+
+// 获取强度显示名称
+const getIntensityDisplay = (intensity: string) => {
+  const intensityNames: Record<string, string> = {
+    low: '低',
+    medium: '中',
+    high: '高'
+  }
+  return intensityNames[intensity] || intensity
+}
+
+// 编辑相册特效
+const editAlbumEffects = (album: any) => {
+  selectedAlbumForEffects.value = album
+  effectsDialogVisible.value = true
+  loadAlbumEffects(album)
+}
+
+// 编辑相册标签
+const editAlbumTags = (album: any) => {
+  selectedAlbumForTags.value = album
+  tagDialogVisible.value = true
+  tagKeyword.value = ''
+  searchTags()
 }
 
 const extractRelativePath = (fullPath: string): string => {
@@ -468,8 +687,6 @@ const confirmAddTag = async () => {
 }
 
 const removeTag = async (album: any, tagId: number) => {
-  if (!confirm('确定要移除这个标签吗？')) return
-
   try {
     await api.delete(`/albums/${album.id}/tags/${tagId}`)
     await load()
@@ -492,6 +709,78 @@ const editDescription = async (album: any) => {
     closeAllMenus()
   } catch (e: any) {
     alert('修改备注失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const editAtmosphereEffects = async (album: any) => {
+  currentAlbum.value = album
+
+  try {
+    // 获取当前相册的特效配置
+    const res = await api.get(`/admin/albums/${album.id}/atmosphere-effects`)
+    currentEffects.value = res.data.effects || []
+  } catch (e: any) {
+    console.warn('获取当前特效配置失败，使用空配置:', e)
+    currentEffects.value = []
+  }
+
+  effectsDialogVisible.value = true
+  showMenuForAlbum.value = null // 关闭菜单
+}
+
+const getEffectName = (type: string): string => {
+  const effect = availableEffects.value.find(e => e.type === type)
+  return effect?.name || type
+}
+
+const addEffect = (effect: any) => {
+  // 检查是否已经存在相同类型的特效
+  const exists = currentEffects.value.some((e: any) => e.type === effect.type)
+  if (exists) {
+    alert(`"${effect.name}" 特效已存在`)
+    return
+  }
+
+  // 添加特效，默认使用 medium 强度
+  const newEffect = {
+    type: effect.type,
+    intensity: 'medium',
+    layer: effect.layer || 'above',
+    config: {} // 配置将在后端生成
+  }
+
+  currentEffects.value.push(newEffect)
+}
+
+const removeEffect = (index: number) => {
+  currentEffects.value.splice(index, 1)
+}
+
+const updateEffectIntensity = (index: number, intensity: string) => {
+  currentEffects.value[index].intensity = intensity
+}
+
+const updateEffectLayer = (index: number, layer: string) => {
+  currentEffects.value[index].layer = layer
+}
+
+const saveAtmosphereEffects = async () => {
+  if (!currentAlbum.value) return
+
+  try {
+    const response = await api.put(`/admin/albums/${currentAlbum.value.id}/atmosphere-effects`, {
+      effects: currentEffects.value
+    })
+
+    if (response.data.success) {
+      effectsDialogVisible.value = false
+      await load() // 重新加载相册列表
+    } else {
+      alert('设置失败: ' + (response.data.error || '未知错误'))
+    }
+  } catch (e: any) {
+    console.error('保存特效配置失败:', e)
+    alert('保存失败: ' + (e.response?.data?.error || e.message))
   }
 }
 
@@ -536,6 +825,7 @@ const openMenu = (event: MouseEvent, album: any) => {
 const closeAllMenus = () => {
   showMenuForAlbum.value = null
   tagDialogVisible.value = false
+  effectsDialogVisible.value = false
 }
 
 const hasSubAlbums = (album: any) => {

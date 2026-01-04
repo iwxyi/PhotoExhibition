@@ -123,6 +123,15 @@ public class AlbumController {
     }
 
     /**
+     * 获取相册总数
+     */
+    @GetMapping("/count")
+    public ResponseEntity<Long> getAlbumsCount(@RequestParam(required = false) String category) {
+        long count = albumService.getAlbumsCount(category);
+        return ResponseEntity.ok(count);
+    }
+
+    /**
      * 获取所有一级分类
      */
     @GetMapping("/categories")

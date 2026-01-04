@@ -406,6 +406,11 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
   width: 100%;
 }
 
+.masonry-layout {
+  position: relative;
+  z-index: 1;
+}
+
 .masonry-item {
   will-change: transform;
   transform: translateZ(0);
@@ -500,16 +505,16 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
   transform-origin: left center;
 }
 .like-btn .like-count {
-  transform: translateX(8px);
+  transform: translateX(4px);
   opacity: 0;
   transition: transform 260ms cubic-bezier(.2,.9,.3,1), opacity 200ms ease;
 }
 .like-btn.liked {
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 .like-btn.liked .heart {
-  transform: translateX(-6px) scale(1.12);
+  transform: translateX(-3px) scale(1.12);
 }
 .like-btn.liked .like-count {
   transform: translateX(0);

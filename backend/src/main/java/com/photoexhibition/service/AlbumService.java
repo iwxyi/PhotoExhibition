@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +46,24 @@ public class AlbumService {
     private String photoBasePath;
 
     /**
+     * 获取相册总数（有照片的相册或开启了聚合的相册，已过滤被聚合的相册）
+     */
+    public long getAlbumsCount(String category) {
+        List<Album> allAlbums;
+        if (category != null && !category.isEmpty()) {
+            String prefix = buildCategoryPrefix(category);
+            allAlbums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+        } else {
+            // 查询有照片的相册或开启了聚合功能的相册
+            allAlbums = albumRepository.findAlbumsWithPhotosOrAggregation(PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+        }
+
+        // 过滤掉被聚合的相册
+        List<Album> filteredAlbums = filterAggregatedAlbums(allAlbums);
+        return filteredAlbums.size();
+    }
+
+    /**
      * 获取所有相册并生成封面（只返回有照片的相册或开启了聚合的相册）
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
@@ -61,11 +80,13 @@ public class AlbumService {
         // 过滤掉被聚合的相册
         List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
 
-        // 重新创建Page对象
+        // 使用专门的计数方法获取总数
+        long totalElements = getAlbumsCount(category);
+
         return new org.springframework.data.domain.PageImpl<>(
             filteredAlbums.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
             pageable,
-            filteredAlbums.size()
+            totalElements
         );
     }
 

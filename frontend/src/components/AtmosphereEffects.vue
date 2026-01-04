@@ -1,8 +1,112 @@
 <template>
-  <div class="atmosphere-effects">
+  <!-- 背景层特效 -->
+  <div class="atmosphere-effects background-layer">
+    <!-- 雪花特效 -->
+    <div
+      v-if="hasEffect('snow') && isBackgroundEffect('snow')"
+      class="snow-container"
+      :class="getEffectClass('snow')"
+    >
+      <div
+        v-for="flake in getEffectConfig('snow').particleCount"
+        :key="flake"
+        class="snow-flake"
+        :style="getSnowFlakeStyle(flake)"
+      ></div>
+    </div>
+    <!-- 樱花特效 -->
+    <div
+      v-if="hasEffect('cherry_blossom') && isBackgroundEffect('cherry_blossom')"
+      class="cherry-blossom-container"
+      :class="getEffectClass('cherry_blossom')"
+    >
+      <div
+        v-for="petal in getEffectConfig('cherry_blossom').particleCount"
+        :key="petal"
+        class="cherry-petal"
+        :style="getCherryPetalStyle(petal)"
+      ></div>
+    </div>
+    <!-- 生日特效 -->
+    <div
+      v-if="hasEffect('birthday') && isBackgroundEffect('birthday')"
+      class="birthday-container"
+      :class="getEffectClass('birthday')"
+    >
+      <!-- 气球 -->
+      <div
+        v-for="balloon in getEffectConfig('birthday').balloonCount"
+        :key="'balloon-' + balloon"
+        class="birthday-balloon"
+        :style="getBirthdayBalloonStyle(balloon)"
+      ></div>
+      <!-- 彩屑 -->
+      <div
+        v-for="confetti in getEffectConfig('birthday').confettiCount"
+        :key="'confetti-' + confetti"
+        class="birthday-confetti"
+        :style="getBirthdayConfettiStyle(confetti)"
+      ></div>
+    </div>
+    <!-- 流星特效 -->
+    <div
+      v-if="hasEffect('meteor') && isBackgroundEffect('meteor')"
+      class="meteor-container"
+      :class="getEffectClass('meteor')"
+    >
+      <div
+        v-for="meteor in getEffectConfig('meteor').meteorCount"
+        :key="'meteor-' + meteor"
+        class="meteor"
+        :style="getMeteorStyle(meteor)"
+      ></div>
+    </div>
+    <!-- 星空特效 -->
+    <div
+      v-if="hasEffect('starry_sky') && isBackgroundEffect('starry_sky')"
+      class="starry-sky-container"
+      :class="getEffectClass('starry_sky')"
+    >
+      <div
+        v-for="star in getEffectConfig('starry_sky').starCount"
+        :key="'star-' + star"
+        class="star"
+        :style="getStarStyle(star)"
+      ></div>
+    </div>
+    <!-- 烟花特效 -->
+    <div
+      v-if="hasEffect('fireworks') && isBackgroundEffect('fireworks')"
+      class="fireworks-container"
+      :class="getEffectClass('fireworks')"
+    >
+      <div
+        v-for="firework in getEffectConfig('fireworks').fireworkCount"
+        :key="'firework-' + firework"
+        class="firework"
+        :style="getFireworkStyle(firework)"
+      ></div>
+    </div>
+    <!-- 秋叶特效 -->
+    <div
+      v-if="hasEffect('autumn_leaves') && isBackgroundEffect('autumn_leaves')"
+      class="autumn-leaves-container"
+      :class="getEffectClass('autumn_leaves')"
+    >
+      <div
+        v-for="leaf in getEffectConfig('autumn_leaves').leafCount"
+        :key="'leaf-' + leaf"
+        class="autumn-leaf"
+        :style="getAutumnLeafStyle(leaf)"
+      ></div>
+    </div>
+  </div>
+
+  <!-- 图片上方特效 -->
+  <div class="atmosphere-effects above-layer">
     <!-- 下雪特效 -->
     <div
-      v-if="hasEffect('snow')"
+      v-if="hasEffect('snow') && !isBackgroundEffect('snow')"
       class="snow-container"
       :class="getEffectClass('snow')"
     >
@@ -16,7 +120,7 @@
 
     <!-- 樱花特效 -->
     <div
-      v-if="hasEffect('cherry_blossom')"
+      v-if="hasEffect('cherry_blossom') && !isBackgroundEffect('cherry_blossom')"
       class="cherry-blossom-container"
       :class="getEffectClass('cherry_blossom')"
     >
@@ -30,7 +134,7 @@
 
     <!-- 生日特效 -->
     <div
-      v-if="hasEffect('birthday')"
+      v-if="hasEffect('birthday') && !isBackgroundEffect('birthday')"
       class="birthday-container"
       :class="getEffectClass('birthday')"
     >
@@ -53,7 +157,7 @@
 
     <!-- 流星特效 -->
     <div
-      v-if="hasEffect('meteor')"
+      v-if="hasEffect('meteor') && !isBackgroundEffect('meteor')"
       class="meteor-container"
       :class="getEffectClass('meteor')"
     >
@@ -65,23 +169,9 @@
       ></div>
     </div>
 
-    <!-- 星空特效 -->
-    <div
-      v-if="hasEffect('starry_sky')"
-      class="starry-sky-container"
-      :class="getEffectClass('starry_sky')"
-    >
-      <div
-        v-for="star in getEffectConfig('starry_sky').starCount"
-        :key="'star-' + star"
-        class="star"
-        :style="getStarStyle(star)"
-      ></div>
-    </div>
-
     <!-- 烟花特效 -->
     <div
-      v-if="hasEffect('fireworks')"
+      v-if="hasEffect('fireworks') && !isBackgroundEffect('fireworks')"
       class="fireworks-container"
       :class="getEffectClass('fireworks')"
     >
@@ -93,9 +183,23 @@
       ></div>
     </div>
 
+    <!-- 星空特效（如果设置为above层级） -->
+    <div
+      v-if="hasEffect('starry_sky') && !isBackgroundEffect('starry_sky')"
+      class="starry-sky-container"
+      :class="getEffectClass('starry_sky')"
+    >
+      <div
+        v-for="star in getEffectConfig('starry_sky').starCount"
+        :key="'star-' + star"
+        class="star"
+        :style="getStarStyle(star)"
+      ></div>
+    </div>
+
     <!-- 秋叶特效 -->
     <div
-      v-if="hasEffect('autumn_leaves')"
+      v-if="hasEffect('autumn_leaves') && !isBackgroundEffect('autumn_leaves')"
       class="autumn-leaves-container"
       :class="getEffectClass('autumn_leaves')"
     >
@@ -130,7 +234,58 @@ const hasEffect = (type: string) => {
 
 const getEffectConfig = (type: string) => {
   const effect = props.effects?.find(e => e.type === type)
-  return effect?.config || {}
+  const baseConfig = effect?.config || {}
+  const intensity = effect?.intensity || 'medium'
+
+  // 根据特效类型和强度提供默认配置
+  const defaultConfigs = {
+    snow: {
+      particleCount: intensity === 'high' ? 150 : intensity === 'medium' ? 100 : 50,
+      speed: intensity === 'high' ? 2.0 : intensity === 'medium' ? 1.5 : 1.0,
+      size: intensity === 'high' ? 4 : intensity === 'medium' ? 3 : 2,
+      layer: 'above'
+    },
+    cherry_blossom: {
+      particleCount: intensity === 'high' ? 80 : intensity === 'medium' ? 50 : 30,
+      speed: intensity === 'high' ? 1.2 : intensity === 'medium' ? 0.8 : 0.5,
+      size: intensity === 'high' ? 6 : intensity === 'medium' ? 4 : 3,
+      sway: true,
+      layer: 'above'
+    },
+    birthday: {
+      balloonCount: intensity === 'high' ? 20 : intensity === 'medium' ? 15 : 10,
+      confettiCount: intensity === 'high' ? 100 : intensity === 'medium' ? 70 : 50,
+      animationDuration: 3000,
+      layer: 'above'
+    },
+    meteor: {
+      meteorCount: intensity === 'high' ? 8 : intensity === 'medium' ? 5 : 3,
+      trailLength: intensity === 'high' ? 200 : intensity === 'medium' ? 150 : 100,
+      speed: intensity === 'high' ? 3.0 : intensity === 'medium' ? 2.0 : 1.5,
+      layer: 'above'
+    },
+    starry_sky: {
+      starCount: intensity === 'high' ? 200 : intensity === 'medium' ? 150 : 100,
+      twinkleSpeed: intensity === 'high' ? 2.0 : intensity === 'medium' ? 1.5 : 1.0,
+      brightness: intensity === 'high' ? 0.9 : intensity === 'medium' ? 0.7 : 0.5,
+      layer: 'background'
+    },
+    fireworks: {
+      fireworkCount: intensity === 'high' ? 15 : intensity === 'medium' ? 10 : 5,
+      burstSize: intensity === 'high' ? 50 : intensity === 'medium' ? 35 : 20,
+      colors: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b'],
+      layer: 'above'
+    },
+    autumn_leaves: {
+      leafCount: intensity === 'high' ? 60 : intensity === 'medium' ? 40 : 25,
+      fallSpeed: intensity === 'high' ? 1.5 : intensity === 'medium' ? 1.0 : 0.7,
+      sway: true,
+      colors: ['#d2691e', '#daa520', '#cd853f', '#deb887'],
+      layer: 'above'
+    }
+  }
+
+  return { ...defaultConfigs[type], ...baseConfig }
 }
 
 const getEffectClass = (type: string) => {
@@ -138,20 +293,30 @@ const getEffectClass = (type: string) => {
   return `intensity-${effect?.intensity || 'medium'}`
 }
 
+// 检查特效是否在背景层
+const isBackgroundEffect = (type: string) => {
+  const effect = props.effects?.find(e => e.type === type)
+  const layer = effect?.config?.layer || effect?.layer || 'above'
+  return layer === 'background'
+}
+
 // 下雪特效样式
 const getSnowFlakeStyle = (index: number) => {
   const config = getEffectConfig('snow')
   const size = config.size || 3
   const speed = config.speed || 1
-  const delay = (index * 1000) % 10000 // 循环延迟
+  const isBackground = isBackgroundEffect('snow')
+
+  // 背景层特效：更多的雪花，更长的延迟，确保持续覆盖整个屏幕
+  const delay = isBackground ? Math.random() * 20000 : Math.random() * 10000 // 背景层延迟更长
 
   return {
     left: `${Math.random() * 100}%`,
     animationDelay: `${delay}ms`,
-    animationDuration: `${5000 / speed}ms`,
+    animationDuration: `${8000 / speed}ms`, // 背景层动画时间更长
     width: `${size + Math.random() * 2}px`,
     height: `${size + Math.random() * 2}px`,
-    opacity: 0.6 + Math.random() * 0.4
+    opacity: 0 // 初始透明，与动画保持一致
   }
 }
 
@@ -160,15 +325,19 @@ const getCherryPetalStyle = (index: number) => {
   const config = getEffectConfig('cherry_blossom')
   const size = config.size || 4
   const speed = config.speed || 1
-  const delay = (index * 2000) % 15000
+  const isBackground = isBackgroundEffect('cherry_blossom')
+
+  // 背景层特效：更多的樱花瓣，更长的延迟，确保持续覆盖整个屏幕
+  const delay = isBackground ? Math.random() * 25000 : Math.random() * 15000 // 背景层延迟更长
 
   return {
     left: `${Math.random() * 100}%`,
     animationDelay: `${delay}ms`,
-    animationDuration: `${8000 / speed}ms`,
+    animationDuration: `${10000 / speed}ms`, // 背景层动画时间更长
     width: `${size + Math.random() * 3}px`,
     height: `${size + Math.random() * 3}px`,
-    transform: `rotate(${Math.random() * 360}deg)`
+    transform: `rotate(${Math.random() * 360}deg)`,
+    opacity: 0 // 初始透明，与动画保持一致
   }
 }
 
@@ -205,13 +374,20 @@ const getMeteorStyle = (index: number) => {
   const config = getEffectConfig('meteor')
   const trailLength = config.trailLength || 150
   const speed = config.speed || 2
-  const delay = (index * 3000) % 10000
+  const isBackground = isBackgroundEffect('meteor')
+
+  // 背景层特效：更多的流星，更长的间隔，确保持续覆盖整个屏幕
+  const delay = isBackground ? (index * 8000) % 30000 : (index * 3000) % 10000 // 背景层间隔更长
+  const startX = Math.random() * 120 - 20 // -20% 到 100%
+  const startY = Math.random() * 60 // 0% 到 60%
 
   return {
-    left: `${Math.random() * 100}%`,
+    left: `${startX}%`,
+    top: `${startY}%`,
     animationDelay: `${delay}ms`,
-    animationDuration: `${2000 / speed}ms`,
-    '--trail-length': `${trailLength}px`
+    animationDuration: `${3000 / speed}ms`, // 背景层动画时间更长
+    '--trail-length': `${trailLength}px`,
+    opacity: 0 // 初始透明，与动画保持一致
   }
 }
 
@@ -220,14 +396,17 @@ const getStarStyle = (index: number) => {
   const config = getEffectConfig('starry_sky')
   const brightness = config.brightness || 0.8
   const twinkleSpeed = config.twinkleSpeed || 1
-  const delay = Math.random() * 3000
+  const isBackground = isBackgroundEffect('starry_sky')
+
+  // 背景层特效：更多的星星，更好的覆盖
+  const delay = isBackground ? Math.random() * 8000 : Math.random() * 3000 // 背景层延迟更随机
 
   return {
     left: `${Math.random() * 100}%`,
-    top: `${Math.random() * 70}%`,
+    top: `${Math.random() * 100}%`,
     animationDelay: `${delay}ms`,
-    animationDuration: `${2000 / twinkleSpeed}ms`,
-    opacity: brightness * (0.3 + Math.random() * 0.7)
+    animationDuration: `${3000 / twinkleSpeed}ms`, // 背景层闪烁稍慢
+    opacity: 0 // 初始透明，与动画保持一致
   }
 }
 
@@ -235,13 +414,17 @@ const getStarStyle = (index: number) => {
 const getFireworkStyle = (index: number) => {
   const config = getEffectConfig('fireworks')
   const colors = config.colors || ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b']
-  const delay = (index * 2000) % 8000
+  const isBackground = isBackgroundEffect('fireworks')
+
+  // 背景层特效：烟花可以出现在更大范围内
+  const delay = isBackground ? (index * 4000) % 20000 : (index * 2000) % 8000 // 背景层间隔更长
 
   return {
-    left: `${20 + (index * 20) % 60}%`,
-    top: `${30 + (index * 15) % 40}%`,
+    left: `${Math.random() * 90 + 5}%`, // 5% 到 95%
+    top: `${Math.random() * 80 + 10}%`, // 10% 到 90%
     animationDelay: `${delay}ms`,
-    '--burst-color': colors[index % colors.length]
+    '--burst-color': colors[index % colors.length],
+    opacity: 0 // 初始透明，与动画保持一致
   }
 }
 
@@ -251,14 +434,18 @@ const getAutumnLeafStyle = (index: number) => {
   const colors = config.colors || ['#d2691e', '#daa520', '#cd853f', '#deb887']
   const color = colors[index % colors.length]
   const fallSpeed = config.fallSpeed || 1
-  const delay = (index * 1500) % 12000
+  const isBackground = isBackgroundEffect('autumn_leaves')
+
+  // 背景层特效：更多的秋叶，更长的延迟，确保持续覆盖整个屏幕
+  const delay = isBackground ? Math.random() * 25000 : Math.random() * 12000 // 背景层延迟更长
 
   return {
     left: `${Math.random() * 100}%`,
     backgroundColor: color,
     animationDelay: `${delay}ms`,
-    animationDuration: `${6000 / fallSpeed}ms`,
-    transform: `rotate(${Math.random() * 360}deg) scale(${0.8 + Math.random() * 0.4})`
+    animationDuration: `${8000 / fallSpeed}ms`, // 背景层动画时间更长
+    transform: `rotate(${Math.random() * 360}deg) scale(${0.8 + Math.random() * 0.4})`,
+    opacity: 0 // 初始透明，与动画保持一致
   }
 }
 </script>
@@ -271,8 +458,27 @@ const getAutumnLeafStyle = (index: number) => {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 1;
   overflow: hidden;
+}
+
+.atmosphere-effects.above-layer {
+  z-index: 2;
+}
+
+.atmosphere-effects.background-layer {
+  z-index: 0;
+}
+
+/* 全局样式确保特效可见 */
+.atmosphere-effects .star,
+.atmosphere-effects .snow-flake,
+.atmosphere-effects .cherry-petal,
+.atmosphere-effects .birthday-balloon,
+.atmosphere-effects .birthday-confetti,
+.atmosphere-effects .meteor,
+.atmosphere-effects .firework,
+.atmosphere-effects .autumn-leaf {
+  position: absolute;
 }
 
 /* 下雪特效 */
@@ -296,14 +502,14 @@ const getAutumnLeafStyle = (index: number) => {
     transform: translateY(-10px) rotate(0deg);
     opacity: 0;
   }
-  10% {
+  5% {
     opacity: 1;
   }
-  90% {
+  95% {
     opacity: 1;
   }
   100% {
-    transform: translateY(100vh) rotate(360deg);
+    transform: translateY(110vh) rotate(360deg);
     opacity: 0;
   }
 }
@@ -329,14 +535,14 @@ const getAutumnLeafStyle = (index: number) => {
     transform: translateY(-20px) rotate(0deg);
     opacity: 0;
   }
-  10% {
+  5% {
     opacity: 1;
   }
-  90% {
-    opacity: 0.8;
+  95% {
+    opacity: 0.9;
   }
   100% {
-    transform: translateY(100vh) rotate(720deg);
+    transform: translateY(120vh) rotate(720deg);
     opacity: 0;
   }
 }
@@ -411,14 +617,17 @@ const getAutumnLeafStyle = (index: number) => {
 
 @keyframes meteor-fall {
   0% {
-    transform: translateY(-100px) rotate(45deg);
+    transform: translateX(0) translateY(0) rotate(45deg);
     opacity: 0;
   }
-  50% {
+  10% {
+    opacity: 1;
+  }
+  90% {
     opacity: 1;
   }
   100% {
-    transform: translateY(100vh) rotate(45deg);
+    transform: translateX(200px) translateY(200px) rotate(45deg);
     opacity: 0;
   }
 }
@@ -434,21 +643,26 @@ const getAutumnLeafStyle = (index: number) => {
 
 .star {
   position: absolute;
-  width: 2px;
-  height: 2px;
+  width: 3px;
+  height: 3px;
   background: white;
   border-radius: 50%;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
   animation: star-twinkle ease-in-out infinite alternate;
 }
 
 @keyframes star-twinkle {
   0% {
-    opacity: 0.3;
+    opacity: 0;
     transform: scale(0.8);
   }
-  100% {
+  50% {
     opacity: 1;
     transform: scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
   }
 }
 
@@ -508,17 +722,19 @@ const getAutumnLeafStyle = (index: number) => {
     transform: translateY(-20px) rotate(0deg);
     opacity: 0;
   }
-  10% {
+  5% {
     opacity: 1;
   }
-  90% {
-    opacity: 0.8;
+  95% {
+    opacity: 0.9;
   }
   100% {
-    transform: translateY(100vh) rotate(720deg);
+    transform: translateY(120vh) rotate(720deg);
     opacity: 0;
   }
 }
+
+/* 层级调整通过内联样式实现 */
 
 /* 强度调整 */
 .intensity-low {

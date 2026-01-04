@@ -208,6 +208,58 @@ public class AdminController {
     }
 
     /**
+     * 设置相册特效
+     */
+    @PutMapping("/albums/{id}/atmosphere-effects")
+    public ResponseEntity<Map<String, Object>> setAlbumAtmosphereEffects(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            // 从请求体中获取特效配置
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> effects = (List<Map<String, Object>>) request.get("effects");
+
+            if (effects == null) {
+                resp.put("error", "缺少特效配置参数");
+                return ResponseEntity.badRequest().body(resp);
+            }
+
+            // 调用服务设置特效
+            Map<String, Object> result = photoScanService.setAlbumAtmosphereEffects(id, effects);
+            resp.putAll(result);
+            resp.put("success", true);
+            resp.put("albumId", id);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置特效失败");
+            resp.put("albumId", id);
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 获取相册当前特效配置
+     */
+    @GetMapping("/albums/{id}/atmosphere-effects")
+    public ResponseEntity<Map<String, Object>> getAlbumAtmosphereEffects(@PathVariable Long id) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = photoScanService.getAlbumAtmosphereEffects(id);
+            resp.putAll(result);
+            resp.put("success", true);
+            resp.put("albumId", id);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取特效配置失败");
+            resp.put("albumId", id);
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
      * 批量操作
      */
     @PostMapping("/photos/batch")

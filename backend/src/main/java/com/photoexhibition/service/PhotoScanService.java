@@ -24,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
@@ -81,6 +83,8 @@ public class PhotoScanService {
     private volatile LocalDateTime lastScanStart = null;
     private volatile LocalDateTime lastScanEnd = null;
 
+    private final ObjectMapper objectMapper;
+
     public PhotoScanService(AlbumRepository albumRepository,
                            PhotoRepository photoRepository,
                            TagRepository tagRepository,
@@ -90,7 +94,8 @@ public class PhotoScanService {
                            SmartTagService smartTagService,
                            AlbumAtmosphereAnalysisService atmosphereAnalysisService,
                            AtmosphereEffectsService atmosphereEffectsService,
-                           SystemConfigService systemConfigService) {
+                           SystemConfigService systemConfigService,
+                           ObjectMapper objectMapper) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
         this.tagRepository = tagRepository;
@@ -101,6 +106,7 @@ public class PhotoScanService {
         this.atmosphereAnalysisService = atmosphereAnalysisService;
         this.atmosphereEffectsService = atmosphereEffectsService;
         this.systemConfigService = systemConfigService;
+        this.objectMapper = objectMapper;
     }
     
     @PreDestroy
@@ -285,6 +291,84 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.error("重新分析相册 {} 氛围信息失败", albumId, e);
         }
+    }
+
+    /**
+     * 设置相册氛围特效
+     */
+    @Transactional
+    public Map<String, Object> setAlbumAtmosphereEffects(Long albumId, List<Map<String, Object>> effects) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            Album album = albumRepository.findById(albumId)
+                .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+            // 将特效配置转换为 AtmosphereEffectDTO 列表
+            List<com.photoexhibition.dto.AtmosphereEffectDTO> effectDTOs = new ArrayList<>();
+            for (Map<String, Object> effect : effects) {
+                String type = (String) effect.get("type");
+                String intensity = (String) effect.get("intensity");
+                String layer = (String) effect.get("layer");
+
+                // 使用AtmosphereEffectsService生成实际的配置
+                Object config = atmosphereEffectsService.generateEffectConfig(type, intensity, layer);
+
+                com.photoexhibition.dto.AtmosphereEffectDTO dto = new com.photoexhibition.dto.AtmosphereEffectDTO(
+                    type, intensity, layer, (Map<String, Object>) config);
+                effectDTOs.add(dto);
+            }
+
+            // 序列化特效配置
+            String effectsJson = effectDTOs.isEmpty() ? null :
+                objectMapper.writeValueAsString(effectDTOs);
+
+            // 更新相册特效
+            album.setAtmosphereEffects(effectsJson);
+            album.setAtmosphereLastUpdated(LocalDateTime.now());
+            albumRepository.save(album);
+
+            result.put("message", "相册特效设置成功");
+            result.put("effectsCount", effectDTOs.size());
+
+        } catch (Exception e) {
+            log.error("设置相册 {} 特效失败", albumId, e);
+            throw new RuntimeException("设置特效失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 获取相册当前氛围特效配置
+     */
+    public Map<String, Object> getAlbumAtmosphereEffects(Long albumId) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            Album album = albumRepository.findById(albumId)
+                .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+            List<com.photoexhibition.dto.AtmosphereEffectDTO> effects = new ArrayList<>();
+            if (album.getAtmosphereEffects() != null && !album.getAtmosphereEffects().isEmpty()) {
+                try {
+                    effects = objectMapper.readValue(album.getAtmosphereEffects(),
+                        objectMapper.getTypeFactory().constructCollectionType(
+                            List.class, com.photoexhibition.dto.AtmosphereEffectDTO.class));
+                } catch (Exception e) {
+                    log.warn("解析相册 {} 特效配置失败: {}", albumId, e.getMessage());
+                }
+            }
+
+            result.put("effects", effects);
+            result.put("lastUpdated", album.getAtmosphereLastUpdated());
+
+        } catch (Exception e) {
+            log.error("获取相册 {} 特效配置失败", albumId, e);
+            throw new RuntimeException("获取特效配置失败: " + e.getMessage());
+        }
+
+        return result;
     }
 
     private void scanDirectoryInternal(String directoryPath, boolean force) {

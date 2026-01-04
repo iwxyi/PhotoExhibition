@@ -74,11 +74,34 @@ public class AtmosphereEffectsService {
 
     /**
      * 分析相册特效并更新
+     * 注意：如果相册已有手动设置的特效，不会自动覆盖
      */
     @Transactional
     public void analyzeAlbumEffects(Long albumId) {
         Album album = albumRepository.findById(albumId)
             .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        // 如果相册已有特效配置，检查是否为手动设置的（非自动生成的）
+        if (album.getAtmosphereEffects() != null && !album.getAtmosphereEffects().isEmpty()) {
+            try {
+                List<AtmosphereEffectDTO> existingEffects = objectMapper.readValue(
+                    album.getAtmosphereEffects(),
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, AtmosphereEffectDTO.class)
+                );
+
+                // 检查是否有手动设置的特效（通过检查是否有layer字段）
+                boolean hasManualEffects = existingEffects.stream()
+                    .anyMatch(effect -> effect.getConfig() != null &&
+                                       effect.getConfig().containsKey("layer"));
+
+                if (hasManualEffects) {
+                    log.info("相册 {} 已有手动设置的特效，跳过自动分析", album.getName());
+                    return;
+                }
+            } catch (Exception e) {
+                log.warn("解析现有特效配置失败，将重新生成: {}", e.getMessage());
+            }
+        }
 
         List<AtmosphereEffectDTO> effects = generateEffectsForAlbum(album);
 
@@ -197,14 +220,17 @@ public class AtmosphereEffectsService {
     /**
      * 生成特效的具体配置参数
      */
-    private Object generateEffectConfig(String type, String intensity) {
+    public Object generateEffectConfig(String type, String intensity, String layer) {
         Map<String, Object> config = new HashMap<>();
+        boolean isManual = layer != null && !layer.isEmpty();
 
         switch (type) {
             case "snow":
                 config.put("particleCount", intensity.equals("high") ? 150 : intensity.equals("medium") ? 100 : 50);
                 config.put("speed", intensity.equals("high") ? 2.0 : intensity.equals("medium") ? 1.5 : 1.0);
                 config.put("size", intensity.equals("high") ? 4 : intensity.equals("medium") ? 3 : 2);
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             case "cherry_blossom":
@@ -212,30 +238,40 @@ public class AtmosphereEffectsService {
                 config.put("speed", intensity.equals("high") ? 1.2 : intensity.equals("medium") ? 0.8 : 0.5);
                 config.put("size", intensity.equals("high") ? 6 : intensity.equals("medium") ? 4 : 3);
                 config.put("sway", true);
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             case "birthday":
                 config.put("balloonCount", intensity.equals("high") ? 20 : intensity.equals("medium") ? 15 : 10);
                 config.put("confettiCount", intensity.equals("high") ? 100 : intensity.equals("medium") ? 70 : 50);
                 config.put("animationDuration", 3000);
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             case "meteor":
                 config.put("meteorCount", intensity.equals("high") ? 8 : intensity.equals("medium") ? 5 : 3);
                 config.put("trailLength", intensity.equals("high") ? 200 : intensity.equals("medium") ? 150 : 100);
                 config.put("speed", intensity.equals("high") ? 3.0 : intensity.equals("medium") ? 2.0 : 1.5);
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             case "starry_sky":
                 config.put("starCount", intensity.equals("high") ? 200 : intensity.equals("medium") ? 150 : 100);
                 config.put("twinkleSpeed", intensity.equals("high") ? 2.0 : intensity.equals("medium") ? 1.5 : 1.0);
                 config.put("brightness", intensity.equals("high") ? 0.9 : intensity.equals("medium") ? 0.7 : 0.5);
+                config.put("layer", layer != null ? layer : "background");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             case "fireworks":
                 config.put("fireworkCount", intensity.equals("high") ? 15 : intensity.equals("medium") ? 10 : 5);
                 config.put("burstSize", intensity.equals("high") ? 50 : intensity.equals("medium") ? 35 : 20);
                 config.put("colors", Arrays.asList("#ff6b6b", "#4ecdc4", "#45b7d1", "#f9ca24", "#f0932b"));
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             case "autumn_leaves":
@@ -243,10 +279,14 @@ public class AtmosphereEffectsService {
                 config.put("fallSpeed", intensity.equals("high") ? 1.5 : intensity.equals("medium") ? 1.0 : 0.7);
                 config.put("sway", true);
                 config.put("colors", Arrays.asList("#d2691e", "#daa520", "#cd853f", "#deb887"));
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
 
             default:
                 config.put("intensity", intensity);
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
                 break;
         }
 
