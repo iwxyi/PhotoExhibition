@@ -199,12 +199,6 @@ const masonryItems = computed(() => {
     width: photo.width || 1,
     height: photo.height || 1
   }))
-  console.log("AlbumDetail: masonryItems computed, photos count:", photos.value.length, "items count:", items.length);
-  if (items.length > 0) {
-    console.log("AlbumDetail: first item:", items[0]);
-  } else if (photos.value.length === 0) {
-    console.warn("AlbumDetail: No photos in photos array!");
-  }
   return items
 })
 
@@ -892,7 +886,7 @@ const startBackTransitionAndNavigate = () => {
 
   // 如果没有封面位置信息，直接跳转
   if (!storedData || photos.value.length === 0) {
-    console.log('[AlbumDetail] No stored data, direct navigation at', Date.now())
+    // no stored data — direct navigation
     router.back()
     return
   }
@@ -905,7 +899,7 @@ const startBackTransitionAndNavigate = () => {
     const currentScrollTop = window.scrollY || document.documentElement.scrollTop
     const currentScrollLeft = window.scrollX || document.documentElement.scrollLeft
 
-    console.log('[AlbumDetail] Scroll position saved:', currentScrollTop, 'at', Date.now())
+    // scroll position saved
 
     // 临时禁用滚动
     const preventScroll = (e: Event) => {
@@ -918,11 +912,11 @@ const startBackTransitionAndNavigate = () => {
     window.addEventListener('wheel', preventScroll, { passive: false })
     window.addEventListener('touchmove', preventScroll, { passive: false })
 
-    console.log('[AlbumDetail] Scroll protection added at', Date.now())
+    // scroll protection added
 
     // 使用 requestAnimationFrame 延迟创建克隆元素，避免影响当前页面布局
     requestAnimationFrame(() => {
-      console.log('[AlbumDetail] requestAnimationFrame callback at', Date.now())
+      // requestAnimationFrame callback
 
       // 为三张封面对应的照片创建克隆元素，停留在当前详情页的位置
       for (const { photoId } of coverRects) {
@@ -957,11 +951,11 @@ const startBackTransitionAndNavigate = () => {
         usedPhotoIds.push(photoId)
       }
 
-      console.log('[AlbumDetail] Clones created, count:', usedPhotoIds.length, 'at', Date.now())
+      // clones created
 
       // 如果没有创建任何克隆，直接跳转
       if (usedPhotoIds.length === 0) {
-        console.log('[AlbumDetail] No clones created, direct navigation at', Date.now())
+        // no clones created — direct navigation
         router.back()
         return
       }
@@ -977,15 +971,15 @@ const startBackTransitionAndNavigate = () => {
         })
       )
 
-      console.log('[AlbumDetail] Session storage set at', Date.now())
+      // session storage set
 
       // 立即跳转，让用户感觉响应更快
-      console.log('[AlbumDetail] Calling router.back() at', Date.now())
+      // calling router.back()
       router.back()
 
       // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
       setTimeout(() => {
-        console.log('[AlbumDetail] Removing scroll protection at', Date.now())
+        // remove scroll protection
         window.removeEventListener('scroll', preventScroll)
         window.removeEventListener('wheel', preventScroll)
         window.removeEventListener('touchmove', preventScroll)
@@ -1066,12 +1060,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  console.log('[AlbumDetail] onUnmounted called at', Date.now())
-
   window.removeEventListener('keydown', handleKeydown)
-
   // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
-  console.log('[AlbumDetail] onUnmounted completed at', Date.now())
 })
 
 // 颜色处理工具函数

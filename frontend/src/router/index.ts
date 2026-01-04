@@ -110,7 +110,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  console.log('[Router] beforeEach:', from.name, '->', to.name, 'at', Date.now())
+  // router navigation debug removed
 
   const authStore = useAuthStore()
 
@@ -124,7 +124,7 @@ router.beforeEach((to, from, next) => {
 })
 
 router.afterEach((to, from) => {
-  console.log('[Router] afterEach:', from.name, '->', to.name, 'at', Date.now())
+  // router navigation debug removed
 })
 
 export default router
