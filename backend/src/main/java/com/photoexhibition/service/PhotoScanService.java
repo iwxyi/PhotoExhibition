@@ -311,11 +311,16 @@ public class PhotoScanService {
                 String intensity = (String) effect.get("intensity");
                 String layer = (String) effect.get("layer");
 
-                // 使用AtmosphereEffectsService生成实际的配置
-                Object config = atmosphereEffectsService.generateEffectConfig(type, intensity, layer);
+                // 使用前端发送的config，如果没有则生成默认配置
+                @SuppressWarnings("unchecked")
+                Map<String, Object> config = (Map<String, Object>) effect.get("config");
+                if (config == null) {
+                    // 如果前端没有发送config，使用AtmosphereEffectsService生成默认配置
+                    config = (Map<String, Object>) atmosphereEffectsService.generateEffectConfig(type, intensity, layer);
+                }
 
                 com.photoexhibition.dto.AtmosphereEffectDTO dto = new com.photoexhibition.dto.AtmosphereEffectDTO(
-                    type, intensity, layer, (Map<String, Object>) config);
+                    type, intensity, layer, config);
                 effectDTOs.add(dto);
             }
 

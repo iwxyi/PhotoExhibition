@@ -259,7 +259,7 @@
               <label class="block text-xs text-gray-400 mb-1">相册排序方式</label>
               <select
                 :value="showMenuForAlbum.photoSortOrder"
-                @change="setAlbumSortOrder(showMenuForAlbum, $event.target.value)"
+                @change="setAlbumSortOrder(showMenuForAlbum, ($event.target as HTMLSelectElement).value)"
                 class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">跟随全局设置</option>
@@ -341,11 +341,17 @@
         class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
         @click.self="closeAllMenus"
       >
-        <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-auto text-gray-100">
-          <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
-          <p class="text-sm text-gray-400 mb-4">
-            为相册 <strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong> 设置氛围特效
-          </p>
+        <div class="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
+          <!-- 头部 -->
+          <div class="p-6 pb-4">
+            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
+            <p class="text-sm text-gray-400 mb-4">
+              为相册 <strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong> 设置氛围特效
+            </p>
+          </div>
+
+          <!-- 可滚动内容区域 -->
+          <div class="flex-1 overflow-y-auto px-6">
 
           <!-- 当前特效列表 -->
           <div class="mb-4">
@@ -362,7 +368,7 @@
                 <div class="flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
                     <span class="text-sm font-medium">{{ getEffectName(effect.type) }}</span>
-                    <span class="text-xs text-gray-400">({{ effect.intensity }})</span>
+                    <span class="text-xs text-gray-400">({{ getIntensityDisplay(effect.intensity || 'medium') }})</span>
                   </div>
                   <button
                     @click="removeEffect(index)"
@@ -372,24 +378,26 @@
                     ✕
                   </button>
                 </div>
-                <div class="flex items-center gap-4">
+                <!-- 预设强度选择 -->
+                <div class="flex items-center gap-4 mb-3">
                   <div class="flex items-center gap-2">
-                    <label class="text-xs text-gray-400">强度:</label>
+                    <label class="text-xs text-gray-400">预设强度:</label>
                     <select
                       :value="effect.intensity || 'medium'"
-                      @change="updateEffectIntensity(index, $event.target.value)"
+                      @change="updateEffectIntensity(index, ($event.target as HTMLSelectElement).value)"
                       class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
                     >
                       <option value="low">低</option>
                       <option value="medium">中</option>
                       <option value="high">高</option>
+                      <option value="custom">自定义</option>
                     </select>
                   </div>
                   <div class="flex items-center gap-2">
                     <label class="text-xs text-gray-400">层级:</label>
                     <select
                       :value="effect.layer || 'above'"
-                      @change="updateEffectLayer(index, $event.target.value)"
+                      @change="updateEffectLayer(index, ($event.target as HTMLSelectElement).value)"
                       class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
                     >
                       <option value="above">图片上方</option>
@@ -397,27 +405,92 @@
                     </select>
                   </div>
                 </div>
+
+                <!-- 详细参数调节 -->
+                <div class="space-y-2">
+                  <div class="text-xs text-gray-400 mb-2">自定义参数 (1-10):</div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <!-- 速度 -->
+                    <div class="flex flex-col">
+                      <label class="text-xs text-gray-400 mb-1">速度: {{ getCustomValue(effect, 'speed') }}</label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        :value="getCustomValue(effect, 'speed')"
+                        @input="updateCustomParam(index, 'speed', parseInt(($event.target as HTMLInputElement).value))"
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                    <!-- 大小 -->
+                    <div class="flex flex-col">
+                      <label class="text-xs text-gray-400 mb-1">大小: {{ getCustomValue(effect, 'size') }}</label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        :value="getCustomValue(effect, 'size')"
+                        @input="updateCustomParam(index, 'size', parseInt(($event.target as HTMLInputElement).value))"
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                    <!-- 数量 -->
+                    <div class="flex flex-col">
+                      <label class="text-xs text-gray-400 mb-1">数量: {{ getCustomValue(effect, 'count') }}</label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        :value="getCustomValue(effect, 'count')"
+                        @input="updateCustomParam(index, 'count', parseInt(($event.target as HTMLInputElement).value))"
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                    <!-- 透明度 -->
+                    <div class="flex flex-col">
+                      <label class="text-xs text-gray-400 mb-1">透明度: {{ getCustomValue(effect, 'opacity') }}</label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        :value="getCustomValue(effect, 'opacity')"
+                        @input="updateCustomParam(index, 'opacity', parseInt(($event.target as HTMLInputElement).value))"
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <!-- 添加特效 -->
-          <div class="mb-4">
-            <h4 class="text-sm font-medium text-gray-300 mb-2">添加特效</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div
-                v-for="effect in availableEffects"
-                :key="effect.type"
-                class="border border-gray-600 rounded p-3 hover:border-blue-500/50 hover:bg-gray-700/30 cursor-pointer transition-colors"
-                @click="addEffect(effect)"
-              >
-                <div class="font-medium text-sm">{{ effect.name }}</div>
-                <div class="text-xs text-gray-400 mt-1">{{ effect.description }}</div>
+            <!-- 添加特效 -->
+            <div class="mb-6">
+              <h4 class="text-sm font-medium text-gray-300 mb-3">添加特效</h4>
+              <div class="max-h-60 overflow-y-auto">
+                <div class="grid grid-cols-3 gap-3">
+                  <div
+                    v-for="effect in availableEffects"
+                    :key="effect.type"
+                    :class="[
+                      'border rounded p-3 cursor-pointer transition-colors',
+                      isEffectSelected(effect.type)
+                        ? 'border-blue-500 bg-blue-500/20 text-blue-100'
+                        : 'border-gray-600 hover:border-blue-500/50 hover:bg-gray-700/30'
+                    ]"
+                    @click="toggleEffect(effect)"
+                  >
+                    <div class="font-medium text-sm">{{ effect.name }}</div>
+                    <div class="text-xs text-gray-400 mt-1">{{ effect.description }}</div>
+                  </div>
+                </div>
               </div>
             </div>
+
           </div>
 
-          <div class="flex gap-2">
+          <!-- 底部按钮区域 -->
+          <div class="flex gap-3 p-6 pt-4 border-t border-gray-700">
             <button
               @click="saveAtmosphereEffects"
               class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50"
@@ -456,9 +529,11 @@ const allTags = ref<any[]>([])
 const tagDialogVisible = ref(false)
 const tagKeyword = ref('')
 const currentAlbum = ref<any>(null)
+const selectedAlbumForTags = ref<any>(null)
 
 // 特效相关
 const effectsDialogVisible = ref(false)
+const selectedAlbumForEffects = ref<any>(null)
 const availableEffects = ref([
   {
     type: 'snow',
@@ -572,16 +647,39 @@ const getIntensityDisplay = (intensity: string) => {
   const intensityNames: Record<string, string> = {
     low: '低',
     medium: '中',
-    high: '高'
+    high: '高',
+    custom: '自定义'
   }
   return intensityNames[intensity] || intensity
 }
 
 // 编辑相册特效
-const editAlbumEffects = (album: any) => {
+const editAlbumEffects = async (album: any) => {
   selectedAlbumForEffects.value = album
+  currentAlbum.value = album
+
+  try {
+    // 获取当前相册的特效配置
+    const res = await api.get(`/admin/albums/${album.id}/atmosphere-effects`)
+    const effects = res.data.effects || []
+
+    // 确保有自定义配置的特效强度设为"custom"
+    effects.forEach((effect: any) => {
+      if (effect.config?.custom && Object.keys(effect.config.custom).length > 0) {
+        effect.intensity = 'custom'
+      } else if (!effect.intensity) {
+        // 如果没有强度设置，使用默认值
+        effect.intensity = 'medium'
+      }
+    })
+
+    currentEffects.value = effects
+  } catch (e: any) {
+    console.warn('获取当前特效配置失败，使用空配置:', e)
+    currentEffects.value = []
+  }
+
   effectsDialogVisible.value = true
-  loadAlbumEffects(album)
 }
 
 // 编辑相册标签
@@ -733,23 +831,91 @@ const getEffectName = (type: string): string => {
   return effect?.name || type
 }
 
-const addEffect = (effect: any) => {
-  // 检查是否已经存在相同类型的特效
-  const exists = currentEffects.value.some((e: any) => e.type === effect.type)
-  if (exists) {
-    alert(`"${effect.name}" 特效已存在`)
-    return
+// 检查特效是否已被选中
+const isEffectSelected = (type: string) => {
+  return currentEffects.value.some((e: any) => e.type === type)
+}
+
+// 切换特效（添加或移除）
+const toggleEffect = (effect: any) => {
+  const existingIndex = currentEffects.value.findIndex((e: any) => e.type === effect.type)
+
+  if (existingIndex >= 0) {
+    // 特效已存在，移除它
+    currentEffects.value.splice(existingIndex, 1)
+  } else {
+    // 特效不存在，添加它，默认使用 medium 强度和空的自定义配置
+    const newEffect = {
+      type: effect.type,
+      intensity: 'medium',
+      layer: effect.layer || 'above',
+      config: {
+        custom: {} // 空的自定义配置，用户可以后续调整
+      }
+    }
+    currentEffects.value.push(newEffect)
+  }
+}
+
+// 获取自定义参数值
+const getCustomValue = (effect: any, param: string) => {
+  const intensity = effect.intensity || 'medium'
+
+  // 自定义强度时返回用户设置的值
+  if (intensity === 'custom') {
+    // 首先尝试从custom配置中获取
+    if (effect.config?.custom?.[param] !== undefined) {
+      return effect.config.custom[param]
+    }
+
+    // 如果没有custom配置，尝试从旧的config字段中推断值
+    // 这是为了兼容旧数据格式
+
+    // 对于不同的参数，从config中的对应字段推断
+    if (param === 'speed' && effect.config?.speed !== undefined) {
+      // speed通常是1-2的范围，对应到1-10需要转换
+      const speedValue = Math.round((effect.config.speed - 1) * 4.5 + 1) // 1->1, 2->10
+      return Math.max(1, Math.min(10, speedValue))
+    }
+    if (param === 'size' && effect.config?.size !== undefined) {
+      // size通常是2-4的范围，对应到1-10
+      const sizeValue = Math.round((effect.config.size - 2) * 4 + 1) // 2->1, 4->10
+      return Math.max(1, Math.min(10, sizeValue))
+    }
+    if (param === 'count' && effect.config?.particleCount !== undefined) {
+      // particleCount通常是50-150的范围，对应到1-10
+      const countValue = Math.round((effect.config.particleCount - 50) * 9 / 100 + 1) // 50->1, 150->10
+      return Math.max(1, Math.min(10, countValue))
+    }
+
+    // 如果都推断不出，返回默认值5
+    return 5
   }
 
-  // 添加特效，默认使用 medium 强度
-  const newEffect = {
-    type: effect.type,
-    intensity: 'medium',
-    layer: effect.layer || 'above',
-    config: {} // 配置将在后端生成
+  // 预设强度时返回预设值
+  if (intensity === 'low') return 3
+  if (intensity === 'medium') return 5
+  if (intensity === 'high') return 7
+
+  return 5
+}
+
+// 更新自定义参数
+const updateCustomParam = (effectIndex: number, param: string, value: number) => {
+  // 当用户修改参数时，将强度设置为自定义
+  currentEffects.value[effectIndex].intensity = 'custom'
+
+  if (!currentEffects.value[effectIndex].config) {
+    currentEffects.value[effectIndex].config = {}
   }
 
-  currentEffects.value.push(newEffect)
+  // 确保custom配置存在
+  if (!currentEffects.value[effectIndex].config.custom) {
+    currentEffects.value[effectIndex].config.custom = {}
+  }
+
+  // 保存参数值
+  currentEffects.value[effectIndex].config.custom[param] = value
 }
 
 const removeEffect = (index: number) => {
@@ -757,7 +923,32 @@ const removeEffect = (index: number) => {
 }
 
 const updateEffectIntensity = (index: number, intensity: string) => {
-  currentEffects.value[index].intensity = intensity
+  const effect = currentEffects.value[index]
+
+  // 如果选择预设强度，清除自定义配置
+  if (intensity === 'low' || intensity === 'medium' || intensity === 'high') {
+    if (effect.config?.custom) {
+      delete effect.config.custom
+    }
+  }
+  // 如果选择自定义强度，初始化自定义配置为当前显示的值
+  else if (intensity === 'custom') {
+    if (!effect.config) {
+      effect.config = {}
+    }
+    if (!effect.config.custom) {
+      // 使用当前显示的值作为自定义配置的初始值
+      const currentIntensity = effect.intensity || 'medium'
+      const presetValues: Record<string, { speed: number; size: number; count: number; opacity: number }> = {
+        low: { speed: 3, size: 3, count: 3, opacity: 3 },
+        medium: { speed: 5, size: 5, count: 5, opacity: 5 },
+        high: { speed: 7, size: 7, count: 7, opacity: 7 }
+      }
+      effect.config.custom = { ...presetValues[currentIntensity] }
+    }
+  }
+
+  effect.intensity = intensity
 }
 
 const updateEffectLayer = (index: number, layer: string) => {
@@ -1017,3 +1208,45 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
+
+<style scoped>
+/* 滑块样式 */
+.slider {
+  -webkit-appearance: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #60a5fa;
+  cursor: pointer;
+  border: 2px solid #1f2937;
+}
+
+.slider::-webkit-slider-track {
+  width: 100%;
+  height: 4px;
+  background: #374151;
+  border-radius: 2px;
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #60a5fa;
+  cursor: pointer;
+  border: 2px solid #1f2937;
+}
+
+.slider::-moz-range-track {
+  width: 100%;
+  height: 4px;
+  background: #374151;
+  border-radius: 2px;
+  border: none;
+}
+</style>
