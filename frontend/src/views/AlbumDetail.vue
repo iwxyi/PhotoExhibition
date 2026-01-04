@@ -883,7 +883,19 @@ const startBackTransitionAndNavigate = () => {
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  const shouldPerformBackTransition = sessionStorage.getItem('album-navigation-active') === 'true'
+  const navigationFlag = sessionStorage.getItem('album-navigation-active')
+  const animationPerformed = sessionStorage.getItem('album-animation-performed') === 'true'
+  // 只有真正执行过展开动画的页面才能执行返回动画
+  const shouldPerformBackTransition = animationPerformed
+
+  // 如果没有动画执行记录，清理可能残留的数据并直接返回
+  if (!shouldPerformBackTransition) {
+    sessionStorage.removeItem('album-back-transition')
+    sessionStorage.removeItem('album-navigation-active')
+    sessionStorage.removeItem('album-animation-performed')
+    router.back()
+    return
+  }
 
   // 如果没有封面位置信息，直接跳转
   if (!storedData || photos.value.length === 0) {
@@ -892,15 +904,12 @@ const startBackTransitionAndNavigate = () => {
     return
   }
 
-  // 如果不是从正常导航来的，也直接跳转
+  // 如果不是从正常导航来的，直接跳转
   if (!shouldPerformBackTransition) {
     // not from navigation — direct navigation
     router.back()
     return
   }
-
-  // 确认要执行返回动画，现在可以安全地清除导航标志
-  sessionStorage.removeItem('album-navigation-active')
 
   try {
     const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
@@ -966,26 +975,22 @@ const startBackTransitionAndNavigate = () => {
 
       // 如果没有创建任何克隆，直接跳转
       if (usedPhotoIds.length === 0) {
-        // no clones created — direct navigation
         router.back()
         return
       }
 
       // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画
-      sessionStorage.setItem(
-        'album-back-transition',
-        JSON.stringify({
-          albumId,
-          photoIds: usedPhotoIds,
-          scrollTop: currentScrollTop,
-          scrollLeft: currentScrollLeft
-        })
-      )
+      const backTransitionData = {
+        albumId,
+        photoIds: usedPhotoIds,
+        scrollTop: currentScrollTop,
+        scrollLeft: currentScrollLeft
+      }
+      sessionStorage.setItem('album-back-transition', JSON.stringify(backTransitionData))
 
       // session storage set
 
       // 立即跳转，让用户感觉响应更快
-      // calling router.back()
       router.back()
 
       // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
@@ -1009,7 +1014,17 @@ onMounted(async () => {
   const storedData = sessionStorage.getItem(storageKey)
   
   // 如果有需要动画的图片，且是从正常导航来的，立即隐藏它们（在数据加载前）
-  const isFromNavigation = sessionStorage.getItem('album-navigation-active') === 'true'
+  // 检查导航时间戳，确保只有最近的导航才能触发动画
+  const navigationTimestamp = sessionStorage.getItem('album-navigation-active')
+  const isFromNavigation = navigationTimestamp && (Date.now() - parseInt(navigationTimestamp)) < 5000 // 5秒内
+
+  if (isFromNavigation) {
+    // 从正常导航来，保持或设置动画标志
+  } else {
+    // 如果不是从导航来的（比如刷新），清除之前的动画状态标志
+    sessionStorage.removeItem('album-animation-performed')
+  }
+
   if (storedData && isFromNavigation) {
     try {
       const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
@@ -1064,12 +1079,16 @@ onMounted(async () => {
 
   const hasCoverTransition = isFromNavigation ? await performCoverTransition() : false
 
+  // 如果成功执行了封面动画，标记动画已执行
+  if (hasCoverTransition) {
+    sessionStorage.setItem('album-navigation-active', 'expanded')
+    sessionStorage.setItem('album-animation-performed', 'true')
+  }
+
   // 如果没有封面动画，直接开始剩余图片动画
   if (!hasCoverTransition) {
     remainingPhotosVisible.value = true
   }
-
-  // 注意：导航标志现在在开始返回动画时清除，而不是在这里
 })
 
 onUnmounted(() => {
@@ -1078,6 +1097,10 @@ onUnmounted(() => {
 
   // 注意：不要在这里清理 album-cover-rects 数据，因为返回动画在 Home.vue 中执行，需要这些数据
   // 这些数据会在 Home.vue 的返回动画完成后清理
+
+  // 清理动画相关标志（以防页面异常退出）
+  sessionStorage.removeItem('album-navigation-active')
+  sessionStorage.removeItem('album-animation-performed')
 
   // 清理可能遗留的动画定时器
   if ((window as any).__albumTransitionCleanupTimer) {

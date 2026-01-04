@@ -170,18 +170,35 @@ const getDynamicLoadSize = () => {
 }
 
 const goToAlbum = (id: number) => {
-  // 设置导航标志，表示这是从列表页正常导航到详情页
-  sessionStorage.setItem('album-navigation-active', 'true')
+  // 设置导航标志和时间戳，确保只有立即导航才能检测到
+  sessionStorage.setItem('album-navigation-active', Date.now().toString())
   router.push(`/album/${id}`)
 }
 
 // 从相册详情返回时，让三张封面原图在列表页缩回到封面
 const performAlbumBackTransitionIfNeeded = async () => {
-    // debug log removed
+
+  // 注意：不要在这里清理克隆元素，因为它们是在AlbumDetail.vue中刚刚创建的
+  // 克隆元素应该在动画完成后才清理
+
+  // 确保所有相册卡片的缩略图都是可见的（清理可能残留的隐藏状态）
+  const albumCards = document.querySelectorAll('.photo-card[data-album-id]')
+  albumCards.forEach(card => {
+    const imgs = card.querySelectorAll('img')
+    imgs.forEach(img => {
+      img.style.visibility = ''
+      img.style.pointerEvents = ''
+      img.style.transition = ''
+    })
+    const overlays = card.querySelectorAll('.album-cover-overlay')
+    overlays.forEach(overlay => {
+      overlay.style.pointerEvents = ''
+      overlay.style.opacity = ''
+    })
+  })
 
   const raw = sessionStorage.getItem('album-back-transition')
   if (!raw) {
-    // debug log removed
     return
   }
 
@@ -189,12 +206,9 @@ const performAlbumBackTransitionIfNeeded = async () => {
     const data: { albumId: number; photoIds: number[] } = JSON.parse(raw)
     const albumId = data.albumId
 
-    // debug log removed
-
     const coverKey = `album-cover-rects-${albumId}`
     const coverRaw = sessionStorage.getItem(coverKey)
     if (!coverRaw) {
-      // debug log removed
       sessionStorage.removeItem('album-back-transition')
       return
     }
@@ -202,17 +216,15 @@ const performAlbumBackTransitionIfNeeded = async () => {
     const coverRects: Array<{ photoId: number; slot?: 'left' | 'rightTop' | 'rightBottom'; rect: { top: number; left: number; width: number; height: number } }> =
       JSON.parse(coverRaw)
 
-    // debug log removed
-
     // 找到当前页面上从详情页带过来的克隆元素
     const clones = Array.from(
       document.querySelectorAll<HTMLElement>(`.album-back-clone[data-album-id="${albumId}"]`)
     )
-    // debug logs removed
 
     if (!clones.length) {
-      // debug log removed
       sessionStorage.removeItem('album-back-transition')
+      sessionStorage.removeItem('album-navigation-active')
+      sessionStorage.removeItem('album-animation-performed')
       return
     }
 
@@ -301,14 +313,12 @@ const performAlbumBackTransitionIfNeeded = async () => {
       ovClone.style.zIndex = '10001'
       ovClone.style.pointerEvents = 'none'
       ovClone.style.opacity = '0'
-      ovClone.style.transition = 'opacity 160ms ease, transform 160ms ease'
+      ovClone.style.transition = 'opacity 160ms cubic-bezier(.2,.9,.3,1), transform 380ms cubic-bezier(.2,.9,.3,1)'
       ovClone.style.transform = 'scale(0.98)'
       ovClone.classList.add('album-back-overlay-clone')
       document.body.appendChild(ovClone)
       overlayClones.push(ovClone)
     })
-
-    // debug log removed
 
     // 为每个克隆设置目标位置（使用刚计算的目标位置），开始缩回动画
     clones.forEach((clone) => {
@@ -331,7 +341,6 @@ const performAlbumBackTransitionIfNeeded = async () => {
 
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // debug log removed
           clone.style.top = `${targetRect.top}px`
           clone.style.left = `${targetRect.left}px`
           clone.style.width = `${targetRect.width}px`
@@ -368,8 +377,9 @@ const performAlbumBackTransitionIfNeeded = async () => {
         sessionStorage.removeItem('album-back-transition')
         // 返回后可以清理这次点击生成的封面数据，避免后续干扰
         sessionStorage.removeItem(coverKey)
-        // 清理导航标志
+        // 清理导航和动画标志
         sessionStorage.removeItem('album-navigation-active')
+        sessionStorage.removeItem('album-animation-performed')
 
         if (albumCard) {
           // 恢复并启用 overlay（如果有）——使用之前保存的 overlays 列表
