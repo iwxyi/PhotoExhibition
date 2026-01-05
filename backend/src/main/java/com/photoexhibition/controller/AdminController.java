@@ -44,7 +44,7 @@ public class AdminController {
     }
 
     /**
-     * 强制重新扫描（忽略更新时间，重建缩略图、人脸、标签）
+     * 强制重新扫描（重新处理所有图片，重建缩略图、人脸、标签）
      */
     @PostMapping("/scan/force")
     public ResponseEntity<Map<String, Object>> triggerForceScan(@RequestParam(required = false) String path) {
@@ -284,6 +284,76 @@ public class AdminController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "数据清理失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 清空所有缩略图（删除缩略图文件并清空数据库路径）
+     * 用于重新生成三级缩略图系统
+     */
+    @PostMapping("/thumbnails/clear")
+    public ResponseEntity<Map<String, Object>> clearAllThumbnails() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = photoScanService.clearAllThumbnails();
+            resp.putAll(result);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "清空缩略图失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 清空所有人脸数据
+     */
+    @PostMapping("/faces/clear")
+    public ResponseEntity<Map<String, Object>> clearAllFaces() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = photoScanService.clearAllFaces();
+            resp.putAll(result);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "清空人脸数据失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 清空所有智能标签
+     */
+    @PostMapping("/smart-tags/clear")
+    public ResponseEntity<Map<String, Object>> clearAllSmartTags() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = photoScanService.clearAllSmartTags();
+            resp.putAll(result);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "清空智能标签失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 清理已删除文件的残留数据
+     * 删除不存在图片文件的照片记录、人脸数据、标签关联，以及空相册
+     */
+    @PostMapping("/cleanup/orphaned")
+    public ResponseEntity<Map<String, Object>> cleanupOrphanedData() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = photoScanService.cleanupOrphanedData();
+            resp.putAll(result);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "清理残留数据失败");
             resp.put("success", false);
             return ResponseEntity.status(500).body(resp);
         }

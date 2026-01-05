@@ -118,7 +118,7 @@ public class SmartTagService {
             photo.setTags(new HashSet<>());
         }
 
-        // 添加新生成的智能标签
+        // 添加新生成的智能标签（避免重复添加）
         for (String name : names) {
             Tag tag = tagRepository.findByName(name)
                 .orElseGet(() -> {
@@ -126,7 +126,10 @@ public class SmartTagService {
                     t.setName(name);
                     return tagRepository.save(t);
                 });
-            photo.getTags().add(tag);
+            // 检查是否已经包含此标签，避免重复添加导致主键冲突
+            if (!photo.getTags().contains(tag)) {
+                photo.getTags().add(tag);
+            }
         }
     }
 

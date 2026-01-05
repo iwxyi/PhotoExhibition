@@ -31,6 +31,15 @@ public class Photo {
     @Column(name = "webp_path", length = 1000)
     private String webpPath;
 
+    @Column(name = "small_thumb_path", length = 1000)
+    private String smallThumbPath;
+
+    @Column(name = "medium_thumb_path", length = 1000)
+    private String mediumThumbPath;
+
+    @Column(name = "large_thumb_path", length = 1000)
+    private String largeThumbPath;
+
     @Column(name = "file_size")
     private Long fileSize;
 

@@ -13,6 +13,9 @@ public class PhotoDTO {
     private String originalPath;
     private String thumbnailPath;
     private String webpPath;
+    private String smallThumbPath;
+    private String mediumThumbPath;
+    private String largeThumbPath;
     private Long fileSize;
     private String contentHash;
     private Integer width;

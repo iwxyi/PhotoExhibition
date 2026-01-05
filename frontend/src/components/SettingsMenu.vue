@@ -144,6 +144,20 @@
             ></span>
           </button>
         </div>
+
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-200">查看原图</span>
+          <button
+            @click="setViewOriginalEnabled(!viewOriginalEnabled)"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 hover:scale-105"
+            :class="viewOriginalEnabled ? 'bg-orange-600 shadow-orange-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600'"
+          >
+            <span
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition-all duration-200 shadow-sm"
+              :class="viewOriginalEnabled ? 'translate-x-6' : 'translate-x-1'"
+            ></span>
+          </button>
+        </div>
       </div>
       </div>
     </transition>
@@ -163,7 +177,7 @@ const showSettings = ref(false)
 const settingsRef = ref<HTMLElement>()
 const menuRef = ref<HTMLElement>()
 
-const { coverSize, previewSize, parallaxEnabled, atmosphereEnabled, setCoverSize, setPreviewSize, setParallaxEnabled, setAtmosphereEnabled } = useUiSettings()
+const { coverSize, previewSize, parallaxEnabled, atmosphereEnabled, viewOriginalEnabled, setCoverSize, setPreviewSize, setParallaxEnabled, setAtmosphereEnabled, setViewOriginalEnabled } = useUiSettings()
 const { language, setLanguage } = useLanguageStore()
 const themeStore = useThemeStore()
 

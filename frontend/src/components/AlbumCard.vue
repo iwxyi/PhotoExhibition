@@ -140,10 +140,15 @@ const coverSizeClass = computed(() => {
 })
 
 const getImageUrl = (photo: any) => {
-  // 优先使用WebP，其次缩略图，最后原图
+  // 封面使用小缩略图
+  if (photo.smallThumbPath) {
+    return `/api/files${photo.smallThumbPath}`
+  }
+  // 回退到webp
   if (photo.webpPath) {
     return `/api/files${photo.webpPath}`
   }
+  // 最后回退到原缩略图或原图
   if (photo.thumbnailPath) {
     return `/api/files${photo.thumbnailPath}`
   }

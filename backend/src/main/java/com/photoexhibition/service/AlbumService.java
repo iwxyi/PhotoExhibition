@@ -453,6 +453,9 @@ public class AlbumService {
         dto.setOriginalPath(convertToRelativePath(photo.getOriginalPath()));
         dto.setThumbnailPath(convertToRelativePath(photo.getThumbnailPath()));
         dto.setWebpPath(convertToRelativePath(photo.getWebpPath()));
+        dto.setSmallThumbPath(convertToRelativePath(photo.getSmallThumbPath()));
+        dto.setMediumThumbPath(convertToRelativePath(photo.getMediumThumbPath()));
+        dto.setLargeThumbPath(convertToRelativePath(photo.getLargeThumbPath()));
         dto.setFileSize(photo.getFileSize());
         dto.setWidth(photo.getWidth());
         dto.setHeight(photo.getHeight());

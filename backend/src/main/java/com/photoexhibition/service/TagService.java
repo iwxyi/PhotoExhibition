@@ -75,5 +75,15 @@ public class TagService {
             return dto;
         }).collect(Collectors.toList());
     }
+
+    /**
+     * 清空所有智能标签关联（保留手动添加的标签）
+     * 注意：这个方法会删除所有图片-标签关联，但保留标签本身
+     */
+    @Transactional
+    public void clearAllSmartTags() {
+        // 删除所有图片-标签关联
+        tagRepository.clearAllPhotoTagAssociations();
+    }
 }
 

@@ -28,6 +28,24 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9H5V5m10 10h4v4M9 15H5v4m10-10h4V5" />
             </svg>
           </button>
+          <!-- 查看原图按钮 -->
+          <button
+            v-if="viewOriginalEnabled && currentPhoto?.largeThumbPath && !viewingOriginal"
+            class="p-2 hover:bg-white/10 rounded text-xs px-3 py-1.5 bg-orange-600/80 hover:bg-orange-600 text-white font-medium transition-all duration-200"
+            @click="viewingOriginal = true"
+            title="查看原图"
+          >
+            查看原图
+          </button>
+          <!-- 返回缩略图按钮 -->
+          <button
+            v-if="viewingOriginal"
+            class="p-2 hover:bg-white/10 rounded text-xs px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 text-white font-medium transition-all duration-200"
+            @click="viewingOriginal = false"
+            title="返回缩略图"
+          >
+            返回缩略图
+          </button>
           <button class="p-2 hover:bg-white/10 rounded" @click="prev">←</button>
           <span class="text-xs sm:text-sm">{{ currentIndex + 1 }} / {{ photos.length }}</span>
           <button class="p-2 hover:bg-white/10 rounded" @click="next">→</button>
@@ -275,6 +293,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUiSettings } from '@/composables/useUiSettings'
 import type { Photo } from '@/stores/photo'
 
 const props = defineProps<{
@@ -681,7 +700,22 @@ const formatDate = (val?: string) => {
   return val.slice(0, 10)
 }
 
+// 查看原图状态
+const viewingOriginal = ref(false)
+const { viewOriginalEnabled } = useUiSettings()
+
 const getImageUrl = (photo: Photo) => {
+  // 如果启用了查看原图功能且当前正在查看原图
+  if (viewOriginalEnabled.value && viewingOriginal.value) {
+    if (photo.originalPath) return `/api/files${photo.originalPath}`
+  }
+
+  // 优先使用大缩略图（如果有的话）
+  if (photo.largeThumbPath) {
+    return `/api/files${photo.largeThumbPath}`
+  }
+
+  // 回退到webp或原图
   if (photo.webpPath) return `/api/files${photo.webpPath}`
   if (photo.originalPath) return `/api/files${photo.originalPath}`
   return ''

@@ -161,7 +161,11 @@
               <option value="GET /photos">获取所有图片</option>
               <option value="GET /tags">获取所有标签</option>
               <option value="POST /admin/scan">触发扫描</option>
-              <option value="POST /admin/scan/force">强制扫描（重建缩略图/人脸/标签）</option>
+              <option value="POST /admin/scan/force">强制扫描（重新处理所有图片）</option>
+              <option value="POST /admin/thumbnails/clear">清空缩略图（重新生成三级缩略图）</option>
+              <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
+              <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
+              <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
             </select>
@@ -250,7 +254,8 @@ const scanStatus = computed(() => (scanning.value ? '扫描中' : '空闲'))
 const scanProgressText = computed(() => {
   const { current, total } = scanProgress.value
   if (!total) return '0 / 0'
-  return `${current} / ${total} (${Math.min(100, Math.floor((current / total) * 100))}%)`
+  const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0
+  return `${current} / ${total} (${percentage}%)`
 })
 const selectedApi = ref('')
 const testing = ref(false)
@@ -348,7 +353,74 @@ const testApi = async () => {
       return
     }
   }
-  
+
+  // 清空缩略图需要确认
+  if (selectedApi.value === 'POST /admin/thumbnails/clear') {
+    const confirmed = confirm(
+      '🖼️ 清空缩略图数据\n\n' +
+      '此操作将：\n' +
+      '• 删除所有缩略图文件（小图、中图、大图）\n' +
+      '• 清空数据库中的缩略图路径字段\n' +
+      '• 为重新生成三级缩略图做准备\n\n' +
+      '⚠️ 执行后需要运行强制扫描来重新生成缩略图。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清空人脸数据需要确认
+  if (selectedApi.value === 'POST /admin/faces/clear') {
+    const confirmed = confirm(
+      '👤 清空人脸识别数据\n\n' +
+      '此操作将：\n' +
+      '• 删除所有人脸检测结果\n' +
+      '• 删除所有人物聚类数据\n' +
+      '• 清空照片中的人脸关联信息\n\n' +
+      '⚠️ 执行后需要运行强制扫描来重新生成人脸识别。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清空智能标签需要确认
+  if (selectedApi.value === 'POST /admin/smart-tags/clear') {
+    const confirmed = confirm(
+      '🏷️ 清空智能标签数据\n\n' +
+      '此操作将：\n' +
+      '• 删除所有AI生成的智能标签\n' +
+      '• 保留用户手动添加的标签\n' +
+      '• 清空照片中的智能标签关联\n\n' +
+      '⚠️ 执行后需要运行强制扫描来重新生成AI标签。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清理残留数据需要确认
+  if (selectedApi.value === 'POST /admin/cleanup/orphaned') {
+    const confirmed = confirm(
+      '🧹 清理删除残留数据\n\n' +
+      '此操作将：\n' +
+      '• 扫描所有照片记录，检查文件是否还存在\n' +
+      '• 删除不存在文件的照片记录\n' +
+      '• 删除相关的人脸识别数据\n' +
+      '• 删除相关的标签关联\n' +
+      '• 删除没有照片的空相册\n\n' +
+      '⚠️ 此操作不可恢复，请谨慎使用！\n' +
+      '建议在删除大量文件后执行此清理。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
   testing.value = true
   apiResponse.value = null
   

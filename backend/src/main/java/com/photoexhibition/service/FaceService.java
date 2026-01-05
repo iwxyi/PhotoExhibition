@@ -105,10 +105,9 @@ public class FaceService {
             log.debug("人脸检测候选数量: {}，file={}", detected.size(), imageFile.getName());
         }
 
-        // 使用托管的 Photo 实例，避免延迟加载集合触发异常
+        // 使用传入的 Photo 实例，如果有ID则删除现有的人脸记录
         Photo targetPhoto = photo;
         if (photo.getId() != null) {
-            targetPhoto = photoRepository.findById(photo.getId()).orElse(photo);
             faceRepository.deleteByPhotoId(photo.getId());
         }
 
@@ -181,13 +180,8 @@ public class FaceService {
             faces.add(saved);
         }
 
-        // 使用托管实体的集合引用，避免 orphan 与懒加载异常
-        if (targetPhoto.getFaces() != null) {
-            targetPhoto.getFaces().clear();
-            targetPhoto.getFaces().addAll(faces);
-        } else {
-            targetPhoto.setFaces(new ArrayList<>(faces));
-        }
+        // 设置人脸列表到photo对象
+        targetPhoto.setFaces(faces);
         log.debug("保存人脸 {} 个，photoId={}", faces.size(), targetPhoto.getId());
         invalidateClusterCache();
         return faces;
@@ -1454,6 +1448,17 @@ public class FaceService {
         } catch (Exception e) {
             return absolutePath;
         }
+    }
+
+    /**
+     * 清空所有人脸数据
+     */
+    @Transactional
+    public void clearAllFaces() {
+        // 删除所有人脸记录
+        faceRepository.deleteAll();
+        // 删除所有人物记录（人物是通过人脸聚类生成的）
+        personProfileRepository.deleteAll();
     }
 }
 

@@ -70,7 +70,26 @@ photo:
     base-path: ./data/photos
     # 支持的图片格式
     supported-formats: jpg,jpeg,png,heic,raw,cr2,nef,arw
-    # 缩略图尺寸
+    # 缩略图尺寸配置
+    thumbnail:
+      # 小缩略图：用于压缩封面的缩略图和PhotoViewer下面的缩略图列表
+      small:
+        width: 400
+        height: 400
+        quality: 0.85
+      # 中缩略图：用于各种瀑布流（图墙、随机、相册详情的图片）的照片
+      medium:
+        width: 800
+        height: 800
+        quality: 0.90
+      # 大缩略图：点击图片查看大图（PhotoViewer中未打开原图时看的大图），清晰度高
+      large:
+        width: 1920
+        height: 1920
+        quality: 0.95
+        # 大缩略图如果无法进一步压缩则不生成，使用原图
+        skip-if-no-benefit: true
+    # 兼容性：原有缩略图配置（现用于小缩略图）
     thumbnail-width: 400
     thumbnail-height: 400
     # WebP质量

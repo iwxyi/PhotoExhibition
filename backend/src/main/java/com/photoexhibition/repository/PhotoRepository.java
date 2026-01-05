@@ -104,6 +104,20 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     void deleteByAlbumIdIn(List<Long> albumIds);
 
     /**
+     * 清空所有缩略图路径（用于重新生成缩略图）
+     */
+    @Query("UPDATE Photo p SET p.thumbnailPath = null, p.smallThumbPath = null, p.mediumThumbPath = null, p.largeThumbPath = null")
+    @org.springframework.data.jpa.repository.Modifying
+    void clearAllThumbnailPaths();
+
+    /**
+     * 清空所有人脸关联
+     */
+    @Query("DELETE FROM Face f")
+    @org.springframework.data.jpa.repository.Modifying
+    void clearAllFaceAssociations();
+
+    /**
      * 统计指定相册在指定时间之后更新的照片数量
      */
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.albumId = :albumId AND p.updatedAt > :since")

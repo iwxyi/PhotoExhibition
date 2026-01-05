@@ -65,9 +65,41 @@ public class PhotoScanService {
     @Value("${photo.scan.webp-quality}")
     private float webpQuality;
 
+    // 三级缩略图配置
+    @Value("${photo.scan.thumbnail.small.width}")
+    private int smallThumbnailWidth;
+
+    @Value("${photo.scan.thumbnail.small.height}")
+    private int smallThumbnailHeight;
+
+    @Value("${photo.scan.thumbnail.small.quality}")
+    private float smallThumbnailQuality;
+
+    @Value("${photo.scan.thumbnail.medium.width}")
+    private int mediumThumbnailWidth;
+
+    @Value("${photo.scan.thumbnail.medium.height}")
+    private int mediumThumbnailHeight;
+
+    @Value("${photo.scan.thumbnail.medium.quality}")
+    private float mediumThumbnailQuality;
+
+    @Value("${photo.scan.thumbnail.large.width}")
+    private int largeThumbnailWidth;
+
+    @Value("${photo.scan.thumbnail.large.height}")
+    private int largeThumbnailHeight;
+
+    @Value("${photo.scan.thumbnail.large.quality}")
+    private float largeThumbnailQuality;
+
+    @Value("${photo.scan.thumbnail.large.skip-if-no-benefit}")
+    private boolean largeThumbnailSkipIfNoBenefit;
+
     private final AlbumRepository albumRepository;
     private final PhotoRepository photoRepository;
     private final TagRepository tagRepository;
+    private final TagService tagService;
     private final ColorAnalysisService colorAnalysisService;
     private final SubjectDetectionService subjectDetectionService;
     private final FaceService faceService;
@@ -88,6 +120,7 @@ public class PhotoScanService {
     public PhotoScanService(AlbumRepository albumRepository,
                            PhotoRepository photoRepository,
                            TagRepository tagRepository,
+                           TagService tagService,
                            ColorAnalysisService colorAnalysisService,
                            SubjectDetectionService subjectDetectionService,
                            FaceService faceService,
@@ -99,6 +132,7 @@ public class PhotoScanService {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
         this.tagRepository = tagRepository;
+        this.tagService = tagService;
         this.colorAnalysisService = colorAnalysisService;
         this.subjectDetectionService = subjectDetectionService;
         this.faceService = faceService;
@@ -148,8 +182,9 @@ public class PhotoScanService {
 
     /**
      * 定时扫描文件夹
+     * initialDelay设置为扫描间隔时间，确保应用启动后不会立即执行第一次扫描
      */
-    @Scheduled(fixedDelayString = "${photo.scan.scan-interval}000")
+    @Scheduled(fixedDelayString = "${photo.scan.scan-interval}000", initialDelayString = "${photo.scan.scan-interval}000")
     @Async
     public void scheduledScan() {
         log.info("定时扫描: {}", basePath);
@@ -165,7 +200,7 @@ public class PhotoScanService {
     }
     
     /**
-     * 异步触发强制扫描（跳过更新校验）
+     * 异步触发强制扫描（重新处理所有图片）
      */
     @Async
     public void rescanDirectoryAsync(String directoryPath) {
@@ -178,8 +213,19 @@ public class PhotoScanService {
     @PostConstruct
     public void init() {
         log.info("扫描服务初始化: {}", basePath);
-        // 可选：启动时立即扫描一次
-        // scanDirectory(basePath);
+
+        // 检查是否需要初始化扫描：如果数据库中没有任何相册，则执行一次扫描
+        try {
+            long albumCount = albumRepository.count();
+            if (albumCount == 0) {
+                log.info("数据库中没有任何相册，执行初始化扫描");
+                scanDirectoryAsync(basePath);
+            } else {
+                log.info("数据库中已有 {} 个相册，跳过初始化扫描", albumCount);
+            }
+        } catch (Exception e) {
+            log.warn("检查相册数量失败，跳过初始化扫描", e);
+        }
     }
 
     /**
@@ -191,7 +237,7 @@ public class PhotoScanService {
     }
 
     /**
-     * 强制重新扫描（总是重建缩略图、人脸、标签）
+     * 强制重新扫描（重新处理所有图片，重建缩略图、人脸、标签）
      */
     @Transactional
     public void rescanDirectory(String directoryPath) {
@@ -255,8 +301,16 @@ public class PhotoScanService {
     public Map<String, Object> getScanStatus() {
         Map<String, Object> status = new HashMap<>();
         status.put("scanning", isScanning.get() || activeScanCount.get() > 0);
-        status.put("current", scanCurrent.get());
-        status.put("total", scanTotal.get());
+
+        // 确保current不会超过total（处理递归处理导致的计数问题）
+        int current = scanCurrent.get();
+        int total = scanTotal.get();
+        if (current > total && total > 0) {
+            current = total;
+        }
+
+        status.put("current", current);
+        status.put("total", total);
         status.put("lastScanStart", lastScanStart);
         status.put("lastScanEnd", lastScanEnd);
         return status;
@@ -387,40 +441,47 @@ public class PhotoScanService {
             scanTotal.set(0);
             lastScanStart = LocalDateTime.now();
 
-            Path path = Paths.get(directoryPath);
-            
-            // 处理相对路径：如果是相对路径，转换为绝对路径
-            if (!path.isAbsolute()) {
-                // 获取项目根目录
-                // 方法1: 从当前工作目录推断
-                String projectRoot = System.getProperty("user.dir");
-                
-                // 如果当前在backend目录，需要回到项目根目录
-                if (projectRoot.endsWith("backend")) {
-                    projectRoot = new File(projectRoot).getParent();
-                }
-                
-                // 方法2: 尝试从类路径推断项目根目录（更可靠）
-                // 如果方法1失败，可以尝试这个方法
-                if (projectRoot == null || projectRoot.isEmpty()) {
-                    try {
-                        String classPath = PhotoScanService.class.getProtectionDomain()
-                            .getCodeSource().getLocation().getPath();
-                        // 从target/classes或jar文件推断项目根目录
-                        if (classPath.contains("target/classes")) {
-                            projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
-                        }
-                    } catch (Exception e) {
-                        log.warn("无法从类路径推断项目根目录", e);
+            Path path;
+            if (directoryPath == null || directoryPath.isEmpty() || directoryPath.equals(basePath)) {
+                // 使用默认基础路径
+                path = resolveBasePath();
+            } else {
+                // 处理自定义路径
+                path = Paths.get(directoryPath);
+
+                // 处理相对路径：如果是相对路径，转换为绝对路径
+                if (!path.isAbsolute()) {
+                    // 获取项目根目录
+                    // 方法1: 从当前工作目录推断
+                    String projectRoot = System.getProperty("user.dir");
+
+                    // 如果当前在backend目录，需要回到项目根目录
+                    if (projectRoot.endsWith("backend")) {
+                        projectRoot = new File(projectRoot).getParent();
                     }
+
+                    // 方法2: 尝试从类路径推断项目根目录（更可靠）
+                    // 如果方法1失败，可以尝试这个方法
+                    if (projectRoot == null || projectRoot.isEmpty()) {
+                        try {
+                            String classPath = PhotoScanService.class.getProtectionDomain()
+                                .getCodeSource().getLocation().getPath();
+                            // 从target/classes或jar文件推断项目根目录
+                            if (classPath.contains("target/classes")) {
+                                projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
+                            }
+                        } catch (Exception e) {
+                            log.warn("无法从类路径推断项目根目录", e);
+                        }
+                    }
+
+                    // 处理以 ./ 开头的相对路径
+                    String cleanPath = directoryPath.startsWith("./")
+                        ? directoryPath.substring(2)
+                        : directoryPath;
+
+                    path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
                 }
-                
-                // 处理以 ./ 开头的相对路径
-                String cleanPath = directoryPath.startsWith("./") 
-                    ? directoryPath.substring(2) 
-                    : directoryPath;
-                
-                path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
             }
             
             if (!Files.exists(path)) {
@@ -432,6 +493,7 @@ public class PhotoScanService {
             }
 
             // 预统计总数用于进度显示
+            // 注意：这里统计所有文件，包括可能被递归处理的超过层级的目录中的文件
             try (Stream<Path> paths = Files.walk(path)) {
                 Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
                     .map(String::trim)
@@ -449,6 +511,7 @@ public class PhotoScanService {
                     })
                     .count();
                 scanTotal.set(total);
+                log.info("预统计待扫描图片数量: {}", total);
             } catch (Exception e) {
                 log.warn("统计待扫描图片数量失败: {}", e.getMessage());
                 scanTotal.set(0);
@@ -721,9 +784,16 @@ public class PhotoScanService {
                 log.info("处理图片: {}", relativePath != null ? relativePath : filePath);
             }
 
-            // 始终更新哈希值（确保数据一致性）
-            photo.setContentHash(contentHash);
-            photo.setPathHash(pathHash);
+            // 设置哈希值（只有新创建的照片才设置，避免重复）
+            if (photo.getId() == null) {
+                // 新照片，设置所有哈希值
+                photo.setContentHash(contentHash);
+                photo.setPathHash(pathHash);
+            } else if (force || photo.getContentHash() == null || photo.getContentHash().isEmpty()) {
+                // 强制扫描或哈希值为空时，更新哈希值
+                photo.setContentHash(contentHash);
+                photo.setPathHash(pathHash);
+            }
             photo.setAlbumId(album.getId());
             photo.setFilename(imageFile.getName());
             // 更新路径（即使照片被移动，Face仍然通过photo_id关联，不受影响）
@@ -742,6 +812,9 @@ public class PhotoScanService {
 
             // 生成缩略图和WebP
             generateThumbnailAndWebP(imageFile, photo);
+
+            // 检查并重新生成缺失的缩略图
+            regenerateMissingThumbnails(imageFile, photo);
 
             // 分析色彩
             colorAnalysisService.analyzeColor(imageFile, photo);
@@ -777,9 +850,6 @@ public class PhotoScanService {
                 log.warn("检测主体位置失败: {}", imageFile.getName(), e);
             }
 
-            // 保存更新后的焦点位置
-            photoRepository.save(photo);
-
             // 合并相册标签到照片标签，便于搜索（复制一份避免懒加载问题）
             List<Tag> albumTags = album.getTags() == null ? new ArrayList<>() : new ArrayList<>(album.getTags());
             Set<String> albumTagNames = albumTags.stream()
@@ -790,7 +860,12 @@ public class PhotoScanService {
                 if (photo.getTags() == null) {
                     photo.setTags(new java.util.HashSet<>());
                 }
-                photo.getTags().addAll(albumTags);
+                // 添加相册标签，避免重复
+                for (Tag albumTag : albumTags) {
+                    if (!photo.getTags().contains(albumTag)) {
+                        photo.getTags().add(albumTag);
+                    }
+                }
             }
 
             // 智能标签（含人脸信息）
@@ -893,29 +968,22 @@ public class PhotoScanService {
     }
 
     /**
-     * 生成缩略图和WebP
+     * 生成三级缩略图和WebP
      */
     private void generateThumbnailAndWebP(File imageFile, Photo photo) throws IOException {
         String baseDir = new File(imageFile.getParent(), ".thumbnails").getAbsolutePath();
         Files.createDirectories(Paths.get(baseDir));
 
         String baseName = FilenameUtils.getBaseName(imageFile.getName());
-        
-        // 生成缩略图
-        File thumbnailFile = new File(baseDir, baseName + "_thumb.jpg");
         BufferedImage originalImage = ImageIO.read(imageFile);
+
         if (originalImage != null) {
             photo.setWidth(originalImage.getWidth());
             photo.setHeight(originalImage.getHeight());
             photo.setFormat(FilenameUtils.getExtension(imageFile.getName()));
 
-            Thumbnails.of(originalImage)
-                .size(thumbnailWidth, thumbnailHeight)
-                .outputFormat("jpg")
-                .outputQuality(0.85f)
-                .toFile(thumbnailFile);
-            
-            photo.setThumbnailPath(thumbnailFile.getAbsolutePath());
+            // 生成三级缩略图
+            generateThumbnailLevels(imageFile, photo, baseDir, baseName, originalImage);
 
             // 生成WebP（需要WebP库支持，暂时禁用）
             // 如需启用WebP支持，可以：
@@ -929,6 +997,187 @@ public class PhotoScanService {
             // } catch (Exception e) {
             //     log.warn("生成WebP失败: {}", imageFile.getName(), e);
             // }
+        }
+    }
+
+    /**
+     * 生成三级缩略图
+     */
+    private void generateThumbnailLevels(File imageFile, Photo photo, String baseDir, String baseName, BufferedImage originalImage) throws IOException {
+        long originalFileSize = imageFile.length();
+
+        // 1. 生成小缩略图（用于封面和缩略图列表）
+        File smallThumbFile = new File(baseDir, baseName + "_small.jpg");
+        generateThumbnailWithQuality(originalImage, smallThumbFile, smallThumbnailWidth, smallThumbnailHeight, smallThumbnailQuality);
+        photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+
+        // 2. 生成中缩略图（用于瀑布流显示）
+        File mediumThumbFile = new File(baseDir, baseName + "_medium.jpg");
+        generateThumbnailWithQuality(originalImage, mediumThumbFile, mediumThumbnailWidth, mediumThumbnailHeight, mediumThumbnailQuality);
+        photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+
+        // 3. 生成大缩略图（用于PhotoViewer大图显示）
+        // 只有当原图足够大且能够显著压缩时才生成大缩略图
+        File largeThumbFile = new File(baseDir, baseName + "_large.jpg");
+        boolean shouldGenerateLargeThumb = shouldGenerateLargeThumbnail(originalImage, largeThumbnailWidth, largeThumbnailHeight, originalFileSize);
+
+        if (shouldGenerateLargeThumb) {
+            generateThumbnailWithQuality(originalImage, largeThumbFile, largeThumbnailWidth, largeThumbnailHeight, largeThumbnailQuality);
+            photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+        } else {
+            // 如果无法进一步压缩，使用原图路径（不生成大缩略图文件）
+            photo.setLargeThumbPath(null); // 表示使用原图
+            log.debug("跳过大缩略图生成，使用原图: {}", imageFile.getName());
+        }
+
+        // 兼容性：设置原有thumbnailPath为小缩略图路径
+        photo.setThumbnailPath(smallThumbFile.getAbsolutePath());
+    }
+
+    /**
+     * 生成指定尺寸和质量的缩略图
+     */
+    private void generateThumbnailWithQuality(BufferedImage originalImage, File outputFile, int maxWidth, int maxHeight, float quality) throws IOException {
+        // 保持宽高比，计算合适的目标尺寸
+        int originalWidth = originalImage.getWidth();
+        int originalHeight = originalImage.getHeight();
+
+        double scaleX = (double) maxWidth / originalWidth;
+        double scaleY = (double) maxHeight / originalHeight;
+        double scale = Math.min(scaleX, scaleY);
+
+        // 如果原图比目标尺寸小，直接缩小到原图尺寸（但不超过目标尺寸）
+        if (scale >= 1.0) {
+            scale = 1.0;
+        }
+
+        int targetWidth = (int) (originalWidth * scale);
+        int targetHeight = (int) (originalHeight * scale);
+
+        Thumbnails.of(originalImage)
+            .size(targetWidth, targetHeight)
+            .outputFormat("jpg")
+            .outputQuality(quality)
+            .toFile(outputFile);
+    }
+
+    /**
+     * 判断是否应该生成大缩略图
+     */
+    private boolean shouldGenerateLargeThumbnail(BufferedImage originalImage, int maxWidth, int maxHeight, long originalFileSize) {
+        if (!largeThumbnailSkipIfNoBenefit) {
+            return true; // 如果配置为不跳过，直接生成
+        }
+
+        int originalWidth = originalImage.getWidth();
+        int originalHeight = originalImage.getHeight();
+
+        // 如果原图尺寸小于等于大缩略图尺寸，不需要生成
+        if (originalWidth <= maxWidth && originalHeight <= maxHeight) {
+            return false;
+        }
+
+        // 计算预期的大缩略图文件大小（粗略估计）
+        // 假设大缩略图的像素数是原图的 (maxWidth/originalWidth * maxHeight/originalHeight) 倍
+        double scaleX = (double) maxWidth / originalWidth;
+        double scaleY = (double) maxHeight / originalHeight;
+        double scale = Math.min(scaleX, scaleY);
+
+        if (scale >= 0.9) {
+            // 如果缩放比例大于90%，说明压缩效果不明显，跳过生成
+            return false;
+        }
+
+        // 粗略估算压缩后的文件大小
+        // JPEG压缩后的大小与像素数量和质量有关，这里使用简单的比例估算
+        long estimatedSize = (long) (originalFileSize * scale * scale * largeThumbnailQuality);
+
+        // 如果预计压缩后的大小大于原图的80%，说明压缩效果不佳，跳过生成
+        if (estimatedSize > originalFileSize * 0.8) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 检查并重新生成缺失的缩略图
+     */
+    private void regenerateMissingThumbnails(File imageFile, Photo photo) {
+        String baseDir = new File(imageFile.getParent(), ".thumbnails").getAbsolutePath();
+        String baseName = FilenameUtils.getBaseName(imageFile.getName());
+
+        try {
+            // 检查小缩略图
+            if (photo.getSmallThumbPath() == null || photo.getSmallThumbPath().isEmpty()) {
+                File smallThumbFile = new File(baseDir, baseName + "_small.jpg");
+                if (!smallThumbFile.exists()) {
+                    log.info("重新生成缺失的小缩略图: {}", imageFile.getName());
+                    BufferedImage originalImage = ImageIO.read(imageFile);
+                    if (originalImage != null) {
+                        generateThumbnailWithQuality(originalImage, smallThumbFile, smallThumbnailWidth, smallThumbnailHeight, smallThumbnailQuality);
+                        photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+                    }
+                } else {
+                    photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+                }
+            }
+
+            // 检查中缩略图
+            if (photo.getMediumThumbPath() == null || photo.getMediumThumbPath().isEmpty()) {
+                File mediumThumbFile = new File(baseDir, baseName + "_medium.jpg");
+                if (!mediumThumbFile.exists()) {
+                    log.info("重新生成缺失的中缩略图: {}", imageFile.getName());
+                    BufferedImage originalImage = ImageIO.read(imageFile);
+                    if (originalImage != null) {
+                        generateThumbnailWithQuality(originalImage, mediumThumbFile, mediumThumbnailWidth, mediumThumbnailHeight, mediumThumbnailQuality);
+                        photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+                    }
+                } else {
+                    photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+                }
+            }
+
+            // 检查大缩略图
+            if (photo.getLargeThumbPath() == null || photo.getLargeThumbPath().isEmpty()) {
+                File largeThumbFile = new File(baseDir, baseName + "_large.jpg");
+                if (!largeThumbFile.exists()) {
+                    log.info("检查是否需要重新生成大缩略图: {}", imageFile.getName());
+                    BufferedImage originalImage = ImageIO.read(imageFile);
+                    if (originalImage != null && shouldGenerateLargeThumbnail(originalImage, largeThumbnailWidth, largeThumbnailHeight, imageFile.length())) {
+                        generateThumbnailWithQuality(originalImage, largeThumbFile, largeThumbnailWidth, largeThumbnailHeight, largeThumbnailQuality);
+                        photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+                    } else {
+                        // 如果不应该生成，设置为空（表示使用原图）
+                        photo.setLargeThumbPath(null);
+                    }
+                } else {
+                    photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+                }
+            }
+
+            // 检查原有缩略图路径（兼容性）
+            if (photo.getThumbnailPath() == null || photo.getThumbnailPath().isEmpty()) {
+                if (photo.getSmallThumbPath() != null) {
+                    photo.setThumbnailPath(photo.getSmallThumbPath());
+                } else {
+                    // 如果小缩略图也不存在，创建一个
+                    File thumbFile = new File(baseDir, baseName + "_thumb.jpg");
+                    if (!thumbFile.exists()) {
+                        log.info("重新生成缺失的兼容性缩略图: {}", imageFile.getName());
+                        BufferedImage originalImage = ImageIO.read(imageFile);
+                        if (originalImage != null) {
+                            generateThumbnailWithQuality(originalImage, thumbFile, thumbnailWidth, thumbnailHeight, 0.85f);
+                            photo.setThumbnailPath(thumbFile.getAbsolutePath());
+                        }
+                    } else {
+                        photo.setThumbnailPath(thumbFile.getAbsolutePath());
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            log.warn("重新生成缩略图失败: {}", imageFile.getName(), e);
         }
     }
 
@@ -1088,6 +1337,246 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.warn("递归处理目录图片失败: {}", directory, e);
         }
+    }
+
+    /**
+     * 解析基础路径为绝对路径
+     */
+    private Path resolveBasePath() {
+        Path path = Paths.get(basePath);
+
+        // 处理相对路径：如果是相对路径，转换为绝对路径
+        if (!path.isAbsolute()) {
+            // 获取项目根目录
+            // 方法1: 从当前工作目录推断
+            String projectRoot = System.getProperty("user.dir");
+
+            // 如果当前在backend目录，需要回到项目根目录
+            if (projectRoot.endsWith("backend")) {
+                projectRoot = new File(projectRoot).getParent();
+            }
+
+            // 方法2: 尝试从类路径推断项目根目录（更可靠）
+            // 如果方法1失败，可以尝试这个方法
+            if (projectRoot == null || projectRoot.isEmpty()) {
+                try {
+                    String classPath = PhotoScanService.class.getProtectionDomain()
+                        .getCodeSource().getLocation().getPath();
+                    // 从target/classes或jar文件推断项目根目录
+                    if (classPath.contains("target/classes")) {
+                        projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
+                    }
+                } catch (Exception e) {
+                    log.warn("无法从类路径推断项目根目录", e);
+                }
+            }
+
+            // 处理以 ./ 开头的相对路径
+            String cleanPath = basePath.startsWith("./")
+                ? basePath.substring(2)
+                : basePath;
+
+            path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
+        }
+
+        return path;
+    }
+
+    /**
+     * 清空所有缩略图文件
+     */
+    @Transactional
+    public Map<String, Object> clearAllThumbnails() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Path basePathObj = resolveBasePath();
+            if (!Files.exists(basePathObj) || !Files.isDirectory(basePathObj)) {
+                result.put("error", "基础路径不存在或不是目录: " + basePathObj);
+                return result;
+            }
+
+            // 遍历所有.thumbnails目录并删除文件
+            int deletedFiles = clearThumbnailsInDirectory(basePathObj);
+
+            // 更新数据库中的缩略图路径为null
+            photoRepository.clearAllThumbnailPaths();
+
+            result.put("message", "缩略图清理完成");
+            result.put("deletedFiles", deletedFiles);
+            result.put("success", true);
+            log.info("缩略图清理完成，共删除 {} 个缩略图文件", deletedFiles);
+
+        } catch (Exception e) {
+            result.put("error", "清理缩略图失败: " + e.getMessage());
+            result.put("success", false);
+            log.error("清理缩略图失败", e);
+        }
+        return result;
+    }
+
+    /**
+     * 清空所有人脸数据
+     */
+    @Transactional
+    public Map<String, Object> clearAllFaces() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            // 删除所有人脸记录
+            faceService.clearAllFaces();
+
+            // 清空照片中的人脸关联（通过数据库更新）
+            photoRepository.clearAllFaceAssociations();
+
+            result.put("message", "人脸数据清理完成");
+            result.put("success", true);
+            log.info("人脸数据清理完成");
+
+        } catch (Exception e) {
+            result.put("error", "清理人脸数据失败: " + e.getMessage());
+            result.put("success", false);
+            log.error("清理人脸数据失败", e);
+        }
+        return result;
+    }
+
+    /**
+     * 清空所有智能标签
+     */
+    @Transactional
+    public Map<String, Object> clearAllSmartTags() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            // 删除所有智能标签关联（保留手动添加的标签）
+            tagService.clearAllSmartTags();
+
+            result.put("message", "智能标签清理完成");
+            result.put("success", true);
+            log.info("智能标签清理完成");
+
+        } catch (Exception e) {
+            result.put("error", "清理智能标签失败: " + e.getMessage());
+            result.put("success", false);
+            log.error("清理智能标签失败", e);
+        }
+        return result;
+    }
+
+    /**
+     * 清理已删除文件的残留数据
+     * 扫描数据库中的所有照片记录，检查文件是否还存在，不存在的记录及其关联数据将被删除
+     */
+    @Transactional
+    public Map<String, Object> cleanupOrphanedData() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            log.info("开始清理已删除文件的残留数据...");
+
+            // 获取所有照片记录
+            List<Photo> allPhotos = photoRepository.findAll();
+            List<Long> photosToDelete = new ArrayList<>();
+            List<Long> albumsToCheck = new ArrayList<>();
+
+            int processedCount = 0;
+            int orphanedCount = 0;
+
+            for (Photo photo : allPhotos) {
+                processedCount++;
+
+                // 检查文件是否还存在
+                if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
+                    log.warn("照片记录原始路径为空，标记为孤儿记录: photoId={}", photo.getId());
+                    photosToDelete.add(photo.getId());
+                    orphanedCount++;
+                    continue;
+                }
+
+                File imageFile = new File(photo.getOriginalPath());
+                if (!imageFile.exists()) {
+                    log.info("图片文件不存在，标记为孤儿记录: {} (photoId={})",
+                        photo.getOriginalPath(), photo.getId());
+                    photosToDelete.add(photo.getId());
+                    albumsToCheck.add(photo.getAlbumId());
+                    orphanedCount++;
+                }
+            }
+
+            // 删除孤儿照片记录（级联删除会自动清理Face和Tag关联）
+            if (!photosToDelete.isEmpty()) {
+                log.info("删除 {} 个孤儿照片记录", photosToDelete.size());
+                for (Long photoId : photosToDelete) {
+                    try {
+                        photoRepository.deleteById(photoId);
+                    } catch (Exception e) {
+                        log.warn("删除孤儿照片记录失败: photoId={}, error={}", photoId, e.getMessage());
+                    }
+                }
+            }
+
+            // 检查并清理空的相册
+            Set<Long> albumsToCheckSet = new HashSet<>(albumsToCheck);
+            int emptyAlbumsDeleted = 0;
+
+            for (Long albumId : albumsToCheckSet) {
+                try {
+                    long photoCount = photoRepository.countByAlbumId(albumId);
+                    if (photoCount == 0) {
+                        log.info("相册 {} 已没有照片，删除相册记录", albumId);
+                        albumRepository.deleteById(albumId);
+                        emptyAlbumsDeleted++;
+                    }
+                } catch (Exception e) {
+                    log.warn("检查相册失败: albumId={}, error={}", albumId, e.getMessage());
+                }
+            }
+
+            result.put("message", String.format("清理完成！处理了 %d 个照片记录，发现 %d 个孤儿记录，删除了 %d 个空相册",
+                processedCount, orphanedCount, emptyAlbumsDeleted));
+            result.put("processedPhotos", processedCount);
+            result.put("orphanedPhotos", orphanedCount);
+            result.put("emptyAlbumsDeleted", emptyAlbumsDeleted);
+            result.put("success", true);
+
+            log.info("清理完成！处理了 {} 个照片记录，发现 {} 个孤儿记录，删除了 {} 个空相册",
+                processedCount, orphanedCount, emptyAlbumsDeleted);
+
+        } catch (Exception e) {
+            result.put("error", "清理残留数据失败: " + e.getMessage());
+            result.put("success", false);
+            log.error("清理残留数据失败", e);
+        }
+        return result;
+    }
+
+    /**
+     * 递归删除目录中的缩略图文件
+     */
+    private int clearThumbnailsInDirectory(Path directory) throws IOException {
+        int deletedCount = 0;
+
+        try (Stream<Path> paths = Files.walk(directory)) {
+            List<Path> thumbnailFiles = paths
+                .filter(Files::isRegularFile)
+                .filter(path -> {
+                    String fileName = path.getFileName().toString();
+                    // 删除所有缩略图文件（包括新三级缩略图系统）
+                    return fileName.endsWith("_thumb.jpg") ||
+                           fileName.endsWith("_small.jpg") ||
+                           fileName.endsWith("_medium.jpg") ||
+                           fileName.endsWith("_large.jpg");
+                })
+                .collect(Collectors.toList());
+
+            for (Path thumbnailFile : thumbnailFiles) {
+                try {
+                    Files.delete(thumbnailFile);
+                    deletedCount++;
+                } catch (Exception e) {
+                    log.warn("删除缩略图文件失败: {}", thumbnailFile, e);
+                }
+            }
+        }
+
+        return deletedCount;
     }
 }
 

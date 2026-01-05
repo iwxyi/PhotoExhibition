@@ -46,5 +46,12 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
         Long getId();
         Long getPhotoCount();
     }
+
+    /**
+     * 清空所有图片-标签关联（用于重新生成智能标签）
+     */
+    @Modifying
+    @Query(value = "DELETE FROM photo_tag", nativeQuery = true)
+    void clearAllPhotoTagAssociations();
 }
 

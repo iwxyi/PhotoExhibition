@@ -302,9 +302,15 @@ const selectRange = (fromIdx: number | null, toIdx: number) => {
 }
 
 const getImageUrl = (photo: any) => {
+  // 优先使用中缩略图（用于瀑布流显示）
+  if (photo.mediumThumbPath) {
+    return `/api/files${photo.mediumThumbPath}`
+  }
+  // 回退到webp
   if (photo.webpPath) {
     return `/api/files${photo.webpPath}`
   }
+  // 最后回退到小缩略图或原图
   if (photo.thumbnailPath) {
     return `/api/files${photo.thumbnailPath}`
   }
