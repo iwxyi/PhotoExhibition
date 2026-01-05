@@ -5,8 +5,8 @@
         <h1 class="text-2xl font-light">相册管理</h1>
         <div class="space-x-3">
           <button v-on:click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <button v-on:click="forceScanAndRebuild" :disabled="loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg border border-red-500/30 transition-colors disabled:opacity-50">
-            强制扫描并重建
+          <button v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary disabled:opacity-50">
+            重新扫描
           </button>
           <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
         </div>
@@ -1123,11 +1123,11 @@ const openAlbum = (albumId: number) => {
 
 const forceScanAndRebuild = async () => {
   const confirmed = window.confirm(
-    '⚠️ 强制扫描并重建警告 ⚠️\n\n' +
+    '📸 重新扫描相册\n\n' +
     '此操作将：\n' +
-    '• 重新扫描所有照片（重建缩略图、人脸、标签）\n' +
-    '• 重新分析所有相册的氛围信息（背景色、前景色、导航栏色等）\n\n' +
-    '这可能需要很长时间，确定要继续吗？'
+    '• 扫描相册中新增或修改的照片\n' +
+    '• 更新相册的元数据信息\n\n' +
+    '不会重新生成人脸数据和标签。确定要继续吗？'
   )
 
   if (!confirmed) return
@@ -1135,10 +1135,10 @@ const forceScanAndRebuild = async () => {
   loading.value = true
 
   try {
-    // 第一步：强制扫描照片
-    console.log('开始强制扫描照片...')
-    const scanResponse = await api.post('/admin/scan/force')
-    console.log('强制扫描任务已启动:', scanResponse.data)
+    // 执行普通扫描（只处理更改的内容）
+    console.log('开始重新扫描照片...')
+    const scanResponse = await api.post('/admin/scan')
+    console.log('扫描任务已启动:', scanResponse.data)
 
     // 等待扫描完成（简单轮询）
     let scanCompleted = false
@@ -1162,23 +1162,17 @@ const forceScanAndRebuild = async () => {
       throw new Error('扫描超时，请稍后手动检查扫描状态')
     }
 
-    // 第二步：重新分析相册氛围信息
-    console.log('开始重新分析相册氛围信息...')
-    const atmosphereResponse = await api.post('/admin/atmosphere/reanalyze-all')
-    console.log('氛围分析任务已启动:', atmosphereResponse.data)
-
-    alert('✅ 强制扫描并重建任务已完成！\n\n' +
-          '• 照片扫描：完成\n' +
-          '• 氛围信息重建：完成\n\n' +
+    alert('✅ 重新扫描任务已完成！\n\n' +
+          '• 相册扫描：完成\n\n' +
           '请刷新页面查看最新结果。')
 
     // 重新加载相册数据
     await load()
 
   } catch (error: any) {
-    console.error('强制扫描并重建失败:', error)
+    console.error('重新扫描失败:', error)
     const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message
-    alert('❌ 强制扫描并重建失败: ' + errorMsg)
+    alert('❌ 重新扫描失败: ' + errorMsg)
   } finally {
     loading.value = false
   }

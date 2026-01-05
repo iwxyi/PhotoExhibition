@@ -48,7 +48,8 @@
         <MasonryLayout
           :items="masonryItems"
           :column-count="columnCount"
-          :gap="24"
+          :gap="20"
+          @image-loaded="handleImageLoaded"
         >
           <template #default="{ item: photo, index }">
             <div
@@ -126,10 +127,18 @@ const photoStore = usePhotoStore()
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
 
-const { atmosphereEnabled } = useUiSettings()
+const { atmosphereEnabled, previewSize } = useUiSettings()
 
 // 获取主题store
 const themeStore = useThemeStore()
+
+// 窗口宽度响应式（用于触发columnCount重新计算）
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+
+// 监听窗口大小变化（实时响应）
+const handleResize = () => {
+  windowWidth.value = window.innerWidth
+}
 
 // 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
 const backgroundStyle = computed(() => {
@@ -181,15 +190,29 @@ const albumAtmosphereEffects = computed(() => {
   return album.value?.atmosphereEffects || [] as any[]
 })
 
-// 计算列数（响应式）
+// 计算列数（响应式，与主页保持一致）
 const columnCount = computed(() => {
   if (typeof window === 'undefined') return 3
 
-  const width = window.innerWidth
-  if (width >= 1280) return 4
-  if (width >= 1024) return 3
-  if (width >= 640) return 2
-  return 1
+  const width = windowWidth.value
+  let count = 4 // 默认值
+  if (previewSize.value === 'sm') {
+    if (width < 640) count = 2
+    else if (width < 1024) count = 3
+    else if (width < 1280) count = 4
+    else count = 5
+  } else if (previewSize.value === 'lg') {
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else count = 3
+  } else {
+    // md
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else if (width < 1280) count = 3
+    else count = 4
+  }
+  return count
 })
 
 // 转换照片数据为瀑布流组件需要的格式
@@ -1010,6 +1033,9 @@ const startBackTransitionAndNavigate = () => {
 }
 
 onMounted(async () => {
+  // 添加窗口大小监听（实时响应）
+  window.addEventListener('resize', handleResize)
+
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
@@ -1094,6 +1120,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('resize', handleResize)
   // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
 
   // 注意：不要在这里清理 album-cover-rects 数据，因为返回动画在 Home.vue 中执行，需要这些数据
@@ -1121,6 +1148,12 @@ const hexToRgb = (hex: string) => {
 }
 
 
+
+// 处理图片加载完成事件
+const handleImageLoaded = () => {
+  // 图片加载完成后可能需要重新计算布局
+  console.log('图片加载完成')
+}
 
 const getBrightness = (hex: string) => {
   const rgb = hexToRgb(hex)

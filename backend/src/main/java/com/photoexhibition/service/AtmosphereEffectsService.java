@@ -92,7 +92,8 @@ public class AtmosphereEffectsService {
                 // 检查是否有手动设置的特效（通过检查是否有layer字段）
                 boolean hasManualEffects = existingEffects.stream()
                     .anyMatch(effect -> effect.getConfig() != null &&
-                                       effect.getConfig().containsKey("layer"));
+                                       effect.getConfig() instanceof Map &&
+                                       ((Map<?, ?>) effect.getConfig()).containsKey("layer"));
 
                 if (hasManualEffects) {
                     log.info("相册 {} 已有手动设置的特效，跳过自动分析", album.getName());
@@ -179,7 +180,7 @@ public class AtmosphereEffectsService {
                 AtmosphereEffectDTO effect = new AtmosphereEffectDTO(
                     config.type,
                     config.intensity,
-                    generateEffectConfig(config.type, config.intensity)
+                    generateEffectConfig(config.type, config.intensity, null)
                 );
 
                 effects.add(effect);
@@ -202,7 +203,7 @@ public class AtmosphereEffectsService {
                 AtmosphereEffectDTO effect = new AtmosphereEffectDTO(
                     config.type,
                     config.intensity,
-                    generateEffectConfig(config.type, config.intensity)
+                    generateEffectConfig(config.type, config.intensity, null)
                 );
 
                 effects.add(effect);

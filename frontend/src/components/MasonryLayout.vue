@@ -6,7 +6,7 @@
       class="masonry-item"
       :style="item.style"
     >
-      <slot :item="item.data" :index="index" />
+          <slot :item="item.data" :index="index" @image-loaded="handleImageLoaded" />
       <!-- 点赞覆盖层 -->
       <div
         class="like-overlay"
@@ -274,18 +274,10 @@ const triggerCanvasBurstFor = (photoId: number, clientX?: number, clientY?: numb
   spawnCanvasBurst(x, y)
 }
 
-// 计算列宽
-const columnWidth = computed(() => {
-  if (!containerRef.value) return 0
-  const containerWidth = containerRef.value.clientWidth
-  const gap = props.gap || 16
-  const totalGap = gap * (props.columnCount - 1)
-  return (containerWidth - totalGap) / props.columnCount
-})
+// 列宽现在在calculatePositions中实时计算
 
 // 计算图片在列中的宽度和高度
-const calculateItemSize = (item: MasonryItem): { width: number; height: number } => {
-  const colWidth = columnWidth.value
+const calculateItemSize = (item: MasonryItem, colWidth: number): { width: number; height: number } => {
   const aspectRatio = item.width / item.height
 
   // 始终确保图片宽度等于列宽，根据宽高比计算合适的高度
@@ -311,12 +303,17 @@ const calculatePositions = () => {
   const columnHeights = new Array(props.columnCount).fill(0)
   const gap = props.gap || 16
 
+  // 实时计算列宽，确保使用最新的容器尺寸
+  const containerWidth = containerRef.value.clientWidth
+  const totalGap = gap * (props.columnCount - 1)
+  const currentColumnWidth = (containerWidth - totalGap) / props.columnCount
+
   // 当多列为最短时，优先选择最左侧的最短列（自然实现从左到右填充）
   const tieEpsilon = 1 // 像素级阈值，用于处理浮点误差
 
   props.items.forEach((item) => {
     // 计算图片尺寸（提前计算以便后续使用）
-    const size = calculateItemSize(item)
+    const size = calculateItemSize(item, currentColumnWidth)
 
     // 找到当前最短列高度
     const minHeight = Math.min(...columnHeights)
@@ -327,14 +324,18 @@ const calculatePositions = () => {
     // candidateIndex 已经是最左侧符合条件的列索引
     const targetColumnIndex = candidateIndex >= 0 ? candidateIndex : columnHeights.indexOf(minHeight)
 
-    // 计算位置
-    const x = targetColumnIndex * (columnWidth.value + gap)
+    // 计算位置 - 使用实时计算的列宽
+    const x = targetColumnIndex * (currentColumnWidth + gap)
     const y = columnHeights[targetColumnIndex]
+
+    // 确保位置不会超出容器边界
+    const maxLeft = containerWidth - size.width
+    const safeX = Math.min(x, maxLeft)
 
     // 创建样式对象
     const style: Record<string, any> = {
       position: 'absolute',
-      left: `${x}px`,
+      left: `${safeX}px`,
       top: `${y}px`,
       width: `${size.width}px`,
       height: `${size.height}px`,
@@ -363,6 +364,7 @@ const calculatePositions = () => {
 // 响应式重新计算
 const recalculate = () => {
   nextTick(() => {
+    // 确保使用最新的容器尺寸重新计算
     calculatePositions()
   })
 }
@@ -395,6 +397,16 @@ onUnmounted(() => {
     resizeObserver.disconnect()
   }
 })
+
+// 处理图片加载完成事件
+const handleImageLoaded = () => {
+  // 图片加载完成后延迟重新计算，确保DOM已更新
+  nextTick(() => {
+    setTimeout(() => {
+      recalculate()
+    }, 50)
+  })
+}
 
 // 监听 props 变化
 watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: true })

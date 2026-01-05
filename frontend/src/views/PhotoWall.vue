@@ -139,13 +139,16 @@ const columnCount = computed(() => {
   return count
 })
 
-// 计算每列的宽度
+// 计算每列的宽度 - 与layoutItems保持一致
 const columnWidth = computed(() => {
   if (!masonryContainer.value) return 0
   const containerWidth = masonryContainer.value.clientWidth
-  const gap = 20 // 1.25rem = 20px
+  const gap = 20
   const cols = columnCount.value
-  return (containerWidth - (cols - 1) * gap) / cols
+  if (cols <= 0) return 0
+  const totalGapWidth = (cols - 1) * gap
+  const availableWidth = containerWidth - totalGapWidth
+  return Math.floor(availableWidth / cols)
 })
 
 // 设置 item ref
@@ -155,15 +158,39 @@ const setItemRef = (el: any, idx: number) => {
   }
 }
 
-// 获取 item 样式
+// 获取 item 样式 - 根据图片宽高比自适应高度
 const getItemStyle = (idx: number) => {
   const pos = itemPositions.value[idx]
   if (!pos) return { visibility: 'hidden' }
+
+  const cols = columnCount.value
+  const gap = 20
+  const containerWidth = masonryContainer.value?.clientWidth || window.innerWidth
+  const totalGapWidth = (cols - 1) * gap
+  const availableWidth = containerWidth - totalGapWidth
+  const colWidth = Math.floor(availableWidth / cols)
+
+  // 获取图片数据
+  const photo = photos.value[idx]
+  let height = colWidth // 默认正方形
+
+  if (photo) {
+    // 根据图片宽高比计算高度
+    const aspectRatio = photo.width / photo.height
+    height = colWidth / aspectRatio
+
+    // 限制高度范围
+    const minHeight = colWidth * 0.3
+    const maxHeight = colWidth * 4
+    height = Math.max(minHeight, Math.min(maxHeight, height))
+  }
+
   return {
     position: 'absolute',
     left: `${pos.left}px`,
     top: `${pos.top}px`,
-    width: `${columnWidth.value}px`,
+    width: `${colWidth}px`,
+    height: `${height}px`,
     visibility: 'visible'
   }
 }
@@ -268,57 +295,76 @@ const onImageLoad = (idx: number) => {
 let layoutTimer: ReturnType<typeof setTimeout> | null = null
 
 // 瀑布流布局函数
+// 真正的瀑布流布局 - 根据图片宽高比自适应高度
 const layoutItems = () => {
   if (!masonryContainer.value || photos.value.length === 0) return
-  
+
   const cols = columnCount.value
-  if (cols === 0) return // 防止列数为0
-  
+  if (cols <= 0) return
+
   const gap = 20
-  const containerWidth = masonryContainer.value.clientWidth
-  
-  // 确保容器宽度有效
-  if (containerWidth === 0) {
-    // 如果容器宽度为0，延迟重试
-    setTimeout(() => {
-      layoutItems()
-    }, 100)
+  const container = masonryContainer.value
+  const containerWidth = container.clientWidth
+
+  if (containerWidth <= 0) {
+    setTimeout(layoutItems, 100)
     return
   }
-  
-  const itemWidth = (containerWidth - (cols - 1) * gap) / cols
-  
-  if (itemWidth <= 0) return // 防止宽度无效
-  
-  // 初始化列高度
-  columnHeights.value = new Array(cols).fill(0)
-  itemPositions.value = []
-  
-  // 计算每个 item 的位置
-  itemRefs.value.forEach((item, idx) => {
-    if (!item) return
-    
-    // 找到最短的列
-    let minHeight = columnHeights.value[0]
-    let minCol = 0
+
+  // 计算每列的精确宽度
+  const totalGapWidth = (cols - 1) * gap
+  const availableWidth = containerWidth - totalGapWidth
+  const colWidth = Math.floor(availableWidth / cols)
+
+  if (colWidth <= 0) return
+
+  // 初始化列高度追踪
+  const colHeights = new Array(cols).fill(0)
+  const positions = []
+
+  // 为每个项目分配到最短的列，并根据宽高比计算高度
+  itemRefs.value.forEach((itemEl, idx) => {
+    if (!itemEl) return
+
+    const photo = photos.value[idx]
+    if (!photo) return
+
+    // 找到当前最短的列
+    let shortestCol = 0
+    let minHeight = colHeights[0]
     for (let i = 1; i < cols; i++) {
-      if (columnHeights.value[i] < minHeight) {
-        minHeight = columnHeights.value[i]
-        minCol = i
+      if (colHeights[i] < minHeight) {
+        minHeight = colHeights[i]
+        shortestCol = i
       }
     }
-    
+
     // 计算位置
-    const left = minCol * (itemWidth + gap)
+    const left = shortestCol * (colWidth + gap)
     const top = minHeight
-    
-    itemPositions.value[idx] = { left, top }
-    
+
+    positions[idx] = { left, top }
+
+    // 根据图片宽高比计算实际高度
+    const aspectRatio = photo.width / photo.height
+    const itemHeight = colWidth / aspectRatio
+
+    // 限制高度范围，避免极端情况
+    const minItemHeight = colWidth * 0.3
+    const maxItemHeight = colWidth * 4
+    const clampedHeight = Math.max(minItemHeight, Math.min(maxItemHeight, itemHeight))
+
     // 更新列高度
-    // 使用图片的实际高度，如果还没有加载完成则使用估算值
-    const itemHeight = item.offsetHeight || 200 // 默认高度
-    columnHeights.value[minCol] = top + itemHeight + 20 // 20px margin-bottom
+    colHeights[shortestCol] = top + clampedHeight + gap
   })
+
+  // 更新响应式数据
+  itemPositions.value = positions
+  columnHeights.value = colHeights
+
+  // 设置容器总高度
+  const totalHeight = Math.max(...colHeights)
+  container.style.height = `${totalHeight}px`
   
   // 设置容器高度
   const maxHeight = Math.max(...columnHeights.value)
