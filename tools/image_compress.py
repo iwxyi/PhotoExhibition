@@ -10,6 +10,7 @@
 - 使用 Pillow 的高质量 JPEG 压缩设置
 - 保留目录结构，包括隐藏文件夹
 - 自动保留 EXIF 元数据
+- 智能清理文件名（移除"已增强"、"降噪"、"tuya"等关键词）
 - 跳过已压缩的文件，避免重复处理
 - 显示相对路径和压缩比率
 - 支持 JPEG、PNG、GIF、BMP、TIFF、WebP 格式
@@ -31,11 +32,43 @@ import sys
 import argparse
 from pathlib import Path
 from typing import Tuple, Optional
+import re
 
 
 def get_file_size_mb(file_path: Path) -> float:
     """获取文件大小（MB）"""
     return file_path.stat().st_size / (1024 * 1024)
+
+
+def clean_filename(filename: str) -> str:
+    """清除文件名中的关键词"""
+    # 定义需要清除的关键词
+    keywords_to_remove = ['已增强', '降噪', 'tuya']
+
+    # 移除关键词（包括前后可能的连字符或空格）
+    cleaned = filename
+    for keyword in keywords_to_remove:
+        # 移除关键词及其前后可能的连字符、空格
+        patterns = [
+            rf'-{keyword}-',  # -关键词-
+            rf'-{keyword}\s',  # -关键词空格
+            rf'\s{keyword}-',  # 空格关键词-
+            rf'\s{keyword}\s', # 空格关键词空格
+            rf'-{keyword}$',  # -关键词（结尾）
+            rf'^{keyword}-',  # 开头关键词-
+            rf'\s{keyword}$', # 空格关键词（结尾）
+            rf'^{keyword}\s', # 开头关键词空格
+            keyword  # 直接匹配关键词
+        ]
+        for pattern in patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
+    # 清理多余的连字符和空格
+    cleaned = re.sub(r'-+', '-', cleaned)  # 多个连字符合并为一个
+    cleaned = re.sub(r'\s+', ' ', cleaned)  # 多个空格合并为一个
+    cleaned = cleaned.strip('- ').strip()  # 移除开头结尾的连字符和空格
+
+    return cleaned
 
 
 def get_relative_path(input_root: Path, file_path: Path) -> str:
@@ -114,7 +147,25 @@ def process_directory(input_dir: Path, output_dir: Path, dry_run: bool = False, 
 
         # 计算相对路径和输出路径
         relative_path = input_file.relative_to(input_dir)
-        output_file = output_dir / relative_path
+
+        # 检查是否需要重命名文件名
+        original_name = input_file.name
+        cleaned_name = clean_filename(original_name)
+        renamed = False
+
+        if cleaned_name != original_name:
+            # 检查原文件夹中是否存在清理后的文件名
+            cleaned_file_in_input = input_file.parent / cleaned_name
+            if not cleaned_file_in_input.exists():
+                # 使用清理后的文件名作为输出文件名
+                relative_path_cleaned = relative_path.parent / cleaned_name
+                output_file = output_dir / relative_path_cleaned
+                renamed = True
+            else:
+                # 清理后的文件名已存在，使用原始文件名
+                output_file = output_dir / relative_path
+        else:
+            output_file = output_dir / relative_path
 
         input_size = get_file_size_mb(input_file)
         total_input_size += input_size
@@ -125,10 +176,12 @@ def process_directory(input_dir: Path, output_dir: Path, dry_run: bool = False, 
             continue
 
         if dry_run:
-            print(f"将压缩: {relative_path} ({input_size:.2f} MB)")
+            rename_note = " (重命名)" if renamed else ""
+            print(f"将压缩: {relative_path} ({input_size:.2f} MB){rename_note}")
             continue
 
-        print(f"压缩中: {relative_path} ({input_size:.2f} MB)", end=' -> ')
+        rename_note = " (重命名)" if renamed else ""
+        print(f"压缩中: {relative_path} ({input_size:.2f} MB){rename_note}", end=' -> ')
 
         # 压缩图像
         success, error_msg = compress_image(input_file, output_file)
@@ -154,7 +207,8 @@ def process_directory(input_dir: Path, output_dir: Path, dry_run: bool = False, 
 
             # 如果启用保留原图功能，复制原文件用于对比
             if keep_originals and not dry_run:
-                original_copy_path = output_file.parent / f"{output_file.stem}_原图{output_file.suffix}"
+                # 使用原始文件名作为原图副本名
+                original_copy_path = output_file.parent / f"{Path(original_name).stem}_原图{Path(original_name).suffix}"
                 import shutil
                 shutil.copy2(input_file, original_copy_path)  # 保留元数据
 
