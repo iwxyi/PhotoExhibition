@@ -21,7 +21,7 @@
               class="heart-path"
               stroke="currentColor"
               stroke-width="1.5"
-              d="M12 21s-7-4.35-9.07-6.2A5.4 5.4 0 0 1 3 9.75C3 7.14 5.14 5 7.75 5c1.54 0 3.04.84 4.25 2.09C13.21 5.84 14.71 5 16.25 5 18.86 5 21 7.14 21 9.75c0 2.64-1.83 4.46-1.93 4.56C19.36 16.65 12 21 12 21z"
+              d="M12 20.35l-2.25-2.25c-2.75-2.75-5.5-5.5-5.5-8.5c0-2.5 2-4.5 4.5-4.5c1.25 0 2.5 .625 3.5 1.75c1-.875 2.25-1.75 3.5-1.75c2.5 0 4.5 2 4.5 4.5c0 3-2.75 5.75-5.5 8.5L12 20.35z"
             />
           </svg>
           <span v-if="(likesMap.get(item.data?.id) || 0) > 0" class="like-count">{{ likesMap.get(item.data?.id) }}</span>
@@ -431,12 +431,12 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
 /* like overlay */
 .like-overlay {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 6px;
+  bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 4px;
+  padding: 4px 6px;
   border-radius: 9999px;
   background: rgba(0,0,0,0.28); /* 更低的不透明度，减少视觉干扰 */
   color: #fff;
@@ -454,6 +454,10 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
   /* 如果已有点赞，则常驻显示，但采用较低不透明度以不打扰查看 */
   opacity: 0.6;
 }
+.like-overlay.visible:hover {
+  /* 常驻显示的点赞按钮在hover时也保持较低透明度 */
+  opacity: 0.6 !important;
+}
 .like-overlay .heart {
   color: #fff;
   stroke: currentColor;
@@ -462,7 +466,13 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
   color: #e11d48;
 }
 .like-count {
-  font-weight: 600;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5) !important;
+  display: inline !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 /* heart animation */
@@ -504,8 +514,8 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
 .like-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: 3px;
+  padding: 2px 4px;
   border-radius: 9999px;
   background: transparent;
   transition: padding 260ms cubic-bezier(.2,.9,.3,1);
@@ -515,18 +525,20 @@ watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: tr
 .like-btn .heart {
   transition: transform 220ms cubic-bezier(.2,.9,.3,1);
   transform-origin: left center;
+  align-self: center;
+  vertical-align: middle;
 }
 .like-btn .like-count {
-  transform: translateX(4px);
+  transform: translateX(2px);
   opacity: 0;
   transition: transform 260ms cubic-bezier(.2,.9,.3,1), opacity 200ms ease;
 }
 .like-btn.liked {
-  padding-left: 4px;
-  padding-right: 4px;
+  padding-left: 2px;
+  padding-right: 2px;
 }
 .like-btn.liked .heart {
-  transform: translateX(-3px) scale(1.12);
+  transform: translateX(-2px) scale(1.12);
 }
 .like-btn.liked .like-count {
   transform: translateX(0);

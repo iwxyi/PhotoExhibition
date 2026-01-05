@@ -48,6 +48,7 @@ export interface Photo {
   focusX?: number // 焦点X位置（百分比 0-100）
   focusY?: number // 焦点Y位置（百分比 0-100）
   viewCount: number
+  likeCount: number
   isFeatured: boolean
   tags?: Tag[]
   faces?: FaceFace[]

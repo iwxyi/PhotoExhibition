@@ -37,6 +37,7 @@
           :ref="el => setItemRef(el, idx)"
           class="masonry-item photo-card cursor-pointer"
           :style="getItemStyle(idx)"
+          :data-photo-id="photo.id"
           @click="openViewer(idx, $event)"
         >
           <div class="masonry-image-wrapper">
@@ -55,6 +56,27 @@
               <p class="text-sm font-light">{{ photo.filename }}</p>
               <p v-if="photo.cameraModel" class="text-xs opacity-75 mt-1">{{ photo.cameraModel }}</p>
             </div>
+          </div>
+          <!-- 点赞覆盖层 -->
+          <div
+            class="like-overlay"
+            :class="{ 'visible': (likedIds.has(photo.id) || (likesMap.get(photo.id) || 0) > 0) }"
+            @click.stop="likePhoto(photo.id, $event)"
+            title="点赞"
+          >
+            <!-- 可扩展的按钮容器：heart + count -->
+            <div :class="['like-btn', { liked: likedIds.has(photo.id) }]">
+              <svg :class="['heart', { liked: likedIds.has(photo.id) }]" viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path
+                  class="heart-path"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  d="M12 20.35l-2.25-2.25c-2.75-2.75-5.5-5.5-5.5-8.5c0-2.5 2-4.5 4.5-4.5c1.25 0 2.5 .625 3.5 1.75c1-.875 2.25-1.75 3.5-1.75c2.5 0 4.5 2 4.5 4.5c0 3-2.75 5.75-5.5 8.5L12 20.35z"
+                />
+              </svg>
+              <span v-if="(likesMap.get(photo.id) || 0) > 0" class="like-count">{{ likesMap.get(photo.id) }}</span>
+            </div>
+            <!-- burst container removed (canvas-based burst used) -->
           </div>
         </div>
       </div>
@@ -88,6 +110,7 @@ import NavLinks from '@/components/NavLinks.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
+import { api } from '@/api'
 
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
@@ -114,6 +137,19 @@ const activeTagId = ref<number | null>(null)
 const activeTagName = ref<string | null>(null)
 const activePersonId = ref<number | null>(null)
 const activePersonName = ref<string | null>(null)
+
+// 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
+const likedIds = ref<Set<number>>(new Set())
+const likesMap = ref<Map<number, number>>(new Map())
+
+// 调试用的computed
+const debugLikesMap = computed(() => {
+  const result: Record<number, number> = {}
+  likesMap.value.forEach((value, key) => {
+    result[key] = value
+  })
+  return result
+})
 
 // 根据预览尺寸计算列数
 const columnCount = computed(() => {
@@ -214,6 +250,199 @@ const getImageStyle = (idx: number) => {
   }
 }
 
+// 点赞相关函数
+const loadLikedFromStorage = () => {
+  try {
+    const raw = localStorage.getItem('likedPhotos')
+    if (raw) {
+      const arr = JSON.parse(raw)
+      likedIds.value = new Set(arr)
+    }
+  } catch (e) {
+    likedIds.value = new Set()
+  }
+}
+
+const saveLikedToStorage = () => {
+  try {
+    localStorage.setItem('likedPhotos', JSON.stringify(Array.from(likedIds.value)))
+  } catch (e) {
+    // ignore
+  }
+}
+
+const likePhoto = async (photoId: number, ev?: Event) => {
+  if (likedIds.value.has(photoId)) {
+    // unlike
+    try {
+      const res = await api.delete(`/photos/${photoId}/like`)
+      const newCount = res.data
+      likesMap.value.set(photoId, newCount)
+      likedIds.value.delete(photoId)
+      saveLikedToStorage()
+    } catch (e) {
+      console.error('unlike failed', e)
+    }
+  } else {
+    // like
+    try {
+      const res = await api.post(`/photos/${photoId}/like`)
+      const newCount = res.data
+      likesMap.value.set(photoId, newCount)
+      likedIds.value.add(photoId)
+      saveLikedToStorage()
+      // show burst animation for this photo (canvas) at click coordinates if available
+      try {
+        const x = ev && (ev as MouseEvent).clientX
+        const y = ev && (ev as MouseEvent).clientY
+        triggerCanvasBurstFor(photoId, x as number | undefined, y as number | undefined)
+      } catch (e) {
+        // ignore
+      }
+      // visual pop on the clicked button
+      try {
+        const target = ev && (ev.target as HTMLElement)
+        const btn = target?.closest?.('.like-btn') as HTMLElement | null
+        let cx: number | undefined
+        let cy: number | undefined
+        if (btn) {
+          // prefer heart center
+          const heart = btn.querySelector<HTMLElement>('.heart')
+          const rect = (heart || btn).getBoundingClientRect()
+          cx = rect.left + rect.width / 2
+          cy = rect.top + rect.height / 2
+          btn.classList.add('pop')
+          setTimeout(() => btn.classList.remove('pop'), 420)
+        }
+        // trigger canvas burst at exact heart center if available
+        if (typeof cx === 'number' && typeof cy === 'number') {
+          triggerCanvasBurstFor(photoId, cx, cy)
+        }
+      } catch (e) {
+        // ignore
+      }
+    } catch (e) {
+      console.error('like failed', e)
+    }
+  }
+}
+
+// --------------------------
+let canvasEl: HTMLCanvasElement | null = null
+let ctx: CanvasRenderingContext2D | null = null
+let particles: Array<any> = []
+let rafId: number | null = null
+
+const ensureCanvas = () => {
+  if (canvasEl && ctx) return
+  canvasEl = document.createElement('canvas')
+  canvasEl.style.position = 'fixed'
+  canvasEl.style.left = '0'
+  canvasEl.style.top = '0'
+  canvasEl.style.width = '100%'
+  canvasEl.style.height = '100%'
+  canvasEl.style.pointerEvents = 'none'
+  canvasEl.style.zIndex = '2147483646'
+  canvasEl.width = window.innerWidth
+  canvasEl.height = window.innerHeight
+  document.body.appendChild(canvasEl)
+  ctx = canvasEl.getContext('2d')
+  window.addEventListener('resize', () => {
+    if (!canvasEl) return
+    canvasEl.width = window.innerWidth
+    canvasEl.height = window.innerHeight
+  })
+  startLoop()
+}
+
+const startLoop = () => {
+  if (rafId) return
+  const loop = (t: number) => {
+    if (!ctx || !canvasEl) return
+    ctx.clearRect(0, 0, canvasEl.width, canvasEl.height)
+    const now = performance.now()
+    particles = particles.filter(p => {
+      const dt = (now - p.t0) / p.life
+      if (dt >= 1) return false
+
+      // 前半生命周期：向上发射，后半生命周期：重力下坠
+      const gravityStart = 0.4 // 生命周期40%后开始重力
+      const gravityFactor = dt > gravityStart ? (dt - gravityStart) / (1 - gravityStart) : 0
+
+      const x = p.x + p.vx * dt
+      const y = p.y + p.vy * dt + 0.5 * p.gravity * gravityFactor * gravityFactor
+
+      const alpha = dt < 0.3 ? 1 : 1 - ((dt - 0.3) / 0.7) // 前30%完全不透明，后70%渐隐
+      ctx.globalAlpha = alpha
+      ctx.fillStyle = p.color
+      ctx.beginPath()
+      ctx.arc(x, y, p.size * (1 - dt) + 0.5, 0, Math.PI * 2)
+      ctx.fill()
+      return true
+    })
+    rafId = requestAnimationFrame(loop)
+  }
+  rafId = requestAnimationFrame(loop)
+}
+
+const spawnCanvasBurst = (x: number, y: number) => {
+  ensureCanvas()
+  const count = 12
+  // main colorful particles - upward burst only
+  for (let i = 0; i < count; i++) {
+    // distribute particles upward (-π/2 ± π/6, i.e., -90° ± 30°)
+    const angleRange = Math.PI / 6 * 2 // 60° total range around upward
+    const baseAngle = -Math.PI / 2 + (angleRange / (count - 1)) * i - angleRange / 2 // center around -90°
+    const angle = baseAngle + (Math.random() - 0.5) * 0.3 // small random variation
+    const speed = 70 + Math.random() * 90
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      gravity: 60 + Math.random() * 80,
+      size: 2 + Math.random() * 2,
+      color: `hsl(${Math.random() * 360}, 95%, ${50 + Math.random() * 20}%)`,
+      t0: performance.now(),
+      life: 900 + Math.random() * 400
+    })
+  }
+  // small sparkles - upward burst only
+  const sparks = 6
+  for (let i = 0; i < sparks; i++) {
+    // random angle upward (-π/2 ± π/12, i.e., -90° ± 15°)
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI / 12 * 2)
+    const speed = 30 + Math.random() * 45
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      gravity: 20 + Math.random() * 30,
+      size: 0.8 + Math.random() * 1.2,
+      color: `rgba(255,255,255,${0.8 + Math.random() * 0.2})`,
+      t0: performance.now(),
+      life: 700 + Math.random() * 300
+    })
+  }
+}
+
+const triggerCanvasBurstFor = (photoId: number, clientX?: number, clientY?: number) => {
+  // prefer explicit click coordinates (clientX, clientY)
+  if (typeof clientX === 'number' && typeof clientY === 'number') {
+    spawnCanvasBurst(clientX, clientY)
+    return
+  }
+  // fallback: find DOM element rendered for this photo (data-photo-id attribute) and use center
+  const el = document.querySelector(`[data-photo-id='${photoId}']`) as HTMLElement | null
+  let x = window.innerWidth / 2
+  let y = window.innerHeight / 2
+  if (el) {
+    const r = el.getBoundingClientRect()
+    x = r.left + r.width / 2
+    y = r.top + r.height / 2
+  }
+  spawnCanvasBurst(x, y)
+}
+
 // 监听窗口大小变化
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 const handleResize = () => {
@@ -241,6 +470,17 @@ watch(columnCount, () => {
     layoutItems()
   })
 })
+
+// 初始化 likesMap
+watch(() => photos.value, (photos) => {
+  photos.forEach(photo => {
+    const pid = photo?.id
+    if (pid != null) {
+      const likeCount = photo?.likeCount || 0
+      likesMap.value.set(pid, likeCount)
+    }
+  })
+}, { immediate: true, deep: true })
 
 // 监听视差滚动开关变化
 watch(parallaxEnabled, () => {
@@ -500,6 +740,8 @@ onMounted(async () => {
   try {
     // 初始化窗口宽度
     windowWidth.value = window.innerWidth
+    // 初始化点赞数据
+    loadLikedFromStorage()
     hydrateFromRoute()
     await loadInitial()
     window.addEventListener('scroll', handleScroll, { passive: true })
@@ -629,6 +871,117 @@ onDeactivated(() => {
 
 .masonry-photo-image:hover {
   transform: scale(1.2) !important;
+}
+
+/* like overlay */
+.like-overlay {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 9999px;
+  background: rgba(0,0,0,0.28); /* 更低的不透明度，减少视觉干扰 */
+  color: #fff;
+  font-size: 12px;
+  opacity: 0; /* 默认隐藏，只有 hover 或 visible 才显示 */
+  transition: opacity 0.18s ease, transform 0.12s ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+/* 仅当鼠标悬浮在点赞按钮本身时显示（避免干扰看图） */
+.like-overlay:hover {
+  opacity: 0.95;
+}
+.like-overlay.visible {
+  /* 如果已有点赞，则常驻显示，但采用较低不透明度以不打扰查看 */
+  opacity: 0.6;
+}
+.like-overlay.visible:hover {
+  /* 常驻显示的点赞按钮在hover时也保持较低透明度 */
+  opacity: 0.6 !important;
+}
+.like-overlay .heart {
+  color: #fff;
+  stroke: currentColor;
+}
+.like-overlay .heart[fill='#e11d48'] {
+  color: #e11d48;
+}
+.like-count {
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5) !important;
+  display: inline !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* heart animation */
+.like-overlay .heart {
+  transition: transform 220ms cubic-bezier(.2,.9,.3,1), color 180ms ease, stroke 180ms ease, fill 180ms ease;
+  transform-origin: center center;
+  display: inline-block;
+}
+.like-overlay .heart.liked {
+  transform: scale(1.25);
+  color: #e11d48;
+}
+.like-overlay .heart .heart-path {
+  fill: transparent;
+  transition: fill 220ms ease;
+}
+.like-overlay .heart.liked .heart-path {
+  fill: #e11d48;
+}
+
+/* like button expansion and smooth shift */
+.like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  border-radius: 9999px;
+  background: transparent;
+  transition: padding 260ms cubic-bezier(.2,.9,.3,1);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.like-btn .heart {
+  transition: transform 220ms cubic-bezier(.2,.9,.3,1);
+  transform-origin: left center;
+  align-self: center;
+  vertical-align: middle;
+}
+.like-btn .like-count {
+  transform: translateX(2px);
+  opacity: 0;
+  transition: transform 260ms cubic-bezier(.2,.9,.3,1), opacity 200ms ease;
+}
+.like-btn.liked {
+  padding-left: 2px;
+  padding-right: 2px;
+}
+.like-btn.liked .heart {
+  transform: translateX(-2px) scale(1.12);
+}
+.like-btn.liked .like-count {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* pop animation when clicked */
+.like-btn.pop {
+  animation: pop 420ms cubic-bezier(.2,.9,.3,1);
+}
+@keyframes pop {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.28); }
+  60% { transform: scale(0.98); }
+  100% { transform: scale(1); }
 }
 </style>
 
