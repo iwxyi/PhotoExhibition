@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-使用 ImageMagick 的图像压缩工具
+使用 Pillow 的图像压缩工具
 
 此工具递归压缩文件夹中的图像，同时保持目录结构。
 输出保存到与输入文件夹同级的 'slim' 文件夹中。
 
 功能特性：
-- 使用 ImageMagick 的高质量压缩设置
+- 使用 Pillow 的高质量 JPEG 压缩设置
 - 保留目录结构，包括隐藏文件夹
+- 自动保留 EXIF 元数据
 - 跳过已压缩的文件，避免重复处理
 - 显示相对路径和压缩比率
 - 支持 JPEG、PNG、GIF、BMP、TIFF、WebP 格式
@@ -22,12 +23,11 @@
 
 系统要求：
 - Python 3.6+
-- ImageMagick (macOS 下使用: brew install imagemagick)
+- Pillow (pip install pillow)
 """
 
 import os
 import sys
-import subprocess
 import argparse
 from pathlib import Path
 from typing import Tuple, Optional
@@ -54,41 +54,39 @@ def should_compress(input_file: Path, output_file: Path) -> bool:
 
 def compress_image(input_file: Path, output_file: Path) -> Tuple[bool, str]:
     """
-    使用 ImageMagick 的高质量设置压缩图像
+    使用 Pillow 的高质量设置压缩图像
 
     返回值: (成功标志, 错误信息)
     """
     try:
+        from PIL import Image
+
         # 如果输出目录不存在则创建
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # ImageMagick magick convert 命令，使用高质量压缩设置
-        cmd = [
-            'magick',
-            'convert',
-            str(input_file),
-            # 保留所有元数据 - 不使用 -strip 参数
-            '-interlace', 'Plane',  # 渐进式 JPEG - 渐进加载，无质量损失
-            '-gaussian-blur', '0.05',  # 极轻微模糊（几乎看不见）- 有助于压缩
-            '-quality', '100',  # 高质量设置（对大多数照片近乎无损）
-            '-define', 'jpeg:dct-method=float',  # 更好的压缩算法
-            '-sampling-factor', '4:2:0',  # 标准色度子采样
-            # 移除文件大小限制，优先保证质量而非严格的文件大小
-            str(output_file)
-        ]
+        # 使用 Pillow 打开并压缩图像
+        with Image.open(input_file) as img:
+            # 保留 EXIF 元数据
+            exif_data = img.info.get('exif')
 
-        # 运行命令
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            # Pillow 的 JPEG 压缩选项
+            save_kwargs = {
+                'quality': 85,  # 高质量设置
+                'optimize': True,  # 启用优化
+                'progressive': True,  # 渐进式 JPEG
+            }
 
-        if result.returncode == 0:
-            return True, ""
-        else:
-            return False, f"ImageMagick 错误: {result.stderr}"
+            # 如果有 EXIF 数据，保留它
+            if exif_data:
+                save_kwargs['exif'] = exif_data
 
-    except subprocess.TimeoutExpired:
-        return False, "压缩超时"
+            # 保存压缩后的图像
+            img.save(output_file, **save_kwargs)
+
+        return True, ""
+
     except Exception as e:
-        return False, f"意外错误: {str(e)}"
+        return False, f"压缩错误: {str(e)}"
 
 
 def process_directory(input_dir: Path, output_dir: Path, dry_run: bool = False, keep_originals: bool = False) -> Tuple[int, int, float, float]:
@@ -170,7 +168,7 @@ def process_directory(input_dir: Path, output_dir: Path, dry_run: bool = False, 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='使用 ImageMagick 压缩图像，同时保留目录结构',
+        description='使用 Pillow 压缩图像，同时保留目录结构',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
@@ -204,14 +202,13 @@ def main():
     print(f"预览模式: {args.dry_run}")
     print("-" * 60)
 
-    # 检查 ImageMagick 是否可用
+    # 检查 Pillow 是否可用
     try:
-        result = subprocess.run(['magick', '-version'], capture_output=True, text=True)
-        if result.returncode != 0:
-            print("错误：找不到 ImageMagick 'magick' 命令。请安装 ImageMagick。")
-            sys.exit(1)
-    except FileNotFoundError:
-        print("错误：找不到 ImageMagick 'magick' 命令。请安装 ImageMagick。")
+        import PIL
+        print("✓ Pillow 库已就绪")
+    except ImportError:
+        print("错误：找不到 Pillow 库。请运行 'pip install pillow' 安装。")
+        print("或者使用: python3 -m pip install --user pillow")
         sys.exit(1)
 
     # 处理目录
@@ -231,3 +228,20 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+"""
+Pillow库进行压缩
+原图   321M
+95    318M
+85    174M （完全看不出差别）
+
+
+ImageMagick进行压缩
+原图   321M
+100   440M  （放很大还是能看到明显模糊一些）
+95    238M
+90    165M
+85    130M
+80    110M
+"""
