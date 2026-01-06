@@ -103,6 +103,17 @@ public class FaceService {
      */
     @Transactional
     public List<Face> detectAndSaveFaces(File imageFile, Photo photo, boolean verbose) {
+        // 防止并发重复检测：检查该照片是否已经有处理中的人脸检测
+        Long photoId = photo.getId();
+        if (photoId != null) {
+            // 检查是否已有人脸数据，如果有则跳过重复检测
+            long existingFaceCount = faceRepository.findByPhotoId(photoId).size();
+            if (existingFaceCount > 0) {
+                log.debug("照片 {} 已有 {} 个人脸记录，跳过重复检测", photoId, existingFaceCount);
+                return faceRepository.findByPhotoId(photoId);
+            }
+        }
+
         // 控制检测服务的详细日志开关
         FaceDetectionService.VERBOSE_LOG.set(verbose);
         List<FaceRecognitionService.DetectedFace> detected;
@@ -611,7 +622,7 @@ public class FaceService {
      * 获取统一的人物列表（包括已确认人物和未确认聚类）
      */
     @Transactional(readOnly = true)
-    public List<PersonListItemDTO> listPersonItems(double clusterThreshold) {
+    public List<PersonListItemDTO> listPersonItems(double clusterThreshold, int clusterPage, int clusterSize) {
         List<PersonListItemDTO> items = new ArrayList<>();
 
         // 1. 已确认的人物
@@ -646,21 +657,30 @@ public class FaceService {
             items.add(item);
         }
 
-        // 2. 未确认的聚类
-        List<FaceClusterDTO> clusters = clusterSimilarFaces(clusterThreshold);
-        for (int i = 0; i < clusters.size(); i++) {
-            FaceClusterDTO cluster = clusters.get(i);
+        // 2. 未确认的聚类（支持分页）
+        List<FaceClusterDTO> allClusters = clusterSimilarFaces(clusterThreshold);
+
+        // 计算分页的聚类
+        int clusterStartIndex = clusterPage * clusterSize;
+        int clusterEndIndex = Math.min(clusterStartIndex + clusterSize, allClusters.size());
+        List<FaceClusterDTO> pageClusters = allClusters.subList(clusterStartIndex, clusterEndIndex);
+
+        for (int i = 0; i < pageClusters.size(); i++) {
+            FaceClusterDTO clusterDTO = pageClusters.get(i);
+            // 使用全局索引（clusterPage * clusterSize + i）作为ID，确保分页后ID唯一
+            int globalIndex = clusterStartIndex + i;
+
             PersonListItemDTO item = new PersonListItemDTO();
             item.setType("cluster");
-            item.setId((long) i); // 使用索引作为ID
+            item.setId((long) globalIndex); // 使用全局索引作为ID，确保分页后ID唯一
             item.setName("未命名");
             item.setDescription("自动聚合的相似人脸，尚未确认");
-            item.setFaceCount(cluster.getCount());
-            item.setAvgConfidence(cluster.getAvgConfidence());
+            item.setFaceCount(clusterDTO.getCount());
+            item.setAvgConfidence(clusterDTO.getAvgConfidence());
 
             // 获取代表脸
-            if (cluster.getRepresentativeFaceId() != null) {
-                Face sample = faceRepository.findById(cluster.getRepresentativeFaceId()).orElse(null);
+            if (clusterDTO.getRepresentativeFaceId() != null) {
+                Face sample = faceRepository.findById(clusterDTO.getRepresentativeFaceId()).orElse(null);
                 if (sample != null && sample.getPhoto() != null) {
                     item.setSampleFaceId(sample.getId());
                     item.setSamplePhotoId(sample.getPhoto().getId());

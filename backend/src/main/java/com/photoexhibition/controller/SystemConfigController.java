@@ -28,6 +28,7 @@ public class SystemConfigController {
             resp.put("photoSortOrder", systemConfigService.getPhotoSortOrder());
             resp.put("albumSortOrder", systemConfigService.getAlbumSortOrder());
             resp.put("wallSortOrder", systemConfigService.getWallSortOrder());
+            resp.put("minClusterFaceCount", systemConfigService.getMinClusterFaceCount());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
@@ -189,6 +190,47 @@ public class SystemConfigController {
             systemConfigService.setWallSortOrder(sortOrder.trim());
             resp.put("message", "图墙排序方式设置成功");
             resp.put("wallSortOrder", sortOrder.trim());
+            return ResponseEntity.ok(resp);
+        } catch (IllegalArgumentException e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 获取聚类显示最小人脸数量配置
+     */
+    @GetMapping("/min-cluster-face-count")
+    public ResponseEntity<Map<String, Object>> getMinClusterFaceCount() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("minClusterFaceCount", systemConfigService.getMinClusterFaceCount());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 设置聚类显示最小人脸数量
+     */
+    @PutMapping("/min-cluster-face-count")
+    public ResponseEntity<Map<String, Object>> setMinClusterFaceCount(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Integer minCount = (Integer) request.get("minClusterFaceCount");
+            if (minCount == null) {
+                resp.put("error", "minClusterFaceCount 参数不能为空");
+                return ResponseEntity.badRequest().body(resp);
+            }
+
+            systemConfigService.setMinClusterFaceCount(minCount);
+            resp.put("message", "聚类最小人脸数量设置成功");
+            resp.put("minClusterFaceCount", minCount);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
             resp.put("error", e.getMessage());

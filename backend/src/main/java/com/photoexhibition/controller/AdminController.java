@@ -96,6 +96,22 @@ public class AdminController {
     }
 
     /**
+     * 清理重复的人脸记录
+     */
+    @PostMapping("/cleanup/duplicate-faces")
+    public ResponseEntity<Map<String, Object>> cleanupDuplicateFaces() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = dataCleanupService.cleanupDuplicateFaces();
+            resp.putAll(result);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "清理重复人脸记录失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
      * 初始化管理员账户（仅用于开发环境）
      */
     @PostMapping("/init-admin")

@@ -27,6 +27,8 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     List<Face> findByPersonIsNull();
 
+    long countByPersonIsNull();
+
     Page<Face> findByPersonIsNotNull(Pageable pageable);
 
     Page<Face> findByPersonId(Long personId, Pageable pageable);
@@ -39,5 +41,16 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     Face findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(Long personId);
 
     Face findTopByPersonIdOrderByCreatedAtDesc(Long personId);
+
+    /**
+     * 查找重复的人脸记录（按照片分组，统计每张照片的人脸数量）
+     */
+    @Query("SELECT f.photo.id, COUNT(f) FROM Face f GROUP BY f.photo.id HAVING COUNT(f) > 1")
+    List<Object[]> findDuplicateFacesByPhoto();
+
+    /**
+     * 按照片ID查找人脸记录，按创建时间倒序排列
+     */
+    List<Face> findByPhotoIdOrderByCreatedAtDesc(Long photoId);
 }
 

@@ -172,6 +172,42 @@
         </div>
       </section>
 
+      <!-- 人脸聚类设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">聚类显示最小人脸数量</h2>
+            <p class="text-xs text-gray-400">
+              设置人物管理页面中聚类结果的最小显示人脸数量，人脸数量少于此值的聚类将不显示。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              提高性能：过滤掉过小的聚类，减少计算量；保证准确性：避免遗漏潜在人物。
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              v-model="minClusterFaceCount"
+              type="number"
+              min="1"
+              max="10"
+              class="w-20 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              @input="minClusterFaceCount = Math.max(1, Math.min(10, parseInt($event.target.value) || 1))"
+            />
+            <span class="text-xs text-gray-300">人脸</span>
+          </div>
+        </div>
+
+        <!-- 设置说明 -->
+        <div class="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-green-300 mb-2">性能与准确性平衡</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 设为 1：显示所有聚类，包括单人脸聚类，准确性最高但性能较慢</p>
+            <p>• 设为 2：过滤掉单人脸聚类，性能提升但可能遗漏一些人物</p>
+            <p>• 设为 3+：只显示多人聚类，性能最佳但准确性降低</p>
+            <p>• 推荐值：2（平衡性能和准确性的最佳选择）</p>
+          </div>
+        </div>
+      </section>
 
       <!-- 重新扫描提示 -->
       <section v-if="settingsChanged" class="glass-panel p-6 space-y-4">
@@ -241,6 +277,8 @@ const albumSortOrder = ref('name_asc')
 const originalAlbumSortOrder = ref('name_asc')
 const wallSortOrder = ref('taken_at_desc')
 const originalWallSortOrder = ref('taken_at_desc')
+const minClusterFaceCount = ref(2)
+const originalMinClusterFaceCount = ref(2)
 const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
@@ -256,6 +294,8 @@ const loadSettings = async () => {
     originalAlbumSortOrder.value = response.data.albumSortOrder || 'name_asc'
     wallSortOrder.value = response.data.wallSortOrder || 'taken_at_desc'
     originalWallSortOrder.value = response.data.wallSortOrder || 'taken_at_desc'
+    minClusterFaceCount.value = response.data.minClusterFaceCount || 2
+    originalMinClusterFaceCount.value = response.data.minClusterFaceCount || 2
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -274,8 +314,9 @@ const saveSettings = async () => {
   const photoSortChanged = photoSortOrder.value !== originalPhotoSortOrder.value
   const albumSortChanged = albumSortOrder.value !== originalAlbumSortOrder.value
   const wallSortChanged = wallSortOrder.value !== originalWallSortOrder.value
+  const clusterFaceCountChanged = minClusterFaceCount.value !== originalMinClusterFaceCount.value
 
-  if (albumDepthChanged || photoSortChanged || albumSortChanged || wallSortChanged) {
+  if (albumDepthChanged || photoSortChanged || albumSortChanged || wallSortChanged || clusterFaceCountChanged) {
     let message = '⚠️ 设置已修改 ⚠️\n\n'
 
     if (albumDepthChanged) {
@@ -295,6 +336,9 @@ const saveSettings = async () => {
       const oldWallSortName = getSortOrderName(originalWallSortOrder.value)
       const newWallSortName = getSortOrderName(wallSortOrder.value)
       message += `图墙排序方式将从 "${oldWallSortName}" 改为 "${newWallSortName}"\n`
+    }
+    if (clusterFaceCountChanged) {
+      message += `聚类最小人脸数量将从 ${originalMinClusterFaceCount.value} 改为 ${minClusterFaceCount.value}\n`
     }
 
     message += '\n下次扫描时，相册结构将根据新设置重新构建。\n'
@@ -339,15 +383,24 @@ const saveSettings = async () => {
       })
     }
 
+    // 保存聚类最小人脸数量
+    if (clusterFaceCountChanged) {
+      await api.put('/admin/config/min-cluster-face-count', {
+        minClusterFaceCount: minClusterFaceCount.value
+      })
+    }
+
     // 设置保存成功，不再显示alert弹窗
     originalMaxAlbumDepth.value = maxAlbumDepth.value
     originalPhotoSortOrder.value = photoSortOrder.value
     originalAlbumSortOrder.value = albumSortOrder.value
     originalWallSortOrder.value = wallSortOrder.value
+    originalMinClusterFaceCount.value = minClusterFaceCount.value
     settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
                            photoSortOrder.value !== originalPhotoSortOrder.value ||
                            albumSortOrder.value !== originalAlbumSortOrder.value ||
-                           wallSortOrder.value !== originalWallSortOrder.value
+                           wallSortOrder.value !== originalWallSortOrder.value ||
+                           minClusterFaceCount.value !== originalMinClusterFaceCount.value
   } catch (error: any) {
     alert('保存设置失败: ' + (error.response?.data?.error || error.message))
   } finally {

@@ -76,23 +76,17 @@ public class AlbumService {
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort) {
-        System.out.println("后端调试: getAllAlbumsWithCover, category=" + category + ", sort=" + sort);
         // 根据排序参数创建带有排序的Pageable
         Pageable sortedPageable = createSortedPageable(pageable, sort);
-        System.out.println("后端调试: sortedPageable=" + sortedPageable);
 
         Page<Album> albums;
         if (category != null && !category.isEmpty()) {
             String prefix = buildCategoryPrefix(category);
-            System.out.println("后端调试: 查询分类相册, prefix=" + prefix);
             albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, sortedPageable);
         } else {
             // 查询有照片的相册或开启了聚合功能的相册
-            System.out.println("后端调试: 查询所有相册");
             albums = albumRepository.findAlbumsWithPhotosOrAggregation(sortedPageable);
         }
-
-        System.out.println("后端调试: 查询到相册数量: " + albums.getContent().size());
 
         // 过滤掉被聚合的相册
         List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
@@ -919,11 +913,9 @@ public class AlbumService {
      * 根据排序参数创建带有排序的Pageable
      */
     private Pageable createSortedPageable(Pageable pageable, String sort) {
-        System.out.println("后端调试: createSortedPageable, sort=" + sort);
         if (sort == null || sort.isEmpty()) {
             // 默认按名称升序排序
             Sort defaultSort = Sort.by(Sort.Direction.ASC, "name");
-            System.out.println("后端调试: 使用默认排序: " + defaultSort);
             return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), defaultSort);
         }
 
@@ -931,46 +923,35 @@ public class AlbumService {
         switch (sort) {
             case SystemConfigService.SORT_BY_NAME_ASC:
                 sortObj = Sort.by(Sort.Direction.ASC, "name");
-                System.out.println("后端调试: 应用名称升序排序");
                 break;
             case SystemConfigService.SORT_BY_NAME_DESC:
                 sortObj = Sort.by(Sort.Direction.DESC, "name");
-                System.out.println("后端调试: 应用名称降序排序");
                 break;
             case SystemConfigService.SORT_BY_CREATED_AT_ASC:
                 sortObj = Sort.by(Sort.Direction.ASC, "createdAt");
-                System.out.println("后端调试: 应用创建时间升序排序");
                 break;
             case SystemConfigService.SORT_BY_CREATED_AT_DESC:
                 sortObj = Sort.by(Sort.Direction.DESC, "createdAt");
-                System.out.println("后端调试: 应用创建时间降序排序");
                 break;
             case SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_ASC:
                 sortObj = Sort.by(Sort.Direction.ASC, "latestPhotoTakenAt");
-                System.out.println("后端调试: 应用拍摄时间升序排序");
                 break;
             case SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_DESC:
                 sortObj = Sort.by(Sort.Direction.DESC, "latestPhotoTakenAt");
-                System.out.println("后端调试: 应用拍摄时间降序排序");
                 break;
             case SystemConfigService.SORT_BY_ALBUM_NAME_DATE_ASC:
                 sortObj = Sort.by(Sort.Direction.ASC, "albumNameDate");
-                System.out.println("后端调试: 应用相册名时间升序排序");
                 break;
             case SystemConfigService.SORT_BY_ALBUM_NAME_DATE_DESC:
                 sortObj = Sort.by(Sort.Direction.DESC, "albumNameDate");
-                System.out.println("后端调试: 应用相册名时间降序排序");
                 break;
             default:
                 // 默认按名称升序排序
                 sortObj = Sort.by(Sort.Direction.ASC, "name");
-                System.out.println("后端调试: 使用默认名称升序排序");
                 break;
         }
 
-        Pageable result = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortObj);
-        System.out.println("后端调试: 返回Pageable: " + result);
-        return result;
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortObj);
     }
 
     /**

@@ -201,9 +201,13 @@ public class FaceController {
      */
     @GetMapping("/persons/items")
     public ResponseEntity<List<PersonListItemDTO>> listPersonItems(
-            @RequestParam(required = false) Double threshold) {
+            @RequestParam(required = false) Double threshold,
+            @RequestParam(required = false) Integer clusterPage,
+            @RequestParam(required = false) Integer clusterSize) {
         double t = threshold != null ? threshold : clusteringDefaultThreshold;
-        return ResponseEntity.ok(faceService.listPersonItems(t));
+        int page = clusterPage != null ? clusterPage : 0;
+        int size = clusterSize != null ? clusterSize : Integer.MAX_VALUE; // 默认返回所有
+        return ResponseEntity.ok(faceService.listPersonItems(t, page, size));
     }
 
     /**

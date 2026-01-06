@@ -166,6 +166,7 @@
               <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
               <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
               <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
+              <option value="POST /admin/cleanup/duplicate-faces">清理重复人脸（删除同一照片的重复人脸记录）</option>
               <option value="POST /admin/albums/update-times">更新相册时间（重新计算拍摄时间和相册名时间）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
@@ -442,7 +443,24 @@ const testApi = async () => {
       return
     }
   }
-  
+
+  // 清理重复人脸数据需要确认
+  if (selectedApi.value === 'POST /admin/cleanup/duplicate-faces') {
+    const confirmed = confirm(
+      '🧹 清理重复人脸记录\n\n' +
+      '此操作将：\n' +
+      '• 扫描所有照片，查找同一张照片有多条人脸记录的情况\n' +
+      '• 保留每张照片最新的人脸记录，删除重复的旧记录\n' +
+      '• 清理相关的人物关联和聚类数据\n\n' +
+      '此操作有助于解决人脸数量异常暴涨的问题。\n' +
+      '建议在清理前备份数据库。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
   testing.value = true
   apiResponse.value = null
   

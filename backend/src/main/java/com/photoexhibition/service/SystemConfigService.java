@@ -34,6 +34,10 @@ public class SystemConfigService {
     public static final String WALL_SORT_ORDER_DEFAULT = "taken_at_desc";
     public static final String WALL_SORT_ORDER_DESCRIPTION = "图墙排序方式";
 
+    public static final String MIN_CLUSTER_FACE_COUNT_KEY = "min_cluster_face_count";
+    public static final String MIN_CLUSTER_FACE_COUNT_DEFAULT = "2";
+    public static final String MIN_CLUSTER_FACE_COUNT_DESCRIPTION = "聚类显示最小人脸数量（少于此数量的聚类不显示）";
+
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
     public static final String SORT_BY_TAKEN_AT_ASC = "taken_at_asc";
@@ -182,6 +186,35 @@ public class SystemConfigService {
             WALL_SORT_ORDER_DEFAULT,
             WALL_SORT_ORDER_DESCRIPTION
         );
+    }
+
+    /**
+     * 获取聚类显示最小人脸数量
+     */
+    public int getMinClusterFaceCount() {
+        String value = getConfigValueWithDefault(
+            MIN_CLUSTER_FACE_COUNT_KEY,
+            MIN_CLUSTER_FACE_COUNT_DEFAULT,
+            MIN_CLUSTER_FACE_COUNT_DESCRIPTION
+        );
+        try {
+            int count = Integer.parseInt(value);
+            return Math.max(1, count); // 最小为1
+        } catch (NumberFormatException e) {
+            log.warn("聚类最小人脸数量配置无效: {}, 使用默认值 {}", value, MIN_CLUSTER_FACE_COUNT_DEFAULT);
+            return Integer.parseInt(MIN_CLUSTER_FACE_COUNT_DEFAULT);
+        }
+    }
+
+    /**
+     * 设置聚类显示最小人脸数量
+     */
+    @Transactional
+    public void setMinClusterFaceCount(int minCount) {
+        if (minCount < 1) {
+            throw new IllegalArgumentException("聚类最小人脸数量不能小于1: " + minCount);
+        }
+        setConfigValue(MIN_CLUSTER_FACE_COUNT_KEY, String.valueOf(minCount), MIN_CLUSTER_FACE_COUNT_DESCRIPTION);
     }
 
     /**

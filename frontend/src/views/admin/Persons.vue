@@ -58,9 +58,9 @@
             />
           </div>
         </div>
-        <div 
+        <div
           ref="personListContainer"
-          class="flex-1 overflow-y-auto"
+          class="flex-1 overflow-y-auto overflow-x-hidden"
           :style="{ display: 'grid', gridTemplateColumns: `repeat(${personColumns}, 1fr)`, gap: '8px', alignContent: 'start', gridAutoFlow: 'row' }"
         >
           <!-- 已确认人物 -->
@@ -118,35 +118,7 @@
         </div>
           <div class="mt-3 flex items-center justify-between text-[11px] text-gray-300">
             <div>共 {{ persons.length }} 个</div>
-            <div class="flex items-center gap-1">
-              <button
-                class="px-1.5 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
-                :disabled="personPage <= 1"
-                @click="prevPersonPage"
-              >
-                ‹
-              </button>
-              <div class="flex items-center gap-1">
-                <span>第</span>
-                <input
-                  type="number"
-                  min="1"
-                  :max="personTotalPages"
-                  v-model.number="personPage"
-                  @blur="onPersonPageBlur"
-                  @keyup.enter="onPersonPageBlur"
-                  class="no-spinner w-10 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <span>/ {{ personTotalPages }}</span>
-              </div>
-              <button
-                class="px-1.5 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
-                :disabled="personPage >= personTotalPages"
-                @click="nextPersonPage"
-              >
-                ›
-              </button>
-            </div>
+            <div class="text-gray-400">滚动加载更多</div>
           </div>
 
         <!-- 选中人物的姓名 / 备注 / 删除按钮 -->
@@ -885,6 +857,12 @@ const confirmedPersons = ref<PersonListItem[]>([])
 const clusterPersons = ref<PersonListItem[]>([])
 const personKeyword = ref('')
 const selectedItem = ref<PersonListItem | null>(null)
+
+// 聚类分页
+const clusterPage = ref(0)
+const clusterPageSize = ref(40) // 每次加载40个聚类
+const hasMoreClusters = ref(true)
+const loadingClusters = ref(false)
 const selectedPersonId = ref<number | null>(null)
 const selectedClusterIndex = ref<number | null>(null)
 const loadingPersons = ref(false)
@@ -903,38 +881,9 @@ const snapPoints = computed(() => {
 })
 let thresholdTimer: number | null = null
 
-// 左侧人物分页
-const PERSON_PAGE_SIZE = 24
-const personPage = ref(1)
-const personTotalPages = computed(() => Math.max(1, Math.ceil(Math.max(persons.value.length, 1) / PERSON_PAGE_SIZE)))
-const pagedPersons = computed(() => {
-  const start = (personPage.value - 1) * PERSON_PAGE_SIZE
-  return persons.value.slice(start, start + PERSON_PAGE_SIZE)
-})
-const visibleConfirmedPersons = computed(() => pagedPersons.value.filter(p => p.type === 'confirmed'))
-const visibleClusterPersons = computed(() => pagedPersons.value.filter(p => p.type === 'cluster'))
-
-watch(personPage, (v) => {
-  if (v < 1) personPage.value = 1
-  else if (v > personTotalPages.value) personPage.value = personTotalPages.value
-})
-
-const nextPersonPage = () => {
-  if (personPage.value < personTotalPages.value) personPage.value += 1
-}
-
-const prevPersonPage = () => {
-  if (personPage.value > 1) personPage.value -= 1
-}
-
-const onPersonPageBlur = () => {
-  if (!personPage.value || isNaN(personPage.value as any)) {
-    personPage.value = 1
-    return
-  }
-  if (personPage.value < 1) personPage.value = 1
-  else if (personPage.value > personTotalPages.value) personPage.value = personTotalPages.value
-}
+// 左侧人物列表（直接显示所有已加载的人物，无分页）
+const visibleConfirmedPersons = computed(() => persons.value.filter(p => p.type === 'confirmed'))
+const visibleClusterPersons = computed(() => persons.value.filter(p => p.type === 'cluster'))
 
 // 编辑相关（列表不再内联编辑，仅右侧姓名输入框使用）
 const editingPersonId = ref<number | null>(null)
@@ -952,17 +901,18 @@ const resizeStartX = ref(0)
 const resizeStartWidth = ref(0)
 const containerWidth = ref(0)
 
-// 列数自适应
+// 列数自适应（优化密度，强制适应容器宽度）
 const personColumns = computed(() => {
-  const width = containerWidth.value
-  if (width <= 0) return 2
-  if (width < 200) return 1
-  if (width < 260) return 2
-  if (width < 340) return 3
-  if (width < 420) return 4
-  if (width < 500) return 5
-  if (width < 580) return 6
-  return 7
+  // 使用更保守的计算：假设每个头像约48px宽 + 8px间距
+  // 减去更大的缓冲确保不超出边界
+  const effectiveWidth = containerWidth.value - 80
+  if (effectiveWidth <= 0) return 2
+
+  // 计算理论最大列数（48px头像 + 8px间距）
+  const theoreticalMax = Math.floor(effectiveWidth / 56) // 48 + 8 = 56px
+
+  // 限制在合理范围内，最小2列，最大6列
+  return Math.max(2, Math.min(6, theoreticalMax))
 })
 
 const tab = ref<'confirmed' | 'auto' | 'similar' | 'sameFolder' | 'unassigned'>('confirmed')
@@ -1074,6 +1024,36 @@ const updateContainerWidth = () => {
   }
 }
 
+// 处理人物列表滚动，触发聚类加载
+const handlePersonScroll = (e: Event) => {
+  const el = e.target as HTMLElement
+  if (!el) return
+
+  // 检查是否滚动到接近底部
+  const scrollTop = el.scrollTop
+  const scrollHeight = el.scrollHeight
+  const clientHeight = el.clientHeight
+  const nearBottom = scrollTop + clientHeight >= scrollHeight - 150 // 150px 缓冲区
+
+  if (nearBottom && hasMoreClusters.value && !loadingClusters.value) {
+    loadMoreClusters()
+  }
+}
+
+// 检查是否需要加载更多聚类（仅在页面初始化时预加载少量数据）
+const checkLoadMoreClusters = () => {
+  if (!hasMoreClusters.value || loadingClusters.value) return
+
+  // 只在刚进入页面时预加载第二页，避免无限循环
+  // 这个方法现在只在初始化时调用一次，不再递归
+  const currentLoadedClusters = clusterPersons.value.length
+  const shouldPreloadNextPage = clusterPage.value === 0 && currentLoadedClusters >= clusterPageSize.value - 10
+
+  if (shouldPreloadNextPage) {
+    loadMoreClusters()
+  }
+}
+
 const currentFaceTab = computed<FaceTab>(() => {
   if (selectedItem.value?.type === 'cluster') return 'cluster'
   return (tab.value as FaceTab) || 'confirmed'
@@ -1147,22 +1127,73 @@ const handleFaceListKeydown = (e: KeyboardEvent) => {
 const loadPersons = async () => {
   loadingPersons.value = true
   try {
-    const res = await api.get('/admin/persons/items', { params: { threshold: clusterThreshold.value } })
-    let list: PersonListItem[] = res.data || []
+    // 先加载已确认人物（一次性加载所有）
+    const confirmedRes = await api.get('/admin/persons/items', {
+      params: { threshold: clusterThreshold.value, clusterPage: 0, clusterSize: 0 }
+    })
+    let list: PersonListItem[] = confirmedRes.data || []
+
+    // 过滤出已确认人物
+    confirmedPersons.value = list.filter(p => p.type === 'confirmed')
+
+    // 初始化聚类数据
+    clusterPersons.value = []
+    clusterPage.value = 0
+    hasMoreClusters.value = true
+
+    // 加载第一页聚类
+    await loadMoreClusters()
+
+    // 合并所有人物
+    persons.value = [...confirmedPersons.value, ...clusterPersons.value]
+
     if (personKeyword.value.trim()) {
       const kw = personKeyword.value.trim().toLowerCase()
-      list = list.filter(p => (p.name || '').toLowerCase().includes(kw))
+      persons.value = persons.value.filter(p => (p.name || '').toLowerCase().includes(kw))
     }
-    persons.value = list
-    confirmedPersons.value = list.filter(p => p.type === 'confirmed')
-    clusterPersons.value = list.filter(p => p.type === 'cluster')
-    personPage.value = 1
-    
+
     if (persons.value.length && !selectedItem.value) {
       selectPerson(persons.value[0])
     }
   } finally {
     loadingPersons.value = false
+  }
+}
+
+const loadMoreClusters = async () => {
+  if (loadingClusters.value || !hasMoreClusters.value) return
+
+  loadingClusters.value = true
+  try {
+    const res = await api.get('/admin/persons/items', {
+      params: {
+        threshold: clusterThreshold.value,
+        clusterPage: clusterPage.value,
+        clusterSize: clusterPageSize.value
+      }
+    })
+
+    const newClusters: PersonListItem[] = (res.data || []).filter((p: PersonListItem) => p.type === 'cluster')
+
+    if (newClusters.length < clusterPageSize.value) {
+      hasMoreClusters.value = false
+    }
+
+    clusterPersons.value = [...clusterPersons.value, ...newClusters]
+    clusterPage.value++
+
+    // 更新总人物列表
+    persons.value = [...confirmedPersons.value, ...clusterPersons.value]
+
+    if (personKeyword.value.trim()) {
+      const kw = personKeyword.value.trim().toLowerCase()
+      persons.value = persons.value.filter(p => (p.name || '').toLowerCase().includes(kw))
+    }
+
+    // 注意：不再自动检查加载更多，由滚动事件触发
+
+  } finally {
+    loadingClusters.value = false
   }
 }
 
@@ -1209,7 +1240,6 @@ const refreshPersonsAfterFaceChange = async () => {
   const current = selectedItem.value
     ? { id: selectedItem.value.id, type: selectedItem.value.type }
     : null
-  const currentPage = personPage.value
 
   await loadPersons()
 
@@ -1227,14 +1257,6 @@ const refreshPersonsAfterFaceChange = async () => {
         selectedClusterIndex.value = found.id as number
       }
     }
-  }
-
-  if (personTotalPages.value > 0) {
-    const safePage = Math.min(
-      Math.max(currentPage || 1, 1),
-      personTotalPages.value
-    )
-    personPage.value = safePage
   }
 }
 
@@ -2318,6 +2340,11 @@ onMounted(() => {
     window.addEventListener('resize', updateContainerWidth)
     window.addEventListener('resize', recalcFacePageSize)
     window.addEventListener('keydown', handleGlobalKeydown)
+
+    // 添加人物列表滚动监听器
+    if (personListContainer.value) {
+      personListContainer.value.addEventListener('scroll', handlePersonScroll, { passive: true })
+    }
   })
 })
 
@@ -2347,6 +2374,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', updateContainerWidth)
   window.removeEventListener('resize', recalcFacePageSize)
   window.removeEventListener('keydown', handleGlobalKeydown)
+
+  // 移除人物列表滚动监听器
+  if (personListContainer.value) {
+    personListContainer.value.removeEventListener('scroll', handlePersonScroll)
+  }
 })
 
 watch(clusterThreshold, (v) => {

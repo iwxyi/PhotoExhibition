@@ -736,18 +736,20 @@ public class PhotoScanService {
         if (isShuttingDown.get()) {
             return;
         }
-        
-        try {
-            String filePath = imageFile.getAbsolutePath();
-            String pathHash = calculateSha256(filePath);
-            
-            // 跳过.thumbnails目录下的文件
-            if (filePath.contains("/.thumbnails/") || filePath.contains("\\.thumbnails\\")) {
-            return;
-        }
-        
-        // 跳过缩略图文件（文件名包含_thumb）
-        if (imageFile.getName().contains("_thumb")) {
+
+        String filePath = imageFile.getAbsolutePath();
+        String pathHash = calculateSha256(filePath);
+
+        // 添加文件处理锁，防止同一文件被并发处理
+        synchronized (filePath.intern()) {
+            try {
+                // 跳过.thumbnails目录下的文件
+                if (filePath.contains("/.thumbnails/") || filePath.contains("\\.thumbnails\\")) {
+                    return;
+                }
+
+                // 跳过缩略图文件（文件名包含_thumb）
+                if (imageFile.getName().contains("_thumb")) {
                 return;
             }
             
@@ -871,11 +873,10 @@ public class PhotoScanService {
             // 智能标签（含人脸信息）
             // 强制扫描时，删除旧智能标签后重新生成；普通扫描时追加
             // 传递相册标签名称，确保不会误删相册标签
-            smartTagService.applySmartTags(imageFile, photo, faces.size(), force, albumTagNames);
+                smartTagService.applySmartTags(imageFile, photo, faces.size(), force, albumTagNames);
 
-            photoRepository.save(photo);
-
-        } catch (IllegalStateException e) {
+                photoRepository.save(photo);
+            } catch (IllegalStateException e) {
             // 应用关闭时的异常，静默处理
             if (e.getMessage() != null && e.getMessage().contains("关闭")) {
                 log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
@@ -895,6 +896,7 @@ public class PhotoScanService {
             log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
             }
         }
+        } // end synchronized block
     }
 
     /**
