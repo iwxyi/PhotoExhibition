@@ -9,6 +9,7 @@
     @keydown.enter.prevent="handleClick"
     @keydown.space.prevent="handleClick"
     ref="cardRef"
+    style="contain: layout style paint; will-change: transform;"
   >
     <!-- 封面布局：左侧竖图 + 右侧上下两张横图 -->
     <div class="grid grid-cols-2 gap-0.5 relative w-full" :class="coverSizeClass">

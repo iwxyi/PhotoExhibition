@@ -244,6 +244,19 @@ export const usePhotoStore = defineStore('photo', () => {
     }
   }
 
+  // 添加相册到现有列表（用于预加载缓冲区）
+  const addAlbums = (newAlbums: Album[]) => {
+    if (!newAlbums || newAlbums.length === 0) return
+
+    // 合并并去重（按 id）
+    const merged = [...albums.value, ...newAlbums]
+    const seen = new Map<number, Album>()
+    merged.forEach(a => {
+      if (!seen.has(a.id)) seen.set(a.id, a)
+    })
+    albums.value = Array.from(seen.values())
+  }
+
   return {
     categories,
     albums,
@@ -261,7 +274,8 @@ export const usePhotoStore = defineStore('photo', () => {
     fetchPhotoById,
     fetchPhotosByTag,
     fetchPhotosByPerson,
-    filterPhotos
+    filterPhotos,
+    addAlbums
   }
 })
 

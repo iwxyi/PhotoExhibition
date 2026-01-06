@@ -31,7 +31,7 @@
     </nav>
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint;">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint; will-change: transform;">
       <!-- 分类 Tabs -->
       <div class="mb-6">
         <div class="flex gap-2 overflow-x-auto pb-2 px-2 py-1">
@@ -40,7 +40,7 @@
             :key="c"
             @click="selectCategory(c)"
             class="px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden font-medium text-sm"
-            style="transform-origin: center;"
+            style="transform-origin: center; will-change: transform;"
             :class="c === activeCategory
               ? 'bg-gray-900 text-white border-gray-800 dark:bg-white dark:text-gray-900 dark:border-white shadow-lg ring-2 ring-gray-900/20 dark:ring-white/20 scale-102'
               : 'bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700'"
@@ -62,7 +62,7 @@
       <div
         v-if="albums.length > 0"
         :class="coverGridClass"
-        style="contain: layout style;"
+        style="contain: layout style; will-change: auto;"
       >
         <AlbumCard
           v-for="album in albums"
@@ -113,16 +113,24 @@ const isLoadingMore = ref(false)
 const albumSortOrder = ref('name_asc')
 const { coverSize } = useUiSettings()
 
+// 预加载缓冲区状态
+const preloadBuffer = ref<any[]>([])
+const isPreloading = ref(false)
+
 // 监听排序设置变化，重新获取数据
 watch(albumSortOrder, async (newSort, oldSort) => {
   if (newSort !== oldSort) {
     // 重新获取相册数据
     currentPage.value = 0
     hasMore.value = true
+    // 清空预加载缓冲区
+    preloadBuffer.value = []
     const loadSize = getDynamicLoadSize()
     const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
     const data = await photoStore.fetchAlbums(0, loadSize, cat, newSort)
     hasMore.value = !data.last
+    // 切换排序时滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'instant' })
   }
 })
 const coverGridClass = computed(() => {
@@ -427,78 +435,126 @@ const performAlbumBackTransitionIfNeeded = async () => {
   }
 }
 
+// 预加载下一页数据到缓冲区
+const preloadNextPage = async () => {
+  if (isPreloading.value || !hasMore.value || preloadBuffer.value.length > 0) return
+
+  try {
+    isPreloading.value = true
+    const nextPage = currentPage.value + 1
+    const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
+    const loadSize = Math.max(12, getCurrentGridColumns() * 2)
+
+    const data = await photoStore.fetchAlbums(nextPage, loadSize, cat, albumSortOrder.value, false)
+
+    if (data && data.content && data.content.length > 0) {
+      preloadBuffer.value = data.content
+      // 更新hasMore状态
+      hasMore.value = !data.last
+    } else {
+      hasMore.value = false
+    }
+  } catch (error) {
+    console.error('预加载失败:', error)
+    hasMore.value = false
+  } finally {
+    isPreloading.value = false
+  }
+}
+
 const loadMore = async () => {
   // 防止重复加载
   if (loading.value || isLoadingMore.value || !hasMore.value) return
 
-  // 保存当前滚动位置
-  const scrollTop = window.scrollY || document.documentElement.scrollTop
-
   try {
     isLoadingMore.value = true
     currentPage.value++
-    const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
 
-    // 无限滚动时加载当前显示列数的2倍作为增量
-    const loadSize = Math.max(12, getCurrentGridColumns() * 2)
+    let newAlbums: any[] = []
 
-    // 通过 photoStore 加载更多数据，确保排序一致性
-    const data = await photoStore.fetchAlbums(currentPage.value, loadSize, cat, albumSortOrder.value, false)
+    // 优先使用预加载的缓冲区数据
+    if (preloadBuffer.value.length > 0) {
+      newAlbums = [...preloadBuffer.value]
+      preloadBuffer.value = []
+      hasMore.value = true // 假设还有更多数据
+    } else {
+      // 如果没有预加载数据，则直接加载
+      const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
+      const loadSize = Math.max(12, getCurrentGridColumns() * 2)
 
-    if (!data || !data.content || data.content.length === 0) {
-      hasMore.value = false
-      return
+      const data = await photoStore.fetchAlbums(currentPage.value, loadSize, cat, albumSortOrder.value, false)
+
+      if (!data || !data.content || data.content.length === 0) {
+        hasMore.value = false
+        currentPage.value--
+        return
+      }
+
+      newAlbums = data.content
+      hasMore.value = !data.last
     }
 
-    hasMore.value = !data.last
+    // 将新数据添加到相册列表
+    photoStore.addAlbums(newAlbums)
 
-    // 恢复滚动位置
-    nextTick(() => {
-      window.scrollTo({ top: scrollTop, behavior: 'instant' })
-    })
+    // 启动下一页的预加载
+    if (hasMore.value) {
+      setTimeout(() => preloadNextPage(), 100)
+    }
+
+    // 不主动恢复滚动位置，让浏览器自然处理
+    // 新内容添加到底部，用户继续滚动时就能看到
   } catch (error) {
     console.error('加载更多失败:', error)
     // 加载失败时回退页码
     currentPage.value--
     hasMore.value = false
-    // 恢复滚动位置
-    nextTick(() => {
-      window.scrollTo({ top: scrollTop, behavior: 'instant' })
-    })
   } finally {
     isLoadingMore.value = false
   }
 }
 
-// 节流滚动处理，优化滚动性能
+// 优化滚动处理，减少顿卡感
 let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
 let lastScrollCheck = 0
+let isScrollInProgress = false
 const SCROLL_THROTTLE_MS = 16 // ~60fps
-const LOAD_THRESHOLD = 800 // 距离底部800px时开始加载
+const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载，增加缓冲区
+const PRELOAD_THRESHOLD = 2000 // 距离底部2000px时开始预加载
 
 const handleScroll = () => {
   const now = Date.now()
 
-  // 节流控制：确保不会过于频繁执行
-  if (now - lastScrollCheck < SCROLL_THROTTLE_MS) return
+  // 如果正在处理滚动或节流时间内，跳过
+  if (isScrollInProgress || now - lastScrollCheck < SCROLL_THROTTLE_MS) return
   lastScrollCheck = now
+  isScrollInProgress = true
 
   // 清除之前的定时器
   if (scrollThrottleTimer) {
     clearTimeout(scrollThrottleTimer)
   }
 
-  // 使用微任务延迟执行，避免在滚动过程中阻塞UI
-  scrollThrottleTimer = setTimeout(() => {
-    const scrollTop = window.scrollY || document.documentElement.scrollTop
-    const windowHeight = window.innerHeight
-    const documentHeight = document.documentElement.scrollHeight
+  // 使用 requestAnimationFrame 优化滚动检测
+  requestAnimationFrame(() => {
+    scrollThrottleTimer = setTimeout(() => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      const windowHeight = window.innerHeight
+      const documentHeight = document.documentElement.scrollHeight
 
-    // 距离底部LOAD_THRESHOLD像素时开始加载
-    if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
-      loadMore()
-    }
-  }, 0)
+      // 距离底部PRELOAD_THRESHOLD像素时开始预加载
+      if (scrollTop + windowHeight >= documentHeight - PRELOAD_THRESHOLD) {
+        preloadNextPage()
+      }
+
+      // 距离底部LOAD_THRESHOLD像素时开始加载
+      if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
+        loadMore()
+      }
+
+      isScrollInProgress = false
+    }, 0)
+  })
 }
 
 // 获取相册排序设置
@@ -569,10 +625,14 @@ const selectCategory = async (c: string) => {
   activeCategory.value = c
   currentPage.value = 0
   hasMore.value = true
+  // 清空预加载缓冲区
+  preloadBuffer.value = []
   const cat = c === '全部' ? undefined : c
   const loadSize = getDynamicLoadSize()
   const data = await photoStore.fetchAlbums(0, loadSize, cat, albumSortOrder.value)
   hasMore.value = !data.last
+  // 切换分类时滚动到顶部
+  window.scrollTo({ top: 0, behavior: 'instant' })
 }
 </script>
 
