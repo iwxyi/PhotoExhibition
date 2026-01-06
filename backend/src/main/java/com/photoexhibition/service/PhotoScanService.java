@@ -550,7 +550,7 @@ public class PhotoScanService {
     private void processAlbumDirectory(Path albumPath, boolean force, Album parentAlbum) {
         // 检查应用是否正在关闭
         if (isShuttingDown.get()) {
-            log.debug("应用正在关闭，跳过处理: {}", albumPath);
+            log.debug("应用正在关闭，跳过处理: {}", toRelativePath(albumPath.toString()));
             return;
         }
         
@@ -613,7 +613,7 @@ public class PhotoScanService {
 
                 // 将所有图片归属到父相册中，并递归处理子目录
                 if (parentAlbum != null) {
-                    log.debug("目录 {} 超过最大相册层级 {}，将其图片归属到父相册 {}", albumPath, maxDepth, parentAlbum.getName());
+                    log.debug("目录 {} 超过最大相册层级 {}，将其图片归属到父相册 {}", toRelativePath(albumPath.toString()), maxDepth, parentAlbum.getName());
                     processAlbumImagesRecursively(albumPath, parentAlbum, force);
                 }
                 return;
@@ -671,21 +671,21 @@ public class PhotoScanService {
         } catch (IllegalStateException e) {
             // 应用关闭时的异常，静默处理
             if (e.getMessage() != null && e.getMessage().contains("关闭")) {
-                log.debug("应用关闭，停止处理相册: {}", albumPath);
+                log.debug("应用关闭，停止处理相册: {}", toRelativePath(albumPath.toString()));
             } else {
-                log.warn("处理相册目录失败（应用状态异常）: {}", albumPath, e);
+                log.warn("处理相册目录失败（应用状态异常）: {}", toRelativePath(albumPath.toString()), e);
             }
         } catch (org.springframework.context.ApplicationContextException e) {
             // Spring上下文异常，应用可能正在关闭
-            log.debug("应用上下文异常，停止处理相册: {}", albumPath);
+            log.debug("应用上下文异常，停止处理相册: {}", toRelativePath(albumPath.toString()));
         } catch (Exception e) {
             // 检查是否是应用关闭相关的异常
             String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-            if (errorMsg.contains("closed") || errorMsg.contains("shutdown") || 
+            if (errorMsg.contains("closed") || errorMsg.contains("shutdown") ||
                 errorMsg.contains("context") && errorMsg.contains("close")) {
-                log.debug("应用关闭，停止处理相册: {}", albumPath);
+                log.debug("应用关闭，停止处理相册: {}", toRelativePath(albumPath.toString()));
             } else {
-            log.error("处理相册目录失败: {}", albumPath, e);
+            log.error("处理相册目录失败: {}", toRelativePath(albumPath.toString()), e);
             }
         }
     }
@@ -1318,7 +1318,7 @@ public class PhotoScanService {
             // 例如：base-path/分类/顶级相册名/1级层级 -> 深度为1
             return Math.max(0, nameCount - 2);
         } catch (Exception e) {
-            log.warn("计算相册深度失败: {}", albumPath, e);
+            log.warn("计算相册深度失败: {}", toRelativePath(albumPath.toString()), e);
             return 0;
         }
     }

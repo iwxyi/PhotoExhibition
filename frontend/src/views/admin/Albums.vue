@@ -512,7 +512,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 
@@ -523,6 +523,18 @@ const loading = ref(false)
 const keyword = ref('')
 const showMenuForAlbum = ref<any>(null)
 const menuPosition = ref({ x: 0, y: 0 })
+
+// 相册排序设置
+const albumSortOrder = ref('name_asc')
+
+// 监听排序设置变化，重新加载相册（排除初始化时的第一次设置）
+let isInitialized = false
+watch(albumSortOrder, async (newSort, oldSort) => {
+  if (newSort !== oldSort && isInitialized) {
+    console.log('相册排序设置已更改，重新加载相册列表')
+    await load()
+  }
+})
 
 // 标签相关
 const allTags = ref<any[]>([])
@@ -580,19 +592,31 @@ const availableEffects = ref([
 ])
 const currentEffects = ref<any[]>([])
 
+// 获取相册排序设置
+const loadAlbumSortOrder = async () => {
+  try {
+    const response = await api.get('/admin/config/album-sort-order')
+    const newSort = response.data.albumSortOrder || 'name_asc'
+    albumSortOrder.value = newSort
+  } catch (error) {
+    console.error('获取相册排序设置失败:', error)
+    albumSortOrder.value = 'name_asc'
+  }
+}
+
 const load = async () => {
   loading.value = true
   try {
     // 一次性加载较多相册，前端不再做分页
-    const params: any = { page: 0, size: 1000 }
+    const params: any = { page: 0, size: 1000, sort: albumSortOrder.value }
     const res = await api.get('/albums', { params })
     let content = res.data.content || res.data || []
-    
+
     // 为每个相册提取相对路径（去掉 base-path）
     for (const album of content) {
       album.relativePath = extractRelativePath(album.path)
     }
-    
+
     // 关键词过滤
     if (keyword.value.trim()) {
       const kw = keyword.value.trim().toLowerCase()
@@ -603,7 +627,7 @@ const load = async () => {
         (a.relativePath || '').toLowerCase().includes(kw)
       )
     }
-    
+
     albums.value = content
   } finally {
     loading.value = false
@@ -1192,8 +1216,12 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 
 onMounted(async () => {
   console.log('相册管理页面加载')
-  await loadAllTags()
+  await Promise.all([
+    loadAllTags(),
+    loadAlbumSortOrder()
+  ])
   await load()
+  isInitialized = true // 标记初始化完成，后续的排序设置变化才会触发重新加载
   console.log('相册管理页面加载完成，相册数:', albums.value.length, '标签数:', allTags.value.length)
   window.addEventListener('keydown', handleGlobalKeydown)
 })

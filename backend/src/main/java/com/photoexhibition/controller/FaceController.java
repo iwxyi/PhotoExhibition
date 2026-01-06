@@ -4,11 +4,14 @@ import com.photoexhibition.dto.FaceDTO;
 import com.photoexhibition.dto.FaceClusterDTO;
 import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
+import com.photoexhibition.dto.PersonSimilarityDTO;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.FaceService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +24,7 @@ import java.util.ArrayList;
 @RequestMapping("/admin")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Slf4j
 public class FaceController {
 
     private final FaceService faceService;
@@ -45,8 +49,20 @@ public class FaceController {
     @GetMapping("/faces/unassigned")
     public ResponseEntity<Page<FaceDTO>> unassignedFaces(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(faceService.listUnassignedFaces(PageRequest.of(page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "confidence") String sort,
+            @RequestParam(required = false) Long personId,
+            @RequestParam(required = false) Integer clusterIndex) {
+        if (personId != null) {
+            // 返回与指定人物相似的未分配人脸，按相似度排序
+            return ResponseEntity.ok(faceService.listUnassignedFacesForPerson(personId, PageRequest.of(page, size)));
+        } else if (clusterIndex != null) {
+            // 返回与指定聚类相似的未分配人脸，按相似度排序
+            return ResponseEntity.ok(faceService.listUnassignedFacesForCluster(clusterIndex, PageRequest.of(page, size)));
+        } else {
+            // 返回全局未分配人脸，按指定排序
+            return ResponseEntity.ok(faceService.listUnassignedFaces(PageRequest.of(page, size), sort));
+        }
     }
 
     /**
@@ -230,6 +246,17 @@ public class FaceController {
             @PathVariable int clusterIndex,
             @RequestParam(defaultValue = "0.6") double threshold) {
         return ResponseEntity.ok(faceService.getClusterFaces(clusterIndex, threshold));
+    }
+
+    /**
+     * 获取聚类相似的已确认人物
+     */
+    @GetMapping("/clusters/{clusterIndex}/similar-persons")
+    public ResponseEntity<List<PersonSimilarityDTO>> getSimilarPersonsForCluster(
+            @PathVariable int clusterIndex,
+            @RequestParam(defaultValue = "0.6") double threshold) {
+        List<PersonSimilarityDTO> result = faceService.getSimilarPersonsForCluster(clusterIndex, threshold);
+        return ResponseEntity.ok(result);
     }
 
     /**

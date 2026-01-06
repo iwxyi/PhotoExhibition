@@ -35,6 +35,8 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     Page<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed, Pageable pageable);
 
+    List<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed);
+
     @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person IS NULL AND p.albumId IN :albumIds")
     List<Face> findByPersonIsNullAndPhotoAlbumIdIn(@Param("albumIds") java.util.Set<Long> albumIds);
 

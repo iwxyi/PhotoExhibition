@@ -4,6 +4,7 @@ import com.photoexhibition.dto.FaceDTO;
 import com.photoexhibition.dto.FaceClusterDTO;
 import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
+import com.photoexhibition.dto.PersonSimilarityDTO;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.entity.Photo;
@@ -15,8 +16,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -486,8 +489,168 @@ public class FaceService {
     }
 
     @Transactional(readOnly = true)
-    public Page<FaceDTO> listUnassignedFaces(Pageable pageable) {
-        return faceRepository.findByPersonIsNull(pageable).map(this::toDTO);
+    public Page<FaceDTO> listUnassignedFaces(Pageable pageable, String sort) {
+        // 根据sort参数创建排序
+        Sort sortObj;
+        if ("confidence".equals(sort)) {
+            sortObj = Sort.by(Sort.Direction.DESC, "confidence");
+        } else {
+            sortObj = Sort.unsorted();
+        }
+
+        // 合并分页和排序
+        Pageable pageableWithSort = PageRequest.of(
+            pageable.getPageNumber(),
+            Math.min(pageable.getPageSize(), 100), // 限制最多100项
+            sortObj
+        );
+
+        return faceRepository.findByPersonIsNull(pageableWithSort).map(this::toDTO);
+    }
+
+    /**
+     * 获取与指定人物相似的未分配人脸（相似度在0.4-0.6之间的）
+     */
+    public Page<FaceDTO> listUnassignedFacesForPerson(Long personId, Pageable pageable) {
+        // 获取人物的所有人脸（包括自动分配的），与findSimilarUnassignedFaces保持一致
+        List<Face> personFaces = faceRepository.findByPersonId(personId, PageRequest.of(0, 1000))
+            .getContent();
+        if (personFaces.isEmpty()) {
+            return new PageImpl<>(new ArrayList<>(), pageable, 0);
+        }
+
+        // 计算人物平均特征向量
+        float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(personFaces);
+        if (personAvgEmbedding == null) {
+            return new PageImpl<>(new ArrayList<>(), pageable, 0);
+        }
+
+        // 获取人物的所有照片路径（用于文件夹比较）
+        Set<String> personPhotoPaths = personFaces.stream()
+            .filter(face -> face.getPhoto() != null && face.getPhoto().getOriginalPath() != null)
+            .map(face -> face.getPhoto().getOriginalPath())
+            .collect(Collectors.toSet());
+
+        // 获取所有未分配人脸，计算相似度并分类
+        List<Face> allUnassigned = faceRepository.findByPersonIsNull();
+        List<FaceSimilarity> unassignedCandidates = new ArrayList<>();
+
+        for (Face face : allUnassigned) {
+            if (face.getEmbedding() == null || face.getEmbedding().isEmpty()) continue;
+            if (face.getPhoto() == null || face.getPhoto().getOriginalPath() == null) continue;
+
+            float[] faceEmbedding = parseEmbedding(face.getEmbedding());
+            if (faceEmbedding == null) continue;
+
+            double similarity = cosine(personAvgEmbedding, faceEmbedding);
+            boolean sameFolder = personPhotoPaths.stream()
+                .anyMatch(personPath -> isSameFolder(personPath, face.getPhoto().getOriginalPath()));
+
+            // 相似度<50% 且不在同一个文件夹内的
+            if (similarity < 0.5 && !sameFolder) {
+                unassignedCandidates.add(new FaceSimilarity(face, similarity));
+            }
+        }
+
+        // 按相似度降序排序
+        unassignedCandidates.sort((a, b) -> Double.compare(b.similarity, a.similarity));
+
+        // 限制总数最多100个
+        if (unassignedCandidates.size() > 100) {
+            unassignedCandidates = unassignedCandidates.subList(0, 100);
+        }
+
+        // 手动分页
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), unassignedCandidates.size());
+        List<FaceSimilarity> pageContent = unassignedCandidates.subList(start, end);
+
+        return new PageImpl<>(
+            pageContent.stream().map(fs -> {
+                FaceDTO dto = toDTO(fs.face);
+                dto.setSimilarity(fs.similarity); // 设置相似度
+                return dto;
+            }).collect(Collectors.toList()),
+            pageable,
+            unassignedCandidates.size()
+        );
+    }
+
+    /**
+     * 辅助类，用于存储人脸和相似度
+     */
+    private static class FaceSimilarity {
+        Face face;
+        double similarity;
+
+        FaceSimilarity(Face face, double similarity) {
+            this.face = face;
+            this.similarity = similarity;
+        }
+    }
+
+    /**
+     * 获取与指定聚类相似的未分配人脸（相似度在0.4-0.6之间的）
+     */
+    public Page<FaceDTO> listUnassignedFacesForCluster(Integer clusterIndex, Pageable pageable) {
+        // 获取聚类中的人脸
+        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, 0.6);
+        if (clusterFaces.isEmpty()) {
+            return new PageImpl<>(new ArrayList<>(), pageable, 0);
+        }
+
+        // 获取聚类中所有人脸的ID集合
+        Set<Long> clusterFaceIds = clusterFaces.stream()
+            .map(FaceDTO::getId)
+            .collect(Collectors.toSet());
+
+        // 获取聚类中的Face实体
+        List<Face> clusterFaceEntities = clusterFaces.stream()
+            .map(faceDto -> faceRepository.findById(faceDto.getId()).orElse(null))
+            .filter(face -> face != null)
+            .collect(Collectors.toList());
+
+        // 计算聚类平均特征向量
+        float[] clusterAvgEmbedding = calculateAverageEmbeddingFromEntities(clusterFaceEntities);
+        if (clusterAvgEmbedding == null) {
+            return new PageImpl<>(new ArrayList<>(), pageable, 0);
+        }
+
+        // 获取所有未分配人脸，计算相似度
+        List<Face> allUnassigned = faceRepository.findByPersonIsNull();
+        List<FaceSimilarity> candidates = new ArrayList<>();
+
+        for (Face face : allUnassigned) {
+            if (clusterFaceIds.contains(face.getId())) continue; // 排除已在聚类中的
+
+            if (face.getEmbedding() == null || face.getEmbedding().isEmpty()) continue;
+            float[] faceEmbedding = parseEmbedding(face.getEmbedding());
+            if (faceEmbedding == null) continue;
+
+            double similarity = cosine(clusterAvgEmbedding, faceEmbedding);
+            if (similarity >= 0.4 && similarity < 0.6) { // 相似度在0.4-0.6之间的
+                candidates.add(new FaceSimilarity(face, similarity));
+            }
+        }
+
+        // 按相似度降序排序
+        candidates.sort((a, b) -> Double.compare(b.similarity, a.similarity));
+
+        // 限制总数最多100个
+        if (candidates.size() > 100) {
+            candidates = candidates.subList(0, 100);
+        }
+
+        // 手动分页
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), candidates.size());
+        List<FaceSimilarity> pageContent = candidates.subList(start, end);
+
+        return new PageImpl<>(
+            pageContent.stream().map(fs -> toDTO(fs.face)).collect(Collectors.toList()),
+            pageable,
+            candidates.size()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -731,6 +894,19 @@ public class FaceService {
      * 获取与指定人物相似但未分配的人脸
      * 改进：使用该人物所有人脸的平均向量作为基准，提高准确率
      */
+    /**
+     * 检查两张照片是否在同一个文件夹内
+     */
+    private boolean isSameFolder(String path1, String path2) {
+        if (path1 == null || path2 == null) return false;
+
+        // 获取父目录路径
+        java.nio.file.Path p1 = java.nio.file.Paths.get(path1).getParent();
+        java.nio.file.Path p2 = java.nio.file.Paths.get(path2).getParent();
+
+        return p1 != null && p2 != null && p1.equals(p2);
+    }
+
     @Transactional(readOnly = true)
     public List<FaceDTO> findSimilarUnassignedFaces(Long personId, int top, double threshold) {
         // 获取该人物的所有人脸
@@ -749,11 +925,11 @@ public class FaceService {
                 personVectors.add(vec);
             }
         }
-        
+
         if (personVectors.isEmpty()) {
             return new ArrayList<>();
         }
-        
+
         // 计算平均向量
         int dim = personVectors.get(0).length;
         float[] avgVec = new float[dim];
@@ -766,7 +942,7 @@ public class FaceService {
         for (int i = 0; i < dim; i++) {
             avgVec[i] /= count;
         }
-        
+
         // 归一化
         double norm = 0;
         for (float v : avgVec) {
@@ -779,16 +955,29 @@ public class FaceService {
             }
         }
 
+        // 获取人物的所有照片路径（用于文件夹比较）
+        Set<String> personPhotoPaths = personFaces.stream()
+            .filter(face -> face.getPhoto() != null && face.getPhoto().getOriginalPath() != null)
+            .map(face -> face.getPhoto().getOriginalPath())
+            .collect(Collectors.toSet());
+
         // 查找所有未分配的人脸
         List<Face> unassigned = faceRepository.findByPersonIsNull();
         List<FaceDTO> result = new ArrayList<>();
 
         for (Face f : unassigned) {
             if (f.getEmbedding() == null || f.getEmbedding().isEmpty()) continue;
+            if (f.getPhoto() == null || f.getPhoto().getOriginalPath() == null) continue;
+
             float[] vec = parseEmbedding(f.getEmbedding());
             if (vec == null) continue;
+
             double sim = cosine(avgVec, vec);
-            if (sim >= threshold) {
+            boolean sameFolder = personPhotoPaths.stream()
+                .anyMatch(personPath -> isSameFolder(personPath, f.getPhoto().getOriginalPath()));
+
+            // 相似度>=50% 或者 (同一个文件夹内且相似度>=40%)
+            if (sim >= 0.5 || (sameFolder && sim >= 0.4)) {
                 FaceDTO dto = toDTO(f);
                 dto.setSimilarity(sim);
                 result.add(dto);
@@ -799,6 +988,15 @@ public class FaceService {
             b.getSimilarity() != null ? b.getSimilarity() : 0,
             a.getSimilarity() != null ? a.getSimilarity() : 0
         ));
+
+        // 记录所有符合条件的相似度分布
+        if (!result.isEmpty()) {
+            log.info("相似推荐结果: 总共{}张, 相似度范围: {} - {}",
+                result.size(),
+                result.get(result.size()-1).getSimilarity(),
+                result.get(0).getSimilarity());
+        }
+
         if (result.size() > top) {
             return result.subList(0, top);
         }
@@ -1264,12 +1462,12 @@ public class FaceService {
             personProfileRepository.save(person);
         }
 
-        // 绑定所有人脸（创建时默认为自动分配，用户需要手动确认）
+        // 绑定所有人脸（创建时直接设为已确认，跳过自动分配步骤）
         for (Long faceId : faceIds) {
             Face face = faceRepository.findById(faceId)
                 .orElseThrow(() -> new RuntimeException("人脸不存在: " + faceId));
             face.setPerson(person);
-            face.setIsConfirmed(false); // 创建时默认为自动分配，用户需要手动确认
+            face.setIsConfirmed(true); // 创建时直接设为已确认
             faceRepository.save(face);
         }
 
@@ -1515,6 +1713,101 @@ public class FaceService {
         } catch (Exception e) {
             return absolutePath;
         }
+    }
+
+    /**
+     * 计算聚类与已确认人物的相似度
+     */
+    @Transactional(readOnly = true)
+    public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double threshold) {
+        // 获取聚类中的人脸
+        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, threshold);
+        if (clusterFaces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 获取聚类中的Face实体（而不是DTO），因为需要embedding
+        List<Face> clusterFaceEntities = clusterFaces.stream()
+            .map(faceDto -> faceRepository.findById(faceDto.getId()).orElse(null))
+            .filter(face -> face != null)
+            .collect(Collectors.toList());
+
+        // 计算聚类平均特征向量
+        float[] clusterAvgEmbedding = calculateAverageEmbeddingFromEntities(clusterFaceEntities);
+        if (clusterAvgEmbedding == null) {
+            return new ArrayList<>();
+        }
+
+        // 获取所有已确认人物
+        List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
+        List<PersonSimilarityDTO> similarities = new ArrayList<>();
+
+        for (PersonProfile person : confirmedPersons) {
+            // 获取人物的所有已确认人脸
+            List<Face> personFaces = faceRepository.findByPersonIdAndIsConfirmed(person.getId(), true);
+            if (personFaces.isEmpty()) continue;
+
+            // 计算人物平均特征向量
+            float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(personFaces);
+
+            if (personAvgEmbedding != null) {
+                double similarity = cosine(clusterAvgEmbedding, personAvgEmbedding);
+                similarities.add(new PersonSimilarityDTO(person.getId(), person.getName(), similarity));
+            }
+        }
+
+        // 按相似度降序排序，取前5个
+        return similarities.stream()
+            .sorted((a, b) -> Double.compare(b.getSimilarity(), a.getSimilarity()))
+            .limit(5)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 计算人脸实体列表的平均特征向量
+     */
+    private float[] calculateAverageEmbeddingFromEntities(List<Face> faces) {
+        if (faces.isEmpty()) {
+            return null;
+        }
+
+        int vectorSize = 512; // 假设特征向量长度为512
+        float[] avgVector = new float[vectorSize];
+
+        int validFaces = 0;
+        for (Face face : faces) {
+            float[] embedding = parseEmbedding(face.getEmbedding());
+            if (embedding != null && embedding.length == vectorSize) {
+                for (int i = 0; i < vectorSize; i++) {
+                    avgVector[i] += embedding[i];
+                }
+                validFaces++;
+            }
+        }
+
+        if (validFaces == 0) {
+            return null;
+        }
+
+        // 计算平均值
+        for (int i = 0; i < vectorSize; i++) {
+            avgVector[i] /= validFaces;
+        }
+
+        return avgVector;
+    }
+
+    /**
+     * 计算人脸DTO列表的平均特征向量（保留原有方法以防其他地方使用）
+     */
+    private float[] calculateAverageEmbedding(List<FaceDTO> faces) {
+        if (faces.isEmpty()) {
+            log.debug("人脸DTO列表为空，无法计算平均特征向量");
+            return null;
+        }
+
+        log.warn("calculateAverageEmbedding方法被调用，但FaceDTO没有embedding字段，请使用calculateAverageEmbeddingFromEntities方法");
+        return null;
     }
 
     /**
