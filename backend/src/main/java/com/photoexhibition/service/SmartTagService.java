@@ -118,6 +118,9 @@ public class SmartTagService {
             photo.setTags(new HashSet<>());
         }
 
+        // 记录生成的智能标签
+        log.info("AI分类生成 {} 个标签: [{}]", names.size(), String.join(", ", names));
+
         // 添加新生成的智能标签（避免重复添加）
         for (String name : names) {
             Tag tag = tagRepository.findByName(name)
@@ -128,7 +131,7 @@ public class SmartTagService {
                 });
             // 检查是否已经包含此标签，避免重复添加导致主键冲突
             if (!photo.getTags().contains(tag)) {
-                photo.getTags().add(tag);
+            photo.getTags().add(tag);
             }
         }
     }

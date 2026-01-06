@@ -91,18 +91,87 @@
         </div>
       </section>
 
-      <!-- 保存按钮 -->
-      <div class="glass-panel p-6">
-        <div class="flex items-center justify-end">
-          <button
-            @click="saveSettings"
-            :disabled="saving"
-            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
-          >
-            {{ saving ? '保存中...' : '保存设置' }}
-          </button>
+      <!-- 相册排序方式设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">相册排序方式</h2>
+            <p class="text-xs text-gray-400">
+              设置相册列表的显示顺序，影响相册卡片的排列。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              控制相册在主页和相册列表页面的排序显示。
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <select
+              v-model="albumSortOrder"
+              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="name_asc">相册名称正序</option>
+              <option value="name_desc">相册名称倒序</option>
+              <option value="latest_photo_taken_desc">相册拍摄时间倒序</option>
+              <option value="latest_photo_taken_asc">相册拍摄时间正序</option>
+              <option value="album_name_date_desc">相册名时间倒序</option>
+              <option value="album_name_date_asc">相册名时间正序</option>
+              <option value="created_at_desc">创建时间倒序</option>
+              <option value="created_at_asc">创建时间正序</option>
+            </select>
+          </div>
         </div>
-      </div>
+
+        <!-- 排序说明 -->
+        <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-blue-300 mb-2">排序说明</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 相册名称：按照相册文件夹名称排序</p>
+            <p>• 相册拍摄时间：按照相册中最晚的照片拍摄时间排序（聚合相册包含所有子相册的照片）</p>
+            <p>• 相册名时间：从相册名称或上级路径中解析的时间，支持嵌套继承（如：2025.01.01、2025-01-01）</p>
+            <p>• 创建时间：按照相册首次创建的时间排序</p>
+            <p>• 倒序：最新的/最大的排在前面，正序：最旧的/最小的排在前面</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 图墙排序方式设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">图墙排序方式</h2>
+            <p class="text-xs text-gray-400">
+              设置图墙页面的照片显示顺序，影响随机图墙和分类图墙的照片排列。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              不同于相册内的照片排序，这是全局图墙的排序设置。
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <select
+              v-model="wallSortOrder"
+              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="taken_at_desc">拍摄时间倒序</option>
+              <option value="taken_at_asc">拍摄时间正序</option>
+              <option value="filename_desc">文件名倒序</option>
+              <option value="filename_asc">文件名正序</option>
+              <option value="created_at_desc">创建时间倒序</option>
+              <option value="created_at_asc">创建时间正序</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 排序说明 -->
+        <div class="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-purple-300 mb-2">排序说明</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 拍摄时间：按照片EXIF信息中的拍摄时间排序</p>
+            <p>• 文件名：按照片文件名（不含扩展名）排序</p>
+            <p>• 创建时间：按照片入库时间排序</p>
+            <p>• 倒序：最新的/最大的排在前面，正序：最旧的/最小的排在前面</p>
+          </div>
+        </div>
+      </section>
+
 
       <!-- 重新扫描提示 -->
       <section v-if="settingsChanged" class="glass-panel p-6 space-y-4">
@@ -140,6 +209,19 @@
         <p>• 重新扫描会根据新的层级设置重建相册结构，已有的相册可能被合并或删除。</p>
         <p>• 如果相册数量变化较大，建议在访问量较小的时间段进行操作。</p>
       </section>
+
+      <!-- 保存按钮 -->
+      <div class="glass-panel p-6 sticky bottom-0 z-10 bg-gray-900/95 backdrop-blur-sm border-t border-gray-700/50">
+        <div class="flex items-center justify-end">
+          <button
+            @click="saveSettings"
+            :disabled="saving"
+            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+          >
+            {{ saving ? '保存中...' : '保存设置' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -155,6 +237,10 @@ const maxAlbumDepth = ref(1)
 const originalMaxAlbumDepth = ref(1)
 const photoSortOrder = ref('taken_at_desc')
 const originalPhotoSortOrder = ref('taken_at_desc')
+const albumSortOrder = ref('name_asc')
+const originalAlbumSortOrder = ref('name_asc')
+const wallSortOrder = ref('taken_at_desc')
+const originalWallSortOrder = ref('taken_at_desc')
 const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
@@ -166,6 +252,10 @@ const loadSettings = async () => {
     originalMaxAlbumDepth.value = response.data.maxAlbumDepth
     photoSortOrder.value = response.data.photoSortOrder
     originalPhotoSortOrder.value = response.data.photoSortOrder
+    albumSortOrder.value = response.data.albumSortOrder || 'name_asc'
+    originalAlbumSortOrder.value = response.data.albumSortOrder || 'name_asc'
+    wallSortOrder.value = response.data.wallSortOrder || 'taken_at_desc'
+    originalWallSortOrder.value = response.data.wallSortOrder || 'taken_at_desc'
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -181,18 +271,30 @@ const saveSettings = async () => {
 
   // 如果设置发生变化，提醒用户需要重新扫描
   const albumDepthChanged = maxAlbumDepth.value !== originalMaxAlbumDepth.value
-  const sortOrderChanged = photoSortOrder.value !== originalPhotoSortOrder.value
+  const photoSortChanged = photoSortOrder.value !== originalPhotoSortOrder.value
+  const albumSortChanged = albumSortOrder.value !== originalAlbumSortOrder.value
+  const wallSortChanged = wallSortOrder.value !== originalWallSortOrder.value
 
-  if (albumDepthChanged || sortOrderChanged) {
+  if (albumDepthChanged || photoSortChanged || albumSortChanged || wallSortChanged) {
     let message = '⚠️ 设置已修改 ⚠️\n\n'
 
     if (albumDepthChanged) {
       message += `最大相册层级将从 ${originalMaxAlbumDepth.value} 改为 ${maxAlbumDepth.value}\n`
     }
-    if (sortOrderChanged) {
+    if (photoSortChanged) {
       const oldSortName = getSortOrderName(originalPhotoSortOrder.value)
       const newSortName = getSortOrderName(photoSortOrder.value)
       message += `照片排序方式将从 "${oldSortName}" 改为 "${newSortName}"\n`
+    }
+    if (albumSortChanged) {
+      const oldAlbumSortName = getSortOrderName(originalAlbumSortOrder.value)
+      const newAlbumSortName = getSortOrderName(albumSortOrder.value)
+      message += `相册排序方式将从 "${oldAlbumSortName}" 改为 "${newAlbumSortName}"\n`
+    }
+    if (wallSortChanged) {
+      const oldWallSortName = getSortOrderName(originalWallSortOrder.value)
+      const newWallSortName = getSortOrderName(wallSortOrder.value)
+      message += `图墙排序方式将从 "${oldWallSortName}" 改为 "${newWallSortName}"\n`
     }
 
     message += '\n下次扫描时，相册结构将根据新设置重新构建。\n'
@@ -217,16 +319,35 @@ const saveSettings = async () => {
     }
 
     // 保存照片排序方式
-    if (sortOrderChanged) {
+    if (photoSortChanged) {
       await api.put('/admin/config/photo-sort-order', {
         photoSortOrder: photoSortOrder.value
       })
     }
 
-    alert('设置保存成功')
+    // 保存相册排序方式
+    if (albumSortChanged) {
+      await api.put('/admin/config/album-sort-order', {
+        albumSortOrder: albumSortOrder.value
+      })
+    }
+
+    // 保存图墙排序方式
+    if (wallSortChanged) {
+      await api.put('/admin/config/wall-sort-order', {
+        wallSortOrder: wallSortOrder.value
+      })
+    }
+
+    // 设置保存成功，不再显示alert弹窗
     originalMaxAlbumDepth.value = maxAlbumDepth.value
     originalPhotoSortOrder.value = photoSortOrder.value
-    settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value || photoSortOrder.value !== originalPhotoSortOrder.value
+    originalAlbumSortOrder.value = albumSortOrder.value
+    originalWallSortOrder.value = wallSortOrder.value
+    settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
+                           photoSortOrder.value !== originalPhotoSortOrder.value ||
+                           albumSortOrder.value !== originalAlbumSortOrder.value ||
+                           wallSortOrder.value !== originalWallSortOrder.value
   } catch (error: any) {
     alert('保存设置失败: ' + (error.response?.data?.error || error.message))
   } finally {
@@ -259,14 +380,23 @@ const getSortOrderName = (sortOrder: string): string => {
     'filename_desc': '文件名倒序',
     'filename_asc': '文件名正序',
     'created_at_desc': '创建时间倒序',
-    'created_at_asc': '创建时间正序'
+    'created_at_asc': '创建时间正序',
+    'name_desc': '相册名称倒序',
+    'name_asc': '相册名称正序',
+    'latest_photo_taken_desc': '相册拍摄时间倒序',
+    'latest_photo_taken_asc': '相册拍摄时间正序',
+    'album_name_date_desc': '相册名时间倒序',
+    'album_name_date_asc': '相册名时间正序'
   }
   return names[sortOrder] || '拍摄时间倒序'
 }
 
 // 监听设置变化
 const checkSettingsChanged = () => {
-  settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value || photoSortOrder.value !== originalPhotoSortOrder.value
+  settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
+                         photoSortOrder.value !== originalPhotoSortOrder.value ||
+                         albumSortOrder.value !== originalAlbumSortOrder.value ||
+                         wallSortOrder.value !== originalWallSortOrder.value
 }
 
 onMounted(() => {

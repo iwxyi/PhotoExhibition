@@ -3,6 +3,7 @@ package com.photoexhibition.controller;
 import com.photoexhibition.dto.AlbumDTO;
 import com.photoexhibition.entity.AdminUser;
 import com.photoexhibition.repository.AdminUserRepository;
+import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.DataCleanupService;
 import com.photoexhibition.service.PhotoScanService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class AdminController {
     private final PhotoScanService photoScanService;
     private final AdminUserRepository adminUserRepository;
     private final DataCleanupService dataCleanupService;
+    private final AlbumService albumService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
@@ -358,4 +360,24 @@ public class AdminController {
             return ResponseEntity.status(500).body(resp);
         }
     }
+
+    /**
+     * 更新相册时间字段
+     * 重新计算所有相册的拍摄时间和相册名时间
+     */
+    @PostMapping("/albums/update-times")
+    public ResponseEntity<Map<String, Object>> updateAlbumTimes() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            albumService.updateAlbumTimeFields();
+            resp.put("message", "相册时间字段更新完成");
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "更新相册时间失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
 }

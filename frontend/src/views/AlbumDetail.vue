@@ -758,7 +758,7 @@ const performCoverTransition = async (): Promise<boolean> => {
     // 等待 DOM 更新完成
     await nextTick()
     
-    // 找到对应的照片元素
+    // 找到对应的照片元素，并等待瀑布流布局完成
     const transitions: Array<{
       photoId: number
       fromRect: DOMRect
@@ -773,7 +773,27 @@ const performCoverTransition = async (): Promise<boolean> => {
       const img = photoElement.querySelector('img') as HTMLImageElement
       if (!img) continue
       
-      const toRect = photoElement.getBoundingClientRect()
+      // 等待目标元素具有有效的尺寸（瀑布流可能需要额外时间布局）
+      let toRect: DOMRect
+      let attempts = 0
+      const maxAttempts = 10 // 最多等待10次
+
+      do {
+        toRect = photoElement.getBoundingClientRect()
+        attempts++
+
+        // 如果尺寸无效（宽度或高度为0或小于最小阈值），等待一下再试
+        if (toRect.width <= 1 || toRect.height <= 1) {
+          await new Promise(resolve => setTimeout(resolve, 50))
+        }
+      } while ((toRect.width <= 1 || toRect.height <= 1) && attempts < maxAttempts)
+
+      // 如果仍然没有有效的尺寸，使用默认的合理尺寸
+      if (toRect.width <= 1 || toRect.height <= 1) {
+        console.warn(`目标元素尺寸无效，使用默认尺寸 (photoId: ${photoId}, width: ${toRect.width}, height: ${toRect.height})`)
+        // 使用原始尺寸作为默认值，避免动画变成一条线
+        toRect = new DOMRect(toRect.left, toRect.top, fromRectData.width, fromRectData.height)
+      }
       
       transitions.push({
         photoId,

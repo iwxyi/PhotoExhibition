@@ -26,9 +26,12 @@ public class AlbumController {
     public ResponseEntity<Page<AlbumDTO>> getAllAlbums(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size,
-            @RequestParam(required = false) String category) {
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String sort) {
+        System.out.println("后端调试: getAllAlbums调用, page=" + page + ", size=" + size + ", category=" + category + ", sort=" + sort);
         Pageable pageable = PageRequest.of(page, size);
-        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category);
+        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort);
+        System.out.println("后端调试: 返回相册数量: " + albums.getContent().size());
         return ResponseEntity.ok(albums);
     }
 

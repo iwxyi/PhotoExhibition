@@ -53,6 +53,12 @@ public class Album {
     @Column(name = "atmosphere_last_updated")
     private LocalDateTime atmosphereLastUpdated;
 
+    @Column(name = "latest_photo_taken_at")
+    private LocalDateTime latestPhotoTakenAt;
+
+    @Column(name = "album_name_date")
+    private LocalDateTime albumNameDate;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

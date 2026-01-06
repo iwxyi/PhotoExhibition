@@ -93,11 +93,13 @@ export const usePhotoStore = defineStore('photo', () => {
   const currentPhoto = ref<Photo | null>(null)
   const loading = ref(false)
 
-  const fetchAlbums = async (page = 0, size = 12, category?: string) => {
-    loading.value = true
+  const fetchAlbums = async (page = 0, size = 12, category?: string, sort?: string, setLoading = true) => {
+    const wasLoading = loading.value
+    if (setLoading) loading.value = true
     try {
       const params: any = { page, size }
       if (category) params.category = category
+      if (sort) params.sort = sort
       const response = await api.get('/albums', { params })
       // 合并并去重（按 id）
       const incoming: Album[] = response.data.content || []
@@ -113,7 +115,8 @@ export const usePhotoStore = defineStore('photo', () => {
       }
       return response.data
     } finally {
-      loading.value = false
+      if (setLoading) loading.value = false
+      else loading.value = wasLoading // 恢复原来的loading状态
     }
   }
 

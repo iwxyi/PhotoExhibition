@@ -86,10 +86,11 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
+import { api } from '@/api'
 import AlbumCard from '@/components/AlbumCard.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
@@ -109,7 +110,21 @@ const hasMore = ref(true)
 const activeCategory = ref('全部')
 const savedScrollTop = ref(0)
 const isLoadingMore = ref(false)
+const albumSortOrder = ref('name_asc')
 const { coverSize } = useUiSettings()
+
+// 监听排序设置变化，重新获取数据
+watch(albumSortOrder, async (newSort, oldSort) => {
+  if (newSort !== oldSort) {
+    // 重新获取相册数据
+    currentPage.value = 0
+    hasMore.value = true
+    const loadSize = getDynamicLoadSize()
+    const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
+    const data = await photoStore.fetchAlbums(0, loadSize, cat, newSort)
+    hasMore.value = !data.last
+  }
+})
 const coverGridClass = computed(() => {
   if (coverSize.value === 'sm') {
     return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
@@ -415,38 +430,28 @@ const performAlbumBackTransitionIfNeeded = async () => {
 const loadMore = async () => {
   // 防止重复加载
   if (loading.value || isLoadingMore.value || !hasMore.value) return
-  
+
   // 保存当前滚动位置
   const scrollTop = window.scrollY || document.documentElement.scrollTop
-  
+
   try {
     isLoadingMore.value = true
     currentPage.value++
     const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
-    
-    // 直接调用 API，不通过 store，避免触发 loading
-    const { api } = await import('@/api')
+
     // 无限滚动时加载当前显示列数的2倍作为增量
     const loadSize = Math.max(12, getCurrentGridColumns() * 2)
-    const params: any = { page: currentPage.value, size: loadSize }
-    if (cat) params.category = cat
-    const response = await api.get('/albums', { params })
-    const data = response.data
-    
+
+    // 通过 photoStore 加载更多数据，确保排序一致性
+    const data = await photoStore.fetchAlbums(currentPage.value, loadSize, cat, albumSortOrder.value, false)
+
     if (!data || !data.content || data.content.length === 0) {
       hasMore.value = false
       return
     }
-    
-    // 通过 store 追加数据，但避免重复项（按 id 去重）
-    const merged = [...photoStore.albums, ...data.content]
-    const seen = new Map<number, any>()
-    merged.forEach((a: any) => {
-      if (!seen.has(a.id)) seen.set(a.id, a)
-    })
-    photoStore.albums = Array.from(seen.values())
+
     hasMore.value = !data.last
-    
+
     // 恢复滚动位置
     nextTick(() => {
       window.scrollTo({ top: scrollTop, behavior: 'instant' })
@@ -496,11 +501,27 @@ const handleScroll = () => {
   }, 0)
 }
 
+// 获取相册排序设置
+const loadAlbumSortOrder = async () => {
+  try {
+    const response = await api.get('/admin/config/album-sort-order')
+    const newSort = response.data.albumSortOrder || 'name_asc'
+    albumSortOrder.value = newSort
+  } catch (error) {
+    console.error('获取相册排序设置失败:', error)
+    albumSortOrder.value = 'name_asc'
+  }
+}
+
 onMounted(async () => {
   try {
-    await photoStore.fetchCategories()
+    await Promise.all([
+      photoStore.fetchCategories(),
+      loadAlbumSortOrder()
+    ])
+
     const loadSize = getDynamicLoadSize()
-    const data = await photoStore.fetchAlbums(0, loadSize, undefined)
+    const data = await photoStore.fetchAlbums(0, loadSize, undefined, albumSortOrder.value)
     hasMore.value = !data.last
     window.addEventListener('scroll', handleScroll, { passive: true })
 
@@ -550,7 +571,7 @@ const selectCategory = async (c: string) => {
   hasMore.value = true
   const cat = c === '全部' ? undefined : c
   const loadSize = getDynamicLoadSize()
-  const data = await photoStore.fetchAlbums(0, loadSize, cat)
+  const data = await photoStore.fetchAlbums(0, loadSize, cat, albumSortOrder.value)
   hasMore.value = !data.last
 }
 </script>

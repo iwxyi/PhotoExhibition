@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,9 +26,16 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -67,15 +75,24 @@ public class AlbumService {
      * 获取所有相册并生成封面（只返回有照片的相册或开启了聚合的相册）
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
-    public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category) {
+    public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort) {
+        System.out.println("后端调试: getAllAlbumsWithCover, category=" + category + ", sort=" + sort);
+        // 根据排序参数创建带有排序的Pageable
+        Pageable sortedPageable = createSortedPageable(pageable, sort);
+        System.out.println("后端调试: sortedPageable=" + sortedPageable);
+
         Page<Album> albums;
         if (category != null && !category.isEmpty()) {
             String prefix = buildCategoryPrefix(category);
-            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, pageable);
+            System.out.println("后端调试: 查询分类相册, prefix=" + prefix);
+            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, sortedPageable);
         } else {
             // 查询有照片的相册或开启了聚合功能的相册
-            albums = albumRepository.findAlbumsWithPhotosOrAggregation(pageable);
+            System.out.println("后端调试: 查询所有相册");
+            albums = albumRepository.findAlbumsWithPhotosOrAggregation(sortedPageable);
         }
+
+        System.out.println("后端调试: 查询到相册数量: " + albums.getContent().size());
 
         // 过滤掉被聚合的相册
         List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
@@ -899,6 +916,121 @@ public class AlbumService {
     }
 
     /**
+     * 根据排序参数创建带有排序的Pageable
+     */
+    private Pageable createSortedPageable(Pageable pageable, String sort) {
+        System.out.println("后端调试: createSortedPageable, sort=" + sort);
+        if (sort == null || sort.isEmpty()) {
+            // 默认按名称升序排序
+            Sort defaultSort = Sort.by(Sort.Direction.ASC, "name");
+            System.out.println("后端调试: 使用默认排序: " + defaultSort);
+            return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), defaultSort);
+        }
+
+        Sort sortObj;
+        switch (sort) {
+            case SystemConfigService.SORT_BY_NAME_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "name");
+                System.out.println("后端调试: 应用名称升序排序");
+                break;
+            case SystemConfigService.SORT_BY_NAME_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "name");
+                System.out.println("后端调试: 应用名称降序排序");
+                break;
+            case SystemConfigService.SORT_BY_CREATED_AT_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "createdAt");
+                System.out.println("后端调试: 应用创建时间升序排序");
+                break;
+            case SystemConfigService.SORT_BY_CREATED_AT_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "createdAt");
+                System.out.println("后端调试: 应用创建时间降序排序");
+                break;
+            case SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "latestPhotoTakenAt");
+                System.out.println("后端调试: 应用拍摄时间升序排序");
+                break;
+            case SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "latestPhotoTakenAt");
+                System.out.println("后端调试: 应用拍摄时间降序排序");
+                break;
+            case SystemConfigService.SORT_BY_ALBUM_NAME_DATE_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "albumNameDate");
+                System.out.println("后端调试: 应用相册名时间升序排序");
+                break;
+            case SystemConfigService.SORT_BY_ALBUM_NAME_DATE_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "albumNameDate");
+                System.out.println("后端调试: 应用相册名时间降序排序");
+                break;
+            default:
+                // 默认按名称升序排序
+                sortObj = Sort.by(Sort.Direction.ASC, "name");
+                System.out.println("后端调试: 使用默认名称升序排序");
+                break;
+        }
+
+        Pageable result = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortObj);
+        System.out.println("后端调试: 返回Pageable: " + result);
+        return result;
+    }
+
+    /**
+     * 根据排序参数对相册列表进行排序（备用方法）
+     */
+    private List<Album> sortAlbums(List<Album> albums, String sort) {
+        if (albums == null || albums.isEmpty()) {
+            return albums;
+        }
+
+        switch (sort) {
+            case SystemConfigService.SORT_BY_NAME_ASC:
+                return albums.stream()
+                    .sorted(Comparator.comparing(Album::getName, String.CASE_INSENSITIVE_ORDER))
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_NAME_DESC:
+                return albums.stream()
+                    .sorted(Comparator.comparing(Album::getName, String.CASE_INSENSITIVE_ORDER).reversed())
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_CREATED_AT_ASC:
+                return albums.stream()
+                    .sorted(Comparator.comparing(Album::getCreatedAt))
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_CREATED_AT_DESC:
+                return albums.stream()
+                    .sorted(Comparator.comparing(Album::getCreatedAt).reversed())
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_ASC:
+                return albums.stream()
+                    .sorted(Comparator.comparing((Album a) -> a.getLatestPhotoTakenAt(), Comparator.nullsLast(Comparator.naturalOrder())))
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_DESC:
+                return albums.stream()
+                    .sorted(Comparator.comparing((Album a) -> a.getLatestPhotoTakenAt(), Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_ALBUM_NAME_DATE_ASC:
+                return albums.stream()
+                    .sorted(Comparator.comparing((Album a) -> a.getAlbumNameDate(), Comparator.nullsLast(Comparator.naturalOrder())))
+                    .collect(Collectors.toList());
+
+            case SystemConfigService.SORT_BY_ALBUM_NAME_DATE_DESC:
+                return albums.stream()
+                    .sorted(Comparator.comparing((Album a) -> a.getAlbumNameDate(), Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                    .collect(Collectors.toList());
+
+            default:
+                // 默认按名称升序排序
+                return albums.stream()
+                    .sorted(Comparator.comparing(Album::getName, String.CASE_INSENSITIVE_ORDER))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    /**
      * 验证排序方式是否有效
      */
     private boolean isValidSortOrder(String sortOrder) {
@@ -908,6 +1040,273 @@ public class AlbumService {
                SystemConfigService.SORT_BY_FILENAME_ASC.equals(sortOrder) ||
                SystemConfigService.SORT_BY_CREATED_AT_DESC.equals(sortOrder) ||
                SystemConfigService.SORT_BY_CREATED_AT_ASC.equals(sortOrder);
+    }
+
+    /**
+     * 更新相册的时间字段
+     */
+    @Transactional
+    public void updateAlbumTimeFields() {
+        List<Album> allAlbums = albumRepository.findAll();
+        for (Album album : allAlbums) {
+            updateSingleAlbumTimeFields(album);
+        }
+        log.info("已更新 {} 个相册的时间字段", allAlbums.size());
+    }
+
+    /**
+     * 更新单个相册的时间字段
+     */
+    @Transactional
+    public void updateSingleAlbumTimeFields(Album album) {
+        // 获取相册的所有照片（如果是聚合相册，需要递归获取所有子相册的照片）
+        List<Photo> photos = getAllPhotosForAlbum(album);
+
+        // 计算相册拍摄时间（最晚的照片拍摄时间）
+        LocalDateTime latestPhotoTakenAt = calculateLatestPhotoTakenAt(photos, album);
+
+        // 计算相册名时间（从相册路径解析时间，支持向上查找）
+        LocalDateTime albumNameDate = parseDateFromAlbumPath(album.getPath());
+
+
+        // 更新相册
+        album.setLatestPhotoTakenAt(latestPhotoTakenAt);
+        album.setAlbumNameDate(albumNameDate);
+        albumRepository.save(album);
+    }
+
+    /**
+     * 获取相册的所有照片（如果是聚合相册，包含所有子相册的照片）
+     */
+    private List<Photo> getAllPhotosForAlbum(Album album) {
+        List<Long> albumIds = new ArrayList<>();
+        albumIds.add(album.getId());
+
+        // 如果相册开启了聚合，递归收集所有子相册ID
+        if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+            addSubAlbumIds(album.getPath(), albumIds);
+        }
+
+        // 获取所有相关相册的照片
+        List<Photo> allPhotos = new ArrayList<>();
+        for (Long albumId : albumIds) {
+            Page<Photo> photoPage = photoRepository.findByAlbumId(albumId, PageRequest.of(0, Integer.MAX_VALUE));
+            allPhotos.addAll(photoPage.getContent());
+        }
+
+        return allPhotos;
+    }
+
+    /**
+     * 计算相册中最晚的照片拍摄时间
+     */
+    private LocalDateTime calculateLatestPhotoTakenAt(List<Photo> photos, Album album) {
+        if (photos.isEmpty()) {
+            return null;
+        }
+
+        // 优先使用拍摄时间（最晚的）
+        Optional<LocalDateTime> latestTakenAt = photos.stream()
+            .filter(photo -> photo.getTakenAt() != null)
+            .map(Photo::getTakenAt)
+            .max(Comparator.naturalOrder());
+
+        if (latestTakenAt.isPresent()) {
+            return latestTakenAt.get();
+        }
+
+        // 如果相册内所有图片都没有拍摄时间，优先使用相册名时间
+        LocalDateTime albumNameDate = parseDateFromAlbumPath(album.getPath());
+        if (albumNameDate != null) {
+            return albumNameDate;
+        }
+
+        // 最后使用最早的文件创建时间
+        return photos.stream()
+            .filter(photo -> photo.getCreatedAt() != null)
+            .map(Photo::getCreatedAt)
+            .min(Comparator.naturalOrder())  // 使用 min 而不是 max，获取最早的时间
+            .orElse(null);
+    }
+
+    /**
+     * 从相册路径中解析时间（支持向上查找父路径）
+     * 优先级：当前相册名称 > 父路径中的时间
+     * 支持格式：2025.01.01, 2025-01-01, 2025.01.01 9:10 等
+     */
+    private LocalDateTime parseDateFromAlbumPath(String albumPath) {
+        if (albumPath == null || albumPath.trim().isEmpty()) {
+            return null;
+        }
+
+        // 获取相对于base-path的路径部分
+        String relativePath = getRelativePath(albumPath);
+        if (relativePath == null || relativePath.isEmpty()) {
+            return null;
+        }
+
+        // 分割路径为各级目录
+        String[] pathParts = relativePath.split("[/\\\\]");
+        if (pathParts.length == 0) {
+            return null;
+        }
+
+        // 从最深层开始向上查找（优先使用当前相册名称的时间）
+        for (int i = pathParts.length - 1; i >= 0; i--) {
+            String folderName = pathParts[i].trim();
+            if (!folderName.isEmpty()) {
+                LocalDateTime parsedTime = parseDateFromFolderName(folderName);
+                if (parsedTime != null) {
+                    return parsedTime;
+                }
+            }
+        }
+
+
+        return null;  // 没有找到匹配的时间格式
+    }
+
+    /**
+     * 获取相对于base-path的路径
+     */
+    private String getRelativePath(String fullPath) {
+        if (fullPath == null) {
+            return null;
+        }
+
+
+        // 尝试多种方式匹配base-path
+        String[] possibleBasePaths = {
+            photoBasePath,  // 原始配置路径
+            Paths.get(photoBasePath).toAbsolutePath().toString(),  // 绝对路径
+            Paths.get(System.getProperty("user.dir"), photoBasePath).toString(),  // 相对于工作目录
+            Paths.get("./data/photos").toAbsolutePath().toString(),  // 硬编码绝对路径
+        };
+
+        for (String basePath : possibleBasePaths) {
+            if (fullPath.startsWith(basePath)) {
+                String relativePath = fullPath.substring(basePath.length());
+                // 移除开头的路径分隔符
+                if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
+                    relativePath = relativePath.substring(1);
+                }
+                return relativePath;
+            }
+        }
+
+        // 如果都没有匹配，尝试从"data/photos"开始截取
+        String dataPhotosPath = "data" + File.separator + "photos";
+        int dataIndex = fullPath.indexOf(dataPhotosPath);
+        if (dataIndex >= 0) {
+            String relativePath = fullPath.substring(dataIndex + dataPhotosPath.length());
+            if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
+                relativePath = relativePath.substring(1);
+            }
+            return relativePath;
+        }
+
+        return null;  // 如果都匹配失败，返回null
+    }
+
+
+    /**
+     * 从单个文件夹名称中解析时间
+     */
+    private LocalDateTime parseDateFromFolderName(String folderName) {
+        if (folderName == null || folderName.trim().isEmpty()) {
+            return null;
+        }
+
+        // 定义多种时间格式的正则表达式和对应的DateTimeFormatter
+        List<Object[]> patterns = new ArrayList<>();
+
+        // 高优先级：带时间的格式（更具体的匹配）
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})[\\.-](\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm:ss"}); // 2023.08.08 10:30:45
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})[\\.-](\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm"}); // 2023.08.08 10:30
+        patterns.add(new Object[]{"(\\d{4})/(\\d{1,2})/(\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm:ss"}); // 2023/08/08 10:30:45
+        patterns.add(new Object[]{"(\\d{4})/(\\d{1,2})/(\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm"}); // 2023/08/08 10:30
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s+(\\d{1,2}):(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm:ss"}); // 2023年08月08日 10:30:45
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s+(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm"}); // 2023年08月08日 10:30
+
+        // 中优先级：只包含日期的格式（按特殊性和长度排序）
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月(\\d{1,2})日", "yyyy-MM-dd"}); // 2023年08月08日 (最特殊)
+        patterns.add(new Object[]{"(\\d{8})", "yyyyMMdd"}); // 20230808 (紧凑格式，8位数字)
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})[\\.-](\\d{1,2})", "yyyy-MM-dd"}); // 2023.08.08 或 2023-08-08 (年月日)
+        patterns.add(new Object[]{"(\\d{4})/(\\d{1,2})/(\\d{1,2})", "yyyy-MM-dd"}); // 2023/08/08 (年月日)
+        patterns.add(new Object[]{"(\\d{1,2})[\\.-/](\\d{1,2})[\\.-/](\\d{4})", "MM-dd-yyyy"}); // 08-08-2023 或 08/08/2023 或 08.08.2023 (日月年)
+        patterns.add(new Object[]{"(\\d{1,2})[\\.-/](\\d{1,2})[\\.-/](\\d{2})", "MM-dd-yy"}); // 08-08-23 (两位数年份，日月年)
+
+        String normalizedName = folderName.trim();
+
+        for (Object[] pattern : patterns) {
+            Pattern p = Pattern.compile((String) pattern[0]);
+            Matcher m = p.matcher(normalizedName);
+            String patternStr = (String) pattern[1];
+
+            if (m.find()) {
+                try {
+                    // 根据不同的模式构建标准格式的日期字符串
+                    StringBuilder dateStr = new StringBuilder();
+
+                    if (patternStr.equals("yyyyMMdd")) {
+                        // 紧凑格式：20230808 -> 2023-08-08
+                        String datePart = m.group(1);
+                        if (datePart.length() == 8) {
+                            dateStr.append(datePart.substring(0, 4)).append("-")
+                                   .append(datePart.substring(4, 6)).append("-")
+                                   .append(datePart.substring(6, 8));
+                        }
+                    } else if (patternStr.equals("MM-dd-yyyy") || patternStr.equals("MM/dd/yyyy") ||
+                               patternStr.equals("MM-dd-yy") || patternStr.equals("MM/dd/yyyy")) {
+                        // 日月年格式：08-08-2023 -> 2023-08-08
+                        dateStr.append(m.group(3)).append("-")  // 年
+                               .append(String.format("%02d", Integer.parseInt(m.group(1)))).append("-")  // 月
+                               .append(String.format("%02d", Integer.parseInt(m.group(2))));  // 日
+                    } else {
+                        // 标准年月日格式
+                        dateStr.append(m.group(1)).append("-")  // 年
+                               .append(String.format("%02d", Integer.parseInt(m.group(2)))).append("-")  // 月
+                               .append(String.format("%02d", Integer.parseInt(m.group(3))));  // 日
+
+                        // 检查是否有时间部分（基于原始pattern判断）
+                        if (patternStr.contains("HH:mm")) {
+                            if (m.groupCount() >= 5) {
+                                dateStr.append(" ")
+                                       .append(String.format("%02d", Integer.parseInt(m.group(4)))).append(":")
+                                       .append(String.format("%02d", Integer.parseInt(m.group(5))));
+
+                                if (m.groupCount() >= 6 && m.group(6) != null) {
+                                    dateStr.append(":").append(String.format("%02d", Integer.parseInt(m.group(6))));
+                                } else {
+                                    dateStr.append(":00");
+                                }
+                            } else {
+                                // 如果正则表达式应该有时间但没有匹配，记录错误
+                                log.warn("时间格式pattern '{}' 应该包含时间但groupCount只有{}", patternStr, m.groupCount());
+                            }
+                        }
+                    }
+
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern(patternStr);
+
+                    // 根据模式确定如何解析
+                    if (patternStr.contains("HH:mm")) {
+                        // 有时间的格式，直接解析为LocalDateTime
+                        return LocalDateTime.parse(dateStr.toString(), formatter);
+                    } else {
+                        // 只有日期的格式，解析为LocalDate然后转换为LocalDateTime
+                        LocalDate date = LocalDate.parse(dateStr.toString(), formatter);
+                        return date.atStartOfDay();
+                    }
+                } catch (DateTimeParseException | NumberFormatException e) {
+                    // 解析失败，继续尝试下一个模式
+                    continue;
+                }
+            }
+        }
+
+
+        return null;  // 没有找到匹配的时间格式
     }
 
 }

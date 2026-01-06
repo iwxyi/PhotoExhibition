@@ -4,6 +4,7 @@ import com.photoexhibition.dto.FaceDTO;
 import com.photoexhibition.dto.FaceClusterDTO;
 import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
+import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.FaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 public class FaceController {
 
     private final FaceService faceService;
+    private final PersonProfileRepository personProfileRepository;
     @Value("${face.clustering.default-threshold:0.7}")
     private double clusteringDefaultThreshold;
 
@@ -114,6 +116,15 @@ public class FaceController {
         String name = payload.get("name");
         String description = payload.get("description");
         return ResponseEntity.ok(faceService.updateFacePerson(faceId, name, description));
+    }
+
+    /**
+     * 获取人物数量
+     */
+    @GetMapping("/persons/count")
+    public ResponseEntity<Long> countPersons() {
+        long count = personProfileRepository.count();
+        return ResponseEntity.ok(count);
     }
 
     /**

@@ -21,3 +21,4 @@ UPDATE `album` SET `path_hash` = SHA2(`path`, 256) WHERE `path_hash` IS NULL;
 -- 注意：如果上面的DROP失败，需要手动检查并删除旧的uk_path索引
 
 
+

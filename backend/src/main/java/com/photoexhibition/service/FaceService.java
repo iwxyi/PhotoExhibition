@@ -31,6 +31,17 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class FaceService {
 
+    // 用于预过滤的辅助类
+    private static class GroupSimilarity {
+        final int groupIndex;
+        final double similarity;
+
+        GroupSimilarity(int groupIndex, double similarity) {
+            this.groupIndex = groupIndex;
+            this.similarity = similarity;
+        }
+    }
+
     private final FaceRepository faceRepository;
     private final PersonProfileRepository personProfileRepository;
     private final PhotoRepository photoRepository;
@@ -810,6 +821,8 @@ public class FaceService {
             return new ArrayList<>();
         }
 
+        // 人脸聚类处理所有质量合格的人脸，后续有照片匹配补全步骤
+
         // 聚类阈值可配置：在用户阈值基础上加偏移，并设定可配置下限
         final double strictThreshold = Math.max(threshold + clusteringThresholdBonus, clusteringMinThreshold);
 
@@ -821,12 +834,15 @@ public class FaceService {
         }
         
         List<List<Face>> groups = new ArrayList<>();
-        
+
         // 按置信度降序排序，优先处理高质量人脸
         withEmbedding.sort((a, b) -> Double.compare(
             (b.getConfidence() != null ? b.getConfidence() : 0.0),
             (a.getConfidence() != null ? a.getConfidence() : 0.0)
         ));
+
+        // 预计算组的代表向量，用于快速预过滤
+        List<float[]> groupRepresentatives = new ArrayList<>();
 
         for (Face candidate : withEmbedding) {
             float[] candidateVec = parseEmbedding(candidate.getEmbedding());
@@ -835,8 +851,39 @@ public class FaceService {
             Integer bestGroup = null;
             double bestAvgSimilarity = -1;
 
-            // 检查与所有现有组的匹配度
+            // 性能优化：预过滤机制，只检查最有可能匹配的前N个组
+            final int MAX_GROUPS_TO_CHECK = Math.min(10, groups.size()); // 最多检查10个最有可能的组
+            List<GroupSimilarity> groupSimilarities = new ArrayList<>();
+
+            // 计算与各组代表向量的相似度，用于预过滤
             for (int g = 0; g < groups.size(); g++) {
+                if (groupRepresentatives.size() <= g) {
+                    // 计算组的代表向量（取第一个成员的向量作为代表）
+                    List<Face> group = groups.get(g);
+                    if (!group.isEmpty()) {
+                        float[] repVec = parseEmbedding(group.get(0).getEmbedding());
+                        groupRepresentatives.add(repVec != null ? repVec : new float[0]);
+                    } else {
+                        groupRepresentatives.add(new float[0]);
+                    }
+                }
+
+                float[] repVec = groupRepresentatives.get(g);
+                if (repVec.length > 0) {
+                    double repSimilarity = cosine(candidateVec, repVec);
+                    groupSimilarities.add(new GroupSimilarity(g, repSimilarity));
+                }
+            }
+
+            // 按相似度排序，只检查最有可能的组
+            groupSimilarities.sort((a, b) -> Double.compare(b.similarity, a.similarity));
+            List<Integer> groupsToCheck = groupSimilarities.stream()
+                .limit(MAX_GROUPS_TO_CHECK)
+                .map(gs -> gs.groupIndex)
+                .collect(Collectors.toList());
+
+            // 检查筛选出的组
+            for (int g : groupsToCheck) {
                 List<Face> group = groups.get(g);
 
                 // 多点验证：计算与组内所有成员的相似度

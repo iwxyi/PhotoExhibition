@@ -26,6 +26,14 @@ public class SystemConfigService {
     public static final String PHOTO_SORT_ORDER_DEFAULT = "taken_at_desc";
     public static final String PHOTO_SORT_ORDER_DESCRIPTION = "照片排序方式";
 
+    public static final String ALBUM_SORT_ORDER_KEY = "album_sort_order";
+    public static final String ALBUM_SORT_ORDER_DEFAULT = "name_asc";
+    public static final String ALBUM_SORT_ORDER_DESCRIPTION = "相册排序方式";
+
+    public static final String WALL_SORT_ORDER_KEY = "wall_sort_order";
+    public static final String WALL_SORT_ORDER_DEFAULT = "taken_at_desc";
+    public static final String WALL_SORT_ORDER_DESCRIPTION = "图墙排序方式";
+
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
     public static final String SORT_BY_TAKEN_AT_ASC = "taken_at_asc";
@@ -33,6 +41,12 @@ public class SystemConfigService {
     public static final String SORT_BY_FILENAME_ASC = "filename_asc";
     public static final String SORT_BY_CREATED_AT_DESC = "created_at_desc";
     public static final String SORT_BY_CREATED_AT_ASC = "created_at_asc";
+    public static final String SORT_BY_NAME_DESC = "name_desc";
+    public static final String SORT_BY_NAME_ASC = "name_asc";
+    public static final String SORT_BY_LATEST_PHOTO_TAKEN_DESC = "latest_photo_taken_desc";
+    public static final String SORT_BY_LATEST_PHOTO_TAKEN_ASC = "latest_photo_taken_asc";
+    public static final String SORT_BY_ALBUM_NAME_DATE_DESC = "album_name_date_desc";
+    public static final String SORT_BY_ALBUM_NAME_DATE_ASC = "album_name_date_asc";
 
     /**
      * 获取配置值，如果不存在则返回默认值
@@ -137,6 +151,52 @@ public class SystemConfigService {
     }
 
     /**
+     * 获取相册排序方式
+     */
+    public String getAlbumSortOrder() {
+        return getConfigValueWithDefault(
+            ALBUM_SORT_ORDER_KEY,
+            ALBUM_SORT_ORDER_DEFAULT,
+            ALBUM_SORT_ORDER_DESCRIPTION
+        );
+    }
+
+    /**
+     * 设置相册排序方式
+     */
+    @Transactional
+    public void setAlbumSortOrder(String sortOrder) {
+        // 验证排序方式
+        if (!isValidSortOrder(sortOrder)) {
+            throw new IllegalArgumentException("无效的排序方式: " + sortOrder);
+        }
+        setConfigValue(ALBUM_SORT_ORDER_KEY, sortOrder, ALBUM_SORT_ORDER_DESCRIPTION);
+    }
+
+    /**
+     * 获取图墙排序方式
+     */
+    public String getWallSortOrder() {
+        return getConfigValueWithDefault(
+            WALL_SORT_ORDER_KEY,
+            WALL_SORT_ORDER_DEFAULT,
+            WALL_SORT_ORDER_DESCRIPTION
+        );
+    }
+
+    /**
+     * 设置图墙排序方式
+     */
+    @Transactional
+    public void setWallSortOrder(String sortOrder) {
+        // 验证排序方式
+        if (!isValidSortOrder(sortOrder)) {
+            throw new IllegalArgumentException("无效的排序方式: " + sortOrder);
+        }
+        setConfigValue(WALL_SORT_ORDER_KEY, sortOrder, WALL_SORT_ORDER_DESCRIPTION);
+    }
+
+    /**
      * 验证排序方式是否有效
      */
     private boolean isValidSortOrder(String sortOrder) {
@@ -145,7 +205,13 @@ public class SystemConfigService {
                SORT_BY_FILENAME_DESC.equals(sortOrder) ||
                SORT_BY_FILENAME_ASC.equals(sortOrder) ||
                SORT_BY_CREATED_AT_DESC.equals(sortOrder) ||
-               SORT_BY_CREATED_AT_ASC.equals(sortOrder);
+               SORT_BY_CREATED_AT_ASC.equals(sortOrder) ||
+               SORT_BY_NAME_DESC.equals(sortOrder) ||
+               SORT_BY_NAME_ASC.equals(sortOrder) ||
+               SORT_BY_LATEST_PHOTO_TAKEN_DESC.equals(sortOrder) ||
+               SORT_BY_LATEST_PHOTO_TAKEN_ASC.equals(sortOrder) ||
+               SORT_BY_ALBUM_NAME_DATE_DESC.equals(sortOrder) ||
+               SORT_BY_ALBUM_NAME_DATE_ASC.equals(sortOrder);
     }
 
     /**

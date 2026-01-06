@@ -81,8 +81,8 @@
                 class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
-                <div class="admin-hero-stat-label">已识别人脸</div>
-                <div class="admin-hero-stat-value">{{ stats.faces }}</div>
+                <div class="admin-hero-stat-label">人物</div>
+                <div class="admin-hero-stat-value">{{ stats.persons }}</div>
         </router-link>
             </div>
           </div>
@@ -166,6 +166,7 @@
               <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
               <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
               <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
+              <option value="POST /admin/albums/update-times">更新相册时间（重新计算拍摄时间和相册名时间）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
             </select>
@@ -271,7 +272,7 @@ const loadStats = async () => {
       api.get('/albums/count'),
       api.get('/photos', { params: { size: 1, page: 0 } }),
       api.get('/tags', { params: { size: 1, page: 0 } }),
-      api.get('/admin/persons/items', { params: { threshold: 0.7 } }),
+      api.get('/admin/persons/count'),
       api.get('/admin/faces', { params: { size: 1, page: 0 } })
     ])
 
@@ -280,9 +281,7 @@ const loadStats = async () => {
     const tagTotal = Array.isArray(tagsRes.data)
       ? tagsRes.data.length
       : (tagsRes.data.totalElements ?? tagsRes.data.total ?? 0)
-    const personTotal = Array.isArray(personsRes.data)
-      ? personsRes.data.filter((p: any) => p.type === 'confirmed').length
-      : 0
+    const personTotal = personsRes.data ?? 0
     const faceTotal = facesRes.data.totalElements ?? facesRes.data.total ?? 0
 
     stats.value = {
@@ -411,9 +410,10 @@ const testApi = async () => {
       '• 删除不存在文件的照片记录\n' +
       '• 删除相关的人脸识别数据\n' +
       '• 删除相关的标签关联\n' +
-      '• 删除没有照片的空相册\n\n' +
+      '• 删除没有照片的空相册\n' +
+      '• 删除文件夹路径不存在的相册\n\n' +
       '⚠️ 此操作不可恢复，请谨慎使用！\n' +
-      '建议在删除大量文件后执行此清理。\n\n' +
+      '建议在删除大量文件或文件夹后执行此清理。\n\n' +
       '确定要继续吗？'
     )
     if (!confirmed) {
@@ -421,6 +421,28 @@ const testApi = async () => {
     }
   }
 
+  // 更新相册时间需要确认
+  if (selectedApi.value === 'POST /admin/albums/update-times') {
+    const confirmed = confirm(
+      '📅 更新相册时间字段\n\n' +
+      '此操作将：\n' +
+      '• 重新计算所有相册的拍摄时间（最晚照片拍摄时间，聚合相册包含所有子相册的照片）\n' +
+      '• 重新解析所有相册名称和上级路径中的时间信息（支持嵌套继承）\n' +
+      '• 更新数据库中的时间字段\n\n' +
+      '时间解析优先级：\n' +
+      '• 当前相册名称的时间 > 上级路径中的时间\n' +
+      '支持的时间格式：\n' +
+      '• 2025.01.01\n' +
+      '• 2025-01-01\n' +
+      '• 2025.01.01 9:10\n\n' +
+      '此操作是安全的，不会删除任何数据。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+  
   testing.value = true
   apiResponse.value = null
   

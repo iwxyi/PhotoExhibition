@@ -448,39 +448,39 @@ public class PhotoScanService {
             } else {
                 // 处理自定义路径
                 path = Paths.get(directoryPath);
-
-                // 处理相对路径：如果是相对路径，转换为绝对路径
-                if (!path.isAbsolute()) {
-                    // 获取项目根目录
-                    // 方法1: 从当前工作目录推断
-                    String projectRoot = System.getProperty("user.dir");
-
-                    // 如果当前在backend目录，需要回到项目根目录
-                    if (projectRoot.endsWith("backend")) {
-                        projectRoot = new File(projectRoot).getParent();
-                    }
-
-                    // 方法2: 尝试从类路径推断项目根目录（更可靠）
-                    // 如果方法1失败，可以尝试这个方法
-                    if (projectRoot == null || projectRoot.isEmpty()) {
-                        try {
-                            String classPath = PhotoScanService.class.getProtectionDomain()
-                                .getCodeSource().getLocation().getPath();
-                            // 从target/classes或jar文件推断项目根目录
-                            if (classPath.contains("target/classes")) {
-                                projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
-                            }
-                        } catch (Exception e) {
-                            log.warn("无法从类路径推断项目根目录", e);
+            
+            // 处理相对路径：如果是相对路径，转换为绝对路径
+            if (!path.isAbsolute()) {
+                // 获取项目根目录
+                // 方法1: 从当前工作目录推断
+                String projectRoot = System.getProperty("user.dir");
+                
+                // 如果当前在backend目录，需要回到项目根目录
+                if (projectRoot.endsWith("backend")) {
+                    projectRoot = new File(projectRoot).getParent();
+                }
+                
+                // 方法2: 尝试从类路径推断项目根目录（更可靠）
+                // 如果方法1失败，可以尝试这个方法
+                if (projectRoot == null || projectRoot.isEmpty()) {
+                    try {
+                        String classPath = PhotoScanService.class.getProtectionDomain()
+                            .getCodeSource().getLocation().getPath();
+                        // 从target/classes或jar文件推断项目根目录
+                        if (classPath.contains("target/classes")) {
+                            projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
                         }
+                    } catch (Exception e) {
+                        log.warn("无法从类路径推断项目根目录", e);
                     }
-
-                    // 处理以 ./ 开头的相对路径
-                    String cleanPath = directoryPath.startsWith("./")
-                        ? directoryPath.substring(2)
-                        : directoryPath;
-
-                    path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
+                }
+                
+                // 处理以 ./ 开头的相对路径
+                String cleanPath = directoryPath.startsWith("./") 
+                    ? directoryPath.substring(2) 
+                    : directoryPath;
+                
+                path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
                 }
             }
             
@@ -787,8 +787,8 @@ public class PhotoScanService {
             // 设置哈希值（只有新创建的照片才设置，避免重复）
             if (photo.getId() == null) {
                 // 新照片，设置所有哈希值
-                photo.setContentHash(contentHash);
-                photo.setPathHash(pathHash);
+            photo.setContentHash(contentHash);
+            photo.setPathHash(pathHash);
             } else if (force || photo.getContentHash() == null || photo.getContentHash().isEmpty()) {
                 // 强制扫描或哈希值为空时，更新哈希值
                 photo.setContentHash(contentHash);
@@ -1010,25 +1010,34 @@ public class PhotoScanService {
         File smallThumbFile = new File(baseDir, baseName + "_small.jpg");
         generateThumbnailWithQuality(originalImage, smallThumbFile, smallThumbnailWidth, smallThumbnailHeight, smallThumbnailQuality);
         photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+        long smallSizeKB = smallThumbFile.length() / 1024;
 
         // 2. 生成中缩略图（用于瀑布流显示）
         File mediumThumbFile = new File(baseDir, baseName + "_medium.jpg");
         generateThumbnailWithQuality(originalImage, mediumThumbFile, mediumThumbnailWidth, mediumThumbnailHeight, mediumThumbnailQuality);
         photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+        long mediumSizeKB = mediumThumbFile.length() / 1024;
 
         // 3. 生成大缩略图（用于PhotoViewer大图显示）
         // 只有当原图足够大且能够显著压缩时才生成大缩略图
         File largeThumbFile = new File(baseDir, baseName + "_large.jpg");
         boolean shouldGenerateLargeThumb = shouldGenerateLargeThumbnail(originalImage, largeThumbnailWidth, largeThumbnailHeight, originalFileSize);
 
+        String largeInfo;
         if (shouldGenerateLargeThumb) {
             generateThumbnailWithQuality(originalImage, largeThumbFile, largeThumbnailWidth, largeThumbnailHeight, largeThumbnailQuality);
             photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+            long largeSizeKB = largeThumbFile.length() / 1024;
+            largeInfo = largeSizeKB + "KB";
         } else {
             // 如果无法进一步压缩，使用原图路径（不生成大缩略图文件）
             photo.setLargeThumbPath(null); // 表示使用原图
-            log.debug("跳过大缩略图生成，使用原图: {}", imageFile.getName());
+            largeInfo = "使用原图";
         }
+
+        // 记录缩略图生成信息
+        log.info("生成缩略图 - 小图:{}KB, 中图:{}KB, 大图:{} ({})",
+            smallSizeKB, mediumSizeKB, largeInfo, imageFile.getName());
 
         // 兼容性：设置原有thumbnailPath为小缩略图路径
         photo.setThumbnailPath(smallThumbFile.getAbsolutePath());
@@ -1512,32 +1521,48 @@ public class PhotoScanService {
                 }
             }
 
-            // 检查并清理空的相册
+            // 检查并清理空的相册或路径不存在的相册
             Set<Long> albumsToCheckSet = new HashSet<>(albumsToCheck);
             int emptyAlbumsDeleted = 0;
+            int nonExistentPathAlbumsDeleted = 0;
 
-            for (Long albumId : albumsToCheckSet) {
+            // 首先检查所有相册（不仅仅是照片被删除的相册）
+            List<Album> allAlbums = albumRepository.findAll();
+            for (Album album : allAlbums) {
                 try {
-                    long photoCount = photoRepository.countByAlbumId(albumId);
+                    // 检查相册路径是否存在
+                    if (album.getPath() != null && !album.getPath().isEmpty()) {
+                        File albumDir = new File(album.getPath());
+                        if (!albumDir.exists()) {
+                            log.info("相册文件夹不存在，删除相册记录: {} (albumId={})", album.getPath(), album.getId());
+                            albumRepository.deleteById(album.getId());
+                            nonExistentPathAlbumsDeleted++;
+                            continue; // 跳过后续检查
+                        }
+                    }
+
+                    // 检查相册是否有照片（只对路径存在的相册进行此检查）
+                    long photoCount = photoRepository.countByAlbumId(album.getId());
                     if (photoCount == 0) {
-                        log.info("相册 {} 已没有照片，删除相册记录", albumId);
-                        albumRepository.deleteById(albumId);
+                        log.info("相册 {} 已没有照片，删除相册记录", album.getId());
+                        albumRepository.deleteById(album.getId());
                         emptyAlbumsDeleted++;
                     }
                 } catch (Exception e) {
-                    log.warn("检查相册失败: albumId={}, error={}", albumId, e.getMessage());
+                    log.warn("检查相册失败: albumId={}, error={}", album.getId(), e.getMessage());
                 }
             }
 
-            result.put("message", String.format("清理完成！处理了 %d 个照片记录，发现 %d 个孤儿记录，删除了 %d 个空相册",
-                processedCount, orphanedCount, emptyAlbumsDeleted));
+            result.put("message", String.format("清理完成！处理了 %d 个照片记录，发现 %d 个孤儿记录，删除了 %d 个空相册和 %d 个路径不存在的相册",
+                processedCount, orphanedCount, emptyAlbumsDeleted, nonExistentPathAlbumsDeleted));
             result.put("processedPhotos", processedCount);
             result.put("orphanedPhotos", orphanedCount);
             result.put("emptyAlbumsDeleted", emptyAlbumsDeleted);
+            result.put("nonExistentPathAlbumsDeleted", nonExistentPathAlbumsDeleted);
             result.put("success", true);
 
-            log.info("清理完成！处理了 {} 个照片记录，发现 {} 个孤儿记录，删除了 {} 个空相册",
-                processedCount, orphanedCount, emptyAlbumsDeleted);
+            log.info("清理完成！处理了 {} 个照片记录，发现 {} 个孤儿记录，删除了 {} 个空相册和 {} 个路径不存在的相册",
+                processedCount, orphanedCount, emptyAlbumsDeleted, nonExistentPathAlbumsDeleted);
 
         } catch (Exception e) {
             result.put("error", "清理残留数据失败: " + e.getMessage());
