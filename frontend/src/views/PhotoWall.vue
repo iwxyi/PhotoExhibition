@@ -33,7 +33,7 @@
       <div ref="masonryContainer" class="masonry-container">
         <div
           v-for="(photo, idx) in photos"
-          :key="`photo-${photo.id}-${idx}`"
+          :key="`photo-${photo.id}-${photo.filename}-${idx}`"
           :ref="el => setItemRef(el, idx)"
           class="masonry-item photo-card cursor-pointer"
           :style="getItemStyle(idx)"
@@ -457,12 +457,18 @@ const handleResize = () => {
   }, 150)
 }
 
-// 监听 photos 变化
-watch(() => photos.value.length, () => {
-  nextTick(() => {
-    layoutItems()
-  })
-})
+// 监听 photos 变化（数量和内容）
+watch(() => photos.value, (newPhotos, oldPhotos) => {
+  // 检查是否是数据内容变化（不仅仅是数量）
+  if (newPhotos.length !== oldPhotos.length ||
+      newPhotos.some((photo, index) => photo?.id !== oldPhotos[index]?.id)) {
+    // 数据顺序发生变化时，清除DOM引用以强制重新布局
+    itemRefs.value = []
+    nextTick(() => {
+      layoutItems()
+    })
+  }
+}, { deep: true })
 
 // 监听列数变化
 watch(columnCount, () => {

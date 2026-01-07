@@ -277,6 +277,7 @@ const albumSortOrder = ref('name_asc')
 const originalAlbumSortOrder = ref('name_asc')
 const wallSortOrder = ref('taken_at_desc')
 const originalWallSortOrder = ref('taken_at_desc')
+const needsWallRefresh = ref(false)
 const minClusterFaceCount = ref(2)
 const originalMinClusterFaceCount = ref(2)
 const saving = ref(false)
@@ -381,6 +382,8 @@ const saveSettings = async () => {
       await api.put('/admin/config/wall-sort-order', {
         wallSortOrder: wallSortOrder.value
       })
+      // 标记需要刷新图墙
+      needsWallRefresh.value = true
     }
 
     // 保存聚类最小人脸数量
@@ -390,7 +393,7 @@ const saveSettings = async () => {
       })
     }
 
-    // 设置保存成功，不再显示alert弹窗
+    // 设置保存成功，显示提示
     originalMaxAlbumDepth.value = maxAlbumDepth.value
     originalPhotoSortOrder.value = photoSortOrder.value
     originalAlbumSortOrder.value = albumSortOrder.value
@@ -401,6 +404,14 @@ const saveSettings = async () => {
                            albumSortOrder.value !== originalAlbumSortOrder.value ||
                            wallSortOrder.value !== originalWallSortOrder.value ||
                            minClusterFaceCount.value !== originalMinClusterFaceCount.value
+
+    // 显示保存成功的提示
+    if (needsWallRefresh.value) {
+      alert('✅ 设置保存成功！\n\n图墙排序已更新，请刷新图墙页面查看效果。\n建议使用 Ctrl+F5 强制刷新以清除缓存。')
+      needsWallRefresh.value = false
+    } else {
+      alert('✅ 设置保存成功！')
+    }
   } catch (error: any) {
     alert('保存设置失败: ' + (error.response?.data?.error || error.message))
   } finally {

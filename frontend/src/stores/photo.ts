@@ -163,7 +163,22 @@ export const usePhotoStore = defineStore('photo', () => {
   const fetchPhotoWall = async (page = 0, size = 20) => {
     loading.value = true
     try {
-      const response = await api.get('/photos/wall', { params: { page, size } })
+      // 添加多个缓存破坏参数
+      const timestamp = Date.now()
+      const randomId = Math.random().toString(36).substring(2, 15)
+      const response = await api.get('/photos/wall', {
+        params: {
+          page,
+          size,
+          _t: timestamp,        // 时间戳
+          _r: randomId,         // 随机字符串
+          _cache: 'bypass'      // 缓存绕过标识
+        },
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      })
       if (page === 0) {
         photos.value = response.data.content
       } else {

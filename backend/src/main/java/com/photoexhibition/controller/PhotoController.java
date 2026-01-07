@@ -31,7 +31,13 @@ public class PhotoController {
         // 使用系统配置的图墙排序方式
         Pageable pageable = createPhotoSortedPageable(page, size, systemConfigService.getWallSortOrder());
         Page<PhotoDTO> photos = photoService.getAllPhotos(pageable);
-        return ResponseEntity.ok(photos);
+
+        // 设置缓存控制头，防止浏览器缓存排序结果
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
+                .body(photos);
     }
 
     /**

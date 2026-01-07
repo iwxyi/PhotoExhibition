@@ -46,9 +46,12 @@ public class PhotoService {
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
     public Page<PhotoDTO> getAllPhotos(Pageable pageable) {
-        // 应用系统配置的排序方式
-        Sort sort = getPhotoSort();
-        Pageable sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+        // 如果pageable已经有排序，使用传入的排序；否则使用系统配置的排序
+        Pageable sortedPageable = pageable;
+        if (pageable.getSort().isEmpty()) {
+            Sort sort = getPhotoSort();
+            sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+        }
 
         Page<Photo> photos = photoRepository.findAll(sortedPageable);
         return photos.map(this::convertToDTO);
