@@ -168,6 +168,8 @@
               <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
               <option value="POST /admin/cleanup/duplicate-faces">清理重复人脸（删除同一照片的重复人脸记录）</option>
               <option value="POST /admin/albums/update-times">更新相册时间（重新计算拍摄时间和相册名时间）</option>
+              <option value="POST /admin/photos/update-times">更新照片时间（异步，重新从EXIF和路径提取拍摄时间）</option>
+              <option value="POST /admin/photos/update-times-sync">更新照片时间（同步，重新从EXIF和路径提取拍摄时间）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
             </select>
@@ -436,6 +438,35 @@ const testApi = async () => {
       '• 2025.01.01\n' +
       '• 2025-01-01\n' +
       '• 2025.01.01 9:10\n\n' +
+      '此操作是安全的，不会删除任何数据。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 更新照片时间需要确认
+  if (selectedApi.value === 'POST /admin/photos/update-times' || selectedApi.value === 'POST /admin/photos/update-times-sync') {
+    const isAsync = selectedApi.value === 'POST /admin/photos/update-times'
+    const confirmed = confirm(
+      '📸 更新照片时间信息\n\n' +
+      '此操作将：\n' +
+      '• 重新读取所有照片的EXIF信息，提取拍摄时间\n' +
+      '• 如果EXIF中没有拍摄时间，从文件路径中解析时间\n' +
+      '• 最后使用文件创建时间作为兜底时间\n' +
+      '• 更新数据库中的拍摄时间字段\n\n' +
+      '时间解析优先级：\n' +
+      '• EXIF拍摄时间 (DateTimeOriginal)\n' +
+      '• 文件路径时间（优先最深层文件夹，支持嵌套继承）\n' +
+      '• 文件创建时间\n\n' +
+      '支持的路径时间格式：\n' +
+      '• 2025.01.01\n' +
+      '• 2025-01-01\n' +
+      '• 2025.01.01 10:30\n' +
+      '• 20230808 (紧凑格式)\n' +
+      '• 2023年08月08日\n\n' +
+      (isAsync ? '⚠️ 异步执行：任务在后台运行，可通过日志查看进度\n\n' : '⚠️ 同步执行：需要等待所有照片处理完成\n\n') +
       '此操作是安全的，不会删除任何数据。\n\n' +
       '确定要继续吗？'
     )

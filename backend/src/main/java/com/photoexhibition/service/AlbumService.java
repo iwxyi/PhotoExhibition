@@ -1096,10 +1096,18 @@ public class AlbumService {
             return latestTakenAt.get();
         }
 
-        // 如果相册内所有图片都没有拍摄时间，优先使用相册名时间
+        // 如果相册内所有图片都没有拍摄时间，优先使用相册路径上的日期时间
         LocalDateTime albumNameDate = parseDateFromAlbumPath(album.getPath());
         if (albumNameDate != null) {
             return albumNameDate;
+        }
+
+        // 如果相册开启了聚合，从子相册中找到最早的拍摄时间
+        if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
+            Optional<LocalDateTime> subAlbumTakenAt = findEarliestTakenAtFromSubAlbums(album.getPath());
+            if (subAlbumTakenAt.isPresent()) {
+                return subAlbumTakenAt.get();
+            }
         }
 
         // 最后使用最早的文件创建时间

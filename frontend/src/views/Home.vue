@@ -479,19 +479,19 @@ const loadMore = async () => {
       hasMore.value = true // 假设还有更多数据
     } else {
       // 如果没有预加载数据，则直接加载
-      const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
-      const loadSize = Math.max(12, getCurrentGridColumns() * 2)
+    const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
+    const loadSize = Math.max(12, getCurrentGridColumns() * 2)
 
-      const data = await photoStore.fetchAlbums(currentPage.value, loadSize, cat, albumSortOrder.value, false)
+    const data = await photoStore.fetchAlbums(currentPage.value, loadSize, cat, albumSortOrder.value, false)
 
-      if (!data || !data.content || data.content.length === 0) {
-        hasMore.value = false
+    if (!data || !data.content || data.content.length === 0) {
+      hasMore.value = false
         currentPage.value--
-        return
-      }
+      return
+    }
 
       newAlbums = data.content
-      hasMore.value = !data.last
+    hasMore.value = !data.last
     }
 
     // 将新数据添加到相册列表
@@ -537,23 +537,23 @@ const handleScroll = () => {
 
   // 使用 requestAnimationFrame 优化滚动检测
   requestAnimationFrame(() => {
-    scrollThrottleTimer = setTimeout(() => {
-      const scrollTop = window.scrollY || document.documentElement.scrollTop
-      const windowHeight = window.innerHeight
-      const documentHeight = document.documentElement.scrollHeight
+  scrollThrottleTimer = setTimeout(() => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
 
       // 距离底部PRELOAD_THRESHOLD像素时开始预加载
       if (scrollTop + windowHeight >= documentHeight - PRELOAD_THRESHOLD) {
         preloadNextPage()
       }
 
-      // 距离底部LOAD_THRESHOLD像素时开始加载
-      if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
-        loadMore()
-      }
+    // 距离底部LOAD_THRESHOLD像素时开始加载
+    if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
+      loadMore()
+    }
 
       isScrollInProgress = false
-    }, 0)
+  }, 0)
   })
 }
 

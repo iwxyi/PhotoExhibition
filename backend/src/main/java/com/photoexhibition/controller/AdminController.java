@@ -396,4 +396,42 @@ public class AdminController {
         }
     }
 
+    /**
+     * 更新所有照片的时间信息
+     * 重新从EXIF信息中提取拍摄时间（异步执行）
+     */
+    @PostMapping("/photos/update-times")
+    public ResponseEntity<Map<String, Object>> updateAllPhotoTimes() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            photoScanService.updateAllPhotoTimesAsync();
+            resp.put("message", "照片时间更新任务已异步启动，请稍后查看日志了解进度");
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "启动照片时间更新任务失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 同步更新所有照片的时间信息
+     * 重新从EXIF信息中提取拍摄时间（同步执行，耗时较长）
+     */
+    @PostMapping("/photos/update-times-sync")
+    public ResponseEntity<Map<String, Object>> updateAllPhotoTimesSync() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Map<String, Object> result = photoScanService.updateAllPhotoTimes();
+            resp.putAll(result);
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "更新照片时间失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
 }

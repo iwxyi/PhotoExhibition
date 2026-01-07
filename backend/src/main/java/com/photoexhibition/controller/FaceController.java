@@ -5,6 +5,7 @@ import com.photoexhibition.dto.FaceClusterDTO;
 import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
 import com.photoexhibition.dto.PersonSimilarityDTO;
+import com.photoexhibition.dto.AlbumRecommendationDTO;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.FaceService;
 import lombok.RequiredArgsConstructor;
@@ -256,6 +257,26 @@ public class FaceController {
             @PathVariable int clusterIndex,
             @RequestParam(defaultValue = "0.6") double threshold) {
         List<PersonSimilarityDTO> result = faceService.getSimilarPersonsForCluster(clusterIndex, threshold);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取人物的套图推荐相册列表
+     */
+    @GetMapping("/persons/{personId}/album-recommendations")
+    public ResponseEntity<List<AlbumRecommendationDTO>> getAlbumRecommendationsForPerson(@PathVariable Long personId) {
+        List<AlbumRecommendationDTO> result = faceService.getAlbumRecommendationsForPerson(personId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取指定相册中与人物相似的未分配人脸
+     */
+    @GetMapping("/persons/{personId}/albums/{albumId}/similar-faces")
+    public ResponseEntity<List<FaceDTO>> getSimilarFacesForAlbum(
+            @PathVariable Long personId,
+            @PathVariable Long albumId) {
+        List<FaceDTO> result = faceService.getSimilarFacesForAlbum(personId, albumId);
         return ResponseEntity.ok(result);
     }
 

@@ -12,7 +12,7 @@
     <div class="flex-1 flex gap-2 overflow-hidden px-4 sm:px-6 lg:px-8 py-4">
       <!-- 左侧人物头像列表 -->
       <div 
-        class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0"
+        class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0 min-h-0"
         :class="{ 'pointer-events-none opacity-60': loadingPersons }"
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
@@ -236,6 +236,14 @@
                 相似推荐 ({{ similarFaces.length }})
               </button>
               <button
+                v-if="selectedItem.type === 'confirmed'"
+                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'albums' ? 'bg-gray-700 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                @click="tab = 'albums'"
+              >
+                套图推荐 ({{ albumRecommendations.length }})
+              </button>
+              <button
                 class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
                 :class="tab === 'unassigned' ? 'bg-gray-700 text-gray-300 border-b-2 border-gray-300' : 'text-gray-400 hover:text-gray-200'"
                 @click="tab = 'unassigned'"
@@ -347,6 +355,108 @@
             </div>
 
 <!-- 自动分配照片tab已隐藏，保留代码以备将来使用 -->
+
+            <!-- 套图推荐 -->
+            <div v-if="tab === 'albums' && selectedItem.type === 'confirmed'" class="h-full flex">
+              <!-- 左列：相册列表 -->
+              <div :style="{ width: albumsPanelWidth + 'px', minWidth: '150px', maxWidth: '400px' }" class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0">
+                <div class="mb-3">
+                </div>
+                <div class="flex-1 overflow-y-auto space-y-2">
+                  <div
+                    v-for="album in albumRecommendations"
+                    :key="album.albumId"
+                    class="cursor-pointer rounded p-2 transition-colors"
+                    :class="selectedAlbum?.albumId === album.albumId ? 'bg-purple-600 text-white' : 'hover:bg-gray-700 text-gray-300'"
+                    @click="selectAlbum(album)"
+                  >
+                    <div class="font-medium text-sm truncate">{{ album.albumName }}</div>
+                    <div class="text-xs opacity-75 truncate">{{ album.albumPath }}</div>
+                  </div>
+                  <div v-if="albumRecommendations.length === 0" class="text-gray-400 text-xs text-center py-4">
+                    暂无相册推荐
+                  </div>
+                </div>
+              </div>
+
+              <!-- 可拖拽分割线 -->
+              <div
+                class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 transition-colors flex-shrink-0 mx-2"
+                @mousedown="startResizeAlbums"
+              ></div>
+
+              <!-- 右列：选中相册的人脸图片 -->
+              <div class="flex-1 bg-gray-800 rounded-lg p-3 flex flex-col min-h-0">
+                <div class="mb-3">
+                  <div v-if="selectedAlbum" class="text-sm font-medium mt-1">
+                    {{ selectedAlbum.albumName }}
+                  </div>
+                </div>
+
+                <!-- right scroll wrapper: ensures vertical scrolling independent of outer layout -->
+                <div ref="albumContainer" class="flex-1 min-h-0 overflow-auto relative">
+                  <div v-if="loadingAlbums" class="absolute inset-0 z-40 bg-black/20 flex items-center justify-center">
+                    <div class="h-10 w-10 rounded-full border-4 border-gray-300 border-t-transparent animate-spin"></div>
+                  </div>
+                  <div
+                    class="grid gap-3"
+                    :style="{ gridTemplateColumns: `repeat(${albumColumns}, 1fr)`, gridAutoRows: 'auto', justifyContent: 'center' }"
+                    @mousedown="handleMouseDown($event, 'albums')"
+                    @mousemove="handleMouseMove($event, 'albums')"
+                    @mouseup="handleMouseUp($event, 'albums')"
+                    @mouseleave="handleMouseUp($event, 'albums')"
+                  >
+                    <div v-if="!selectedAlbum" class="col-span-full text-gray-400 text-sm text-center py-8">
+                      请选择左侧的相册
+                    </div>
+                    <div
+                      v-for="(f, index) in visibleAlbumFaces"
+                      :key="f.id"
+                      :data-face-id="f.id"
+                      :data-face-index="index"
+                      class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                      :class="selectedAlbumFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50'"
+                      @click="handleFaceClick($event, f.id, 'albums')"
+                    >
+                      <div class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
+                        {{ ((f.similarity || 0) * 100).toFixed(0) }}%
+                      </div>
+                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f)">
+                      <img
+                        v-if="getFaceThumb(f)"
+                        :src="getFaceThumb(f)"
+                        class="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                        :style="getFaceCropStyle(f)"
+                        loading="lazy"
+                      />
+                      <button
+                        @click.stop="assignFace(f.id, true)"
+                        class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        认领
+                      </button>
+                    </div>
+                      <div class="p-1.5">
+                        <div
+                          class="text-[10px] text-blue-300 truncate cursor-pointer"
+                          :title="f.photoFilename"
+                          @click.stop="openPhoto(f.photoId)"
+                          @dblclick.stop="openViewer(f)"
+                        >
+                          {{ f.photoFilename || '-' }}
+                        </div>
+                      </div>
+                    </div>
+                    <!-- placeholders removed -->
+                  </div>
+                  <div
+                    v-if="isSelecting && currentTab === 'albums'"
+                    class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                    :style="selectionBoxStyle"
+                  ></div>
+                </div>
+              </div>
+            </div>
 
             <!-- 相似推荐 -->
             <div v-if="tab === 'similar' && selectedItem.type === 'confirmed'">
@@ -652,6 +762,16 @@ interface FaceItem {
   isConfirmed?: boolean
 }
 
+interface AlbumRecommendation {
+  albumId: number
+  albumName: string
+  albumPath: string
+  photoCount: number
+  similarFaceCount: number
+  similarFaces?: FaceItem[]
+  takenAt?: string
+}
+
 const STORAGE_KEY = 'pe-persons-left-width'
 
 const persons = ref<PersonListItem[]>([])
@@ -740,6 +860,11 @@ const resizeStartX = ref(0)
 const resizeStartWidth = ref(0)
 const containerWidth = ref(0)
 
+// 相册区域宽度管理
+const ALBUMS_STORAGE_KEY = 'pe-persons-albums-width'
+const albumsPanelWidth = ref(parseInt(localStorage.getItem(ALBUMS_STORAGE_KEY) || '250', 10))
+const isResizingAlbums = ref(false)
+
 // 列数自适应（优化密度，强制适应容器宽度）
 const personColumns = computed(() => {
   // 使用更保守的计算：假设每个头像约48px宽 + 8px间距
@@ -754,7 +879,7 @@ const personColumns = computed(() => {
   return Math.max(2, Math.min(6, theoreticalMax))
 })
 
-const tab = ref<'confirmed' | 'auto' | 'similar' | 'sameFolder' | 'unassigned'>('confirmed')
+const tab = ref<'confirmed' | 'auto' | 'similar' | 'albums' | 'unassigned'>('confirmed')
 
 // 已确认照片
 const confirmedFaces = ref<FaceItem[]>([])
@@ -771,6 +896,47 @@ const similarFaces = ref<FaceItem[]>([])
 const selectedSimilar = ref<Set<number>>(new Set())
 const loadingSimilar = ref(false)
 
+// 套图推荐
+const albumRecommendations = ref<AlbumRecommendation[]>([])
+const selectedAlbum = ref<AlbumRecommendation | null>(null)
+const selectedAlbumFaces = ref<Set<number>>(new Set())
+const loadingAlbums = ref(false)
+// abort controller for album image loads
+let albumAbortController: AbortController | null = null
+// album grid responsiveness (handled by CSS grid breakpoints)
+const albumContainer = ref<HTMLElement | null>(null)
+const albumContainerWidth = ref(0)
+const albumColumns = computed(() => {
+  const minCol = 120
+  const maxCols = 6
+  let w = albumContainerWidth.value || 0
+  // try to derive width from DOM if observer hasn't run yet
+  if (!w && albumContainer.value) {
+    w = albumContainer.value.clientWidth || (albumContainer.value.parentElement ? albumContainer.value.parentElement.clientWidth : 0)
+  }
+  // fallback to window width portion if still unknown
+  if (!w && typeof window !== 'undefined') {
+    w = Math.floor(window.innerWidth * 0.6)
+  }
+  const fit = Math.floor(w / minCol) || 1
+  const cols = Math.min(maxCols, fit)
+  return Math.max(1, cols)
+})
+
+const updateAlbumContainerWidth = () => {
+  if (albumContainer.value) albumContainerWidth.value = albumContainer.value.clientWidth
+}
+const setAlbumMaxHeight = () => {
+  if (!albumContainer.value) return
+  const rect = albumContainer.value.getBoundingClientRect()
+  const viewportH = window.innerHeight
+  // leave space for top paddings/headers (~180px)
+  // Use a simpler, stable max-height based on viewport to avoid layout collapse
+  const available = Math.max(200, viewportH - 180)
+  albumContainer.value.style.maxHeight = `calc(100vh - 180px)`
+  albumContainer.value.style.overflowY = 'auto'
+}
+
 // 未分配照片
 const unassignedFaces = ref<FaceItem[]>([])
 const selectedUnassigned = ref<Set<number>>(new Set())
@@ -781,29 +947,33 @@ const personFaces = ref<FaceItem[]>([])
 const selectedClusterFaces = ref<Set<number>>(new Set())
 const loadingPersonFaces = ref(false)
 
-type FaceTab = 'confirmed' | 'similar' | 'unassigned' | 'cluster'
+type FaceTab = 'confirmed' | 'similar' | 'albums' | 'unassigned' | 'cluster'
 const FACE_ROWS_PER_PAGE = 3
 const facePageSize = ref(0)
 const faceVisibleLimits = reactive<Record<FaceTab, number>>({
   confirmed: 0,
   similar: 0,
+  albums: 0,
   unassigned: 0,
   cluster: 0
 })
 const facePlaceholderCounts = reactive<Record<FaceTab, number>>({
   confirmed: 0,
   similar: 0,
+  albums: 0,
   unassigned: 0,
   cluster: 0
 })
 const visibleFacesMap: Record<FaceTab, Ref<FaceItem[]>> = {
   confirmed: ref<FaceItem[]>([]),
   similar: ref<FaceItem[]>([]),
+  albums: ref<FaceItem[]>([]),
   unassigned: ref<FaceItem[]>([]),
   cluster: ref<FaceItem[]>([])
 }
 const visibleConfirmedFaces = computed(() => visibleFacesMap.confirmed.value)
 const visibleSimilarFaces = computed(() => visibleFacesMap.similar.value)
+const visibleAlbumFaces = computed(() => visibleFacesMap.albums.value)
 const visibleUnassignedFaces = computed(() => visibleFacesMap.unassigned.value)
 const visibleClusterFaces = computed(() => visibleFacesMap.cluster.value)
 
@@ -824,6 +994,8 @@ const startResize = (e: MouseEvent) => {
   resizeStartX.value = e.clientX
   resizeStartWidth.value = leftPanelWidth.value
   updateContainerWidth()
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
   e.preventDefault()
@@ -840,8 +1012,38 @@ const handleResize = (e: MouseEvent) => {
 const stopResize = () => {
   isResizing.value = false
   localStorage.setItem(STORAGE_KEY, String(leftPanelWidth.value))
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+}
+
+// 相册区域分割线拖拽
+const startResizeAlbums = (e: MouseEvent) => {
+  isResizingAlbums.value = true
+  resizeStartX.value = e.clientX
+  resizeStartWidth.value = albumsPanelWidth.value
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+  document.addEventListener('mousemove', handleResizeAlbums)
+  document.addEventListener('mouseup', stopResizeAlbums)
+  e.preventDefault()
+}
+
+const handleResizeAlbums = (e: MouseEvent) => {
+  if (!isResizingAlbums.value) return
+  const diff = e.clientX - resizeStartX.value
+  const newWidth = Math.max(150, Math.min(400, resizeStartWidth.value + diff))
+  albumsPanelWidth.value = newWidth
+}
+
+const stopResizeAlbums = () => {
+  isResizingAlbums.value = false
+  localStorage.setItem(ALBUMS_STORAGE_KEY, String(albumsPanelWidth.value))
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+  document.removeEventListener('mousemove', handleResizeAlbums)
+  document.removeEventListener('mouseup', stopResizeAlbums)
 }
 
 const updateContainerWidth = () => {
@@ -1047,6 +1249,7 @@ const selectPerson = (p: PersonListItem) => {
     // 智能选择初始tab：优先显示有内容的tab
     tab.value = 'confirmed' // 默认先显示confirmed，加载后再根据数据调整
     loadAllFaces(abortController.signal)
+    loadAlbumRecommendations(abortController.signal)
   } else {
     selectedPersonId.value = null
     selectedClusterIndex.value = p.id as number
@@ -1200,6 +1403,74 @@ const loadAutoAssignedFaces = async (signal?: AbortSignal, clearData = true) => 
   } catch (error) {
     if (error.name !== 'AbortError') {
       console.error('加载自动分配人脸失败:', error)
+    }
+  }
+}
+
+const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = false) => {
+  if (!selectedPersonId.value) return
+  try {
+    loadingAlbums.value = true
+    const res = await api.get(`/admin/persons/${selectedPersonId.value}/album-recommendations`, { signal })
+
+    if (signal?.aborted) return
+
+    const currentAlbumId = keepSelection ? selectedAlbum.value?.albumId : null
+    albumRecommendations.value = (res.data || [])
+
+    // 如果需要保持选择，尝试找到对应的相册
+    if (keepSelection && currentAlbumId) {
+      selectedAlbum.value = albumRecommendations.value.find(a => a.albumId === currentAlbumId) || null
+    }
+
+    // 如果没有选中相册，默认选择第一个
+    if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
+      selectedAlbum.value = albumRecommendations.value[0]
+    }
+
+    // 加载选中相册的相似人脸
+    if (selectedAlbum.value) {
+      await loadAlbumSimilarFaces(selectedAlbum.value.albumId, signal)
+    }
+
+    selectedAlbumFaces.value.clear()
+  } catch (error) {
+    if (signal?.aborted) return
+    console.error('加载套图推荐失败:', error)
+    albumRecommendations.value = []
+  } finally {
+    loadingAlbums.value = false
+  }
+}
+
+const loadAlbumSimilarFaces = async (albumId: number, signal?: AbortSignal) => {
+  if (!selectedPersonId.value) return
+  // cancel previous in-flight album load
+  if (albumAbortController) {
+    albumAbortController.abort()
+    albumAbortController = null
+  }
+  albumAbortController = new AbortController()
+  const acSignal = albumAbortController.signal
+  try {
+    const res = await api.get(`/admin/persons/${selectedPersonId.value}/albums/${albumId}/similar-faces`, { signal: acSignal })
+    if (acSignal.aborted) return
+
+    // 更新选中相册的相似人脸数据（缓存）
+    if (selectedAlbum.value && selectedAlbum.value.albumId === albumId) {
+      selectedAlbum.value.similarFaces = res.data || []
+      // 数据更新后重置可见面部列表并调整容器高度
+      nextTick(() => {
+        resetFaceVisible('albums')
+        setAlbumMaxHeight()
+      })
+    }
+  } catch (error) {
+    if (albumAbortController && albumAbortController.signal.aborted) return
+    console.error('加载相册相似人脸失败:', error)
+  } finally {
+    if (albumAbortController) {
+      albumAbortController = null
     }
   }
 }
@@ -1735,6 +2006,32 @@ const assignSelectedSimilar = async () => {
   await refreshPersonsAfterFaceChange()
 }
 
+const assignSelectedAlbumFaces = async () => {
+  if (!selectedPersonId.value) return
+
+  const hasSelection = selectedAlbumFaces.value.size > 0
+  const targetIds = hasSelection
+    ? Array.from(selectedAlbumFaces.value)
+    : (selectedAlbum.value?.similarFaces.map(f => f.id) || [])
+
+  if (targetIds.length === 0) return
+
+  await Promise.all(
+    targetIds.map(id =>
+      api.put(`/admin/faces/${id}/assign`, null, {
+        params: { personId: selectedPersonId.value, confirmed: true }
+      })
+    )
+  )
+
+  selectedAlbumFaces.value.clear()
+  await loadAllFaces()
+
+  // 重新加载相册推荐，但保持当前选中相册
+  await loadAlbumRecommendations(undefined, true)
+
+  await refreshPersonsAfterFaceChange()
+}
 
 const assignSelectedUnassigned = async () => {
   const ids = Array.from(selectedUnassigned.value)
@@ -1825,6 +2122,7 @@ const getCurrentContainer = (tabType: string) => {
     case 'confirmed': return confirmedContainer.value
     case 'auto': return autoContainer.value
     case 'similar': return similarContainer.value
+    case 'albums': return albumContainer.value
     case 'unassigned': return unassignedContainer.value
     case 'cluster': return clusterContainer.value
     default: return null
@@ -1835,6 +2133,7 @@ const getCurrentFaceList = (tabType: string): FaceItem[] => {
   switch (tabType) {
     case 'confirmed': return confirmedFaces.value
     case 'similar': return similarFaces.value
+    case 'albums': return selectedAlbum.value?.similarFaces || []
     case 'unassigned': return unassignedFaces.value
     case 'cluster': return personFaces.value
     default: return []
@@ -1845,6 +2144,7 @@ const getCurrentSelection = (tabType: string): Ref<Set<number>> => {
   switch (tabType) {
     case 'confirmed': return selectedConfirmed
     case 'similar': return selectedSimilar
+    case 'albums': return selectedAlbumFaces
     case 'unassigned': return selectedUnassigned
     case 'cluster': return selectedClusterFaces
     default: return selectedConfirmed
@@ -2172,6 +2472,72 @@ const selectAllCurrentTab = () => {
 }
 
 // 处理认领操作（根据tab类型）
+const selectAlbum = async (album: AlbumRecommendation) => {
+  selectedAlbum.value = album
+  selectedAlbumFaces.value.clear() // 切换相册时清空选择
+
+  // 清空之前的相似人脸数据，显示加载状态
+  selectedAlbum.value.similarFaces = []
+
+  // 立即显示加载状态
+  loadingAlbums.value = true
+
+  try {
+    // 总是重新加载数据，确保数据是最新的
+    await loadAlbumSimilarFaces(album.albumId)
+  } finally {
+    // 确保加载状态被重置
+    loadingAlbums.value = false
+    // 重置可见面部列表
+    resetFaceVisible('albums')
+  }
+}
+
+const claimSelectedAlbumFaces = async () => {
+  if (!selectedPersonId.value) {
+    alert('请先选择一个已确认的人物')
+    return
+  }
+
+  if (!selectedAlbum.value) {
+    alert('请先选择一个相册')
+    return
+  }
+
+  if (selectedAlbum.value.similarFaces.length === 0) {
+    alert('该相册没有相似人脸')
+    return
+  }
+
+  const faceIds = selectedAlbum.value.similarFaces.map(f => f.id)
+
+  try {
+    await api.put('/admin/faces/batch-assign', {
+      faceIds,
+      personId: selectedPersonId.value,
+      confirmed: true
+    })
+
+    // 从选中相册中移除这些照片
+    selectedAlbum.value.similarFaces = []
+
+    // 刷新其他数据
+    await Promise.all([
+      loadAllFaces(),
+      loadAlbumRecommendations()
+    ])
+
+    // 如果当前在相似推荐tab，也刷新相似推荐
+    if (tab.value === 'similar') {
+      await loadSimilarFaces()
+    }
+
+  } catch (error) {
+    console.error('认领相册人脸失败:', error)
+    alert('认领失败，请重试')
+  }
+}
+
 const handleClaimSelected = async () => {
   if (!selectedPersonId.value) {
     alert('请先选择一个已确认的人物')
@@ -2183,6 +2549,9 @@ const handleClaimSelected = async () => {
       break
     case 'similar':
       await assignSelectedSimilar()
+      break
+    case 'albums':
+      await assignSelectedAlbumFaces()
       break
     case 'unassigned':
       await assignSelectedUnassigned()
@@ -2211,6 +2580,7 @@ const getActiveFacesForViewer = () => {
     case 'confirmed': return confirmedFaces.value
     case 'auto': return autoAssignedFaces.value
     case 'similar': return similarFaces.value
+    case 'albums': return selectedAlbum.value?.similarFaces || []
     case 'unassigned': return unassignedFaces.value
     default: return []
   }
@@ -2282,15 +2652,46 @@ const getFaceCropStyle = (face: FaceItem) => {
   if (!thumb || !hasSize) {
     return { position: 'absolute', inset: 0, objectFit: 'cover', objectPosition: 'center center' }
   }
-  const centerX = ((face.x || 0) + face.width / 2) * 100
-  const centerY = ((face.y || 0) + face.height / 2) * 100
+  // Robust centering:
+  // face.{x,y,width,height} may be:
+  // - normalized in [0,1], or
+  // - percentages in [0,100], or
+  // - absolute pixels (unknown image dims) -> fallback to center
+  const fw = face.width || 0
+  const fh = face.height || 0
+  const fx = face.x || 0
+  const fy = face.y || 0
+
+  let centerXPercent = 50
+  let centerYPercent = 50
+
+  if (fw > 0 && fh > 0) {
+    if (fw <= 1 && fh <= 1) {
+      // normalized [0,1]
+      centerXPercent = (fx + fw / 2) * 100
+      centerYPercent = (fy + fh / 2) * 100
+    } else if (fw <= 100 && fh <= 100) {
+      // already in percent [0,100]
+      centerXPercent = fx + fw / 2
+      centerYPercent = fy + fh / 2
+    } else {
+      // pixels - we don't have original image size, fallback to center
+      centerXPercent = 50
+      centerYPercent = 50
+    }
+  }
+
+  // clamp to [0,100]
+  const clampedCenterX = Math.max(0, Math.min(100, centerXPercent))
+  const clampedCenterY = Math.max(0, Math.min(100, centerYPercent))
+
   return {
     position: 'absolute',
     inset: 0,
     width: '100%',
     height: '100%',
     objectFit: 'cover',
-    objectPosition: `${centerX}% ${centerY}%`
+    objectPosition: `${clampedCenterX}% ${clampedCenterY}%`
   }
 }
 
@@ -2323,6 +2724,7 @@ watch(currentFaceTab, (v) => {
 
 let resizeObserver: ResizeObserver | null = null
 let faceResizeObserver: ResizeObserver | null = null
+let albumResizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   loadPersons()
@@ -2341,7 +2743,17 @@ onMounted(() => {
       })
       faceResizeObserver.observe(tabScrollContainer.value)
     }
+    if (albumContainer.value && 'ResizeObserver' in window) {
+      albumResizeObserver = new ResizeObserver(() => {
+        updateAlbumContainerWidth()
+      })
+      albumResizeObserver.observe(albumContainer.value)
+      // initialize width
+      updateAlbumContainerWidth()
+    }
     window.addEventListener('resize', updateContainerWidth)
+    window.addEventListener('resize', setAlbumMaxHeight)
+    setAlbumMaxHeight()
     window.addEventListener('resize', recalcFacePageSize)
     window.addEventListener('keydown', handleGlobalKeydown)
 
@@ -2350,6 +2762,22 @@ onMounted(() => {
       personListContainer.value.addEventListener('scroll', handlePersonScroll, { passive: true })
     }
   })
+})
+
+// when albumContainer is mounted later (tab switch), ensure observer attached
+watch(albumContainer, (el) => {
+  if (el && 'ResizeObserver' in window) {
+    if (albumResizeObserver && albumContainer.value) albumResizeObserver.unobserve(albumContainer.value)
+    albumResizeObserver = new ResizeObserver(() => updateAlbumContainerWidth())
+    albumResizeObserver.observe(el)
+    nextTick(() => updateAlbumContainerWidth())
+  }
+})
+
+watch(tab, (v) => {
+  if (v === 'albums') {
+    nextTick(() => updateAlbumContainerWidth())
+  }
 })
 
 // 合并聚类到现有人物
@@ -2401,6 +2829,9 @@ onBeforeUnmount(() => {
   if (isResizing.value) {
     stopResize()
   }
+  if (isResizingAlbums.value) {
+    stopResizeAlbums()
+  }
   if (resizeObserver && personListContainer.value) {
     resizeObserver.unobserve(personListContainer.value)
   }
@@ -2410,6 +2841,11 @@ onBeforeUnmount(() => {
   }
   faceResizeObserver = null
   window.removeEventListener('resize', updateContainerWidth)
+  window.removeEventListener('resize', setAlbumMaxHeight)
+  if (albumResizeObserver && albumContainer.value) {
+    albumResizeObserver.unobserve(albumContainer.value)
+  }
+  albumResizeObserver = null
   window.removeEventListener('resize', recalcFacePageSize)
   window.removeEventListener('keydown', handleGlobalKeydown)
 

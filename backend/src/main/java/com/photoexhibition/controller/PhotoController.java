@@ -3,10 +3,12 @@ package com.photoexhibition.controller;
 import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.service.PhotoService;
+import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 public class PhotoController {
 
     private final PhotoService photoService;
+    private final SystemConfigService systemConfigService;
 
     /**
      * 图墙模式 - 获取所有图片（瀑布流）
@@ -25,8 +28,8 @@ public class PhotoController {
     public ResponseEntity<Page<PhotoDTO>> getPhotoWall(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        // 强制图墙按拍摄时间倒序（最新在前）
-        Pageable pageable = PageRequest.of(page, size, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "takenAt"));
+        // 使用系统配置的图墙排序方式
+        Pageable pageable = createPhotoSortedPageable(page, size, systemConfigService.getWallSortOrder());
         Page<PhotoDTO> photos = photoService.getAllPhotos(pageable);
         return ResponseEntity.ok(photos);
     }
@@ -122,6 +125,45 @@ public class PhotoController {
     public ResponseEntity<Integer> unlikePhoto(@PathVariable Long id) {
         int newCount = photoService.decrementLike(id);
         return ResponseEntity.ok(newCount);
+    }
+
+    /**
+     * 创建照片排序的Pageable对象
+     */
+    private Pageable createPhotoSortedPageable(int page, int size, String sort) {
+        if (sort == null || sort.isEmpty()) {
+            // 默认按拍摄时间倒序排序
+            Sort defaultSort = Sort.by(Sort.Direction.DESC, "takenAt");
+            return PageRequest.of(page, size, defaultSort);
+        }
+
+        Sort sortObj;
+        switch (sort) {
+            case SystemConfigService.SORT_BY_TAKEN_AT_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "takenAt");
+                break;
+            case SystemConfigService.SORT_BY_TAKEN_AT_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "takenAt");
+                break;
+            case SystemConfigService.SORT_BY_FILENAME_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "filename");
+                break;
+            case SystemConfigService.SORT_BY_FILENAME_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "filename");
+                break;
+            case SystemConfigService.SORT_BY_CREATED_AT_ASC:
+                sortObj = Sort.by(Sort.Direction.ASC, "createdAt");
+                break;
+            case SystemConfigService.SORT_BY_CREATED_AT_DESC:
+                sortObj = Sort.by(Sort.Direction.DESC, "createdAt");
+                break;
+            default:
+                // 默认按拍摄时间倒序排序
+                sortObj = Sort.by(Sort.Direction.DESC, "takenAt");
+                break;
+        }
+
+        return PageRequest.of(page, size, sortObj);
     }
 }
 

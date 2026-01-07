@@ -37,10 +37,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.security.MessageDigest;
@@ -967,6 +970,27 @@ public class PhotoScanService {
         } catch (ImageProcessingException | IOException e) {
             log.warn("提取EXIF信息失败: {}", imageFile.getName(), e);
         }
+
+        // 如果没有从EXIF中提取到拍摄时间，尝试从文件路径中提取
+        if (photo.getTakenAt() == null) {
+            LocalDateTime pathTime = parseDateFromFilePath(imageFile.getAbsolutePath());
+            if (pathTime != null) {
+                photo.setTakenAt(pathTime);
+                log.debug("从文件路径提取到拍摄时间: {} -> {}", imageFile.getName(), pathTime);
+            } else {
+                // 最后使用文件的创建时间
+                try {
+                    java.nio.file.Path filePath = imageFile.toPath();
+                    java.nio.file.attribute.BasicFileAttributes attrs = java.nio.file.Files.readAttributes(filePath, java.nio.file.attribute.BasicFileAttributes.class);
+                    java.time.Instant instant = attrs.creationTime().toInstant();
+                    LocalDateTime fileCreationTime = LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault());
+                    photo.setTakenAt(fileCreationTime);
+                    log.debug("使用文件创建时间作为拍摄时间: {} -> {}", imageFile.getName(), fileCreationTime);
+                } catch (Exception e) {
+                    log.warn("无法获取文件创建时间: {}", imageFile.getName(), e);
+                }
+            }
+        }
     }
 
     /**
@@ -1604,6 +1628,293 @@ public class PhotoScanService {
         }
 
         return deletedCount;
+    }
+
+    /**
+     * 批量更新所有照片的时间信息
+     * 重新从EXIF信息中提取拍摄时间
+     */
+    @Async
+    @Transactional
+    public void updateAllPhotoTimesAsync() {
+        log.info("开始批量更新所有照片的时间信息...");
+
+        List<Photo> allPhotos = photoRepository.findAll();
+        AtomicInteger updatedCount = new AtomicInteger(0);
+        AtomicInteger processedCount = new AtomicInteger(0);
+
+        for (Photo photo : allPhotos) {
+            try {
+                // 获取照片文件路径
+                String originalPath = photo.getOriginalPath();
+                if (originalPath == null || originalPath.isEmpty()) {
+                    log.warn("照片 {} 没有原始路径，跳过", photo.getId());
+                    processedCount.incrementAndGet();
+                    continue;
+                }
+
+                File imageFile = new File(originalPath);
+                if (!imageFile.exists()) {
+                    log.warn("照片文件不存在: {}", originalPath);
+                    processedCount.incrementAndGet();
+                    continue;
+                }
+
+                // 提取EXIF信息并更新时间
+                extractExifData(imageFile, photo);
+                photoRepository.save(photo);
+
+                updatedCount.incrementAndGet();
+                processedCount.incrementAndGet();
+
+                // 每处理100张照片记录一次日志
+                if (processedCount.get() % 100 == 0) {
+                    log.info("已处理 {} 张照片，更新了 {} 张", processedCount.get(), updatedCount.get());
+                }
+
+            } catch (Exception e) {
+                log.error("更新照片 {} 时间失败: {}", photo.getId(), e.getMessage());
+                processedCount.incrementAndGet();
+            }
+        }
+
+        log.info("批量更新照片时间完成，总共处理 {} 张照片，成功更新 {} 张", processedCount.get(), updatedCount.get());
+    }
+
+    /**
+     * 同步版本：批量更新所有照片的时间信息
+     */
+    @Transactional
+    public Map<String, Object> updateAllPhotoTimes() {
+        log.info("开始批量更新所有照片的时间信息...");
+
+        List<Photo> allPhotos = photoRepository.findAll();
+        int updatedCount = 0;
+        int processedCount = 0;
+
+        for (Photo photo : allPhotos) {
+            try {
+                // 获取照片文件路径
+                String originalPath = photo.getOriginalPath();
+                if (originalPath == null || originalPath.isEmpty()) {
+                    log.warn("照片 {} 没有原始路径，跳过", photo.getId());
+                    processedCount++;
+                    continue;
+                }
+
+                File imageFile = new File(originalPath);
+                if (!imageFile.exists()) {
+                    log.warn("照片文件不存在: {}", originalPath);
+                    processedCount++;
+                    continue;
+                }
+
+                // 提取EXIF信息并更新时间
+                extractExifData(imageFile, photo);
+                photoRepository.save(photo);
+
+                updatedCount++;
+                processedCount++;
+
+                // 每处理100张照片记录一次日志
+                if (processedCount % 100 == 0) {
+                    log.info("已处理 {} 张照片，更新了 {} 张", processedCount, updatedCount);
+                }
+
+            } catch (Exception e) {
+                log.error("更新照片 {} 时间失败: {}", photo.getId(), e.getMessage());
+                processedCount++;
+            }
+        }
+
+        log.info("批量更新照片时间完成，总共处理 {} 张照片，成功更新 {} 张", processedCount, updatedCount);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("totalProcessed", processedCount);
+        result.put("totalUpdated", updatedCount);
+        result.put("message", String.format("成功处理 %d 张照片，更新了 %d 张照片的时间信息", processedCount, updatedCount));
+
+        return result;
+    }
+
+    /**
+     * 从文件路径中解析拍摄时间（优先最深层文件夹）
+     * 类似相册时间的逻辑，但针对单个文件路径
+     */
+    private LocalDateTime parseDateFromFilePath(String filePath) {
+        if (filePath == null || filePath.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            // 获取相对于base-path的路径部分
+            String relativePath = getRelativeFilePath(filePath);
+            if (relativePath == null || relativePath.isEmpty()) {
+                return null;
+            }
+
+            // 分割路径为各级目录
+            String[] pathParts = relativePath.split("[/\\\\]");
+            if (pathParts.length == 0) {
+                return null;
+            }
+
+            // 从最深层开始向上查找（优先使用最接近文件的文件夹名称）
+            for (int i = pathParts.length - 1; i >= 0; i--) {
+                String folderName = pathParts[i].trim();
+                if (!folderName.isEmpty()) {
+                    LocalDateTime parsedTime = parseDateFromFolderName(folderName);
+                    if (parsedTime != null) {
+                        return parsedTime;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            log.debug("从文件路径解析时间失败: {}", filePath, e);
+        }
+
+        return null;  // 没有找到匹配的时间格式
+    }
+
+    /**
+     * 获取相对于base-path的文件路径
+     */
+    private String getRelativeFilePath(String fullPath) {
+        if (fullPath == null) {
+            return null;
+        }
+
+        // 尝试多种方式匹配base-path
+        String[] possibleBasePaths = {
+            basePath,  // 原始配置路径
+            Paths.get(basePath).toAbsolutePath().toString(),  // 绝对路径
+            Paths.get(System.getProperty("user.dir"), basePath).toString(),  // 相对于工作目录
+            Paths.get("./data/photos").toAbsolutePath().toString(),  // 硬编码绝对路径
+        };
+
+        for (String basePath : possibleBasePaths) {
+            if (fullPath.startsWith(basePath)) {
+                String relativePath = fullPath.substring(basePath.length());
+                // 移除开头的路径分隔符
+                if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
+                    relativePath = relativePath.substring(1);
+                }
+                return relativePath;
+            }
+        }
+
+        // 如果都没有匹配，尝试从"data/photos"开始截取
+        String dataPhotosPath = "data" + File.separator + "photos";
+        int dataIndex = fullPath.indexOf(dataPhotosPath);
+        if (dataIndex >= 0) {
+            String relativePath = fullPath.substring(dataIndex + dataPhotosPath.length());
+            if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
+                relativePath = relativePath.substring(1);
+            }
+            return relativePath;
+        }
+
+        return null;  // 如果都匹配失败，返回null
+    }
+
+    /**
+     * 从单个文件夹名称中解析时间（复用AlbumService的逻辑）
+     */
+    private LocalDateTime parseDateFromFolderName(String folderName) {
+        if (folderName == null || folderName.trim().isEmpty()) {
+            return null;
+        }
+
+        // 定义多种时间格式的正则表达式和对应的DateTimeFormatter
+        List<Object[]> patterns = new ArrayList<>();
+
+        // 高优先级：带时间的格式（更具体的匹配）
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})[\\.-](\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm:ss"}); // 2023.08.08 10:30:45
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})[\\.-](\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm"}); // 2023.08.08 10:30
+        patterns.add(new Object[]{"(\\d{4})/(\\d{1,2})/(\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm:ss"}); // 2023/08/08 10:30:45
+        patterns.add(new Object[]{"(\\d{4})/(\\d{1,2})/(\\d{1,2})\\s+(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm"}); // 2023/08/08 10:30
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s+(\\d{1,2}):(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm:ss"}); // 2023年08月08日 10:30:45
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s+(\\d{1,2}):(\\d{1,2})", "yyyy-MM-dd HH:mm"}); // 2023年08月08日 10:30
+
+        // 中优先级：只包含日期的格式（按特殊性和长度排序）
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月(\\d{1,2})日", "yyyy-MM-dd"}); // 2023年08月08日 (最特殊)
+        patterns.add(new Object[]{"(\\d{8})", "yyyyMMdd"}); // 20230808 (紧凑格式，8位数字)
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})[\\.-](\\d{1,2})", "yyyy-MM-dd"}); // 2023.08.08 或 2023-08-08 (年月日)
+        patterns.add(new Object[]{"(\\d{4})/(\\d{1,2})/(\\d{1,2})", "yyyy-MM-dd"}); // 2023/08/08 (年月日)
+        patterns.add(new Object[]{"(\\d{1,2})[\\.-/](\\d{1,2})[\\.-/](\\d{4})", "MM-dd-yyyy"}); // 08-08-2023 或 08/08/2023 或 08.08.2023 (日月年)
+        patterns.add(new Object[]{"(\\d{1,2})[\\.-/](\\d{1,2})[\\.-/](\\d{2})", "MM-dd-yy"}); // 08-08-23 (两位数年份，日月年)
+
+        String normalizedName = folderName.trim();
+
+        for (Object[] pattern : patterns) {
+            Pattern p = Pattern.compile((String) pattern[0]);
+            Matcher m = p.matcher(normalizedName);
+            String patternStr = (String) pattern[1];
+
+            if (m.find()) {
+                try {
+                    // 根据不同的模式构建标准格式的日期字符串
+                    StringBuilder dateStr = new StringBuilder();
+
+                    if (patternStr.equals("yyyyMMdd")) {
+                        // 紧凑格式：20230808 -> 2023-08-08
+                        String datePart = m.group(1);
+                        if (datePart.length() == 8) {
+                            dateStr.append(datePart.substring(0, 4)).append("-")
+                                   .append(datePart.substring(4, 6)).append("-")
+                                   .append(datePart.substring(6, 8));
+                        }
+                    } else if (patternStr.equals("MM-dd-yyyy") || patternStr.equals("MM/dd/yyyy") ||
+                               patternStr.equals("MM-dd-yy") || patternStr.equals("MM/dd/yyyy")) {
+                        // 日月年格式：08-08-2023 -> 2023-08-08
+                        dateStr.append(m.group(3)).append("-")  // 年
+                               .append(String.format("%02d", Integer.parseInt(m.group(1)))).append("-")  // 月
+                               .append(String.format("%02d", Integer.parseInt(m.group(2))));  // 日
+                    } else {
+                        // 标准年月日格式
+                        dateStr.append(m.group(1)).append("-")  // 年
+                               .append(String.format("%02d", Integer.parseInt(m.group(2)))).append("-")  // 月
+                               .append(String.format("%02d", Integer.parseInt(m.group(3))));  // 日
+
+                        // 检查是否有时间部分（基于原始pattern判断）
+                        if (patternStr.contains("HH:mm")) {
+                            if (m.groupCount() >= 5) {
+                                dateStr.append(" ")
+                                       .append(String.format("%02d", Integer.parseInt(m.group(4)))).append(":")
+                                       .append(String.format("%02d", Integer.parseInt(m.group(5))));
+
+                                if (m.groupCount() >= 6 && m.group(6) != null) {
+                                    dateStr.append(":").append(String.format("%02d", Integer.parseInt(m.group(6))));
+                                } else {
+                                    dateStr.append(":00");
+                                }
+                            } else {
+                                // 如果正则表达式应该有时间但没有匹配，记录错误
+                                log.warn("时间格式pattern '{}' 应该包含时间但groupCount只有{}", patternStr, m.groupCount());
+                            }
+                        }
+                    }
+
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern(patternStr);
+
+                    // 根据模式确定如何解析
+                    if (patternStr.contains("HH:mm")) {
+                        // 有时间的格式，直接解析为LocalDateTime
+                        return LocalDateTime.parse(dateStr.toString(), formatter);
+                    } else {
+                        // 只有日期的格式，解析为LocalDate然后转换为LocalDateTime
+                        java.time.LocalDate date = java.time.LocalDate.parse(dateStr.toString(), formatter);
+                        return date.atStartOfDay();
+                    }
+                } catch (java.time.format.DateTimeParseException | NumberFormatException e) {
+                    // 解析失败，继续尝试下一个模式
+                    continue;
+                }
+            }
+        }
+
+        return null;  // 没有找到匹配的时间格式
     }
 }
 

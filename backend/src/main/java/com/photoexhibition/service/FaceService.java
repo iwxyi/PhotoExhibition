@@ -5,13 +5,16 @@ import com.photoexhibition.dto.FaceClusterDTO;
 import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
 import com.photoexhibition.dto.PersonSimilarityDTO;
+import com.photoexhibition.dto.AlbumRecommendationDTO;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.Album;
 import com.photoexhibition.dto.PersonSummaryDTO;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.AlbumRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -48,6 +52,7 @@ public class FaceService {
     private final FaceRepository faceRepository;
     private final PersonProfileRepository personProfileRepository;
     private final PhotoRepository photoRepository;
+    private final AlbumRepository albumRepository;
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
     @Value("${photo.scan.base-path}")
@@ -925,11 +930,11 @@ public class FaceService {
                 personVectors.add(vec);
             }
         }
-
+        
         if (personVectors.isEmpty()) {
             return new ArrayList<>();
         }
-
+        
         // 计算平均向量
         int dim = personVectors.get(0).length;
         float[] avgVec = new float[dim];
@@ -942,7 +947,7 @@ public class FaceService {
         for (int i = 0; i < dim; i++) {
             avgVec[i] /= count;
         }
-
+        
         // 归一化
         double norm = 0;
         for (float v : avgVec) {
@@ -1808,6 +1813,186 @@ public class FaceService {
 
         log.warn("calculateAverageEmbedding方法被调用，但FaceDTO没有embedding字段，请使用calculateAverageEmbeddingFromEntities方法");
         return null;
+    }
+
+    /**
+     * 获取人物的套图推荐（只显示人物已确认图片所在的相册）
+     */
+    @Transactional(readOnly = true)
+    public List<AlbumRecommendationDTO> getAlbumRecommendationsForPerson(Long personId) {
+        // 获取人物的所有已确认人脸
+        List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
+        if (confirmedFaces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 获取人物已确认人脸所在的相册ID
+        Set<Long> personAlbumIds = confirmedFaces.stream()
+            .filter(face -> face.getPhoto() != null && face.getPhoto().getAlbumId() != null)
+            .map(face -> face.getPhoto().getAlbumId())
+            .collect(Collectors.toSet());
+
+        if (personAlbumIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 计算人物平均特征向量
+        float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(confirmedFaces);
+        if (personAvgEmbedding == null) {
+            return new ArrayList<>();
+        }
+
+        // 为每个人物相册计算相似人脸
+        List<AlbumRecommendationDTO> result = new ArrayList<>();
+
+        for (Long albumId : personAlbumIds) {
+            // 获取该相册中的所有未分配人脸
+            List<Face> albumUnassignedFaces = faceRepository.findByPersonIsNull().stream()
+                .filter(face -> face.getPhoto() != null && albumId.equals(face.getPhoto().getAlbumId()))
+                .collect(Collectors.toList());
+
+            if (albumUnassignedFaces.isEmpty()) {
+                continue;
+            }
+
+            // 计算相似度
+            List<FaceSimilarity> similarFaces = new ArrayList<>();
+            for (Face face : albumUnassignedFaces) {
+                float[] embedding = parseEmbedding(face.getEmbedding());
+                if (embedding == null) continue;
+
+                double similarity = cosine(personAvgEmbedding, embedding);
+                similarFaces.add(new FaceSimilarity(face, similarity));
+            }
+
+            if (similarFaces.isEmpty()) {
+                continue;
+            }
+
+            // 按相似度降序排序
+            similarFaces.sort((a, b) -> Double.compare(b.similarity, a.similarity));
+
+            // 获取相册信息
+            com.photoexhibition.entity.Album album = albumRepository.findById(albumId)
+                .orElseThrow(() -> new RuntimeException("相册不存在: " + albumId));
+
+            AlbumRecommendationDTO dto = new AlbumRecommendationDTO();
+            dto.setAlbumId(album.getId());
+            dto.setAlbumName(album.getName() + " (" + album.getPhotoCount() + ")");
+            dto.setAlbumPath(getAlbumDisplayPath(album.getPath()));
+            dto.setPhotoCount(album.getPhotoCount());
+            dto.setSimilarFaceCount(similarFaces.size());
+            dto.setTakenAt(album.getLatestPhotoTakenAt());
+            // 不设置similarFaces，让前端按需加载
+
+            result.add(dto);
+        }
+
+        // 按图片数量降序排序（相同数量时按相册名称排序）
+        result.sort((a, b) -> {
+            int photoCompare = Integer.compare(b.getPhotoCount(), a.getPhotoCount());
+            if (photoCompare != 0) {
+                return photoCompare;
+            }
+            return a.getAlbumName().compareTo(b.getAlbumName());
+        });
+
+        return result;
+    }
+
+    /**
+     * 获取指定相册中与人物相似的未分配人脸
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getSimilarFacesForAlbum(Long personId, Long albumId) {
+        // 获取人物的所有已确认人脸
+        List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
+        if (confirmedFaces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 计算人物平均特征向量
+        float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(confirmedFaces);
+        if (personAvgEmbedding == null) {
+            return new ArrayList<>();
+        }
+
+        // 获取指定相册的所有未分配人脸
+        List<Face> albumUnassignedFaces = faceRepository.findByPersonIsNull().stream()
+            .filter(face -> face.getPhoto() != null && face.getPhoto().getAlbumId() != null &&
+                           face.getPhoto().getAlbumId().equals(albumId))
+            .collect(Collectors.toList());
+
+        List<FaceSimilarity> similarFaces = new ArrayList<>();
+
+        for (Face face : albumUnassignedFaces) {
+            float[] embedding = parseEmbedding(face.getEmbedding());
+            if (embedding == null) continue;
+
+            double similarity = cosine(personAvgEmbedding, embedding);
+            similarFaces.add(new FaceSimilarity(face, similarity));
+        }
+
+        // 按相似度降序排序
+        similarFaces.sort((a, b) -> Double.compare(b.similarity, a.similarity));
+
+        // 转换为DTO
+        return similarFaces.stream()
+            .map(fs -> {
+                FaceDTO dto = toDTO(fs.face);
+                dto.setSimilarity(fs.similarity);
+                return dto;
+            })
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取相册显示路径：基于base-path的相对路径，只保留分类和顶级相册名
+     */
+    private String getAlbumDisplayPath(String absolutePath) {
+        try {
+            // 计算base-path的绝对路径
+            String basePathStr = photoBasePath;
+            if (!Paths.get(basePathStr).isAbsolute()) {
+                String projectRoot = System.getProperty("user.dir");
+                if (projectRoot.endsWith("backend")) {
+                    projectRoot = new File(projectRoot).getParent();
+                }
+                if (basePathStr.startsWith("./")) {
+                    basePathStr = basePathStr.substring(2);
+                }
+                basePathStr = new File(projectRoot, basePathStr).getAbsolutePath();
+            }
+
+            // 标准化路径
+            Path basePath = Paths.get(basePathStr).normalize();
+            Path albumPath = Paths.get(absolutePath).normalize();
+
+            // 检查相册路径是否在base-path下
+            if (!albumPath.startsWith(basePath)) {
+                return absolutePath; // 如果不在base-path下，返回原路径
+            }
+
+            // 获取相对路径
+            Path relativePath = basePath.relativize(albumPath);
+
+            // 转换为字符串并统一分隔符
+            String pathStr = relativePath.toString().replace("\\", "/");
+
+            // 显示完整的相对路径，但去掉最后一级（相册本身的名字）
+            // 例如：人像/2024.07.19 大奇山-水上汉服/合照 -> 人像/2024.07.19 大奇山-水上汉服
+            int lastSlashIndex = pathStr.lastIndexOf('/');
+            if (lastSlashIndex > 0) {
+                return pathStr.substring(0, lastSlashIndex);
+            }
+
+            // 如果没有斜杠，返回原路径
+            return pathStr;
+
+        } catch (Exception e) {
+            // 转换失败，返回原路径
+            return absolutePath;
+        }
     }
 
     /**
