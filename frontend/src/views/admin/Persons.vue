@@ -310,7 +310,7 @@
                   :class="selectedConfirmed.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'confirmed')"
                 >
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
+                      <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -330,7 +330,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -416,7 +416,7 @@
                       <div class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
                         {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                       </div>
-                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
+                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -436,7 +436,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                          @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
+                          @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -484,7 +484,7 @@
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                     </template>
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -504,7 +504,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -559,7 +559,7 @@
                       {{ ((f.confidence || 0) * 100).toFixed(0) }}%
                     </template>
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -580,7 +580,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -626,7 +626,7 @@
                   :class="selectedClusterFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'cluster')"
                 >
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -640,7 +640,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -673,6 +673,7 @@
     :start-index="viewerIndex"
     :auto-show-faces="true"
     :open-options="viewerOpenOptions"
+    @viewer-index-change="onViewerIndexChange"
   />
 
   <!-- 删除人物确认对话框 -->
@@ -1759,21 +1760,28 @@ const createPersonFromSelectedCluster = async () => {
   savingPerson.value = true
   try {
     // 获取当前聚类的人脸ID
-    const res = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
+    const facesRes = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
       params: { threshold: clusterThreshold.value }
     })
-    const faces = res.data || []
+    const faces = facesRes.data || []
     const faceIds = faces.map((f: FaceItem) => f.id)
 
-    await api.post('/admin/persons/from-faces', {
+    const resCreate = await api.post('/admin/persons/from-faces', {
       faceIds,
       name,
       description: ''
     })
 
-    // 重新加载人物列表，并选中新建或合并后的人物
+    // 重新加载人物列表，并选中新建或合并后的人物（优先用后端返回的 id）
+    const createdId = resCreate?.data?.id
     await loadPersons()
-    const created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
+    let created: PersonListItem | undefined
+    if (createdId) {
+      created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
+    }
+    if (!created) {
+      created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
+    }
     if (created) {
       selectPerson(created)
     }
@@ -1821,16 +1829,23 @@ const createPersonFromName = async (p: PersonListItem) => {
     const faces = res.data || []
     const faceIds = faces.map((f: FaceItem) => f.id)
     
-    await api.post('/admin/persons/from-faces', {
+    const resCreate = await api.post('/admin/persons/from-faces', {
       faceIds,
       name: name,
       description: ''
     })
+    const createdId = resCreate?.data?.id
     await loadPersons()
     cancelEdit()
-    if (persons.value.length > 0) {
-      selectPerson(persons.value[0])
+    // Prefer selecting by returned id, fallback to name or first entry
+    let created: PersonListItem | undefined
+    if (createdId) {
+      created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
     }
+    if (!created) {
+      created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
+    }
+    if (created) selectPerson(created)
   } catch (e: any) {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
     cancelEdit()
@@ -2590,7 +2605,7 @@ const getActiveFacesForViewer = () => {
   }
 }
 
-const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number; highlightedClusterId?: number } | null = null) => {
+const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number; highlightedClusterId?: number; preferredFaceId?: number } | null = null) => {
   if (!face.photoId) {
     // 如果没有photoId，构造一个最小的照片对象用于显示
     const fallback = {
@@ -2783,6 +2798,39 @@ const openPhoto = (photoId?: number) => {
   window.open(`/photo/${photoId}`, '_blank')
 }
 
+const onViewerIndexChange = (payload: { index: number; photoId?: number; faceIds?: number[] }) => {
+  const pid = payload.photoId
+  // determine current tab mapping used by selection logic
+  let tabType = tab.value
+  if (tabType === 'confirmed' && selectedItem.value?.type === 'cluster') {
+    tabType = 'cluster'
+  }
+  const faceList = getCurrentFaceList(tabType)
+  // find faces in current list that belong to this photo
+  const matching = faceList.filter(f => f.photoId === pid).map(f => f.id)
+  const selectionRef = getCurrentSelection(tabType)
+  if (matching.length > 0) {
+    selectionRef.value = new Set(matching)
+    // update lastSelectedIndex for shift-click behavior
+    const firstId = matching[0]
+    const idx = faceList.findIndex(f => f.id === firstId)
+    lastSelectedIndex.value = idx >= 0 ? idx : null
+    // scroll the container to show the selected face element if present
+    nextTick(() => {
+      const container = getCurrentContainer(tabType) || tabScrollContainer.value
+      if (!container) return
+      const el: HTMLElement | null = container.querySelector(`[data-face-id="${firstId}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+      }
+    })
+  } else {
+    // no match in current list: clear selection
+    selectionRef.value = new Set()
+    lastSelectedIndex.value = null
+  }
+}
+
 // viewer open options to pass to PhotoViewer
 const viewerOpenOptions = ref<any>(null)
 
@@ -2894,11 +2942,16 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
       )
     )
 
-    // 刷新人物列表
+    // 刷新人物列表并聚焦到目标人物
     await loadPersons()
-    // 清空选择
-    selectedItem.value = null
-    selectedClusterIndex.value = null
+    const found = persons.value.find(p => p.type === 'confirmed' && p.id === targetPerson.id)
+    if (found) {
+      selectPerson(found)
+    } else {
+      // fallback: clear selection
+      selectedItem.value = null
+      selectedClusterIndex.value = null
+    }
   } catch (error) {
     console.error('合并到现有人物失败:', error)
     alert('合并失败，请重试')

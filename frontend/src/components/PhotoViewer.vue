@@ -92,6 +92,7 @@
           <div class="relative w-full h-full flex items-center justify-center overflow-hidden" ref="imageContainer">
             <div
               class="relative inline-block viewer-open-anim"
+              ref="imageWrapper"
               :class="{ 'viewer-open-anim--active': isOpeningFromThumb }"
               :style="[getImageTransformStyle(), openAnimStyle]"
               @wheel="onWheelZoom"
@@ -112,33 +113,35 @@
                 @load="onImageLoad"
                 draggable="false"
               />
-            </div>
-            <!-- 焦点框覆盖层 -->
-            <div
-              v-if="currentPhoto && showFocusBox && imageLoaded && !isOpeningFromThumb && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
-              class="absolute pointer-events-none"
-              :style="getFocusBoxStyle()"
-            >
-              <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50"></div>
-              <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/60 px-1 rounded whitespace-nowrap">
-                焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
-              </div>
-            </div>
-            <div
-              v-for="box in faceBoxes"
-              :key="box.id"
-              class="absolute pointer-events-none"
-              :style="box.style"
-            >
+
+              <!-- 焦点框覆盖层（作为 wrapper 的子元素，这样 transform/scale 一致） -->
               <div
-                class="absolute inset-0 border-2 rounded-sm shadow-lg"
-                :class="box.confirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
-              ></div>
-              <div
-                class="absolute -top-5 left-0 text-xs px-1 rounded whitespace-nowrap"
-                :class="box.confirmed ? 'bg-green-500/80 text-white' : 'bg-amber-500/80 text-white'"
+                v-if="currentPhoto && showFocusBox && imageLoaded && !isOpeningFromThumb && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
+                class="absolute pointer-events-none"
+                :style="getFocusBoxStyle()"
               >
-                {{ box.label }}
+                <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50"></div>
+                <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/60 px-1 rounded whitespace-nowrap">
+                  焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
+                </div>
+              </div>
+
+              <div
+                v-for="box in faceBoxes"
+                :key="box.id"
+                class="absolute pointer-events-none"
+                :style="box.style"
+              >
+                <div
+                  class="absolute inset-0 border-2 rounded-sm shadow-lg"
+                  :class="box.confirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
+                ></div>
+                <div
+                  class="absolute -top-5 left-0 text-xs px-1 rounded whitespace-nowrap"
+                  :class="box.confirmed ? 'bg-green-500/80 text-white' : 'bg-amber-500/80 text-white'"
+                >
+                  {{ box.label }}
+                </div>
               </div>
             </div>
           </div>
@@ -366,6 +369,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:visible', val: boolean): void
+  (e: 'viewer-index-change', payload: { index: number; photoId?: number; faceIds?: number[] }): void
 }>()
 
 const currentIndex = ref(0)
@@ -410,6 +414,7 @@ const initializeBoxStates = () => {
 }
 const mainImage = ref<HTMLImageElement | null>(null)
 const imageContainer = ref<HTMLElement | null>(null)
+const imageWrapper = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 
@@ -937,24 +942,22 @@ const getImageMetrics = () => {
 
 const getFocusBoxStyle = () => {
   if (!currentPhoto.value || currentPhoto.value.focusX === undefined || currentPhoto.value.focusY === undefined) return {}
-  const metrics = getImageMetrics()
-  if (!metrics) return {}
-  const { baseDisplayWidth, baseDisplayHeight, offsetX, offsetY, imgOffsetX, imgOffsetY } = metrics
-  const boxSize = Math.min(baseDisplayWidth, baseDisplayHeight) * 0.2 * scale.value
-  const baseBoxSize = boxSize / scale.value
-  const focusXOnBase = (currentPhoto.value.focusX! / 100) * baseDisplayWidth
-  const focusYOnBase = (currentPhoto.value.focusY! / 100) * baseDisplayHeight
-  const boxLeftOnBase = focusXOnBase - baseBoxSize / 2
-  const boxTopOnBase = focusYOnBase - baseBoxSize / 2
-  const clampedLeft = Math.max(0, Math.min(boxLeftOnBase, baseDisplayWidth - baseBoxSize))
-  const clampedTop = Math.max(0, Math.min(boxTopOnBase, baseDisplayHeight - baseBoxSize))
-  const left = imgOffsetX + offsetX + clampedLeft * scale.value + translateX.value
-  const top = imgOffsetY + offsetY + clampedTop * scale.value + translateY.value
+  // Compute focus box using percentages relative to the image element so it scales with the wrapper transform.
+  const img = mainImage.value
+  if (!img) return {}
+  const naturalW = currentPhoto.value.width || img.naturalWidth || 1
+  const naturalH = currentPhoto.value.height || img.naturalHeight || 1
+  const fw = 0.2 // focus box size as proportion of min dimension (20%)
+  const focusX = Number(currentPhoto.value.focusX) / 100
+  const focusY = Number(currentPhoto.value.focusY) / 100
+  const boxPercent = Math.max(3, Math.min(40, fw * 100)) // percent value clamped
+  const leftPercent = Math.max(0, Math.min(100, focusX * 100 - boxPercent / 2))
+  const topPercent = Math.max(0, Math.min(100, focusY * 100 - boxPercent / 2))
   return {
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${boxSize}px`,
-    height: `${boxSize}px`
+    left: `${leftPercent}%`,
+    top: `${topPercent}%`,
+    width: `${boxPercent}%`,
+    height: `${boxPercent}%`
   }
 }
 
@@ -970,28 +973,31 @@ const faceBoxes = computed(() => {
   const highlightPersonId = opts?.highlightedPersonId ?? null
   const highlightFaceIdsArr: number[] = Array.isArray(opts?.highlightedFaceIds) ? opts.highlightedFaceIds.map((v: any) => Number(v)) : []
   const highlightFaceIdsSet = new Set<number>(highlightFaceIdsArr)
-  const usingHighlight = highlightFaceId !== null || highlightClusterId !== null || highlightPersonId !== null || highlightFaceIdsArr.length > 0
+  const preferredFaceId = opts?.preferredFaceId ?? null
+  // If preferredFaceId exists and this photo contains that face, prefer it over other highlights.
+  const preferredOnThisPhoto = preferredFaceId !== null && currentPhoto.value?.faces?.some((f: any) => Number(f.id) === Number(preferredFaceId))
+  const usingHighlight = preferredOnThisPhoto || highlightFaceId !== null || highlightClusterId !== null || highlightPersonId !== null || highlightFaceIdsArr.length > 0
 
   const boxes = currentPhoto.value.faces
     .filter(face => face.x !== undefined && face.y !== undefined && face.width && face.height)
     .map((face, idx) => {
+      // compute normalized coordinates in [0,1]
       const usePixel = (face.x ?? 0) > 1 || (face.y ?? 0) > 1 || (face.width ?? 0) > 1 || (face.height ?? 0) > 1
       const normX = usePixel ? (face.x || 0) / naturalWidth : (face.x || 0)
       const normY = usePixel ? (face.y || 0) / naturalHeight : (face.y || 0)
       const normW = usePixel ? (face.width || 0) / naturalWidth : (face.width || 0)
       const normH = usePixel ? (face.height || 0) / naturalHeight : (face.height || 0)
-      const baseLeft = normX * baseDisplayWidth
-      const baseTop = normY * baseDisplayHeight
-      const baseWidth = normW * baseDisplayWidth
-      const baseHeight = normH * baseDisplayHeight
-      const left = imgOffsetX + offsetX + baseLeft * scale.value + translateX.value
-      const top = imgOffsetY + offsetY + baseTop * scale.value + translateY.value
-      const width = Math.max(8, baseWidth * scale.value)
-      const height = Math.max(8, baseHeight * scale.value)
+      // convert to percentage values relative to image element
+      const leftPct = Math.max(0, Math.min(100, normX * 100))
+      const topPct = Math.max(0, Math.min(100, normY * 100))
+      const widthPct = Math.max(0.5, Math.min(100, normW * 100))
+      const heightPct = Math.max(0.5, Math.min(100, normH * 100))
       // consider explicit id set first
       const fid = Number(face.id)
       let isHighlighted = false
-      if (highlightFaceIdsSet.size > 0) {
+      if (preferredOnThisPhoto) {
+        isHighlighted = fid === Number(preferredFaceId)
+      } else if (highlightFaceIdsSet.size > 0) {
         isHighlighted = highlightFaceIdsSet.has(fid)
       } else if (highlightFaceId !== null) {
         isHighlighted = fid === Number(highlightFaceId)
@@ -1006,10 +1012,10 @@ const faceBoxes = computed(() => {
       return {
         id: face.id ?? idx,
         style: {
-          left: `${left}px`,
-          top: `${top}px`,
-          width: `${width}px`,
-          height: `${height}px`
+          left: `${leftPct}%`,
+          top: `${topPct}%`,
+          width: `${widthPct}%`,
+          height: `${heightPct}%`
         },
         confirmed: face.isConfirmed,
         label: face.personName || (face.isConfirmed ? '未命名' : '未确认'),
@@ -1040,11 +1046,14 @@ const visibleFaceList = computed(() => {
     ? opts.highlightedFaceIds.map((v: any) => Number(v))
     : []
   const highlightFaceIdsSet = new Set<number>(highlightFaceIdsArr)
-  const usingHighlight = highlightFaceId !== null || highlightClusterId !== null || highlightPersonId !== null || highlightFaceIdsArr.length > 0
-
-  // debug logging removed
+  const preferredFaceId = opts?.preferredFaceId ?? null
+  const preferredOnThisPhoto = preferredFaceId !== null && currentPhoto.value?.faces?.some((f: any) => Number(f.id) === Number(preferredFaceId))
+  const usingHighlight = preferredOnThisPhoto || highlightFaceId !== null || highlightClusterId !== null || highlightPersonId !== null || highlightFaceIdsArr.length > 0
 
   if (!usingHighlight) return currentPhoto.value.faces
+  if (preferredOnThisPhoto) {
+    return currentPhoto.value.faces.filter(face => Number(face.id) === Number(preferredFaceId))
+  }
   const filtered = currentPhoto.value.faces.filter(face => {
     const fid = Number(face.id)
     if (highlightFaceIdsSet.size > 0) return highlightFaceIdsSet.has(fid)
@@ -1174,6 +1183,12 @@ watch(
     imageLoaded.value = false
     // 重置缩放
     resetZoom()
+    // notify parent about index change so parent can sync selection/scroll in list
+    emit('viewer-index-change', {
+      index: currentIndex.value,
+      photoId: currentPhoto.value?.id,
+      faceIds: currentPhoto.value?.faces?.map((f: any) => f.id) || []
+    })
     // 图片加载完成后会自动调用 onImageLoad
   }
 )
@@ -1182,7 +1197,29 @@ watch(
   () => props.photos,
   () => {
     thumbItems.value = []
+    // Force re-render of main image when photos list changes to avoid stale metrics
+    // (handles case when same photo is reopened or photos array is replaced)
+    mainImageKey.value = (mainImageKey.value || 0) + 1
+    imageLoaded.value = false
+    resetZoom()
     nextTick(() => scrollThumbIntoView())
+  }
+)
+
+// Ensure startIndex updates are applied even when viewer is already open.
+watch(
+  () => (props as any).startIndex,
+  (val) => {
+    if (typeof val === 'number' && props.photos?.length) {
+      currentIndex.value = Math.min(Math.max(val, 0), props.photos.length - 1)
+      // force image re-render to ensure load event fires and metrics recalc
+      mainImageKey.value = (mainImageKey.value || 0) + 1
+      imageLoaded.value = false
+      resetZoom()
+      nextTick(() => {
+        scrollThumbIntoView()
+      })
+    }
   }
 )
 
