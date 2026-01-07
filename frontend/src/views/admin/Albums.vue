@@ -611,12 +611,12 @@ const load = async () => {
     const params: any = { page: 0, size: 1000, sort: albumSortOrder.value }
     const res = await api.get('/albums', { params })
     let content = res.data.content || res.data || []
-
+    
     // 为每个相册提取相对路径（去掉 base-path）
     for (const album of content) {
       album.relativePath = extractRelativePath(album.path)
     }
-
+    
     // 关键词过滤
     if (keyword.value.trim()) {
       const kw = keyword.value.trim().toLowerCase()
@@ -627,7 +627,7 @@ const load = async () => {
         (a.relativePath || '').toLowerCase().includes(kw)
       )
     }
-
+    
     albums.value = content
   } finally {
     loading.value = false

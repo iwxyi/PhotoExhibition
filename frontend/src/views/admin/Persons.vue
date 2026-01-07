@@ -253,21 +253,21 @@
             </div>
             <!-- 操作按钮区域 -->
             <div class="flex gap-2 flex-shrink-0">
-              <button
-                @click="selectAllCurrentTab"
+                  <button
+                    @click="selectAllCurrentTab"
                 :disabled="getCurrentTabFaceCount() === 0"
-                class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
-              >
-                全选
-              </button>
-              <button
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
                 @click="invertSelection(getCurrentTabType())"
                 :disabled="getCurrentTabFaceCount() === 0"
-                class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
-              >
-                反选
-              </button>
-              <button
+                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  <button
                 v-if="tab !== 'confirmed'"
                 @click="handleClaimSelected"
                 :disabled="getCurrentSelection(getCurrentTabType()).size === 0"
@@ -277,13 +277,13 @@
               </button>
               <button
                 v-if="tab === 'confirmed'"
-                @click="removeSelectedConfirmed"
-                :disabled="selectedConfirmed.size === 0"
-                class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-[10px] disabled:opacity-50"
-              >
-                移除<template v-if="selectedConfirmed.size > 0"> ({{ selectedConfirmed.size }})</template>
-              </button>
-            </div>
+                    @click="removeSelectedConfirmed"
+                    :disabled="selectedConfirmed.size === 0"
+                    class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    移除<template v-if="selectedConfirmed.size > 0"> ({{ selectedConfirmed.size }})</template>
+                  </button>
+                </div>
           </div>
 
           <!-- Tab内容 -->
@@ -310,7 +310,7 @@
                   :class="selectedConfirmed.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'confirmed')"
                 >
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -330,7 +330,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f)"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -372,10 +372,10 @@
                   >
                     <div class="font-medium text-sm truncate">{{ album.albumName }}</div>
                     <div class="text-xs opacity-75 truncate">{{ album.albumPath }}</div>
-                  </div>
+                </div>
                   <div v-if="albumRecommendations.length === 0" class="text-gray-400 text-xs text-center py-4">
                     暂无相册推荐
-                  </div>
+              </div>
                 </div>
               </div>
 
@@ -387,11 +387,6 @@
 
               <!-- 右列：选中相册的人脸图片 -->
               <div class="flex-1 bg-gray-800 rounded-lg p-3 flex flex-col min-h-0">
-                <div class="mb-3">
-                  <div v-if="selectedAlbum" class="text-sm font-medium mt-1">
-                    {{ selectedAlbum.albumName }}
-                  </div>
-                </div>
 
                 <!-- right scroll wrapper: ensures vertical scrolling independent of outer layout -->
                 <div ref="albumContainer" class="flex-1 min-h-0 overflow-auto relative">
@@ -411,50 +406,50 @@
                     </div>
                     <div
                       v-for="(f, index) in visibleAlbumFaces"
-                      :key="f.id"
-                      :data-face-id="f.id"
-                      :data-face-index="index"
-                      class="bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :key="f.id"
+                  :data-face-id="f.id"
+                  :data-face-index="index"
+                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
                       :class="selectedAlbumFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50'"
                       @click="handleFaceClick($event, f.id, 'albums')"
-                    >
+                >
                       <div class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
                         {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                       </div>
-                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f)">
-                      <img
-                        v-if="getFaceThumb(f)"
-                        :src="getFaceThumb(f)"
+                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
+                    <img
+                      v-if="getFaceThumb(f)"
+                      :src="getFaceThumb(f)"
                         class="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                        :style="getFaceCropStyle(f)"
-                        loading="lazy"
-                      />
-                      <button
+                      :style="getFaceCropStyle(f)"
+                      loading="lazy"
+                    />
+                    <button
                         @click.stop="assignFace(f.id, true)"
                         class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
+                    >
                         认领
-                      </button>
-                    </div>
-                      <div class="p-1.5">
-                        <div
-                          class="text-[10px] text-blue-300 truncate cursor-pointer"
-                          :title="f.photoFilename"
-                          @click.stop="openPhoto(f.photoId)"
-                          @dblclick.stop="openViewer(f)"
-                        >
-                          {{ f.photoFilename || '-' }}
-                        </div>
-                      </div>
-                    </div>
-                    <!-- placeholders removed -->
+                    </button>
                   </div>
-                  <div
-                    v-if="isSelecting && currentTab === 'albums'"
-                    class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
-                    :style="selectionBoxStyle"
-                  ></div>
+                  <div class="p-1.5">
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      :title="f.photoFilename"
+                      @click.stop="openPhoto(f.photoId)"
+                          @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
+                    >
+                      {{ f.photoFilename || '-' }}
+                    </div>
+                  </div>
                 </div>
+                    <!-- placeholders removed -->
+                </div>
+                <div
+                    v-if="isSelecting && currentTab === 'albums'"
+                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  :style="selectionBoxStyle"
+                ></div>
+              </div>
               </div>
             </div>
 
@@ -486,10 +481,10 @@
                       📁 {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                     </template>
                     <template v-else>
-                      {{ ((f.similarity || 0) * 100).toFixed(0) }}%
+                    {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                     </template>
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -509,7 +504,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f)"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -564,7 +559,7 @@
                       {{ ((f.confidence || 0) * 100).toFixed(0) }}%
                     </template>
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -585,7 +580,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f)"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -631,7 +626,7 @@
                   :class="selectedClusterFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'cluster')"
                 >
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f)">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -645,7 +640,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f)"
+                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id })"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -677,6 +672,7 @@
     :photos="viewerPhotos"
     :start-index="viewerIndex"
     :auto-show-faces="true"
+    :open-options="viewerOpenOptions"
   />
 
   <!-- 删除人物确认对话框 -->
@@ -728,9 +724,11 @@
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { usePhotoStore } from '@/stores/photo'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
 const router = useRouter()
+const photoStore = usePhotoStore()
 
 interface PersonListItem {
   type: 'confirmed' | 'cluster'
@@ -1246,6 +1244,10 @@ const selectPerson = (p: PersonListItem) => {
     originalSelectedPersonName.value = selectedPersonName.value
     editingDescription.value = p.description || ''
     originalDescription.value = p.description || ''
+    // 切换人物时清空套图推荐的数据
+    selectedAlbum.value = null
+    albumRecommendations.value = []
+    selectedAlbumFaces.value.clear()
     // 智能选择初始tab：优先显示有内容的tab
     tab.value = 'confirmed' // 默认先显示confirmed，加载后再根据数据调整
     loadAllFaces(abortController.signal)
@@ -1277,7 +1279,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
   }
 
   try {
-    // 先加载已确认照片，然后根据结果决定是否切换tab
+  // 先加载已确认照片，然后根据结果决定是否切换tab
     await loadConfirmedFaces(signal, false)
     if (signal?.aborted) {
       // 如果被取消，恢复之前的数据
@@ -1309,10 +1311,10 @@ const loadAllFaces = async (signal?: AbortSignal) => {
     resetFaceVisible('unassigned')
 
     // 智能选择初始显示的tab：优先显示有内容的tab
-    // 但如果当前就在相似推荐tab，则保持不变（避免认领后自动跳转）
+    // 但如果当前就在相似推荐或套图推荐tab，则保持不变（避免认领后自动跳转）
     nextTick(() => {
-      if (tab.value === 'similar') {
-        // 如果当前在相似推荐tab，保持不变
+      if (tab.value === 'similar' || tab.value === 'albums') {
+        // 如果当前在相似推荐或套图推荐tab，保持不变
         return
       }
 
@@ -1375,8 +1377,8 @@ const loadConfirmedFaces = async (signal?: AbortSignal, clearData = true) => {
 
     confirmedFaces.value = res.data.content || res.data || []
     if (clearData) {
-      selectedConfirmed.value.clear()
-      resetFaceVisible('confirmed')
+    selectedConfirmed.value.clear()
+    resetFaceVisible('confirmed')
     }
   } catch (error) {
     if (error.name !== 'AbortError') {
@@ -1397,8 +1399,8 @@ const loadAutoAssignedFaces = async (signal?: AbortSignal, clearData = true) => 
 
     autoAssignedFaces.value = res.data.content || res.data || []
     if (clearData) {
-      selectedAuto.value.clear()
-      resetFaceVisible('auto')
+    selectedAuto.value.clear()
+    resetFaceVisible('auto')
     }
   } catch (error) {
     if (error.name !== 'AbortError') {
@@ -1426,6 +1428,13 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
     // 如果没有选中相册，默认选择第一个
     if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
       selectedAlbum.value = albumRecommendations.value[0]
+    } else if (albumRecommendations.value.length === 0) {
+      // 没有相册时清空选中与显示，避免显示旧数据
+      selectedAlbum.value = null
+      // 清空可见相册照片
+      visibleFacesMap.albums.value = []
+      faceVisibleLimits.albums = 0
+      facePlaceholderCounts.albums = 0
     }
 
     // 加载选中相册的相似人脸
@@ -1504,6 +1513,14 @@ const loadSimilarFaces = async (signal?: AbortSignal, clearData = true) => {
 
     // 合并两个数组
     similarFaces.value = [...similarData, ...markedSameFolderData]
+    // debug: log summary to help trace unexpectedly large result sets
+    try {
+      const ids = similarFaces.value.map((f: any) => f.id)
+      const photoIds = Array.from(new Set(similarFaces.value.map((f: any) => f.photoId).filter(Boolean)))
+      // debug logging removed
+    } catch (e) {
+      console.warn('loadSimilarFaces -> logging failed', e)
+    }
 
     if (clearData) {
       selectedSimilar.value.clear()
@@ -1537,8 +1554,8 @@ const loadClusterFaces = async (signal?: AbortSignal, clearData = true) => {
 
     personFaces.value = res.data || []
     if (clearData) {
-      selectedClusterFaces.value.clear()
-      resetFaceVisible('cluster')
+    selectedClusterFaces.value.clear()
+    resetFaceVisible('cluster')
     }
   } catch (error) {
     if (error.name !== 'AbortError') {
@@ -1581,34 +1598,21 @@ const loadSimilarPersonsForCluster = async (signal?: AbortSignal) => {
 
 // 根据当前上下文加载相关的未分配人脸
 const loadContextualUnassigned = async (signal?: AbortSignal) => {
-  console.log('loadContextualUnassigned: 开始加载')
-  console.log('selectedItem:', selectedItem.value)
-  console.log('selectedPersonId:', selectedPersonId.value)
-  console.log('selectedClusterIndex:', selectedClusterIndex.value)
-
   try {
     const params: any = { page: 0, size: 100, sort: 'confidence' }
 
     // 根据当前选择添加上下文参数
     if (selectedItem.value?.type === 'confirmed' && selectedPersonId.value) {
       params.personId = selectedPersonId.value
-      console.log('添加personId参数:', params.personId)
     } else if (selectedItem.value?.type === 'cluster' && selectedClusterIndex.value !== null) {
       params.clusterIndex = selectedClusterIndex.value
-      console.log('添加clusterIndex参数:', params.clusterIndex)
-    } else {
-      console.log('没有上下文参数，使用全局未分配人脸')
     }
-
-    console.log('API请求参数:', params)
 
     const res = await api.get('/admin/faces/unassigned', {
       params,
       signal
     })
     if (signal?.aborted) return
-
-    console.log('API响应数据长度:', res.data?.content?.length || res.data?.length || 0)
 
     unassignedFaces.value = res.data.content || res.data || []
     selectedUnassigned.value.clear()
@@ -1642,23 +1646,23 @@ const loadUnassigned = async (signal?: AbortSignal, clearData = true) => {
 
 // 监听全局loading状态，优化蒙版显示逻辑
 watch(globalLoadingFaces, (isLoading) => {
-  if (loadingOverlayTimer !== null) {
-    clearTimeout(loadingOverlayTimer)
-    loadingOverlayTimer = null
-  }
-  if (isLoading) {
-    // 延迟 200ms 再显示蒙版，给足够时间避免快速切换时的闪烁
-    loadingOverlayTimer = window.setTimeout(() => {
-      showLoadingOverlay.value = true
+    if (loadingOverlayTimer !== null) {
+      clearTimeout(loadingOverlayTimer)
       loadingOverlayTimer = null
+    }
+    if (isLoading) {
+    // 延迟 200ms 再显示蒙版，给足够时间避免快速切换时的闪烁
+      loadingOverlayTimer = window.setTimeout(() => {
+        showLoadingOverlay.value = true
+        loadingOverlayTimer = null
     }, 200)
-  } else {
+    } else {
     // 延迟 100ms 再隐藏蒙版，确保不会出现闪烁
     loadingOverlayTimer = window.setTimeout(() => {
       showLoadingOverlay.value = false
       loadingOverlayTimer = null
     }, 100)
-  }
+    }
 })
 
 const startEditName = (p: PersonListItem) => {
@@ -2586,47 +2590,11 @@ const getActiveFacesForViewer = () => {
   }
 }
 
-const openViewer = (face: FaceItem) => {
-  const list = getActiveFacesForViewer()
-  const facesForViewer = list.length ? list : [face]
-  const photoMap = new Map<number | string, any>()
-
-  facesForViewer.forEach(f => {
-    const key = f.photoId ?? `face-${f.id}`
-    const original = f.photoOriginalPath || f.photoThumbnailPath || ''
-    const thumb = f.photoThumbnailPath || original
-    if (!photoMap.has(key)) {
-      photoMap.set(key, {
-        id: f.photoId ?? f.id,
-        filename: f.photoFilename || '',
-        originalPath: original,
-        thumbnailPath: thumb,
-        webpPath: undefined,
-        faces: [] as any[]
-      })
-    }
-    const photoEntry = photoMap.get(key)!
-    // 如果原图/缩略图后续遇到非空路径，进行补全
-    if (!photoEntry.originalPath && original) photoEntry.originalPath = original
-    if (!photoEntry.thumbnailPath && thumb) photoEntry.thumbnailPath = thumb
-    photoEntry.faces.push({
-      id: f.id,
-      x: f.x,
-      y: f.y,
-      width: f.width,
-      height: f.height,
-      personId: f.personId,
-      personName: f.personName,
-      isConfirmed: f.isConfirmed ?? (!!f.personId),
-      confidence: f.confidence,
-      photoThumbnailPath: f.photoThumbnailPath,
-      photoOriginalPath: f.photoOriginalPath
-    })
-  })
-
-  if (!photoMap.size) {
+const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number; highlightedClusterId?: number } | null = null) => {
+  if (!face.photoId) {
+    // 如果没有photoId，构造一个最小的照片对象用于显示
     const fallback = {
-      id: face.photoId ?? face.id,
+      id: face.id,
       filename: face.photoFilename || '',
       originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
       thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
@@ -2639,11 +2607,126 @@ const openViewer = (face: FaceItem) => {
     return
   }
 
-  viewerPhotos.value = Array.from(photoMap.values())
-  const targetId = face.photoId ?? face.id
-  const idx = viewerPhotos.value.findIndex(p => p.id === targetId)
-  viewerIndex.value = idx >= 0 ? idx : 0
-  viewerVisible.value = true
+  try {
+    showLoadingOverlay.value = true
+
+    // 获取所有相关的照片ID
+  const list = getActiveFacesForViewer()
+  const facesForViewer = list.length ? list : [face]
+    const photoIds = [...new Set(facesForViewer.map(f => f.photoId).filter(Boolean))]
+
+    if (photoIds.length === 0) {
+      // 如果没有有效的photoId，使用fallback
+      const fallback = {
+        id: face.id,
+        filename: face.photoFilename || '',
+        originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
+        thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
+        webpPath: undefined,
+        faces: []
+      }
+      viewerPhotos.value = [fallback]
+      viewerIndex.value = 0
+      viewerVisible.value = true
+      return
+    }
+
+    // 并发获取所有照片的完整信息
+    const photoPromises = photoIds.map(id => photoStore.fetchPhotoById(id))
+    const photos = await Promise.all(photoPromises)
+
+    // 为每张照片添加人脸信息
+    const enrichedPhotos = photos.map(photo => {
+      const photoFaces = facesForViewer
+        .filter(f => f.photoId === photo.id)
+        .map(f => ({
+      id: f.id,
+      personId: f.personId,
+      personName: f.personName,
+          personDescription: f.personDescription,
+          isConfirmed: f.isConfirmed,
+      confidence: f.confidence,
+          x: f.x,
+          y: f.y,
+          width: f.width,
+          height: f.height
+        }))
+
+      return {
+        ...photo,
+        faces: photoFaces
+      }
+    })
+
+    viewerPhotos.value = enrichedPhotos
+    const targetId = face.photoId
+    const idx = viewerPhotos.value.findIndex(p => p.id === targetId)
+    viewerIndex.value = idx >= 0 ? idx : 0
+    // set highlight options for PhotoViewer — prefer explicit options.
+    // Prefer highlighting the person (personId) or cluster (clusterId) if available so that
+    // when navigating between photos the same person's faces remain highlighted.
+    const fallbackOptions = (() => {
+      // Only prefer the selectedItem (confirmed person) when we're in the 'confirmed' tab.
+      // This prevents the left-person selection from overriding highlights when clicking inside
+      // the 'similar' / 'albums' / 'unassigned' tabs.
+      if (selectedItem.value && selectedItem.value.type === 'confirmed' && tab.value === 'confirmed') {
+        return { highlightedPersonId: selectedItem.value.id }
+      }
+      // prefer using the face's personId (if assigned), then clusterId (if available), otherwise fallback to faceId
+      if ((face as any).personId) {
+        return { highlightedPersonId: (face as any).personId }
+      }
+      if ((face as any).clusterId) {
+        return { highlightedClusterId: (face as any).clusterId }
+      }
+      return { highlightedFaceId: face.id }
+    })()
+
+    // collect all face ids from an appropriate source so PhotoViewer can highlight them across photos
+    // Reason: facesForViewer might only include faces currently visible in the grid; for confirmed persons
+    // we want to include all confirmed faces for that person so switching photos still highlights them.
+    let allFacesSource: FaceItem[] = facesForViewer
+    if (selectedItem.value?.type === 'confirmed' && tab.value === 'confirmed') {
+      // For confirmed persons (only when we're viewing the 'confirmed' tab), show all confirmed faces for that person
+      allFacesSource = confirmedFaces.value.filter(f => f.personId === selectedItem.value.id)
+    } else if (selectedItem.value?.type === 'cluster' && tab.value === 'confirmed') {
+      // For clusters (only in 'confirmed' tab), show all faces in that cluster
+      allFacesSource = personFaces.value.filter(f => f.clusterId === selectedItem.value.id)
+    } else {
+      // No person/cluster selected - for recommended tabs, highlight all faces in the current tab
+      if (tab.value === 'similar') {
+        allFacesSource = similarFaces.value
+      } else if (tab.value === 'albums' && selectedAlbum.value) {
+        allFacesSource = selectedAlbum.value.similarFaces || facesForViewer
+      } else if (tab.value === 'unassigned') {
+        allFacesSource = unassignedFaces.value
+      } else {
+        allFacesSource = facesForViewer
+      }
+    }
+
+    const allFaceIds = allFacesSource.map((f: any) => f.id).filter(Boolean)
+    const uniqueFaceIds = Array.from(new Set(allFaceIds))
+    viewerOpenOptions.value = { ...fallbackOptions, highlightedFaceIds: uniqueFaceIds, ...options }
+    viewerVisible.value = true
+
+  } catch (error) {
+    console.error('获取照片信息失败:', error)
+    // 出错时使用fallback
+    const fallback = {
+      id: face.id,
+      filename: face.photoFilename || '',
+      originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
+      thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
+      webpPath: undefined,
+      faces: []
+    }
+    viewerPhotos.value = [fallback]
+    viewerIndex.value = 0
+    viewerVisible.value = true
+  } finally {
+    showLoadingOverlay.value = false
+  }
 }
 
 const getFaceCropStyle = (face: FaceItem) => {
@@ -2700,6 +2783,9 @@ const openPhoto = (photoId?: number) => {
   window.open(`/photo/${photoId}`, '_blank')
 }
 
+// viewer open options to pass to PhotoViewer
+const viewerOpenOptions = ref<any>(null)
+
 watch(tab, (v) => {
   if (v === 'similar' && selectedPersonId.value) {
     loadSimilarFaces()
@@ -2712,6 +2798,11 @@ watch(tab, (v) => {
       loadConfirmedFaces()
     } else if (selectedClusterIndex.value !== null) {
       loadClusterFaces()
+    }
+  } else if (v === 'albums' && selectedPersonId.value) {
+    // 切换到套图推荐tab时，如果没有选中相册，则自动选中第一个
+    if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
+      selectAlbum(albumRecommendations.value[0])
     }
   }
 })

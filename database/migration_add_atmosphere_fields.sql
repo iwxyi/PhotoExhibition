@@ -22,3 +22,5 @@ UPDATE `album` SET `path_hash` = SHA2(`path`, 256) WHERE `path_hash` IS NULL;
 
 
 
+
+

@@ -115,7 +115,7 @@
             </div>
             <!-- 焦点框覆盖层 -->
             <div
-              v-if="currentPhoto && showFocusBox && imageLoaded && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
+              v-if="currentPhoto && showFocusBox && imageLoaded && !isOpeningFromThumb && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
               class="absolute pointer-events-none"
               :style="getFocusBoxStyle()"
             >
@@ -171,22 +171,53 @@
               <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfo">折叠</button>
             </div>
             <div class="flex-1 overflow-auto px-4 py-3 space-y-2 text-xs leading-relaxed">
+              <!-- 基本信息 -->
               <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
               <div v-if="currentPhoto?.takenAt"><span class="opacity-60">拍摄时间：</span>{{ formatDate(currentPhoto.takenAt) }}</div>
-              <div v-if="currentPhoto?.cameraModel"><span class="opacity-60">相机：</span>{{ currentPhoto.cameraModel }}</div>
+              <div v-if="currentPhoto?.createdAt"><span class="opacity-60">入库时间：</span>{{ formatDate(currentPhoto.createdAt) }}</div>
+
+              <!-- 相机和镜头信息 -->
+              <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
+                <span class="opacity-60">相机：</span>{{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
+              </div>
               <div v-if="currentPhoto?.lensModel"><span class="opacity-60">镜头：</span>{{ currentPhoto.lensModel }}</div>
-              <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
-              <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
-              <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
-              <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
-              <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
+
+              <!-- 拍摄参数 -->
+              <div class="grid grid-cols-2 gap-2">
+                <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
+                <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
+                <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
+                <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
+              </div>
+
+              <!-- 图片规格 -->
+              <div v-if="currentPhoto?.width && currentPhoto?.height">
+                <span class="opacity-60">尺寸：</span>{{ currentPhoto.width }} × {{ currentPhoto.height }}
+                <span v-if="currentPhoto?.format" class="ml-2 opacity-60">格式：</span>{{ currentPhoto.format }}
+              </div>
+              <div v-if="currentPhoto?.fileSize">
+                <span class="opacity-60">文件大小：</span>{{ formatFileSize(currentPhoto.fileSize) }}
+              </div>
+
+              <!-- 质量和统计 -->
+              <div class="grid grid-cols-2 gap-2">
+                <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量评分：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
+                <div v-if="currentPhoto?.viewCount"><span class="opacity-60">查看次数：</span>{{ currentPhoto.viewCount }}</div>
+                <div v-if="currentPhoto?.likeCount"><span class="opacity-60">点赞次数：</span>{{ currentPhoto.likeCount }}</div>
+                <div v-if="currentPhoto?.isFeatured !== undefined">
+                  <span class="opacity-60">精选：</span>
+                  <span :class="currentPhoto.isFeatured ? 'text-yellow-400' : 'text-gray-400'">
+                    {{ currentPhoto.isFeatured ? '✓' : '✗' }}
+                  </span>
+                </div>
+              </div>
               <div v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined">
                 <span class="opacity-60">聚焦位置：</span>
                 <span class="inline-flex items-center gap-2">
                   X: {{ currentPhoto.focusX.toFixed(1) }}%, Y: {{ currentPhoto.focusY.toFixed(1) }}%
                   <button
                     class="text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-                    @click="showFocusBox = !showFocusBox"
+                    @click="toggleFocusBox"
                   >
                     {{ showFocusBox ? '隐藏框' : '显示框' }}
                   </button>
@@ -196,7 +227,7 @@
                 <span class="opacity-60">人脸框：</span>
                 <button
                   class="ml-2 text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-                  @click="showFaceBoxes = !showFaceBoxes"
+                  @click="toggleFaceBoxes"
                 >
                   {{ showFaceBoxes ? '隐藏' : '显示' }}
                 </button>
@@ -218,10 +249,9 @@
                 <span class="opacity-60">人脸列表：</span>
                 <div class="mt-2 grid grid-cols-2 gap-2">
                   <div
-                    v-for="(f, idx) in currentPhoto.faces"
+                  v-for="(f, idx) in visibleFaceList"
                     :key="f.id || idx"
-                    class="flex items-center gap-2 p-1 rounded transition-colors"
-                    :class="f.personId && f.personName ? 'bg-white/5 hover:bg-white/10 cursor-pointer' : 'bg-white/5'"
+                class="flex items-center gap-2 p-1 rounded transition-colors"
                     @click.stop="f.personId && f.personName ? openPersonByFace(f) : null"
                   >
                     <div
@@ -240,6 +270,32 @@
                   </div>
                 </div>
               </div>
+
+              <!-- 主色调信息 -->
+              <div v-if="currentPhoto?.dominantColor">
+                <span class="opacity-60">主色调：</span>
+                <span
+                  class="inline-block w-4 h-4 rounded border border-white/20 ml-2"
+                  :style="{ backgroundColor: currentPhoto.dominantColor }"
+                  :title="currentPhoto.dominantColor"
+                ></span>
+                <span class="ml-2 font-mono text-xs">{{ currentPhoto.dominantColor }}</span>
+              </div>
+
+              <!-- 调色板 -->
+              <div v-if="currentPhoto?.colorPalette?.length">
+                <span class="opacity-60">调色板：</span>
+                <div class="flex gap-1 mt-1">
+                  <span
+                    v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 6)"
+                    :key="idx"
+                    class="inline-block w-3 h-3 rounded border border-white/10"
+                    :style="{ backgroundColor: color }"
+                    :title="color"
+                  ></span>
+                </div>
+              </div>
+
             </div>
           </div>
         </transition>
@@ -270,7 +326,7 @@
               :style="{ width: thumbSize + 'px', height: thumbSize + 'px' }"
               :class="idx === currentIndex ? 'border-white scale-[1.02]' : 'border-transparent opacity-80 hover:opacity-100'"
               @click="jump(idx)"
-              :ref="el => (thumbItems[idx] = el as HTMLElement)"
+              :ref="el => (thumbItems[idx] = el)"
             >
               <img
                 :src="getThumbUrl(p)"
@@ -304,6 +360,8 @@ const props = defineProps<{
   autoShowFaces?: boolean
   /** 可选：从缩略图平滑放大时的初始矩形（相对于视口） */
   originRect?: { top: number; left: number; width: number; height: number } | null
+  /** 可选：外部传入的打开选项（例如指定高亮的 faceId / clusterId） */
+  openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[] } | null
 }>()
 
 const emit = defineEmits<{
@@ -315,7 +373,7 @@ const infoCollapsed = ref(false)
 const modalRoot = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const thumbContainer = ref<HTMLElement | null>(null)
-const thumbItems = ref<HTMLElement[]>([])
+const thumbItems = ref<any[]>([])
 const mainImageKey = ref(0)
 const thumbHeight = ref<number>(parseInt(localStorage.getItem('pe-thumb-height') || '112', 10) || 112)
 const dragging = ref(false)
@@ -325,6 +383,31 @@ const thumbSize = computed(() => Math.max(24, clampThumbHeight(thumbHeight.value
 const isFullscreen = ref(false)
 const showFocusBox = ref(false)
 const showFaceBoxes = ref(false)
+
+// 跟踪用户是否手动操作过框体显示状态，避免自动覆盖用户设置
+const userInteractedWithFocusBox = ref(false)
+const userInteractedWithFaceBoxes = ref(false)
+
+// 初始化框体状态：首次使用默认隐藏
+const initializeBoxStates = () => {
+  // 从localStorage恢复已保存的状态
+  const savedFocusBox = localStorage.getItem(FOCUS_BOX_KEY)
+  const savedFaceBoxes = localStorage.getItem(FACE_BOXES_KEY)
+
+  if (savedFocusBox !== null) {
+    showFocusBox.value = savedFocusBox === '1'
+    userInteractedWithFocusBox.value = true
+  } else {
+    showFocusBox.value = false // 首次使用默认隐藏
+  }
+
+  if (savedFaceBoxes !== null) {
+    showFaceBoxes.value = savedFaceBoxes === '1'
+    userInteractedWithFaceBoxes.value = true
+  } else {
+    showFaceBoxes.value = false // 首次使用默认隐藏
+  }
+}
 const mainImage = ref<HTMLImageElement | null>(null)
 const imageContainer = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
@@ -345,6 +428,8 @@ const touchCenter = ref({ x: 0, y: 0 })
 const isPinching = ref(false)
 
 const STORAGE_KEY = 'pe-info-collapsed'
+const FOCUS_BOX_KEY = 'pe-focus-box-visible'
+const FACE_BOXES_KEY = 'pe-face-boxes-visible'
 const THUMB_KEY = 'pe-thumb-height'
 
 const currentPhoto = computed(() => props.photos?.[currentIndex.value])
@@ -380,10 +465,18 @@ watch(
       }
       scrollThumbIntoView()
 
-      // 如果开启了自动显示人脸框，并且当前照片有人脸，则默认打开人脸框
-      if (props.autoShowFaces && currentPhoto.value?.faces?.length) {
+      // 如果开启了自动显示人脸框，并且当前照片有人脸，且用户没有手动操作过，则默认打开人脸框
+      if (props.autoShowFaces && currentPhoto.value?.faces?.length && !userInteractedWithFaceBoxes.value) {
         showFaceBoxes.value = true
       }
+      // 如果用户已经手动操作过人脸框设置，则使用保存的状态（已在onMounted中恢复）
+
+      // 如果用户已经手动操作过焦点框设置，则恢复用户的设置
+      if (userInteractedWithFocusBox.value) {
+        // 用户已经操作过，使用保存的状态
+        // 状态已经在onMounted中从localStorage恢复了
+      }
+      // 首次使用时保持默认隐藏，不自动显示
 
       // 如果提供了缩略图矩形信息，则计算从缩略图平滑放大的动画参数
       if (props.originRect) {
@@ -427,6 +520,10 @@ watch(
 onMounted(() => {
   const saved = localStorage.getItem(STORAGE_KEY)
   infoCollapsed.value = saved === '1'
+
+  // 初始化框体状态
+  initializeBoxStates()
+
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onImageLoad)
   // 监听 fullscreen 变化以便在进入/退出全屏时重新计算图片尺寸
@@ -451,18 +548,33 @@ const close = () => {
 const prev = () => {
   if (!props.photos?.length) return
   currentIndex.value = (currentIndex.value - 1 + props.photos.length) % props.photos.length
+  // 切换照片时保持用户的全局偏好设置
 }
 
 const next = () => {
   if (!props.photos?.length) return
   currentIndex.value = (currentIndex.value + 1) % props.photos.length
+  // 切换照片时保持用户的全局偏好设置
 }
 
 const jump = (idx: number) => {
   currentIndex.value = idx
+  // 切换照片时保持用户的全局偏好设置，不重置交互状态
 }
 
 const clampThumbHeight = (val: number) => Math.min(260, Math.max(60, val))
+
+const toggleFocusBox = () => {
+  userInteractedWithFocusBox.value = true
+  showFocusBox.value = !showFocusBox.value
+  localStorage.setItem(FOCUS_BOX_KEY, showFocusBox.value ? '1' : '0')
+}
+
+const toggleFaceBoxes = () => {
+  userInteractedWithFaceBoxes.value = true
+  showFaceBoxes.value = !showFaceBoxes.value
+  localStorage.setItem(FACE_BOXES_KEY, showFaceBoxes.value ? '1' : '0')
+}
 
 const startDrag = (e: MouseEvent) => {
   dragging.value = true
@@ -700,6 +812,14 @@ const formatDate = (val?: string) => {
   return val.slice(0, 10)
 }
 
+const formatFileSize = (bytes?: number) => {
+  if (!bytes || bytes === 0) return '未知'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const k = 1024
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + units[i]
+}
+
 // 查看原图状态
 const viewingOriginal = ref(false)
 const { viewOriginalEnabled } = useUiSettings()
@@ -839,11 +959,20 @@ const getFocusBoxStyle = () => {
 }
 
 const faceBoxes = computed(() => {
-  if (!showFaceBoxes.value || !currentPhoto.value?.faces?.length) return []
+  if (!showFaceBoxes.value || !currentPhoto.value?.faces?.length || isOpeningFromThumb.value) return []
   const metrics = getImageMetrics()
   if (!metrics) return []
   const { baseDisplayWidth, baseDisplayHeight, offsetX, offsetY, imgOffsetX, imgOffsetY, naturalWidth, naturalHeight } = metrics
-  return currentPhoto.value.faces
+  // determine highlighting options from props.openOptions
+  const opts: any = (props as any).openOptions || {}
+  const highlightFaceId = opts?.highlightedFaceId ?? null
+  const highlightClusterId = opts?.highlightedClusterId ?? null
+  const highlightPersonId = opts?.highlightedPersonId ?? null
+  const highlightFaceIdsArr: number[] = Array.isArray(opts?.highlightedFaceIds) ? opts.highlightedFaceIds.map((v: any) => Number(v)) : []
+  const highlightFaceIdsSet = new Set<number>(highlightFaceIdsArr)
+  const usingHighlight = highlightFaceId !== null || highlightClusterId !== null || highlightPersonId !== null || highlightFaceIdsArr.length > 0
+
+  const boxes = currentPhoto.value.faces
     .filter(face => face.x !== undefined && face.y !== undefined && face.width && face.height)
     .map((face, idx) => {
       const usePixel = (face.x ?? 0) > 1 || (face.y ?? 0) > 1 || (face.width ?? 0) > 1 || (face.height ?? 0) > 1
@@ -859,6 +988,21 @@ const faceBoxes = computed(() => {
       const top = imgOffsetY + offsetY + baseTop * scale.value + translateY.value
       const width = Math.max(8, baseWidth * scale.value)
       const height = Math.max(8, baseHeight * scale.value)
+      // consider explicit id set first
+      const fid = Number(face.id)
+      let isHighlighted = false
+      if (highlightFaceIdsSet.size > 0) {
+        isHighlighted = highlightFaceIdsSet.has(fid)
+      } else if (highlightFaceId !== null) {
+        isHighlighted = fid === Number(highlightFaceId)
+      } else if (highlightClusterId !== null) {
+        isHighlighted = Number((face as any).clusterId) === Number(highlightClusterId)
+      } else if (highlightPersonId !== null) {
+        isHighlighted = Number((face as any).personId) === Number(highlightPersonId)
+      } else {
+        isHighlighted = false
+      }
+      const muted = usingHighlight ? !isHighlighted : false
       return {
         id: face.id ?? idx,
         style: {
@@ -868,9 +1012,48 @@ const faceBoxes = computed(() => {
           height: `${height}px`
         },
         confirmed: face.isConfirmed,
-        label: face.personName || (face.isConfirmed ? '未命名' : '未确认')
+        label: face.personName || (face.isConfirmed ? '未命名' : '未确认'),
+        highlighted: isHighlighted,
+        muted
       }
     })
+    .filter(b => {
+      // if usingHighlight, keep only highlighted boxes
+      if (usingHighlight) return b.highlighted
+      return true
+    })
+
+  // debug logging removed
+
+  return boxes
+})
+
+// visible face list for sidebar: if using highlight, show only highlighted faces (no semi-transparent)
+const visibleFaceList = computed(() => {
+  if (!currentPhoto.value?.faces?.length) return []
+  const opts: any = (props as any).openOptions || {}
+  const highlightFaceId = opts?.highlightedFaceId ?? null
+  const highlightClusterId = opts?.highlightedClusterId ?? null
+  const highlightPersonId = opts?.highlightedPersonId ?? null
+  // normalize incoming highlighted ids to numbers to avoid string/number mismatch
+  const highlightFaceIdsArr: number[] = Array.isArray(opts?.highlightedFaceIds)
+    ? opts.highlightedFaceIds.map((v: any) => Number(v))
+    : []
+  const highlightFaceIdsSet = new Set<number>(highlightFaceIdsArr)
+  const usingHighlight = highlightFaceId !== null || highlightClusterId !== null || highlightPersonId !== null || highlightFaceIdsArr.length > 0
+
+  // debug logging removed
+
+  if (!usingHighlight) return currentPhoto.value.faces
+  const filtered = currentPhoto.value.faces.filter(face => {
+    const fid = Number(face.id)
+    if (highlightFaceIdsSet.size > 0) return highlightFaceIdsSet.has(fid)
+    if (highlightFaceId !== null) return fid === Number(highlightFaceId)
+    if (highlightClusterId !== null) return Number((face as any).clusterId) === Number(highlightClusterId)
+    if (highlightPersonId !== null) return Number((face as any).personId) === Number(highlightPersonId)
+    return false
+  })
+  return filtered
 })
 
 // 双击缩放

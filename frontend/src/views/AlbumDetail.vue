@@ -103,6 +103,7 @@
       :photos="photos"
       :start-index="viewerIndex"
       :origin-rect="viewerOriginRect"
+      :auto-show-faces="false"
     />
 
     <!-- 氛围特效 -->

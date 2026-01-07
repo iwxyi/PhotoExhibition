@@ -29,6 +29,9 @@ export interface Photo {
   originalPath: string
   thumbnailPath?: string
   webpPath?: string
+  smallThumbPath?: string
+  mediumThumbPath?: string
+  largeThumbPath?: string
   fileSize?: number
   width?: number
   height?: number

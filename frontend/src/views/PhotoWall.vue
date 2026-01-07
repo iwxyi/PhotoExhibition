@@ -96,6 +96,7 @@
       :photos="photos"
       :start-index="viewerIndex"
       :origin-rect="viewerOriginRect"
+      :auto-show-faces="false"
     />
   </div>
 </template>
