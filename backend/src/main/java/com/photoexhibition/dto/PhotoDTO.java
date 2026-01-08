@@ -39,6 +39,9 @@ public class PhotoDTO {
     private Integer likeCount;
     private Boolean isFeatured;
     private List<TagDTO> tags;
+    // 如果图片被指派给某个人物（非人脸关联），在此记录
+    private Long assignedPersonId;
+    private String assignedPersonName;
     private List<FaceDTO> faces;
     private LocalDateTime createdAt;
 }

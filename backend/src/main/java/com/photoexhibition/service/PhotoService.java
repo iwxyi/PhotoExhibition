@@ -10,7 +10,9 @@ import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.FaceRepository;
+import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +28,7 @@ import java.io.File;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +40,8 @@ public class PhotoService {
     private final AlbumRepository albumRepository;
     private final ObjectMapper objectMapper;
     private final SystemConfigService systemConfigService;
+    private final PhotoAssignmentRepository photoAssignmentRepository;
+    private final PersonProfileRepository personProfileRepository;
 
     @Value("${photo.scan.base-path}")
     private String photoBasePath;
@@ -233,6 +238,58 @@ public class PhotoService {
     }
 
     /**
+     * 将图片指派给人物（非人脸绑定）
+     */
+    @Transactional
+    public PhotoDTO assignPhotoToPerson(Long photoId, Long personId) {
+        Photo photo = photoRepository.findById(photoId).orElseThrow(() -> new RuntimeException("图片不存在"));
+        com.photoexhibition.entity.PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+
+        java.util.Optional<com.photoexhibition.entity.PhotoAssignment> existing = photoAssignmentRepository.findByPhotoId(photoId);
+        log.info("assignPhotoToPerson - existing assignment: {}", existing.isPresent());
+
+        com.photoexhibition.entity.PhotoAssignment savedPa;
+        if (existing.isPresent()) {
+            com.photoexhibition.entity.PhotoAssignment pa = existing.get();
+            pa.setPersonId(personId);
+            savedPa = photoAssignmentRepository.save(pa);
+            log.info("Updated PhotoAssignment for photo {} to person {}, saved ID: {}", photoId, personId, savedPa.getId());
+        } else {
+            com.photoexhibition.entity.PhotoAssignment pa = new com.photoexhibition.entity.PhotoAssignment();
+            pa.setPhotoId(photoId);
+            pa.setPersonId(personId);
+            savedPa = photoAssignmentRepository.save(pa);
+            log.info("Created PhotoAssignment for photo {} to person {}, saved ID: {}", photoId, personId, savedPa.getId());
+        }
+
+        // 验证保存是否成功
+        long countAfterSave = photoAssignmentRepository.count();
+        log.info("PhotoAssignment count after save: {}", countAfterSave);
+
+        PhotoDTO result = convertToDTO(photo);
+        log.info("assignPhotoToPerson result - photoId: {}, assignedPersonId: {}", photoId, result.getAssignedPersonId());
+        return result;
+    }
+
+    @Transactional
+    public void unassignPhoto(Long photoId) {
+        photoAssignmentRepository.deleteByPhotoId(photoId);
+    }
+
+    public Page<PhotoDTO> listPhotosAssignedToPerson(Long personId, Pageable pageable) {
+        Page<com.photoexhibition.entity.PhotoAssignment> page = photoAssignmentRepository.findByPersonId(personId, pageable);
+        List<PhotoDTO> dtos = page.getContent().stream()
+            .map(pa -> {
+                Photo photo = photoRepository.findById(pa.getPhotoId()).orElse(null);
+                return photo != null ? convertToDTO(photo) : null;
+            })
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+        return new org.springframework.data.domain.PageImpl<>(dtos, pageable, page.getTotalElements());
+    }
+
+    /**
      * 增加查看次数
      */
     @Transactional
@@ -347,6 +404,25 @@ public class PhotoService {
             : java.util.Collections.emptyList();
         dto.setFaces(faces.stream().map(this::toFaceDTO).collect(Collectors.toList()));
         dto.setCreatedAt(photo.getCreatedAt());
+
+        // 检查是否有图片级别的指派（非人脸）
+        if (photo.getId() != null) {
+            java.util.Optional<com.photoexhibition.entity.PhotoAssignment> pa = photoAssignmentRepository.findByPhotoId(photo.getId());
+            log.debug("convertToDTO - photoId: {}, PhotoAssignment found: {}", photo.getId(), pa.isPresent());
+            if (pa.isPresent()) {
+                dto.setAssignedPersonId(pa.get().getPersonId());
+                // 尝试获取人物名称（如果需要的话）
+                try {
+                    java.util.Optional<com.photoexhibition.entity.PersonProfile> personOpt = personProfileRepository.findById(pa.get().getPersonId());
+                    if (personOpt.isPresent()) {
+                        dto.setAssignedPersonName(personOpt.get().getName());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to load person name for photo assignment: {}", e.getMessage());
+                }
+                log.debug("convertToDTO - set assignedPersonId: {} for photo {}", pa.get().getPersonId(), photo.getId());
+            }
+        }
 
         return dto;
     }

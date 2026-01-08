@@ -364,7 +364,7 @@ const props = defineProps<{
   /** 可选：从缩略图平滑放大时的初始矩形（相对于视口） */
   originRect?: { top: number; left: number; width: number; height: number } | null
   /** 可选：外部传入的打开选项（例如指定高亮的 faceId / clusterId） */
-  openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[] } | null
+  openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -993,7 +993,7 @@ const faceBoxes = computed(() => {
       const widthPct = Math.max(0.5, Math.min(100, normW * 100))
       const heightPct = Math.max(0.5, Math.min(100, normH * 100))
       // consider explicit id set first
-      const fid = Number(face.id)
+      const fid = Number(face.id || idx)
       let isHighlighted = false
       if (preferredOnThisPhoto) {
         isHighlighted = fid === Number(preferredFaceId)
@@ -1055,7 +1055,7 @@ const visibleFaceList = computed(() => {
     return currentPhoto.value.faces.filter(face => Number(face.id) === Number(preferredFaceId))
   }
   const filtered = currentPhoto.value.faces.filter(face => {
-    const fid = Number(face.id)
+    const fid = Number(face.id || 0)
     if (highlightFaceIdsSet.size > 0) return highlightFaceIdsSet.has(fid)
     if (highlightFaceId !== null) return fid === Number(highlightFaceId)
     if (highlightClusterId !== null) return Number((face as any).clusterId) === Number(highlightClusterId)

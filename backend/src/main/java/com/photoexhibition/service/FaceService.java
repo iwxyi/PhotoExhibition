@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -1905,39 +1906,53 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> getSimilarFacesForAlbum(Long personId, Long albumId) {
-        // 获取人物的所有已确认人脸
+        // 获取人物的所有已确认人脸（用于计算相似度）
         List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
-        if (confirmedFaces.isEmpty()) {
-            return new ArrayList<>();
-        }
 
         // 计算人物平均特征向量
-        float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(confirmedFaces);
-        if (personAvgEmbedding == null) {
-            return new ArrayList<>();
+        float[] personAvgEmbedding = null;
+        if (!confirmedFaces.isEmpty()) {
+            personAvgEmbedding = calculateAverageEmbeddingFromEntities(confirmedFaces);
         }
 
-        // 获取指定相册的所有未分配人脸
-        List<Face> albumUnassignedFaces = faceRepository.findByPersonIsNull().stream()
+        // 获取指定相册中的所有人脸（包括已分配和未分配的）
+        List<Face> albumFaces = faceRepository.findAll().stream()
             .filter(face -> face.getPhoto() != null && face.getPhoto().getAlbumId() != null &&
-                           face.getPhoto().getAlbumId().equals(albumId))
+                           Objects.equals(face.getPhoto().getAlbumId(), albumId))
             .collect(Collectors.toList());
 
-        List<FaceSimilarity> similarFaces = new ArrayList<>();
+        List<FaceSimilarity> allFaces = new ArrayList<>();
 
-        for (Face face : albumUnassignedFaces) {
-            float[] embedding = parseEmbedding(face.getEmbedding());
-            if (embedding == null) continue;
+        for (Face face : albumFaces) {
+            double similarity = 0.0;
 
-            double similarity = cosine(personAvgEmbedding, embedding);
-            similarFaces.add(new FaceSimilarity(face, similarity));
+            // 如果有确认的人脸，计算相似度
+            if (personAvgEmbedding != null) {
+                float[] embedding = parseEmbedding(face.getEmbedding());
+                if (embedding != null) {
+                    similarity = cosine(personAvgEmbedding, embedding);
+                }
+            }
+
+            allFaces.add(new FaceSimilarity(face, similarity));
         }
 
-        // 按相似度降序排序
-        similarFaces.sort((a, b) -> Double.compare(b.similarity, a.similarity));
+        // 按相似度降序排序（相似度为0的排在后面）
+        allFaces.sort((a, b) -> {
+            // 已分配给人脸的排在前面
+            boolean aAssigned = a.face.getPerson() != null && a.face.getPerson().getId().equals(personId);
+            boolean bAssigned = b.face.getPerson() != null && b.face.getPerson().getId().equals(personId);
+
+            if (aAssigned != bAssigned) {
+                return aAssigned ? -1 : 1;
+            }
+
+            // 相似度从高到低排序
+            return Double.compare(b.similarity, a.similarity);
+        });
 
         // 转换为DTO
-        return similarFaces.stream()
+        return allFaces.stream()
             .map(fs -> {
                 FaceDTO dto = toDTO(fs.face);
                 dto.setSimilarity(fs.similarity);

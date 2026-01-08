@@ -7,7 +7,10 @@ import com.photoexhibition.dto.PersonListItemDTO;
 import com.photoexhibition.dto.PersonSimilarityDTO;
 import com.photoexhibition.dto.AlbumRecommendationDTO;
 import com.photoexhibition.repository.PersonProfileRepository;
+import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.service.FaceService;
+import com.photoexhibition.service.PhotoService;
+import com.photoexhibition.dto.PhotoDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -30,6 +33,8 @@ public class FaceController {
 
     private final FaceService faceService;
     private final PersonProfileRepository personProfileRepository;
+    private final com.photoexhibition.repository.PhotoAssignmentRepository photoAssignmentRepository;
+    private final PhotoService photoService;
     @Value("${face.clustering.default-threshold:0.7}")
     private double clusteringDefaultThreshold;
 
@@ -270,6 +275,128 @@ public class FaceController {
     }
 
     /**
+     * 获取某人物被指派的图片（图片级别的认领）
+     */
+    @GetMapping("/persons/{personId}/assigned-photos")
+    public ResponseEntity<org.springframework.data.domain.Page<PhotoDTO>> getAssignedPhotos(
+            @PathVariable Long personId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(photoService.listPhotosAssignedToPerson(personId, PageRequest.of(page, size)));
+    }
+
+    /**
+     * 将图片指派给人物（非人脸绑定）
+     */
+    @PostMapping("/photos/{photoId}/assign-person")
+    public ResponseEntity<PhotoDTO> assignPhotoToPerson(@PathVariable Long photoId, @RequestParam Long personId) {
+        return ResponseEntity.ok(photoService.assignPhotoToPerson(photoId, personId));
+    }
+
+    /**
+     * 取消图片指派
+     */
+    @DeleteMapping("/photos/{photoId}/assign-person")
+    public ResponseEntity<Void> unassignPhoto(@PathVariable Long photoId) {
+        photoService.unassignPhoto(photoId);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 检查图片的指派状态（调试用）
+     */
+    @GetMapping("/photos/{photoId}/assignment-status")
+    public ResponseEntity<java.util.Map<String, Object>> getPhotoAssignmentStatus(@PathVariable Long photoId) {
+        java.util.Map<String, Object> status = new java.util.HashMap<>();
+        status.put("photoId", photoId);
+
+        // 检查数据库中所有的 PhotoAssignment 记录
+        java.util.List<com.photoexhibition.entity.PhotoAssignment> allAssignments = photoAssignmentRepository.findAll();
+        status.put("totalAssignments", allAssignments.size());
+
+        // 检查特定图片的指派
+        java.util.Optional<com.photoexhibition.entity.PhotoAssignment> pa = photoAssignmentRepository.findByPhotoId(photoId);
+        status.put("assignmentExists", pa.isPresent());
+        status.put("queryMethod", "findByPhotoId");
+
+        // 尝试其他查询方式
+        java.util.List<com.photoexhibition.entity.PhotoAssignment> byPersonId = photoAssignmentRepository.findByPersonId(null); // 这不会工作，但让我们看看
+        java.util.Optional<com.photoexhibition.entity.PhotoAssignment> byPhoto = photoAssignmentRepository.findAll().stream()
+            .filter(a -> a.getPhotoId() != null && a.getPhotoId().equals(photoId))
+            .findFirst();
+        status.put("foundByStream", byPhoto.isPresent());
+
+        if (pa.isPresent()) {
+            com.photoexhibition.entity.PhotoAssignment assignment = pa.get();
+            status.put("personId", assignment.getPersonId());
+            // 尝试获取人物名称
+            try {
+                java.util.Optional<com.photoexhibition.entity.PersonProfile> personOpt = personProfileRepository.findById(assignment.getPersonId());
+                if (personOpt.isPresent()) {
+                    status.put("personName", personOpt.get().getName());
+                }
+            } catch (Exception e) {
+                status.put("personNameError", e.getMessage());
+            }
+        } else if (byPhoto.isPresent()) {
+            com.photoexhibition.entity.PhotoAssignment assignment = byPhoto.get();
+            status.put("personId", assignment.getPersonId());
+            try {
+                java.util.Optional<com.photoexhibition.entity.PersonProfile> personOpt = personProfileRepository.findById(assignment.getPersonId());
+                if (personOpt.isPresent()) {
+                    status.put("personName", personOpt.get().getName());
+                }
+            } catch (Exception e) {
+                status.put("personNameError", e.getMessage());
+            }
+            status.put("foundByAlternative", true);
+        }
+
+        return ResponseEntity.ok(status);
+    }
+
+    /**
+     * 检查数据库表状态（调试用）
+     */
+    @GetMapping("/debug/database-status")
+    public ResponseEntity<java.util.Map<String, Object>> getDatabaseStatus() {
+        java.util.Map<String, Object> status = new java.util.HashMap<>();
+
+        try {
+            // 检查 PhotoAssignment 表
+            long photoAssignmentCount = photoAssignmentRepository.count();
+            status.put("photoAssignmentCount", photoAssignmentCount);
+
+            // 检查 PersonProfile 表
+            long personCount = personProfileRepository.count();
+            status.put("personCount", personCount);
+
+            // 检查 Face 表中的记录数（使用 faceRepository）
+            // long faceCount = faceService.countFaces();
+            status.put("faceCount", "N/A");
+
+            // 检查最近的 PhotoAssignment 记录
+            java.util.List<com.photoexhibition.entity.PhotoAssignment> recentAssignments = photoAssignmentRepository.findAll();
+            if (!recentAssignments.isEmpty()) {
+                java.util.Map<String, Object> sampleAssignment = new java.util.HashMap<>();
+                com.photoexhibition.entity.PhotoAssignment pa = recentAssignments.get(0);
+                sampleAssignment.put("id", pa.getId());
+                sampleAssignment.put("photoId", pa.getPhotoId());
+                sampleAssignment.put("personId", pa.getPersonId());
+                sampleAssignment.put("createdAt", pa.getCreatedAt());
+                status.put("sampleAssignment", sampleAssignment);
+            }
+
+            status.put("status", "success");
+        } catch (Exception e) {
+            status.put("status", "error");
+            status.put("error", e.getMessage());
+        }
+
+        return ResponseEntity.ok(status);
+    }
+
+    /**
      * 获取指定相册中与人物相似的未分配人脸
      */
     @GetMapping("/persons/{personId}/albums/{albumId}/similar-faces")
@@ -342,6 +469,31 @@ public class FaceController {
         }
         faceService.unassignFaces(faceIds);
         return ResponseEntity.ok(Map.of("message", "已批量解绑 " + faceIds.size() + " 个人脸"));
+    }
+
+    /**
+     * 测试创建 PhotoAssignment 记录（调试用）
+     */
+    @PostMapping("/debug/test-photo-assignment/{photoId}/{personId}")
+    public ResponseEntity<java.util.Map<String, Object>> testCreatePhotoAssignment(@PathVariable Long photoId, @PathVariable Long personId) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+
+        try {
+            com.photoexhibition.entity.PhotoAssignment pa = new com.photoexhibition.entity.PhotoAssignment();
+            pa.setPhotoId(photoId);
+            pa.setPersonId(personId);
+
+            com.photoexhibition.entity.PhotoAssignment saved = photoAssignmentRepository.save(pa);
+            result.put("success", true);
+            result.put("savedId", saved.getId());
+            result.put("message", "PhotoAssignment created successfully");
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", e.getMessage());
+            result.put("errorType", e.getClass().getSimpleName());
+        }
+
+        return ResponseEntity.ok(result);
     }
 }
 

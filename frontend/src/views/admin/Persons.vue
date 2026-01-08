@@ -214,7 +214,7 @@
                 :class="tab === 'confirmed' ? 'bg-gray-700 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'"
                 @click="tab = 'confirmed'"
               >
-                <template v-if="selectedItem.type === 'confirmed'">已认领 ({{ confirmedFaces.length }})</template>
+                <template v-if="selectedItem.type === 'confirmed'">已认领 ({{ confirmedFaces.length + assignedPhotos.length }})</template>
                 <template v-else>聚类 ({{ personFaces.length }})</template>
               </button>
               <!-- 自动分配tab已隐藏，保留代码以备将来使用
@@ -269,11 +269,17 @@
                   </button>
                   <button
                 v-if="tab !== 'confirmed'"
-                @click="handleClaimSelected"
-                :disabled="getCurrentSelection(getCurrentTabType()).size === 0"
-                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                @click="getClaimButtonState.isRemove ? handleRemoveSelected : handleClaimSelected"
+                :disabled="getClaimButtonState.disabled"
+                :class="[
+                  'px-2 py-1 rounded text-[10px]',
+                  getClaimButtonState.isRemove
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-blue-600 hover:bg-blue-700',
+                  getClaimButtonState.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                ]"
               >
-                认领<template v-if="getCurrentSelection(getCurrentTabType()).size > 0"> ({{ getCurrentSelection(getCurrentTabType()).size }})</template>
+                {{ getClaimButtonText }}
               </button>
               <button
                 v-if="tab === 'confirmed'"
@@ -350,8 +356,47 @@
                   class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
                   :style="selectionBoxStyle"
                 ></div>
+            </div>
+
+              <!-- 直接指派的照片 -->
+              <div v-if="assignedPhotos.length > 0" class="mt-6">
+                <div class="mb-2">
+                  <span class="text-xs text-gray-400">直接指派的照片</span>
+                </div>
+                <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
+                  <div
+                    v-for="(photo, index) in assignedPhotos"
+                    :key="`assigned-${photo.id}`"
+                    class="bg-gray-700 rounded overflow-hidden border border-gray-600 relative group select-none"
+                  >
+                    <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openPhoto(photo.id)">
+                      <img
+                        v-if="photo.thumbnailPath"
+                        :src="getImageUrl(photo.thumbnailPath)"
+                      class="w-full h-full object-cover pointer-events-none"
+                      loading="lazy"
+                    />
+                    <button
+                        @click.stop="unassignPhoto(photo.id)"
+                        class="absolute top-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                        移除
+                    </button>
+                  </div>
+                  <div class="p-1.5">
+                    <div
+                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                        :title="photo.filename"
+                        @click.stop="openPhoto(photo.id)"
+                    >
+                        {{ photo.filename || '-' }}
+                    </div>
+                  </div>
+                </div>
+                </div>
               </div>
-              <div v-if="confirmedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无已确认照片</div>
+
+              <div v-if="confirmedFaces.length === 0 && assignedPhotos.length === 0" class="text-gray-400 text-xs text-center py-8">暂无已确认照片</div>
             </div>
 
 <!-- 自动分配照片tab已隐藏，保留代码以备将来使用 -->
@@ -370,14 +415,19 @@
                     :class="selectedAlbum?.albumId === album.albumId ? 'bg-purple-600 text-white' : 'hover:bg-gray-700 text-gray-300'"
                     @click="selectAlbum(album)"
                   >
-                    <div class="font-medium text-sm truncate">{{ album.albumName }}</div>
+                    <div class="font-medium text-sm truncate flex items-center justify-between">
+                      <span>{{ album.albumName.replace(/\s*\(\d+\)$/, '') }}</span>
+                      <span class="text-xs opacity-75 ml-2 flex-shrink-0">
+                        {{ album.claimedPhotoCount || 0 }}/{{ album.photoCount }}
+                      </span>
+                    </div>
                     <div class="text-xs opacity-75 truncate">{{ album.albumPath }}</div>
                 </div>
                   <div v-if="albumRecommendations.length === 0" class="text-gray-400 text-xs text-center py-4">
                     暂无相册推荐
               </div>
                 </div>
-              </div>
+            </div>
 
               <!-- 可拖拽分割线 -->
               <div
@@ -393,7 +443,7 @@
                   <div v-if="loadingAlbums" class="absolute inset-0 z-40 bg-black/20 flex items-center justify-center">
                     <div class="h-10 w-10 rounded-full border-4 border-gray-300 border-t-transparent animate-spin"></div>
                   </div>
-                  <div
+              <div 
                     class="grid gap-3"
                     :style="{ gridTemplateColumns: `repeat(${albumColumns}, 1fr)`, gridAutoRows: 'auto', justifyContent: 'center' }"
                     @mousedown="handleMouseDown($event, 'albums')"
@@ -413,10 +463,10 @@
                       :class="selectedAlbumFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50'"
                       @click="handleFaceClick($event, f.id, 'albums')"
                 >
-                      <div class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
-                        {{ ((f.similarity || 0) * 100).toFixed(0) }}%
-                      </div>
-                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
+                      <div v-if="(f.similarity || 0) > 0" class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
+                    {{ ((f.similarity || 0) * 100).toFixed(0) }}%
+                  </div>
+                    <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f, f.bestFace?.id ? { preferredFaceId: f.bestFace.id } : {})">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -424,11 +474,37 @@
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
+                    <!-- 已认领标签 -->
+                    <div
+                        v-if="(f.photoId && f.assignedPersonId === selectedPersonId) || (f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
+                        class="absolute top-1 right-1 bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10"
+                    >
+                        已认领
+                    </div>
+                    <!-- 人脸认领按钮 -->
                     <button
-                        @click.stop="assignFace(f.id, true)"
+                        v-if="f.bestFace && f.faces && f.faces.some((face: any) => face.personId !== selectedPersonId) && f.assignedPersonId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId)"
+                        @click.stop="assignFace(f.bestFace.id, true)"
                         class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
-                        认领
+                        认领人脸
+                    </button>
+                    <!-- 图片认领按钮 -->
+                    <button
+                        v-if="f.photoId && f.assignedPersonId !== selectedPersonId && !(f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
+                        @click.stop="assignPhoto(f.photoId)"
+                        class="absolute bottom-1 left-1 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        :class="{ 'left-12': f.bestFace && f.bestFace.personId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId) }"
+                    >
+                        认领图片
+                    </button>
+                    <!-- 移除按钮 -->
+                    <button
+                        v-if="(f.photoId && f.assignedPersonId === selectedPersonId) || (f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
+                        @click.stop="unassignPhotoOrFace(f)"
+                        class="absolute bottom-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                        移除
                     </button>
                   </div>
                   <div class="p-1.5">
@@ -768,7 +844,9 @@ interface AlbumRecommendation {
   photoCount: number
   similarFaceCount: number
   similarFaces?: FaceItem[]
+  albumPhotos?: any[] // 相册中的所有图片（包括无脸图片）
   takenAt?: string
+  claimedPhotoCount?: number // 已认领的图片数量
 }
 
 const STORAGE_KEY = 'pe-persons-left-width'
@@ -884,6 +962,11 @@ const tab = ref<'confirmed' | 'auto' | 'similar' | 'albums' | 'unassigned'>('con
 const confirmedFaces = ref<FaceItem[]>([])
 const selectedConfirmed = ref<Set<number>>(new Set())
 const loadingConfirmed = ref(false)
+
+// 直接指派的照片（无相似度）
+const assignedPhotos = ref<any[]>([])
+const selectedAssignedPhotos = ref<Set<number>>(new Set())
+const loadingAssignedPhotos = ref(false)
 
 // 自动分配照片
 const autoAssignedFaces = ref<FaceItem[]>([])
@@ -1275,6 +1358,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
   // 在开始加载前，记录当前的数据状态（用于保持显示）
   const previousData = {
     confirmedFaces: [...confirmedFaces.value],
+    assignedPhotos: [...assignedPhotos.value],
     similarFaces: [...similarFaces.value],
     unassignedFaces: [...unassignedFaces.value]
   }
@@ -1291,6 +1375,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
     // 加载其他数据（不清除选择状态和可见状态）
     // 跳过自动分配数据加载，直接到已确认状态
     await Promise.all([
+      loadAssignedPhotos(signal, false),
       loadSimilarFaces(signal, false),
       loadContextualUnassigned(signal)
     ])
@@ -1298,6 +1383,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
     if (signal?.aborted) {
       // 如果被取消，恢复之前的数据
       confirmedFaces.value = previousData.confirmedFaces
+      assignedPhotos.value = previousData.assignedPhotos
       similarFaces.value = previousData.similarFaces
       unassignedFaces.value = previousData.unassignedFaces
       return
@@ -1319,7 +1405,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
         return
       }
 
-      if (confirmedFaces.value.length > 0) {
+      if (confirmedFaces.value.length > 0 || assignedPhotos.value.length > 0) {
         tab.value = 'confirmed'
       } else if (similarFaces.value.length > 0) {
         tab.value = 'similar'
@@ -1332,6 +1418,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
       console.error('加载人脸失败:', error)
       // 出错时恢复之前的数据
       confirmedFaces.value = previousData.confirmedFaces
+      assignedPhotos.value = previousData.assignedPhotos
       similarFaces.value = previousData.similarFaces
       unassignedFaces.value = previousData.unassignedFaces
     }
@@ -1389,6 +1476,27 @@ const loadConfirmedFaces = async (signal?: AbortSignal, clearData = true) => {
   }
 }
 
+const loadAssignedPhotos = async (signal?: AbortSignal, clearData = true) => {
+  if (!selectedPersonId.value) return
+  try {
+    const res = await api.get(`/admin/persons/${selectedPersonId.value}/assigned-photos`, {
+      params: { page: 0, size: 200 },
+      signal
+    })
+    if (signal?.aborted) return
+
+    assignedPhotos.value = res.data.content || res.data || []
+    if (clearData) {
+      selectedAssignedPhotos.value.clear()
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error('加载已指派照片失败:', error)
+    }
+    throw error
+  }
+}
+
 const loadAutoAssignedFaces = async (signal?: AbortSignal, clearData = true) => {
   if (!selectedPersonId.value) return
   try {
@@ -1419,7 +1527,10 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
     if (signal?.aborted) return
 
     const currentAlbumId = keepSelection ? selectedAlbum.value?.albumId : null
-    albumRecommendations.value = (res.data || [])
+    albumRecommendations.value = (res.data || []).map(album => ({
+      ...album,
+      claimedPhotoCount: 0 // 初始化已认领图片数量
+    }))
 
     // 如果需要保持选择，尝试找到对应的相册
     if (keepSelection && currentAlbumId) {
@@ -1438,9 +1549,9 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
       facePlaceholderCounts.albums = 0
     }
 
-    // 加载选中相册的相似人脸
+    // 加载选中相册的所有图片（包括无脸图片）
     if (selectedAlbum.value) {
-      await loadAlbumSimilarFaces(selectedAlbum.value.albumId, signal)
+      await loadAlbumPhotos(selectedAlbum.value.albumId, signal)
     }
 
     selectedAlbumFaces.value.clear()
@@ -1450,6 +1561,115 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
     albumRecommendations.value = []
   } finally {
     loadingAlbums.value = false
+  }
+}
+
+// 加载相册中的所有图片（包括无脸图片）
+const loadAlbumPhotos = async (albumId: number, signal?: AbortSignal) => {
+  if (!selectedPersonId.value) return
+  // cancel previous in-flight album load
+  if (albumAbortController) {
+    albumAbortController.abort()
+    albumAbortController = null
+  }
+  albumAbortController = new AbortController()
+  const acSignal = albumAbortController.signal
+  try {
+    // 获取相册中的所有图片
+    const photosRes = await api.get(`/photos/album/${albumId}`, { params: { all: true }, signal: acSignal })
+    // 获取相册中的相似人脸（用于匹配显示相似度）
+    const facesRes = await api.get(`/admin/persons/${selectedPersonId.value}/albums/${albumId}/similar-faces`, { signal: acSignal })
+
+    if (acSignal.aborted) return
+
+    // 合并图片和人脸数据
+    const photos = photosRes.data?.content || photosRes.data || []
+    const faces = facesRes.data || []
+
+    // 为每张图片关联其人脸数据（如果有的话）
+    let photosWithFaces = photos
+      .filter((photo: any) => photo.assignedPersonId !== selectedPersonId.value) // 过滤掉已经被当前人物认领的图片
+
+    photosWithFaces = photosWithFaces.map((photo: any) => {
+        const photoFaces = faces.filter((face: any) => face.photoId === photo.id)
+
+        // 判断是否已被当前人物认领
+        const isPhotoAssigned = photo.assignedPersonId === selectedPersonId.value
+        const hasAssignedFaces = photoFaces.some((face: any) => face.personId === selectedPersonId.value)
+        const isAssigned = isPhotoAssigned || hasAssignedFaces
+
+        return {
+          ...photo,
+          faces: photoFaces,
+          // 如果有相似人脸，取最高相似度的那个
+          similarity: photoFaces.length > 0 ? Math.max(...photoFaces.map((f: any) => f.similarity || 0)) : 0,
+          bestFace: photoFaces.length > 0 ? photoFaces.reduce((best: any, current: any) =>
+            (current.similarity || 0) > (best.similarity || 0) ? current : best
+          ) : null
+        }
+      })
+
+    // 排序：已认领的排最后按拍摄时间，未认领的按相似度从高到低，相似度为0的按拍摄时间
+    photosWithFaces.sort((a, b) => {
+      // 判断是否已被当前人物认领
+      const isAssignedA = (a.photoId && a.assignedPersonId === selectedPersonId.value) || (a.faces && a.faces.some((face: any) => face.personId === selectedPersonId.value))
+      const isAssignedB = (b.photoId && b.assignedPersonId === selectedPersonId.value) || (b.faces && b.faces.some((face: any) => face.personId === selectedPersonId.value))
+
+      // 已认领的排在最后
+      if (isAssignedA !== isAssignedB) {
+        return isAssignedA ? 1 : -1
+      }
+
+      // 已认领的图片之间按拍摄时间排序（新到旧）
+      if (isAssignedA && isAssignedB) {
+        const timeA = a.takenAt ? new Date(a.takenAt).getTime() : 0
+        const timeB = b.takenAt ? new Date(b.takenAt).getTime() : 0
+        return timeB - timeA
+      }
+
+      // 未认领的图片按相似度从高到低排序
+      const similarityA = a.similarity || 0
+      const similarityB = b.similarity || 0
+      if (similarityA !== similarityB) {
+        return similarityB - similarityA
+      }
+
+      // 相似度相同或都为0时，按拍摄时间从新到旧排序
+      const timeA = a.takenAt ? new Date(a.takenAt).getTime() : 0
+      const timeB = b.takenAt ? new Date(b.takenAt).getTime() : 0
+      return timeB - timeA
+    })
+
+    // 计算已认领图片的数量
+    const claimedPhotoCount = photosWithFaces.filter((photo: any) =>
+      photo.assignedPersonId === selectedPersonId.value ||
+      (photo.faces && photo.faces.some((face: any) => face.personId === selectedPersonId.value))
+    ).length
+
+    // 更新相册列表中的已认领图片数量
+    const albumIndex = albumRecommendations.value.findIndex(a => a.albumId === albumId)
+    if (albumIndex !== -1) {
+      albumRecommendations.value[albumIndex].claimedPhotoCount = claimedPhotoCount
+      albumRecommendations.value[albumIndex].albumPhotos = photosWithFaces
+    }
+
+    // 更新选中相册的数据
+    if (selectedAlbum.value && selectedAlbum.value.albumId === albumId) {
+      selectedAlbum.value.albumPhotos = photosWithFaces
+      selectedAlbum.value.claimedPhotoCount = claimedPhotoCount
+      // 数据更新后重置可见面部列表并调整容器高度
+      nextTick(() => {
+        resetFaceVisible('albums')
+        setAlbumMaxHeight()
+      })
+    }
+  } catch (error) {
+    if (albumAbortController && albumAbortController.signal.aborted) return
+    console.error('加载相册图片失败:', error)
+  } finally {
+    if (albumAbortController) {
+      albumAbortController = null
+    }
   }
 }
 
@@ -2052,6 +2272,90 @@ const assignSelectedAlbumFaces = async () => {
   await refreshPersonsAfterFaceChange()
 }
 
+const assignPhoto = async (photoId: number) => {
+  if (!selectedPersonId.value) return
+  try {
+    await api.post(`/admin/photos/${photoId}/assign-person`, null, { params: { personId: selectedPersonId.value } })
+    // 刷新数据
+    if (selectedAlbum.value?.albumId) {
+      await loadAlbumPhotos(selectedAlbum.value.albumId)
+    }
+    await loadAlbumRecommendations(undefined, true)
+    await loadAllFaces()
+    await refreshPersonsAfterFaceChange()
+  } catch (e: any) {
+    console.error('assignPhoto error', e)
+    alert('认领图片失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const unassignPhotoOrFace = async (f: any) => {
+  if (!selectedPersonId.value) return
+  try {
+    // 检查是否有认领的人脸，如果有则先移除人脸认领
+    if (f.faces && f.faces.some((face: any) => face.personId === selectedPersonId.value)) {
+      const assignedFace = f.faces.find((face: any) => face.personId === selectedPersonId.value)
+      if (assignedFace) {
+        await unassignFace(assignedFace.id)
+      }
+    }
+
+    // 检查图片是否被认领，如果是则移除图片认领
+    if (f.photoId && f.assignedPersonId === selectedPersonId.value) {
+      await api.delete(`/admin/photos/${f.photoId}/assign-person`)
+    }
+
+    // 刷新数据
+    if (selectedAlbum.value?.albumId) {
+      await loadAlbumPhotos(selectedAlbum.value.albumId)
+    }
+    await loadAlbumRecommendations(undefined, true)
+    await loadAllFaces()
+    await refreshPersonsAfterFaceChange()
+  } catch (e: any) {
+    console.error('unassignPhotoOrFace error', e)
+    alert('移除认领失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const assignSelectedAlbumPhotos = async () => {
+  if (!selectedPersonId.value) return
+
+  let photoIds: number[] = []
+  const hasSelection = selectedAlbumFaces.value.size > 0
+  if (hasSelection) {
+    const sel = new Set(Array.from(selectedAlbumFaces.value))
+    photoIds = visibleAlbumFaces.value
+      .filter((f: any) => sel.has(f.id))
+      .map((f: any) => f.photoId)
+      .filter(Boolean)
+    photoIds = Array.from(new Set(photoIds))
+  } else {
+    if (!selectedAlbum.value) {
+      alert('请先选择一个相册')
+      return
+    }
+    // 使用已加载的相册图片数据
+    photoIds = (selectedAlbum.value.albumPhotos || []).map((p: any) => p.id)
+  }
+
+  if (photoIds.length === 0) return
+
+  try {
+    await Promise.all(photoIds.map(id => api.post(`/admin/photos/${id}/assign-person`, null, { params: { personId: selectedPersonId.value } })))
+    selectedAlbumFaces.value.clear()
+    if (selectedAlbum.value?.albumId) {
+      await loadAlbumPhotos(selectedAlbum.value.albumId)
+    }
+    await loadAlbumRecommendations(undefined, true)
+    await loadAllFaces()
+    await refreshPersonsAfterFaceChange()
+  } catch (e: any) {
+    console.error('assignSelectedAlbumPhotos error', e)
+    alert('批量认领图片失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
 const assignSelectedUnassigned = async () => {
   const ids = Array.from(selectedUnassigned.value)
   for (const id of ids) {
@@ -2065,6 +2369,12 @@ const unassignFace = async (faceId: number) => {
   await api.put(`/admin/faces/${faceId}/assign`, null, { 
     params: { personId: null } 
   })
+  await loadAllFaces()
+  await refreshPersonsAfterFaceChange()
+}
+
+const unassignPhoto = async (photoId: number) => {
+  await api.delete(`/admin/photos/${photoId}/assign-person`)
   await loadAllFaces()
   await refreshPersonsAfterFaceChange()
 }
@@ -2152,7 +2462,33 @@ const getCurrentFaceList = (tabType: string): FaceItem[] => {
   switch (tabType) {
     case 'confirmed': return confirmedFaces.value
     case 'similar': return similarFaces.value
-    case 'albums': return selectedAlbum.value?.similarFaces || []
+    case 'albums': return selectedAlbum.value?.albumPhotos?.map((photo: any) => ({
+      // 始终使用图片ID作为标识符，优先使用最佳人脸数据（如果有）
+      ...(photo.bestFace ? {
+        ...photo.bestFace,
+        id: photo.id, // 强制使用图片ID
+        photoId: photo.id,
+        photoFilename: photo.filename,
+        thumbnailPath: photo.thumbnailPath,
+        photoOriginalPath: photo.originalPath,
+      } : {
+        id: photo.id, // 使用图片ID
+        photoId: photo.id,
+        photoFilename: photo.filename,
+        thumbnailPath: photo.thumbnailPath,
+        photoOriginalPath: photo.originalPath,
+        x: null,
+        y: null,
+        width: null,
+        height: null,
+        personId: null,
+        personName: null,
+        isConfirmed: false,
+      }),
+      similarity: photo.similarity || 0,
+      faces: photo.faces || [],
+      assignedPersonId: photo.assignedPersonId // 传递已分配人物信息
+    })) || []
     case 'unassigned': return unassignedFaces.value
     case 'cluster': return personFaces.value
     default: return []
@@ -2413,11 +2749,85 @@ const removeSelectedClusterFaces = async () => {
 
 // 处理移除操作（根据tab类型）
 const handleRemoveSelected = async () => {
-  if (tab.value === 'confirmed' && selectedItem.value?.type === 'confirmed') {
-    await removeSelectedConfirmed()
-  } else if (tab.value === 'confirmed' && selectedItem.value?.type === 'cluster') {
-    await removeSelectedClusterFaces()
+  const currentTabType = getCurrentTabType()
+  const selection = getCurrentSelection(currentTabType)
+
+  if (selection.value.size === 0) return
+
+  const ids = Array.from(selection.value)
+
+  // 根据tab类型处理移除
+  switch (currentTabType) {
+    case 'confirmed':
+      // 移除已确认的人脸
+      for (const id of ids) {
+        await api.put(`/admin/faces/${id}/assign`, null, {
+          params: { personId: null }
+        })
+      }
+      selection.value.clear()
+      await loadConfirmedFaces()
+      break
+
+    case 'similar':
+      // 移除相似推荐的人脸
+      for (const id of ids) {
+        await api.put(`/admin/faces/${id}/assign`, null, {
+          params: { personId: null }
+        })
+      }
+      selection.value.clear()
+      await loadSimilarFaces()
+      break
+
+    case 'albums':
+      // 移除相册中的人脸或图片
+      for (const id of ids) {
+        const albumPhotos = selectedAlbum.value?.albumPhotos || []
+        const photo = albumPhotos.find((photo: any) =>
+          photo.faces && photo.faces.some((face: any) => face.id === id)
+        )
+
+        if (photo) {
+          // 移除人脸
+          await api.put(`/admin/faces/${id}/assign`, null, {
+            params: { personId: null }
+          })
+        } else {
+          // 移除图片
+          await api.delete(`/admin/photos/${id}/assign-person`)
+        }
+      }
+      selection.value.clear()
+      if (selectedAlbum.value) {
+        await loadAlbumPhotos(selectedAlbum.value.albumId)
+      }
+      break
+
+    case 'unassigned':
+      // 移除未分配的人脸
+      for (const id of ids) {
+        await api.put(`/admin/faces/${id}/assign`, null, {
+          params: { personId: null }
+        })
+      }
+      selection.value.clear()
+      await loadContextualUnassigned()
+      break
+
+    case 'cluster':
+      // 移除聚类人脸
+      for (const id of ids) {
+        await api.put(`/admin/faces/${id}/assign`, null, {
+          params: { personId: null }
+        })
+      }
+      selection.value.clear()
+      await loadClusterFaces()
+      break
   }
+
+  await refreshPersonsAfterFaceChange()
 }
 
 // 获取当前tab的选中数量
@@ -2476,6 +2886,170 @@ const getCurrentTabType = (): string => {
   return tab.value
 }
 
+// 计算认领按钮的文本和可用性
+const getClaimButtonState = computed(() => {
+  const currentTabType = getCurrentTabType()
+  const selection = getCurrentSelection(currentTabType)
+  const hasSelection = selection.value.size > 0
+
+  // 检查当前tab中是否有任何未认领的项目
+  let hasAnyUnclaimedItems = false
+
+  switch (currentTabType) {
+    case 'confirmed':
+      // confirmed tab 没有未认领的项目
+      hasAnyUnclaimedItems = false
+      break
+    case 'similar':
+      hasAnyUnclaimedItems = similarFaces.value.some((face: any) => face.personId !== selectedPersonId.value)
+      break
+    case 'albums':
+      const albumPhotos = selectedAlbum.value?.albumPhotos || []
+      hasAnyUnclaimedItems = albumPhotos.some((photo: any) => {
+        // 检查是否有未认领的人脸
+        const hasUnclaimedFaces = photo.faces && photo.faces.some((face: any) => face.personId !== selectedPersonId.value)
+        // 检查图片本身是否未认领
+        const photoUnclaimed = photo.assignedPersonId !== selectedPersonId.value
+        return hasUnclaimedFaces || photoUnclaimed
+      })
+      break
+    case 'unassigned':
+      hasAnyUnclaimedItems = unassignedFaces.value.some((face: any) => face.personId !== selectedPersonId.value)
+      break
+    case 'cluster':
+      hasAnyUnclaimedItems = personFaces.value.some((face: any) => face.personId !== selectedPersonId.value)
+      break
+    default:
+      hasAnyUnclaimedItems = false
+  }
+
+  // 如果没有任何未认领的项目，按钮不可用
+  if (!hasAnyUnclaimedItems && !hasSelection) {
+    return { text: '无可用项目', disabled: true }
+  }
+
+  if (hasSelection) {
+    // 检查选中项目中是否包含已认领的项目
+    const selectedItems = Array.from(selection.value)
+    let hasClaimedFaces = false
+    let hasClaimedPhotos = false
+    let hasUnclaimedFaces = false
+    let hasUnclaimedPhotos = false
+
+    switch (currentTabType) {
+      case 'confirmed':
+        // confirmed tab 选中项都是已认领的人脸
+        hasClaimedFaces = selectedItems.length > 0
+        break
+      case 'similar':
+        // 检查选中的人脸是否已认领
+        hasClaimedFaces = selectedItems.some(faceId =>
+          similarFaces.value.some((face: any) => face.id === faceId && face.personId === selectedPersonId.value)
+        )
+        hasUnclaimedFaces = selectedItems.some(faceId =>
+          similarFaces.value.some((face: any) => face.id === faceId && face.personId !== selectedPersonId.value)
+        )
+        break
+      case 'albums':
+        // 检查选中的人脸或图片是否已认领
+        const albumPhotos = selectedAlbum.value?.albumPhotos || []
+        selectedItems.forEach(faceId => {
+          const photo = albumPhotos.find((photo: any) =>
+            photo.faces && photo.faces.some((face: any) => face.id === faceId)
+          )
+          if (photo) {
+            // 这是一个人脸
+            const face = photo.faces.find((face: any) => face.id === faceId)
+            if (face.personId === selectedPersonId.value) {
+              hasClaimedFaces = true
+            } else {
+              hasUnclaimedFaces = true
+            }
+          } else {
+            // 这可能是一个图片ID，检查图片是否已认领
+            const photoById = albumPhotos.find((photo: any) => photo.id === faceId)
+            if (photoById) {
+              if (photoById.assignedPersonId === selectedPersonId.value) {
+                hasClaimedPhotos = true
+              } else {
+                hasUnclaimedPhotos = true
+              }
+            }
+          }
+        })
+        break
+      case 'unassigned':
+        // unassigned tab 选中项都是未认领的人脸
+        hasUnclaimedFaces = selectedItems.length > 0
+        break
+      case 'cluster':
+        // 检查选中的人脸是否已认领
+        hasClaimedFaces = selectedItems.some(faceId =>
+          personFaces.value.some((face: any) => face.id === faceId && face.personId === selectedPersonId.value)
+        )
+        hasUnclaimedFaces = selectedItems.some(faceId =>
+          personFaces.value.some((face: any) => face.id === faceId && face.personId !== selectedPersonId.value)
+        )
+        break
+    }
+
+    // 优先显示移除操作
+    if (hasClaimedFaces) {
+      return { text: `移除${selection.value.size}张人脸`, disabled: false, isRemove: true }
+    } else if (hasClaimedPhotos) {
+      return { text: `移除${selection.value.size}张图片`, disabled: false, isRemove: true }
+    } else if (hasUnclaimedFaces) {
+      return { text: `认领${selection.value.size}张人脸`, disabled: false, isRemove: false }
+    } else if (hasUnclaimedPhotos) {
+      return { text: `认领${selection.value.size}张图片`, disabled: false, isRemove: false }
+    }
+  } else {
+    // 没有选中项目时，检查当前tab中是否有未认领的人脸或图片
+    let hasUnclaimedFaces = false
+    let hasUnclaimedPhotos = false
+
+    switch (currentTabType) {
+      case 'confirmed':
+        // confirmed tab 没有未认领的项目
+        break
+      case 'similar':
+        hasUnclaimedFaces = similarFaces.value.some((face: any) => face.personId !== selectedPersonId.value)
+        break
+      case 'albums':
+        const albumPhotos = selectedAlbum.value?.albumPhotos || []
+        hasUnclaimedFaces = albumPhotos.some((photo: any) =>
+          photo.faces && photo.faces.some((face: any) => face.personId !== selectedPersonId.value)
+        )
+        hasUnclaimedPhotos = albumPhotos.some((photo: any) =>
+          photo.assignedPersonId !== selectedPersonId.value &&
+          !(photo.faces && photo.faces.some((face: any) => face.personId === selectedPersonId.value))
+        )
+        break
+      case 'unassigned':
+        hasUnclaimedFaces = unassignedFaces.value.some((face: any) => face.personId !== selectedPersonId.value)
+        break
+      case 'cluster':
+        hasUnclaimedFaces = personFaces.value.some((face: any) => face.personId !== selectedPersonId.value)
+        break
+      default:
+        break
+    }
+
+    if (hasUnclaimedFaces) {
+      return { text: '认领全部人脸', disabled: false, isRemove: false }
+    } else if (hasUnclaimedPhotos) {
+      return { text: '认领全部图片', disabled: false, isRemove: false }
+    } else {
+      return { text: '无可用项目', disabled: true, isRemove: false }
+    }
+  }
+
+  return { text: '认领全部', disabled: false, isRemove: false }
+})
+
+// 为了向后兼容，提供text属性
+const getClaimButtonText = computed(() => getClaimButtonState.value.text)
+
 // 全选当前tab的所有人脸
 const selectAllCurrentTab = () => {
   const faceList = getCurrentFaceList(tab.value)
@@ -2495,15 +3069,16 @@ const selectAlbum = async (album: AlbumRecommendation) => {
   selectedAlbum.value = album
   selectedAlbumFaces.value.clear() // 切换相册时清空选择
 
-  // 清空之前的相似人脸数据，显示加载状态
+  // 清空之前的图片数据，显示加载状态
+  selectedAlbum.value.albumPhotos = []
   selectedAlbum.value.similarFaces = []
 
   // 立即显示加载状态
   loadingAlbums.value = true
 
   try {
-    // 总是重新加载数据，确保数据是最新的
-    await loadAlbumSimilarFaces(album.albumId)
+    // 加载相册中的所有图片（包括无脸图片）
+    await loadAlbumPhotos(album.albumId)
   } finally {
     // 确保加载状态被重置
     loadingAlbums.value = false
@@ -2588,7 +3163,8 @@ const getPersonThumb = (p: PersonListItem) => {
 }
 
 const getFaceThumb = (f: FaceItem) => {
-  return getImageUrl(f.photoThumbnailPath || f.photoOriginalPath)
+  // 对于相册中的图片，使用 thumbnailPath；对于人脸，使用 photoThumbnailPath
+  return getImageUrl(f.thumbnailPath || f.photoThumbnailPath || f.photoOriginalPath)
 }
 
 const getActiveFacesForViewer = () => {
@@ -2599,7 +3175,10 @@ const getActiveFacesForViewer = () => {
     case 'confirmed': return confirmedFaces.value
     case 'auto': return autoAssignedFaces.value
     case 'similar': return similarFaces.value
-    case 'albums': return selectedAlbum.value?.similarFaces || []
+    case 'albums':
+      // 从albumPhotos中提取所有人脸
+      const albumPhotos = selectedAlbum.value?.albumPhotos || []
+      return albumPhotos.flatMap((photo: any) => photo.faces || [])
     case 'unassigned': return unassignedFaces.value
     default: return []
   }
@@ -2687,6 +3266,10 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
       if (selectedItem.value && selectedItem.value.type === 'confirmed' && tab.value === 'confirmed') {
         return { highlightedPersonId: selectedItem.value.id }
       }
+      // For albums tab, don't set fallback options since we want to use highlightedFaceIds
+      if (tab.value === 'albums') {
+        return {}
+      }
       // prefer using the face's personId (if assigned), then clusterId (if available), otherwise fallback to faceId
       if ((face as any).personId) {
         return { highlightedPersonId: (face as any).personId }
@@ -2712,7 +3295,9 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
       if (tab.value === 'similar') {
         allFacesSource = similarFaces.value
       } else if (tab.value === 'albums' && selectedAlbum.value) {
-        allFacesSource = selectedAlbum.value.similarFaces || facesForViewer
+        // 对于albums tab，不设置highlightedFaceIds，因为相似face和photo face的ID不匹配
+        // 只使用preferredFaceId进行高亮
+        allFacesSource = []
       } else if (tab.value === 'unassigned') {
         allFacesSource = unassignedFaces.value
       } else {
@@ -2720,9 +3305,10 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
       }
     }
 
-    const allFaceIds = allFacesSource.map((f: any) => f.id).filter(Boolean)
+    const allFaceIds = allFacesSource.map((f: any) => Number(f.id)).filter(Boolean)
     const uniqueFaceIds = Array.from(new Set(allFaceIds))
-    viewerOpenOptions.value = { ...fallbackOptions, highlightedFaceIds: uniqueFaceIds, ...options }
+    const finalOptions = { ...fallbackOptions, highlightedFaceIds: uniqueFaceIds, ...options }
+    viewerOpenOptions.value = finalOptions
     viewerVisible.value = true
 
   } catch (error) {
@@ -2849,8 +3435,19 @@ watch(tab, (v) => {
     }
   } else if (v === 'albums' && selectedPersonId.value) {
     // 切换到套图推荐tab时，如果没有选中相册，则自动选中第一个
-    if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
-      selectAlbum(albumRecommendations.value[0])
+    const selectFirstAlbum = async () => {
+      if (albumRecommendations.value.length > 0) {
+        await selectAlbum(albumRecommendations.value[0])
+      } else {
+        // 如果相册推荐还没有加载，先加载它
+        await loadAlbumRecommendations()
+        if (albumRecommendations.value.length > 0) {
+          await selectAlbum(albumRecommendations.value[0])
+        }
+      }
+    }
+    if (!selectedAlbum.value) {
+      selectFirstAlbum()
     }
   }
 })
