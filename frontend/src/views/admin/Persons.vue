@@ -269,17 +269,21 @@
                   </button>
                   <button
                 v-if="tab !== 'confirmed'"
-                @click="getClaimButtonState.isRemove ? handleRemoveSelected : handleClaimSelected"
-                :disabled="getClaimButtonState.disabled"
+                @click="attemptClaimOrRemove"
+                :aria-disabled="getClaimButtonState.disabled"
                 :class="[
-                  'px-2 py-1 rounded text-[10px]',
+                  'px-2 py-1 rounded text-[10px] focus:outline-none',
                   getClaimButtonState.isRemove
                     ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-blue-600 hover:bg-blue-700',
-                  getClaimButtonState.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                    : (getClaimButtonState.claimType === 'photo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'),
+                  getClaimButtonState.disabled ? 'opacity-50' : ''
                 ]"
               >
-                {{ getClaimButtonText }}
+                <span v-if="isBatchAssigning" class="inline-flex items-center">
+                  <span class="animate-spin border-2 border-white border-t-transparent rounded-full w-3 h-3 mr-2"></span>
+                  <span>加载中...</span>
+                </span>
+                <span v-else>{{ getClaimButtonText }}</span>
               </button>
               <button
                 v-if="tab === 'confirmed'"
@@ -369,7 +373,7 @@
                     :key="`assigned-${photo.id}`"
                     class="bg-gray-700 rounded overflow-hidden border border-gray-600 relative group select-none"
                   >
-                    <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openPhoto(photo.id)">
+                    <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewerForPhoto(photo.id)">
                       <img
                         v-if="photo.thumbnailPath"
                         :src="getImageUrl(photo.thumbnailPath)"
@@ -384,13 +388,14 @@
                     </button>
                   </div>
                   <div class="p-1.5">
-                    <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
-                        :title="photo.filename"
-                        @click.stop="openPhoto(photo.id)"
-                    >
-                        {{ photo.filename || '-' }}
-                    </div>
+                      <div
+                        class="text-[10px] text-blue-300 truncate cursor-pointer"
+                          :title="photo.filename"
+                          @click.stop="openPhoto(photo.id)"
+                          @dblclick.stop="openViewerForPhoto(photo.id)"
+                      >
+                          {{ photo.filename || '-' }}
+                      </div>
                   </div>
                 </div>
                 </div>
@@ -474,29 +479,41 @@
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
-                    <!-- 已认领标签 -->
-                    <div
-                        v-if="(f.photoId && f.assignedPersonId === selectedPersonId) || (f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
-                        class="absolute top-1 right-1 bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10"
-                    >
-                        已认领
+                    <!-- 已认领标签：人脸认领为绿色，图片认领为蓝色 -->
+                    <div v-if="f.faces && f.faces.some((face: any) => face.personId === selectedPersonId)"
+                         class="absolute top-1 right-1 bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                      已认领
                     </div>
-                    <!-- 人脸认领按钮 -->
+                    <div v-else-if="f.photoId && f.assignedPersonId === selectedPersonId"
+                         class="absolute top-1 right-1 bg-blue-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                      已认领
+                    </div>
+                    <!-- 人脸认领按钮（绿色） -->
                     <button
-                        v-if="f.bestFace && f.faces && f.faces.some((face: any) => face.personId !== selectedPersonId) && f.assignedPersonId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId)"
-                        @click.stop="assignFace(f.bestFace.id, true)"
-                        class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        v-if="f.faces && f.faces.some((face: any) => face.personId !== selectedPersonId) && f.assignedPersonId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId)"
+                        @click.stop="assignAlbumFace(f)"
+                        :disabled="isAssigningFaceIds.has(f.bestFace?.id)"
+                        class="absolute bottom-1 right-1 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
                     >
-                        认领人脸
+                        <span v-if="isAssigningFaceIds.has(f.bestFace?.id)" class="inline-flex items-center">
+                          <span class="animate-spin border-2 border-white border-t-transparent rounded-full w-3 h-3 mr-2"></span>
+                          <span>加载中</span>
+                        </span>
+                        <span v-else>认领人脸</span>
                     </button>
-                    <!-- 图片认领按钮 -->
+                    <!-- 图片认领按钮（蓝色） -->
                     <button
                         v-if="f.photoId && f.assignedPersonId !== selectedPersonId && !(f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
                         @click.stop="assignPhoto(f.photoId)"
-                        class="absolute bottom-1 left-1 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        :disabled="isAssigningPhotoIds.has(f.photoId)"
+                        class="absolute bottom-1 left-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
                         :class="{ 'left-12': f.bestFace && f.bestFace.personId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId) }"
                     >
-                        认领图片
+                        <span v-if="isAssigningPhotoIds.has(f.photoId)" class="inline-flex items-center">
+                          <span class="animate-spin border-2 border-white border-t-transparent rounded-full w-3 h-3 mr-2"></span>
+                          <span>加载中</span>
+                        </span>
+                        <span v-else>认领图片</span>
                     </button>
                     <!-- 移除按钮 -->
                     <button
@@ -1335,7 +1352,6 @@ const selectPerson = (p: PersonListItem) => {
     // 智能选择初始tab：优先显示有内容的tab
     tab.value = 'confirmed' // 默认先显示confirmed，加载后再根据数据调整
     loadAllFaces(abortController.signal)
-    loadAlbumRecommendations(abortController.signal)
   } else {
     selectedPersonId.value = null
     selectedClusterIndex.value = p.id as number
@@ -2115,8 +2131,8 @@ const confirmDissolvePerson = async () => {
       ...confirmedFaces.value.map(f => f.id),
       ...autoAssignedFaces.value.map(f => f.id)
     ]
-    for (const id of ids) {
-      await api.put(`/admin/faces/${id}/assign`, null, { params: { personId: null } })
+    if (ids.length > 0) {
+      await api.post('/admin/faces/batch-unassign', { faceIds: ids })
     }
     await api.delete(`/admin/persons/${selectedPersonId.value}`)
     await loadPersons()
@@ -2158,8 +2174,8 @@ const dissolvePerson = async () => {
       ...confirmedFaces.value.map(f => f.id),
       ...autoAssignedFaces.value.map(f => f.id)
     ]
-    for (const id of ids) {
-      await api.put(`/admin/faces/${id}/assign`, null, { params: { personId: null } })
+    if (ids.length > 0) {
+      await api.post('/admin/faces/batch-unassign', { faceIds: ids })
     }
     await api.delete(`/admin/persons/${selectedPersonId.value}`)
     await loadPersons()
@@ -2173,38 +2189,59 @@ const dissolvePerson = async () => {
   }
 }
 
+// loading states for claim actions
+const isAssigningPhotoIds = ref<Set<number>>(new Set())
+const isAssigningFaceIds = ref<Set<number>>(new Set())
+const isBatchAssigning = ref(false)
+
 const assignFace = async (faceId: number, confirmed: boolean = true) => {
   if (!selectedPersonId.value) return
-  await api.put(`/admin/faces/${faceId}/assign`, null, { 
-    params: { personId: selectedPersonId.value, confirmed: confirmed } 
-  })
-  selectedUnassigned.value.delete(faceId)
-  selectedSimilar.value.delete(faceId)
-  await loadAllFaces()
+  // per-face loading indicator
+  const s1 = new Set(isAssigningFaceIds.value)
+  s1.add(faceId)
+  isAssigningFaceIds.value = s1
+  try {
+    console.info('开始单人人脸认领', { faceId, personId: selectedPersonId.value, confirmed })
+    // use batch endpoint for single-face assign to keep API surface consistent
+    await api.post('/admin/faces/batch-assign', {
+      faceIds: [faceId],
+      personId: selectedPersonId.value,
+      confirmed: confirmed
+    })
+    console.info('单人人脸认领完成', { faceId })
+    // 本地更新状态，避免刷新列表打断用户操作
+    markFaceAssignedLocally(faceId, selectedPersonId.value)
+  } finally {
+    const s2 = new Set(isAssigningFaceIds.value)
+    s2.delete(faceId)
+    isAssigningFaceIds.value = s2
+  }
 }
 
 const confirmSelectedAuto = async () => {
   if (!selectedPersonId.value) return
-
-  const hasSelection = selectedAuto.value.size > 0
+  isBatchAssigning.value = true
+  try {
+    const hasSelection = selectedAuto.value.size > 0
   const targetIds = hasSelection
     ? Array.from(selectedAuto.value)
     : autoAssignedFaces.value.map(f => f.id)
 
   if (targetIds.length === 0) return
 
-  // 批量认领：一口气提交所有人脸，再统一刷新
-  await Promise.all(
-    targetIds.map(id =>
-      api.put(`/admin/faces/${id}/assign`, null, {
-        params: { personId: selectedPersonId.value, confirmed: true }
-      })
-    )
-  )
+  // 批量认领：一次性提交所有人脸
+  await api.post('/admin/faces/batch-assign', {
+    faceIds: targetIds,
+    personId: selectedPersonId.value,
+    confirmed: true
+  })
 
-  selectedAuto.value.clear()
-  await loadAllFaces()
-  await refreshPersonsAfterFaceChange()
+    selectedAuto.value.clear()
+    await loadAllFaces()
+    await refreshPersonsAfterFaceChange()
+  } finally {
+    isBatchAssigning.value = false
+  }
 
   // 移除自动切换逻辑，让用户自己选择要查看的tab
 }
@@ -2212,11 +2249,7 @@ const confirmSelectedAuto = async () => {
 const removeSelectedAuto = async () => {
   if (selectedAuto.value.size === 0) return
   const ids = Array.from(selectedAuto.value)
-  for (const id of ids) {
-    await api.put(`/admin/faces/${id}/assign`, null, { 
-      params: { personId: null } 
-    })
-  }
+  await api.post('/admin/faces/batch-unassign', { faceIds: ids })
   selectedAuto.value.clear()
   await loadAllFaces()
   await refreshPersonsAfterFaceChange()
@@ -2224,68 +2257,124 @@ const removeSelectedAuto = async () => {
 
 const assignSelectedSimilar = async () => {
   if (!selectedPersonId.value) return
+  isBatchAssigning.value = true
+  try {
+    const hasSelection = selectedSimilar.value.size > 0
+    const targetIds = hasSelection
+      ? Array.from(selectedSimilar.value)
+      : similarFaces.value.map(f => f.id)
 
-  const hasSelection = selectedSimilar.value.size > 0
-  const targetIds = hasSelection
-    ? Array.from(selectedSimilar.value)
-    : similarFaces.value.map(f => f.id)
+    if (targetIds.length === 0) return
+    await api.post('/admin/faces/batch-assign', {
+      faceIds: targetIds,
+      personId: selectedPersonId.value,
+      confirmed: true
+    })
 
-  if (targetIds.length === 0) return
-
-  await Promise.all(
-    targetIds.map(id =>
-      api.put(`/admin/faces/${id}/assign`, null, {
-        params: { personId: selectedPersonId.value, confirmed: true }
-      })
-    )
-  )
-
-  selectedSimilar.value.clear()
-  await loadAllFaces()
-  await refreshPersonsAfterFaceChange()
+    selectedSimilar.value.clear()
+    await loadAllFaces()
+    await refreshPersonsAfterFaceChange()
+  } finally {
+    isBatchAssigning.value = false
+  }
 }
 
 const assignSelectedAlbumFaces = async () => {
   if (!selectedPersonId.value) return
-
-  const hasSelection = selectedAlbumFaces.value.size > 0
-  const targetIds = hasSelection
-    ? Array.from(selectedAlbumFaces.value)
-    : (selectedAlbum.value?.similarFaces.map(f => f.id) || [])
-
-  if (targetIds.length === 0) return
-
-  await Promise.all(
-    targetIds.map(id =>
-      api.put(`/admin/faces/${id}/assign`, null, {
-        params: { personId: selectedPersonId.value, confirmed: true }
+  isBatchAssigning.value = true
+  try {
+    console.info('开始相册批量认领', {
+      selectedPersonId: selectedPersonId.value,
+      selectedAlbumId: selectedAlbum.value?.albumId,
+      selectedAlbumFacesSize: selectedAlbumFaces.value.size,
+      similarFacesLength: selectedAlbum.value?.similarFaces?.length || 0
+    })
+    const hasSelection = selectedAlbumFaces.value.size > 0
+    const albumPhotos = selectedAlbum.value?.albumPhotos || []
+    const faceMap: Record<number, any> = {}
+    albumPhotos.forEach((photo: any) => {
+      (photo.faces || []).forEach((face: any) => {
+        faceMap[face.id] = { ...face, photoId: photo.id }
       })
-    )
-  )
+    })
 
-  selectedAlbumFaces.value.clear()
-  await loadAllFaces()
+    // Build faceIds to assign:
+    // - if user selected faces directly, include those face ids (only similarity>0)
+    // - if user selected photo tiles, include all faces in that photo with similarity>0
+    let faceIds: number[] = []
+    if (hasSelection) {
+      const sel = Array.from(selectedAlbumFaces.value)
+      sel.forEach(id => {
+        const face = faceMap[id]
+        if (face) {
+          if ((face.similarity || 0) > 0 && face.personId !== selectedPersonId.value) {
+            faceIds.push(face.id)
+          }
+        } else {
+          const photoById = albumPhotos.find((p: any) => p.id === id)
+          if (photoById) {
+            (photoById.faces || []).forEach((f: any) => {
+              if ((f.similarity || 0) > 0 && f.personId !== selectedPersonId.value) {
+                faceIds.push(f.id)
+              }
+            })
+          }
+        }
+      })
+    } else {
+      faceIds = (selectedAlbum.value?.similarFaces || []).map((f: any) => f.id).filter(Boolean)
+    }
 
-  // 重新加载相册推荐，但保持当前选中相册
-  await loadAlbumRecommendations(undefined, true)
+    // dedupe
+    faceIds = Array.from(new Set(faceIds))
+    console.info('计算到以下待认领人脸ID', { faceIds })
+    if (faceIds.length === 0) {
+      console.warn('相册批量认领：没有可认领的人脸')
+      alert('没有可认领的人脸（可能已被认领或所选项目没有人脸）')
+      return
+    }
 
-  await refreshPersonsAfterFaceChange()
+    // 批量接口一次性提交可认领的人脸
+    console.info('准备调用后端批量认领接口', { faceIds, personId: selectedPersonId.value })
+    await api.post('/admin/faces/batch-assign', {
+      faceIds,
+      personId: selectedPersonId.value,
+      confirmed: true
+    })
+
+    // 本地更新已认领状态，避免刷新打断用户
+    faceIds.forEach(fid => markFaceAssignedLocally(fid, selectedPersonId.value))
+    selectedAlbumFaces.value.clear()
+    // 更新相册统计
+    updateAlbumClaimedCounts()
+    await refreshPersonsAfterFaceChange()
+  } finally {
+    isBatchAssigning.value = false
+  }
 }
 
 const assignPhoto = async (photoId: number) => {
   if (!selectedPersonId.value) return
+  // per-photo loading indicator
+  const s1 = new Set(isAssigningPhotoIds.value)
+  s1.add(photoId)
+  isAssigningPhotoIds.value = s1
   try {
-    await api.post(`/admin/photos/${photoId}/assign-person`, null, { params: { personId: selectedPersonId.value } })
+    await api.post('/admin/photos/batch-assign', { photoIds: [photoId], personId: selectedPersonId.value })
     // 刷新数据
+    // 本地更新图片状态，不刷新整个列表，保持用户操作连续性
+    markPhotoAssignedLocally(photoId, selectedPersonId.value)
     if (selectedAlbum.value?.albumId) {
-      await loadAlbumPhotos(selectedAlbum.value.albumId)
+      // keep album photos as-is but update counts
+      updateAlbumClaimedCounts()
     }
-    await loadAlbumRecommendations(undefined, true)
-    await loadAllFaces()
-    await refreshPersonsAfterFaceChange()
   } catch (e: any) {
     console.error('assignPhoto error', e)
     alert('认领图片失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    const s2 = new Set(isAssigningPhotoIds.value)
+    s2.delete(photoId)
+    isAssigningPhotoIds.value = s2
   }
 }
 
@@ -2302,7 +2391,7 @@ const unassignPhotoOrFace = async (f: any) => {
 
     // 检查图片是否被认领，如果是则移除图片认领
     if (f.photoId && f.assignedPersonId === selectedPersonId.value) {
-      await api.delete(`/admin/photos/${f.photoId}/assign-person`)
+      await api.post('/admin/photos/batch-unassign', { photoIds: [f.photoId] })
     }
 
     // 刷新数据
@@ -2341,8 +2430,9 @@ const assignSelectedAlbumPhotos = async () => {
 
   if (photoIds.length === 0) return
 
+  isBatchAssigning.value = true
   try {
-    await Promise.all(photoIds.map(id => api.post(`/admin/photos/${id}/assign-person`, null, { params: { personId: selectedPersonId.value } })))
+    await api.post('/admin/photos/batch-assign', { photoIds, personId: selectedPersonId.value })
     selectedAlbumFaces.value.clear()
     if (selectedAlbum.value?.albumId) {
       await loadAlbumPhotos(selectedAlbum.value.albumId)
@@ -2353,30 +2443,144 @@ const assignSelectedAlbumPhotos = async () => {
   } catch (e: any) {
     console.error('assignSelectedAlbumPhotos error', e)
     alert('批量认领图片失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    isBatchAssigning.value = false
   }
 }
 
 const assignSelectedUnassigned = async () => {
   const ids = Array.from(selectedUnassigned.value)
-  for (const id of ids) {
-    await assignFace(id, true) // 直接确认，不经过自动分配
+  if (ids.length === 0) return
+  isBatchAssigning.value = true
+  try {
+    await api.post('/admin/faces/batch-assign', {
+      faceIds: ids,
+      personId: selectedPersonId.value,
+      confirmed: true
+    })
+    selectedUnassigned.value.clear()
+    await refreshPersonsAfterFaceChange()
+  } finally {
+    isBatchAssigning.value = false
   }
-  selectedUnassigned.value.clear()
-  await refreshPersonsAfterFaceChange()
 }
 
 const unassignFace = async (faceId: number) => {
-  await api.put(`/admin/faces/${faceId}/assign`, null, { 
-    params: { personId: null } 
-  })
-  await loadAllFaces()
+  await api.post('/admin/faces/batch-unassign', { faceIds: [faceId] })
+  // 本地更新
+  markFaceUnassignedLocally(faceId)
   await refreshPersonsAfterFaceChange()
 }
 
 const unassignPhoto = async (photoId: number) => {
-  await api.delete(`/admin/photos/${photoId}/assign-person`)
-  await loadAllFaces()
+  await api.post('/admin/photos/batch-unassign', { photoIds: [photoId] })
+  // do not reload full lists; update album counts
+  updateAlbumClaimedCounts()
   await refreshPersonsAfterFaceChange()
+}
+
+// assign best available face for an album item (fallback to first unassigned face)
+const assignAlbumFace = async (item: any) => {
+  if (!selectedPersonId.value) return
+  // find face id to assign: prefer bestFace, else first face with personId !== selectedPersonId
+  console.info('点击相册项认领人脸', { itemId: item.id, bestFace: item.bestFace?.id, faces: (item.faces || []).map((f: any) => ({ id: f.id, personId: f.personId, similarity: f.similarity })) })
+  const candidateFaceId = item.bestFace?.id || (item.faces || []).find((ff: any) => ff.personId !== selectedPersonId.value)?.id
+  if (!candidateFaceId) {
+    console.warn('assignAlbumFace: 未找到可认领的人脸', { item })
+    alert('未找到可认领的人脸')
+    return
+  }
+  try {
+    await assignFace(candidateFaceId, true)
+  } catch (e: any) {
+    console.error('assignAlbumFace 出错', e)
+    alert('认领人脸失败: ' + (e?.response?.data?.error || e?.message || String(e)))
+  }
+}
+
+// ---- local state helpers ----
+const markFaceAssignedLocally = (faceId: number, personId: number) => {
+  // find previous owner and update various lists
+  let prevPersonId: number | null = null
+  const updateFace = (face: any) => {
+    if (!face) return
+    prevPersonId = prevPersonId ?? (face.personId || null)
+    face.personId = personId
+    face.isConfirmed = true
+  }
+
+  const listsToUpdate = [confirmedFaces.value, similarFaces.value, unassignedFaces.value, personFaces.value]
+  for (const list of listsToUpdate) {
+    if (!Array.isArray(list)) continue
+    const f = list.find((x: any) => x.id === faceId)
+    if (f) updateFace(f)
+  }
+
+  // albumPhotos
+  (selectedAlbum.value?.albumPhotos || []).forEach((photo: any) => {
+    (photo.faces || []).forEach((f: any) => {
+      if (f.id === faceId) updateFace(f)
+    })
+  })
+
+  // update persons list counts
+  if (prevPersonId !== personId) {
+    if (prevPersonId) {
+      const prev = persons.value.find((p: any) => p.id === prevPersonId && p.type === 'confirmed')
+      if (prev) prev.faceCount = Math.max(0, (prev.faceCount || 0) - 1)
+    }
+    const cur = persons.value.find((p: any) => p.id === personId && p.type === 'confirmed')
+    if (cur) cur.faceCount = (cur.faceCount || 0) + 1
+  }
+  // 更新相册统计
+  updateAlbumClaimedCounts()
+}
+
+const markFaceUnassignedLocally = (faceId: number) => {
+  let prevPersonId: number | null = null
+  const updateFace = (face: any) => {
+    if (!face) return
+    prevPersonId = prevPersonId ?? (face.personId || null)
+    face.personId = null
+    face.isConfirmed = false
+  }
+  const listsToUpdate2 = [confirmedFaces.value, similarFaces.value, unassignedFaces.value, personFaces.value]
+  for (const list of listsToUpdate2) {
+    if (!Array.isArray(list)) continue
+    const f = list.find((x: any) => x.id === faceId)
+    if (f) updateFace(f)
+  }
+  ;(selectedAlbum.value?.albumPhotos || []).forEach((photo: any) => {
+    (photo.faces || []).forEach((f: any) => {
+      if (f.id === faceId) updateFace(f)
+    })
+  })
+  if (prevPersonId) {
+    const prev = persons.value.find((p: any) => p.id === prevPersonId && p.type === 'confirmed')
+    if (prev) prev.faceCount = Math.max(0, (prev.faceCount || 0) - 1)
+  }
+  // 更新相册统计
+  updateAlbumClaimedCounts()
+}
+
+const markPhotoAssignedLocally = (photoId: number, personId: number) => {
+  const p = (selectedAlbum.value?.albumPhotos || []).find((p: any) => p.id === photoId)
+  if (p) p.assignedPersonId = personId
+  // update albumRecommendations claimedPhotoCount
+  updateAlbumClaimedCounts()
+}
+
+const updateAlbumClaimedCounts = () => {
+  albumRecommendations.value.forEach((a: any) => {
+    const ap = a.albumPhotos || []
+    const claimed = ap.filter((photo: any) =>
+      photo.assignedPersonId === selectedPersonId.value || (photo.faces || []).some((f: any) => f.personId === selectedPersonId.value)
+    ).length
+    a.claimedPhotoCount = claimed
+    if (selectedAlbum.value && selectedAlbum.value.albumId === a.albumId) {
+      selectedAlbum.value.claimedPhotoCount = claimed
+    }
+  })
 }
 
 const toggleSelectAuto = (id: number) => {
@@ -2421,6 +2625,69 @@ const selectionStart = ref<{ x: number, y: number } | null>(null)
 const selectionEnd = ref<{ x: number, y: number } | null>(null)
 const currentTab = ref<string>('')
 const lastSelectedIndex = ref<number | null>(null)
+// auto-scroll state for drag selection
+const autoScrollRAF = ref<number | null>(null)
+const lastMouseY = ref<number | null>(null)
+const autoScrollContainerRef = ref<HTMLElement | null>(null)
+
+const stopAutoScroll = () => {
+  if (autoScrollRAF.value) {
+    cancelAnimationFrame(autoScrollRAF.value)
+    autoScrollRAF.value = null
+  }
+  autoScrollContainerRef.value = null
+  lastMouseY.value = null
+}
+
+const startAutoScrollLoop = (container: HTMLElement) => {
+  if (autoScrollRAF.value) return
+  // find nearest scrollable ancestor (including self) so scrolling works for different tab layouts
+  const findScrollableContainer = (el: HTMLElement | null): HTMLElement | null => {
+    let cur: HTMLElement | null = el
+    while (cur) {
+      if (cur.scrollHeight > cur.clientHeight) return cur
+      cur = cur.parentElement
+    }
+    return document.scrollingElement as HTMLElement
+  }
+  const scrollCont = findScrollableContainer(container) || document.scrollingElement as HTMLElement
+  autoScrollContainerRef.value = scrollCont
+  const loop = () => {
+    const y = lastMouseY.value
+    const cont = autoScrollContainerRef.value
+    if (!cont || y == null) {
+      autoScrollRAF.value = requestAnimationFrame(loop)
+      return
+    }
+    const rect = cont.getBoundingClientRect()
+    const thresh = 60
+    let delta = 0
+    const maxSpeed = 24
+    if (y > rect.bottom - thresh) {
+      const ratio = Math.min(1, (y - (rect.bottom - thresh)) / thresh)
+      delta = Math.ceil(ratio * maxSpeed)
+    } else if (y < rect.top + thresh) {
+      const ratio = Math.min(1, ((rect.top + thresh) - y) / thresh)
+      delta = -Math.ceil(ratio * maxSpeed)
+    }
+    if (delta !== 0) {
+      cont.scrollBy({ top: delta, behavior: 'auto' })
+      // adjust selectionEnd to account for scrolling
+      // after scrolling, recompute selectionEnd relative to same container
+      const newRect = cont.getBoundingClientRect()
+      selectionEnd.value = {
+        x: (lastMouseEventX && lastMouseEventX.value !== null) ? lastMouseEventX.value - newRect.left + cont.scrollLeft : (selectionEnd.value ? selectionEnd.value.x : 0),
+        y: lastMouseY.value - newRect.top + cont.scrollTop
+      }
+      // update selection box after scrolling
+      updateSelectionFromBox(currentTab.value)
+    }
+    autoScrollRAF.value = requestAnimationFrame(loop)
+  }
+  autoScrollRAF.value = requestAnimationFrame(loop)
+}
+// keep last mouse X to better compute selectionEnd.x when auto-scrolling
+const lastMouseEventX = ref<number | null>(null)
 
 // 容器引用
 const tabScrollContainer = ref<HTMLElement | null>(null)
@@ -2596,6 +2863,16 @@ const handleMouseMove = (e: MouseEvent, tabType: string) => {
     y: e.clientY - rect.top + container.scrollTop
   }
   
+  // update last mouse position for auto-scroll loop
+  lastMouseY.value = e.clientY
+  lastMouseEventX.value = e.clientX
+  // start auto-scroll loop if not started
+  try {
+    startAutoScrollLoop(container)
+  } catch (err) {
+    console.warn('auto-scroll start failed', err)
+  }
+
   // 更新框选范围内的人脸选择状态
   updateSelectionFromBox(tabType)
 }
@@ -2608,6 +2885,8 @@ const handleMouseUp = (e: MouseEvent, tabType: string) => {
   selectionStart.value = null
   selectionEnd.value = null
   currentTab.value = ''
+  // stop auto scroll loop
+  stopAutoScroll()
 }
 
 // 根据框选范围更新选择
@@ -2719,13 +2998,8 @@ const invertSelection = (tabType: string) => {
 // 批量移除已确认照片
 const removeSelectedConfirmed = async () => {
   if (selectedConfirmed.value.size === 0) return
-  
   const ids = Array.from(selectedConfirmed.value)
-  for (const id of ids) {
-    await api.put(`/admin/faces/${id}/assign`, null, { 
-      params: { personId: null } 
-    })
-  }
+  await api.post('/admin/faces/batch-unassign', { faceIds: ids })
   selectedConfirmed.value.clear()
   await loadAllFaces()
   await refreshPersonsAfterFaceChange()
@@ -2737,11 +3011,7 @@ const removeSelectedClusterFaces = async () => {
   if (!confirm(`确定要移除 ${selectedClusterFaces.value.size} 张照片吗？`)) return
   
   const ids = Array.from(selectedClusterFaces.value)
-  for (const id of ids) {
-    await api.put(`/admin/faces/${id}/assign`, null, { 
-      params: { personId: null } 
-    })
-  }
+  await api.post('/admin/faces/batch-unassign', { faceIds: ids })
   selectedClusterFaces.value.clear()
   await loadClusterFaces()
   await refreshPersonsAfterFaceChange()
@@ -2756,75 +3026,97 @@ const handleRemoveSelected = async () => {
 
   const ids = Array.from(selection.value)
 
-  // 根据tab类型处理移除
-  switch (currentTabType) {
-    case 'confirmed':
-      // 移除已确认的人脸
-      for (const id of ids) {
-        await api.put(`/admin/faces/${id}/assign`, null, {
-          params: { personId: null }
-        })
-      }
-      selection.value.clear()
-      await loadConfirmedFaces()
-      break
+  console.info('开始批量移除', { currentTabType, ids, selectedPersonId: selectedPersonId.value })
+  isBatchAssigning.value = true
+  try {
+    // 根据tab类型处理移除（批量）
+    switch (currentTabType) {
+      case 'confirmed':
+        // 批量解绑已确认的人脸
+        console.info('批量解绑已确认人脸', { faceIds: ids })
+        await api.post('/admin/faces/batch-unassign', { faceIds: ids })
+        selection.value.clear()
+        await loadConfirmedFaces()
+        break
 
-    case 'similar':
-      // 移除相似推荐的人脸
-      for (const id of ids) {
-        await api.put(`/admin/faces/${id}/assign`, null, {
-          params: { personId: null }
-        })
-      }
-      selection.value.clear()
-      await loadSimilarFaces()
-      break
+      case 'similar':
+        // 批量解绑相似推荐的人脸
+        console.info('批量解绑相似推荐人脸', { faceIds: ids })
+        await api.post('/admin/faces/batch-unassign', { faceIds: ids })
+        selection.value.clear()
+        await loadSimilarFaces()
+        break
 
-    case 'albums':
-      // 移除相册中的人脸或图片
-      for (const id of ids) {
+      case 'albums': {
+        // 对于相册：通过人脸ID解绑，不直接解绑整张图片（避免误伤其他人物）
         const albumPhotos = selectedAlbum.value?.albumPhotos || []
-        const photo = albumPhotos.find((photo: any) =>
-          photo.faces && photo.faces.some((face: any) => face.id === id)
-        )
-
-        if (photo) {
-          // 移除人脸
-          await api.put(`/admin/faces/${id}/assign`, null, {
-            params: { personId: null }
+        const faceMap: Record<number, any> = {}
+        albumPhotos.forEach((photo: any) => {
+          (photo.faces || []).forEach((face: any) => {
+            faceMap[face.id] = { ...face, photoId: photo.id }
           })
-        } else {
-          // 移除图片
-          await api.delete(`/admin/photos/${id}/assign-person`)
+        })
+
+        // 收集要解绑的人脸ID：选中的 face id，以及选中的 photo 瓦片中属于当前人物的 face id
+        const faceIdsToUnassign: number[] = []
+        for (const id of ids) {
+          const f = faceMap[id]
+          if (f) {
+            // 直接选中了人脸条目
+            if (f.personId === selectedPersonId.value) {
+              faceIdsToUnassign.push(f.id)
+            }
+          } else {
+            // 选中的是图片瓦片，收集该图片中已经被当前人物指派的人脸 id
+            const photoById = albumPhotos.find((p: any) => p.id === id)
+            if (photoById) {
+              (photoById.faces || []).forEach((face: any) => {
+                if (face.personId === selectedPersonId.value) {
+                  faceIdsToUnassign.push(face.id)
+                }
+              })
+            }
+          }
         }
-      }
-      selection.value.clear()
-      if (selectedAlbum.value) {
-        await loadAlbumPhotos(selectedAlbum.value.albumId)
-      }
-      break
 
-    case 'unassigned':
-      // 移除未分配的人脸
-      for (const id of ids) {
-        await api.put(`/admin/faces/${id}/assign`, null, {
-          params: { personId: null }
-        })
-      }
-      selection.value.clear()
-      await loadContextualUnassigned()
-      break
+        // 去重
+        const uniqueFaceIds = Array.from(new Set(faceIdsToUnassign))
+        console.info('批量解绑相册内人脸（通过人脸ID）', { uniqueFaceIds })
+        if (uniqueFaceIds.length > 0) {
+          await api.post('/admin/faces/batch-unassign', { faceIds: uniqueFaceIds })
+        } else {
+          console.info('批量解绑相册内人脸：没有找到属于当前人物的人脸 ID')
+          alert('没有找到属于当前人物的人脸用于移除')
+        }
 
-    case 'cluster':
-      // 移除聚类人脸
-      for (const id of ids) {
-        await api.put(`/admin/faces/${id}/assign`, null, {
-          params: { personId: null }
-        })
+        selection.value.clear()
+        if (selectedAlbum.value) {
+          await loadAlbumPhotos(selectedAlbum.value.albumId)
+        }
+        break
       }
-      selection.value.clear()
-      await loadClusterFaces()
-      break
+
+      case 'unassigned':
+        // 批量解绑未分配的人脸（通常不会有，但保持接口一致）
+        console.info('批量解绑未分配人脸', { faceIds: ids })
+        await api.post('/admin/faces/batch-unassign', { faceIds: ids })
+        selection.value.clear()
+        await loadContextualUnassigned()
+        break
+
+      case 'cluster':
+        // 批量解绑聚类人脸
+        console.info('批量解绑聚类人脸', { faceIds: ids })
+        await api.post('/admin/faces/batch-unassign', { faceIds: ids })
+        selection.value.clear()
+        await loadClusterFaces()
+        break
+    }
+  } catch (e: any) {
+    console.error('批量移除出错', e)
+    alert('批量移除失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    isBatchAssigning.value = false
   }
 
   await refreshPersonsAfterFaceChange()
@@ -2925,7 +3217,7 @@ const getClaimButtonState = computed(() => {
 
   // 如果没有任何未认领的项目，按钮不可用
   if (!hasAnyUnclaimedItems && !hasSelection) {
-    return { text: '无可用项目', disabled: true }
+    return { text: '无可用项目', disabled: true, claimType: null }
   }
 
   if (hasSelection) {
@@ -2950,34 +3242,73 @@ const getClaimButtonState = computed(() => {
           similarFaces.value.some((face: any) => face.id === faceId && face.personId !== selectedPersonId.value)
         )
         break
-      case 'albums':
-        // 检查选中的人脸或图片是否已认领
+      case 'albums': {
+        // 检查选中的人脸或图片是否已认领，并统计可认领的人脸数量（只计 similarity>0）
         const albumPhotos = selectedAlbum.value?.albumPhotos || []
-        selectedItems.forEach(faceId => {
-          const photo = albumPhotos.find((photo: any) =>
-            photo.faces && photo.faces.some((face: any) => face.id === faceId)
-          )
-          if (photo) {
-            // 这是一个人脸
-            const face = photo.faces.find((face: any) => face.id === faceId)
+        // 建立 faceId -> face 映射
+        const faceMap: Record<number, any> = {}
+        albumPhotos.forEach((photo: any) => {
+          (photo.faces || []).forEach((face: any) => {
+            faceMap[face.id] = { ...face, photoId: photo.id }
+          })
+        })
+
+        let totalClaimableFaces = 0
+        let removeFaceCount = 0
+        let removePhotoCount = 0
+
+        selectedItems.forEach(id => {
+          const face = faceMap[id]
+          if (face) {
+            // 单独选中的人脸
             if (face.personId === selectedPersonId.value) {
               hasClaimedFaces = true
-            } else {
+              removeFaceCount++
+            } else if ((face.similarity || 0) > 0) {
+              totalClaimableFaces++
               hasUnclaimedFaces = true
             }
           } else {
-            // 这可能是一个图片ID，检查图片是否已认领
-            const photoById = albumPhotos.find((photo: any) => photo.id === faceId)
+            // 选中的是图片ID，统计该图片中可认领的人脸数量，同时检测图片是否已直接指派
+            const photoById = albumPhotos.find((photo: any) => photo.id === id)
             if (photoById) {
+              // count claimed/unclaimed faces inside photo
+              const claimedFacesInPhoto = (photoById.faces || []).filter((f: any) => f.personId === selectedPersonId.value).length
+              const unclaimedFacesInPhoto = (photoById.faces || []).filter((f: any) => (f.similarity || 0) > 0 && f.personId !== selectedPersonId.value).length
+              if (claimedFacesInPhoto > 0) {
+                hasClaimedFaces = true
+                removeFaceCount += claimedFacesInPhoto
+              }
+              if (unclaimedFacesInPhoto > 0) {
+                totalClaimableFaces += unclaimedFacesInPhoto
+                hasUnclaimedFaces = true
+              }
               if (photoById.assignedPersonId === selectedPersonId.value) {
                 hasClaimedPhotos = true
-              } else {
+                removePhotoCount++
+              } else if (!((photoById.faces || []).some((f: any) => f.personId !== selectedPersonId.value))) {
+                // photo has no unclaimed faces and is unassigned -> counted as unclaimed photo
                 hasUnclaimedPhotos = true
               }
             }
           }
         })
+
+        // 如果选中包含已认领项，优先展示并执行移除（显示数量按已认领的人脸或图片计数）
+        if (removeFaceCount > 0) {
+          return { text: `移除${removeFaceCount}张人脸`, disabled: false, isRemove: true }
+        }
+        if (removePhotoCount > 0) {
+          return { text: `移除${removePhotoCount}张图片`, disabled: false, isRemove: true }
+        }
+
+        // 否则显示可认领的人脸数量（忽略无脸图片）
+        if (totalClaimableFaces > 0) {
+          return { text: `认领${totalClaimableFaces}张人脸`, disabled: false, isRemove: false }
+        }
+
         break
+      }
       case 'unassigned':
         // unassigned tab 选中项都是未认领的人脸
         hasUnclaimedFaces = selectedItems.length > 0
@@ -2995,13 +3326,13 @@ const getClaimButtonState = computed(() => {
 
     // 优先显示移除操作
     if (hasClaimedFaces) {
-      return { text: `移除${selection.value.size}张人脸`, disabled: false, isRemove: true }
+      return { text: `移除${selection.value.size}张人脸`, disabled: false, isRemove: true, claimType: 'face' }
     } else if (hasClaimedPhotos) {
-      return { text: `移除${selection.value.size}张图片`, disabled: false, isRemove: true }
+      return { text: `移除${selection.value.size}张图片`, disabled: false, isRemove: true, claimType: 'photo' }
     } else if (hasUnclaimedFaces) {
-      return { text: `认领${selection.value.size}张人脸`, disabled: false, isRemove: false }
+      return { text: `认领${selection.value.size}张人脸`, disabled: false, isRemove: false, claimType: 'face' }
     } else if (hasUnclaimedPhotos) {
-      return { text: `认领${selection.value.size}张图片`, disabled: false, isRemove: false }
+      return { text: `认领${selection.value.size}张图片`, disabled: false, isRemove: false, claimType: 'photo' }
     }
   } else {
     // 没有选中项目时，检查当前tab中是否有未认领的人脸或图片
@@ -3036,15 +3367,15 @@ const getClaimButtonState = computed(() => {
     }
 
     if (hasUnclaimedFaces) {
-      return { text: '认领全部人脸', disabled: false, isRemove: false }
+      return { text: '认领全部人脸', disabled: false, isRemove: false, claimType: 'face' }
     } else if (hasUnclaimedPhotos) {
-      return { text: '认领全部图片', disabled: false, isRemove: false }
+      return { text: '认领全部图片', disabled: false, isRemove: false, claimType: 'photo' }
     } else {
-      return { text: '无可用项目', disabled: true, isRemove: false }
+      return { text: '无可用项目', disabled: true, isRemove: false, claimType: null }
     }
   }
 
-  return { text: '认领全部', disabled: false, isRemove: false }
+  return { text: '认领全部', disabled: false, isRemove: false, claimType: 'face' }
 })
 
 // 为了向后兼容，提供text属性
@@ -3105,8 +3436,8 @@ const claimSelectedAlbumFaces = async () => {
 
   const faceIds = selectedAlbum.value.similarFaces.map(f => f.id)
 
-  try {
-    await api.put('/admin/faces/batch-assign', {
+    try {
+    await api.post('/admin/faces/batch-assign', {
       faceIds,
       personId: selectedPersonId.value,
       confirmed: true
@@ -3137,19 +3468,58 @@ const handleClaimSelected = async () => {
     alert('请先选择一个已确认的人物')
     return
   }
-  switch (tab.value) {
-    case 'auto':
-      await confirmSelectedAuto()
-      break
-    case 'similar':
-      await assignSelectedSimilar()
-      break
-    case 'albums':
-      await assignSelectedAlbumFaces()
-      break
-    case 'unassigned':
-      await assignSelectedUnassigned()
-      break
+  isBatchAssigning.value = true
+  try {
+    switch (tab.value) {
+      case 'auto':
+        await confirmSelectedAuto()
+        break
+      case 'similar':
+        await assignSelectedSimilar()
+        break
+      case 'albums':
+        // decide whether to claim photos or faces based on computed claimType
+        if (getClaimButtonState.value.claimType === 'photo') {
+          await assignSelectedAlbumPhotos()
+        } else {
+          await assignSelectedAlbumFaces()
+        }
+        break
+      case 'unassigned':
+        await assignSelectedUnassigned()
+        break
+    }
+  } finally {
+    isBatchAssigning.value = false
+  }
+}
+
+// wrapper so we can always log when user clicks the claim/remove button,
+// even when the computed state marks the button as disabled.
+const attemptClaimOrRemove = async (e?: Event) => {
+  console.info('尝试认领或移除按钮点击', {
+    tab: tab.value,
+    selectedPersonId: selectedPersonId.value,
+    claimState: getClaimButtonState.value,
+    selectionSizes: {
+      confirmed: selectedConfirmed.value.size,
+      similar: selectedSimilar.value.size,
+      albums: selectedAlbumFaces.value.size,
+      unassigned: selectedUnassigned.value.size,
+      cluster: selectedClusterFaces.value.size
+    }
+  })
+
+  if (getClaimButtonState.value.disabled) {
+    console.warn('认领按钮被点击但处于禁用状态')
+    alert(getClaimButtonState.value.text || '当前没有可用项目')
+    return
+  }
+
+  if (getClaimButtonState.value.isRemove) {
+    await handleRemoveSelected()
+  } else {
+    await handleClaimSelected()
   }
 }
 
@@ -3384,6 +3754,27 @@ const openPhoto = (photoId?: number) => {
   window.open(`/photo/${photoId}`, '_blank')
 }
 
+// Open a photo inside the PhotoViewer (single-photo mode)
+const openViewerForPhoto = async (photoId?: number) => {
+  if (!photoId) return
+  try {
+    showLoadingOverlay.value = true
+    const photo = await photoStore.fetchPhotoById(photoId)
+    if (!photo) return
+    // ensure faces array exists
+    const enriched = { ...photo, faces: photo.faces || [] }
+    viewerPhotos.value = [enriched]
+    viewerIndex.value = 0
+    // no specific highlighted face; rely on highlightedFaceIds if any
+    viewerOpenOptions.value = {}
+    viewerVisible.value = true
+  } catch (e) {
+    console.error('openViewerForPhoto error', e)
+  } finally {
+    showLoadingOverlay.value = false
+  }
+}
+
 const onViewerIndexChange = (payload: { index: number; photoId?: number; faceIds?: number[] }) => {
   const pid = payload.photoId
   // determine current tab mapping used by selection logic
@@ -3530,14 +3921,12 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
 
     if (faceIds.length === 0) return
 
-    // 将人脸分配到目标人物
-    await Promise.all(
-      faceIds.map((faceId: number) =>
-        api.put(`/admin/faces/${faceId}/assign`, null, {
-          params: { personId: targetPerson.id, confirmed: true }
-        })
-      )
-    )
+    // 批量将人脸分配到目标人物
+    await api.post('/admin/faces/batch-assign', {
+      faceIds,
+      personId: targetPerson.id,
+      confirmed: true
+    })
 
     // 刷新人物列表并聚焦到目标人物
     await loadPersons()
@@ -3668,3 +4057,4 @@ watch(clusterThreshold, (v) => {
   -moz-appearance: textfield;
 }
 </style>
+

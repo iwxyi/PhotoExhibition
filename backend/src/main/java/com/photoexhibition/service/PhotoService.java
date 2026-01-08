@@ -274,6 +274,7 @@ public class PhotoService {
 
     @Transactional
     public void unassignPhoto(Long photoId) {
+        // 仅删除图片级别的指派记录，不对图片中的人脸做任何解绑处理。
         photoAssignmentRepository.deleteByPhotoId(photoId);
     }
 
@@ -408,7 +409,6 @@ public class PhotoService {
         // 检查是否有图片级别的指派（非人脸）
         if (photo.getId() != null) {
             java.util.Optional<com.photoexhibition.entity.PhotoAssignment> pa = photoAssignmentRepository.findByPhotoId(photo.getId());
-            log.debug("convertToDTO - photoId: {}, PhotoAssignment found: {}", photo.getId(), pa.isPresent());
             if (pa.isPresent()) {
                 dto.setAssignedPersonId(pa.get().getPersonId());
                 // 尝试获取人物名称（如果需要的话）
@@ -420,7 +420,6 @@ public class PhotoService {
                 } catch (Exception e) {
                     log.warn("Failed to load person name for photo assignment: {}", e.getMessage());
                 }
-                log.debug("convertToDTO - set assignedPersonId: {} for photo {}", pa.get().getPersonId(), photo.getId());
             }
         }
 

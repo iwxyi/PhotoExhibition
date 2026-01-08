@@ -472,6 +472,116 @@ public class FaceController {
     }
 
     /**
+     * 批量绑定人脸到人物（或解绑，当 personId 为空）
+     * payload: { faceIds: [...], personId: 123, confirmed: true }
+     */
+    @PostMapping("/faces/batch-assign")
+    public ResponseEntity<Map<String, String>> batchAssignFaces(@RequestBody Map<String, Object> payload) {
+        Object idsObj = payload.get("faceIds");
+        if (!(idsObj instanceof List)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "faceIds 必须是数组"));
+        }
+        List<?> rawIds = (List<?>) idsObj;
+        List<Long> faceIds = new ArrayList<>();
+        for (Object o : rawIds) {
+            if (o == null) continue;
+            if (o instanceof Number) {
+                faceIds.add(((Number) o).longValue());
+            } else if (o instanceof String) {
+                faceIds.add(Long.parseLong((String) o));
+            } else {
+                return ResponseEntity.badRequest().body(Map.of("error", "faceIds 必须是数字或字符串形式的ID"));
+            }
+        }
+
+        Long personId = null;
+        if (payload.get("personId") instanceof Number) {
+            personId = ((Number) payload.get("personId")).longValue();
+        } else if (payload.get("personId") instanceof String) {
+            personId = Long.parseLong((String) payload.get("personId"));
+        }
+
+        Boolean confirmed = null;
+        if (payload.get("confirmed") instanceof Boolean) {
+            confirmed = (Boolean) payload.get("confirmed");
+        }
+
+        if (faceIds.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "人脸ID列表不能为空"));
+        }
+
+        log.info("批量绑定人脸调用 - personId: {}, confirmed: {}, 数量: {}", personId, confirmed, faceIds.size());
+        log.debug("批量绑定人脸 ID 列表: {}", faceIds);
+        for (Long fid : faceIds) {
+            faceService.assignFaceToPerson(fid, personId, confirmed);
+        }
+        log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, faceIds.size());
+        return ResponseEntity.ok(Map.of("message", "已批量绑定/解绑 " + faceIds.size() + " 个人脸"));
+    }
+
+    /**
+     * 批量为照片指派人物
+     * payload: { photoIds: [...], personId: 123 }
+     */
+    @PostMapping("/photos/batch-assign")
+    public ResponseEntity<Map<String, String>> batchAssignPhotos(@RequestBody Map<String, Object> payload) {
+        Object idsObj = payload.get("photoIds");
+        if (!(idsObj instanceof List)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "photoIds 必须是数组"));
+        }
+        List<?> rawIds = (List<?>) idsObj;
+        List<Long> photoIds = new ArrayList<>();
+        for (Object o : rawIds) {
+            if (o == null) continue;
+            if (o instanceof Number) {
+                photoIds.add(((Number) o).longValue());
+            } else if (o instanceof String) {
+                photoIds.add(Long.parseLong((String) o));
+            } else {
+                return ResponseEntity.badRequest().body(Map.of("error", "photoIds 必须是数字或字符串形式的ID"));
+            }
+        }
+
+        Long personId = null;
+        if (payload.get("personId") instanceof Number) {
+            personId = ((Number) payload.get("personId")).longValue();
+        } else if (payload.get("personId") instanceof String) {
+            personId = Long.parseLong((String) payload.get("personId"));
+        }
+
+        if (photoIds.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "照片ID列表不能为空"));
+        }
+
+        log.info("batchAssignPhotos called - personId: {}, count: {}", personId, photoIds.size());
+        log.debug("batchAssignPhotos photoIds: {}", photoIds);
+        for (Long pid : photoIds) {
+            photoService.assignPhotoToPerson(pid, personId);
+        }
+        log.info("batchAssignPhotos completed - assigned {} photos to person {}", photoIds.size(), personId);
+        return ResponseEntity.ok(Map.of("message", "已批量指派 " + photoIds.size() + " 张照片"));
+    }
+
+    /**
+     * 批量解绑照片指派
+     * payload: { photoIds: [...] }
+     */
+    @PostMapping("/photos/batch-unassign")
+    public ResponseEntity<Map<String, String>> batchUnassignPhotos(@RequestBody Map<String, List<Long>> payload) {
+        List<Long> photoIds = payload.get("photoIds");
+        if (photoIds == null || photoIds.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "photoIds 列表不能为空"));
+        }
+        log.info("batchUnassignPhotos called - count: {}", photoIds.size());
+        log.debug("batchUnassignPhotos photoIds: {}", photoIds);
+        for (Long pid : photoIds) {
+            photoService.unassignPhoto(pid);
+        }
+        log.info("batchUnassignPhotos completed - unassigned {} photos", photoIds.size());
+        return ResponseEntity.ok(Map.of("message", "已批量解绑 " + photoIds.size() + " 张照片"));
+    }
+
+    /**
      * 测试创建 PhotoAssignment 记录（调试用）
      */
     @PostMapping("/debug/test-photo-assignment/{photoId}/{personId}")
