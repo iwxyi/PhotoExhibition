@@ -1,11 +1,15 @@
 <template>
   <div class="min-h-screen bg-white dark:bg-gray-900">
-    <nav class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
+    <nav
+      class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
+      :class="{ '-translate-y-full': isMobile && navHidden }"
+      style="padding-top: env(safe-area-inset-top);"
+    >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-16">
           <div class="flex items-center space-x-8">
             <router-link to="/" class="text-2xl font-light tracking-wider">摄影展</router-link>
-            <NavLinks />
+            <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
             <button @click="themeStore.toggleTheme" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden">
@@ -101,6 +105,9 @@
       :origin-rect="viewerOriginRect"
       :auto-show-faces="false"
     />
+
+    <!-- 移动端底部导航栏 -->
+    <MobileBottomNav v-if="isMobile" />
   </div>
 </template>
 
@@ -110,14 +117,19 @@ import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, next
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
+import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
+import { useMobileNav } from '@/composables/useMobileNav'
+import { useNavAutoHide } from '@/composables/useNavAutoHide'
 import { api } from '@/api'
 
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 const { previewSize } = useUiSettings()
+const { isMobile } = useMobileNav()
+const { isHidden: navHidden } = useNavAutoHide()
 
 const photos = computed(() => photoStore.photos)
 const loading = computed(() => photoStore.loading)

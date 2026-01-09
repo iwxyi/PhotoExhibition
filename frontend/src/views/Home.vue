@@ -1,14 +1,18 @@
 <template>
   <div class="min-h-screen bg-white dark:bg-gray-900">
     <!-- 导航栏 -->
-    <nav class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
+    <nav
+      class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
+      :class="{ '-translate-y-full': isMobile && navHidden }"
+      style="padding-top: env(safe-area-inset-top);"
+    >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-16">
           <div class="flex items-center space-x-8">
             <router-link to="/" class="text-2xl font-light tracking-wider text-gray-900 dark:text-white">
               摄影展
             </router-link>
-            <NavLinks />
+            <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
             <button
@@ -34,12 +38,15 @@
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint; will-change: transform;">
       <!-- 分类 Tabs -->
       <div class="mb-6">
-        <div class="flex gap-2 overflow-x-auto pb-2 px-2 py-1">
+        <div
+          class="flex gap-3 overflow-x-auto pb-2 px-1 py-1 scroll-smooth category-tabs-container"
+          style="scrollbar-width: none; -ms-overflow-style: none;"
+        >
           <button
             v-for="c in ['全部', ...categories]"
             :key="c"
             @click="selectCategory(c)"
-            class="px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden font-medium text-sm"
+            class="flex-shrink-0 px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden font-medium text-sm whitespace-nowrap"
             style="transform-origin: center; will-change: transform;"
             :class="c === activeCategory
               ? 'bg-gray-900 text-white border-gray-800 dark:bg-white dark:text-gray-900 dark:border-white shadow-lg ring-2 ring-gray-900/20 dark:ring-white/20 scale-102'
@@ -81,6 +88,9 @@
         <p>已加载全部相册</p>
       </div>
     </main>
+
+    <!-- 移动端底部导航栏 -->
+    <MobileBottomNav v-if="isMobile" />
   </div>
 </template>
 
@@ -95,11 +105,14 @@ import AlbumCard from '@/components/AlbumCard.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
+import { useMobileNav } from '@/composables/useMobileNav'
+import { useNavAutoHide } from '@/composables/useNavAutoHide'
 
 const router = useRouter()
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 import NavLinks from '@/components/NavLinks.vue'
+import MobileBottomNav from '@/components/MobileBottomNav.vue'
 
 const albums = computed(() => photoStore.albums)
 const loading = computed(() => photoStore.loading)
@@ -112,6 +125,8 @@ const savedScrollTop = ref(0)
 const isLoadingMore = ref(false)
 const albumSortOrder = ref('name_asc')
 const { coverSize } = useUiSettings()
+const { isMobile } = useMobileNav()
+const { isHidden: navHidden } = useNavAutoHide()
 
 // 预加载缓冲区状态
 const preloadBuffer = ref<any[]>([])
@@ -569,6 +584,7 @@ const loadAlbumSortOrder = async () => {
   }
 }
 
+
 onMounted(async () => {
   try {
     await Promise.all([
@@ -635,4 +651,11 @@ const selectCategory = async (c: string) => {
   window.scrollTo({ top: 0, behavior: 'instant' })
 }
 </script>
+
+<style scoped>
+/* 隐藏分类标签容器的滚动条 */
+.category-tabs-container::-webkit-scrollbar {
+  display: none;
+}
+</style>
 
