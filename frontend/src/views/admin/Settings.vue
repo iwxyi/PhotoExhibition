@@ -91,6 +91,148 @@
         </div>
       </section>
 
+      <!-- 密码修改设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">修改管理员密码</h2>
+            <p class="text-xs text-gray-400">
+              修改当前管理员账户的密码，提高账户安全性。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              密码长度至少6位，建议使用强密码。
+            </p>
+          </div>
+        </div>
+
+        <!-- 密码修改表单 -->
+        <div class="mt-6 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">当前密码</label>
+              <input
+                v-model="currentPassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="输入当前密码"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">新密码</label>
+              <input
+                v-model="newPassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="输入新密码"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">确认新密码</label>
+              <input
+                v-model="confirmPassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="再次输入新密码"
+              />
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4">
+            <button
+              @click="changePassword"
+              :disabled="!canChangePassword || changingPassword"
+              class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium"
+            >
+              {{ changingPassword ? '修改中...' : '修改密码' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 密码修改说明 -->
+        <div class="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-yellow-300 mb-2">安全提醒</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 修改密码后需要重新登录</p>
+            <p>• 建议定期更换密码以确保账户安全</p>
+            <p>• 如果忘记密码，需要通过数据库直接修改或重新初始化管理员账户</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 用户名更改设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">更改管理员用户名</h2>
+            <p class="text-xs text-gray-400">
+              修改当前管理员账户的用户名，用于登录系统。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              用户名长度3-50个字符，只能包含字母、数字、下划线和连字符。
+            </p>
+          </div>
+        </div>
+
+        <!-- 用户名更改表单 -->
+        <div class="mt-6 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">当前用户名</label>
+              <input
+                v-model="currentUsername"
+                type="text"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="输入当前用户名"
+                readonly
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">新用户名</label>
+              <input
+                v-model="newUsername"
+                type="text"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="输入新用户名"
+                :class="{ 'border-red-500': newUsername && !isValidUsername }"
+              />
+              <p v-if="newUsername && !isValidUsername" class="text-xs text-red-400 mt-1">
+                用户名格式不正确（3-50字符，只能包含字母、数字、下划线、连字符）
+              </p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">验证密码</label>
+              <input
+                v-model="usernameChangePassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="输入当前密码"
+              />
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4">
+            <button
+              @click="changeUsername"
+              :disabled="!canChangeUsername || changingUsername"
+              class="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium"
+            >
+              {{ changingUsername ? '修改中...' : '更改用户名' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 用户名更改说明 -->
+        <div class="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-red-300 mb-2">重要提醒</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 更改用户名后会自动重新登录</p>
+            <p>• 所有使用旧用户名的会话将被终止</p>
+            <p>• 请确保新用户名未被其他账户使用</p>
+            <p>• 建议定期更改用户名以提高安全性</p>
+          </div>
+        </div>
+      </section>
+
       <!-- 相册排序方式设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
@@ -263,7 +405,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 
@@ -283,6 +425,18 @@ const originalMinClusterFaceCount = ref(2)
 const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
+
+// 密码修改相关
+const currentPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const changingPassword = ref(false)
+
+// 用户名更改相关
+const currentUsername = ref('')
+const newUsername = ref('')
+const usernameChangePassword = ref('')
+const changingUsername = ref(false)
 
 const loadSettings = async () => {
   try {
@@ -463,7 +617,124 @@ const checkSettingsChanged = () => {
                          wallSortOrder.value !== originalWallSortOrder.value
 }
 
+// 密码修改相关方法
+const canChangePassword = computed(() => {
+  return currentPassword.value.trim() &&
+         newPassword.value.trim() &&
+         confirmPassword.value.trim() &&
+         newPassword.value === confirmPassword.value &&
+         newPassword.value.length >= 6
+})
+
+// 用户名更改相关方法
+const isValidUsername = computed(() => {
+  const username = newUsername.value.trim()
+  return username.length >= 3 && username.length <= 50 && /^[a-zA-Z0-9_-]+$/.test(username)
+})
+
+const canChangeUsername = computed(() => {
+  return currentUsername.value.trim() &&
+         newUsername.value.trim() &&
+         usernameChangePassword.value.trim() &&
+         isValidUsername.value &&
+         newUsername.value !== currentUsername.value
+})
+
+const changePassword = async () => {
+  if (!canChangePassword.value) {
+    alert('请检查密码输入是否正确')
+    return
+  }
+
+  if (!confirm('确定要修改密码吗？修改成功后需要重新登录。')) {
+    return
+  }
+
+  changingPassword.value = true
+  try {
+    const response = await api.post('/admin/change-password', {
+      username: 'admin', // 默认管理员用户名
+      oldPassword: currentPassword.value,
+      newPassword: newPassword.value
+    })
+
+    alert('✅ 密码修改成功！请重新登录。')
+
+    // 清空表单
+    currentPassword.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
+
+    // 退出登录
+    localStorage.removeItem('admin_token')
+    router.push('/admin/login')
+
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.error || '密码修改失败'
+    alert('❌ ' + errorMsg)
+  } finally {
+    changingPassword.value = false
+  }
+}
+
+const changeUsername = async () => {
+  if (!canChangeUsername.value) {
+    alert('请检查用户名输入是否正确')
+    return
+  }
+
+  if (!confirm('确定要更改用户名吗？更改后将自动重新登录系统。')) {
+    return
+  }
+
+  changingUsername.value = true
+  try {
+    const response = await api.post('/admin/change-username', {
+      currentUsername: currentUsername.value,
+      newUsername: newUsername.value.trim(),
+      password: usernameChangePassword.value
+    })
+
+    alert('✅ 用户名更改成功！系统将自动重新登录。')
+
+    // 更新本地存储的token
+    if (response.data.token) {
+      localStorage.setItem('admin_token', response.data.token)
+    }
+
+    // 清空表单
+    newUsername.value = ''
+    usernameChangePassword.value = ''
+
+    // 重新加载页面以刷新用户信息
+    window.location.reload()
+
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.error || '用户名更改失败'
+    alert('❌ ' + errorMsg)
+  } finally {
+    changingUsername.value = false
+  }
+}
+
+// 初始化当前用户名
+const initCurrentUsername = () => {
+  // 从localStorage或API获取当前用户名
+  // 这里可以从已有的用户信息中获取，或者从token中解析
+  const token = localStorage.getItem('admin_token')
+  if (token) {
+    try {
+      // 简单解析JWT token获取用户名（实际项目中建议使用专门的解析方法）
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      currentUsername.value = payload.sub || ''
+    } catch (e) {
+      console.error('解析token失败:', e)
+    }
+  }
+}
+
 onMounted(() => {
   loadSettings()
+  initCurrentUsername()
 })
 </script>

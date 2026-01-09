@@ -24,6 +24,15 @@ public class AdminUser {
     @Column(nullable = false)
     private Boolean enabled = true;
 
+    @Column(name = "login_attempts", nullable = false)
+    private Integer loginAttempts = 0;
+
+    @Column(name = "locked_until")
+    private LocalDateTime lockedUntil;
+
+    @Column(name = "last_login_attempt")
+    private LocalDateTime lastLoginAttempt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

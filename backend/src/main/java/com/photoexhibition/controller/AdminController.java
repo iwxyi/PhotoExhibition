@@ -117,7 +117,7 @@ public class AdminController {
     @PostMapping("/init-admin")
     public ResponseEntity<Map<String, Object>> initAdmin() {
         Map<String, Object> result = new HashMap<>();
-        
+
         // 检查是否已存在admin用户
         if (adminUserRepository.existsByUsername("admin")) {
             result.put("message", "管理员账户已存在");
@@ -133,13 +133,113 @@ public class AdminController {
             admin.setPassword(passwordEncoder.encode("admin123"));
             admin.setRole("ADMIN");
             admin.setEnabled(true);
+            admin.setLoginAttempts(0);
+            admin.setLockedUntil(null);
             adminUserRepository.save(admin);
             result.put("message", "管理员账户创建成功");
             result.put("username", "admin");
             result.put("password", "admin123");
         }
-        
+
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 修改管理员密码
+     */
+    @PostMapping("/change-password")
+    public ResponseEntity<Map<String, Object>> changePassword(@RequestBody Map<String, String> request) {
+        Map<String, Object> result = new HashMap<>();
+
+        String username = request.get("username");
+        String oldPassword = request.get("oldPassword");
+        String newPassword = request.get("newPassword");
+
+        if (username == null || oldPassword == null || newPassword == null) {
+            result.put("error", "缺少必要参数");
+            return ResponseEntity.badRequest().body(result);
+        }
+
+        // 验证新密码强度
+        if (newPassword.length() < 6) {
+            result.put("error", "新密码长度不能少于6位");
+            return ResponseEntity.badRequest().body(result);
+        }
+
+        try {
+            AdminUser user = adminUserRepository.findByUsername(username).orElse(null);
+            if (user == null) {
+                result.put("error", "用户不存在");
+                return ResponseEntity.badRequest().body(result);
+            }
+
+            // 验证旧密码
+            if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                result.put("error", "旧密码错误");
+                return ResponseEntity.badRequest().body(result);
+            }
+
+            // 更新密码
+            user.setPassword(passwordEncoder.encode(newPassword));
+            user.setLoginAttempts(0); // 重置登录失败次数
+            user.setLockedUntil(null); // 解除锁定
+            adminUserRepository.save(user);
+
+            result.put("message", "密码修改成功");
+            result.put("success", true);
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            result.put("error", "密码修改失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(result);
+        }
+    }
+
+    /**
+     * 更改用户名
+     */
+    @PostMapping("/change-username")
+    public ResponseEntity<Map<String, Object>> changeUsername(@RequestBody Map<String, String> request) {
+        Map<String, Object> result = new HashMap<>();
+
+        String currentUsername = request.get("currentUsername");
+        String newUsername = request.get("newUsername");
+        String password = request.get("password");
+
+        if (currentUsername == null || newUsername == null || password == null) {
+            result.put("error", "缺少必要参数");
+            return ResponseEntity.badRequest().body(result);
+        }
+
+        // 验证新用户名格式（前端也应验证，这里是后端双重验证）
+        if (newUsername.length() < 3 || newUsername.length() > 50) {
+            result.put("error", "用户名长度必须在3-50个字符之间");
+            return ResponseEntity.badRequest().body(result);
+        }
+
+        if (!newUsername.matches("^[a-zA-Z0-9_-]+$")) {
+            result.put("error", "用户名只能包含字母、数字、下划线和连字符");
+            return ResponseEntity.badRequest().body(result);
+        }
+
+        try {
+            // 调用服务层更改用户名
+            LoginResponse loginResponse = authService.changeUsername(currentUsername, newUsername, password);
+
+            result.put("message", "用户名修改成功");
+            result.put("success", true);
+            result.put("newUsername", newUsername);
+            result.put("token", loginResponse.getToken()); // 返回新token供前端使用
+
+            return ResponseEntity.ok(result);
+
+        } catch (RuntimeException e) {
+            result.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(result);
+        } catch (Exception e) {
+            result.put("error", "用户名修改失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(result);
+        }
     }
 
     /**
