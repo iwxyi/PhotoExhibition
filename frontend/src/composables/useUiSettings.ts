@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
-export type CoverSize = 'sm' | 'md' | 'lg'
-export type PreviewSize = 'sm' | 'md' | 'lg'
+export type CoverSize = 'xs' | 'sm' | 'md' | 'lg'
+export type PreviewSize = 'xs' | 'sm' | 'md' | 'lg'
 
 const COVER_KEY = 'pe-cover-size'
 const PREVIEW_KEY = 'pe-preview-size'
@@ -11,6 +11,7 @@ const ATMOSPHERE_KEY = 'pe-atmosphere-enabled'
 const VIEW_ORIGINAL_KEY = 'pe-view-original-enabled'
 
 const previewSizeMap: Record<PreviewSize, number> = {
+  xs: 60,
   sm: 80,
   md: 120,
   lg: 160

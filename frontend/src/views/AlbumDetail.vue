@@ -196,13 +196,22 @@ const columnCount = computed(() => {
   if (typeof window === 'undefined') return 3
 
   const width = windowWidth.value
-  let count = 4 // 默认值
-  if (previewSize.value === 'sm') {
+  let count = 4 // 默认值 (md)
+
+  if (previewSize.value === 'xs') {
+    // 小: 最多列数
+    if (width < 640) count = 3
+    else if (width < 1024) count = 4
+    else if (width < 1280) count = 5
+    else count = 6
+  } else if (previewSize.value === 'sm') {
+    // 中: 中等列数
     if (width < 640) count = 2
     else if (width < 1024) count = 3
     else if (width < 1280) count = 4
     else count = 5
   } else if (previewSize.value === 'lg') {
+    // 大: 最少列数
     if (width < 640) count = 1
     else if (width < 1024) count = 2
     else count = 3

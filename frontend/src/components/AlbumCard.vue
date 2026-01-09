@@ -128,6 +128,7 @@ const takenDateText = computed(() => {
 
 const cardSizeClass = computed(() => {
   const size = props.size || 'md'
+  if (size === 'xs') return 'max-w-[160px]'
   if (size === 'sm') return 'max-w-[200px]'
   if (size === 'lg') return 'max-w-[280px]'
   return 'max-w-[240px]'
@@ -135,6 +136,7 @@ const cardSizeClass = computed(() => {
 
 const coverSizeClass = computed(() => {
   const size = props.size || 'md'
+  if (size === 'xs') return 'h-32'
   if (size === 'sm') return 'h-40'
   if (size === 'lg') return 'h-56'
   return 'h-48'
