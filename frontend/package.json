@@ -2,12 +2,13 @@
   "name": "photo-exhibition",
   "version": "1.0.0",
   "description": "高端摄影作品展示平台",
+  "type": "module",
   "homepage": "./",
   "scripts": {
-    "dev": "vite",
+    "dev": "node dev.js",
     "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx --fix --ignore-path .gitignore"
+    "preview": "node --input-type=module ./node_modules/vite/bin/vite.js preview",
+    "lint": "node ./node_modules/.bin/eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx --fix --ignore-path .gitignore"
   },
   "dependencies": {
     "@vueuse/core": "^10.7.0",
@@ -19,13 +20,13 @@
   },
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.7",
-    "@vitejs/plugin-vue": "^5.0.0",
+    "@vitejs/plugin-vue": "^4.6.2",
     "@vue/tsconfig": "^0.5.1",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.3",
-    "vite": "^5.0.10",
-    "vue-tsc": "^3.2.2"
+    "vite": "^4.5.3",
+    "vue-tsc": "^1.8.27"
   }
 }
