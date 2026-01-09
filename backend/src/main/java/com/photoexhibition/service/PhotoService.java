@@ -234,6 +234,17 @@ public class PhotoService {
         if (!photoRepository.existsById(id)) {
             throw new RuntimeException("图片不存在");
         }
+
+        // 删除图片时，同时删除相关的人脸记录
+        List<Face> faces = faceRepository.findByPhotoId(id);
+        if (!faces.isEmpty()) {
+            log.info("删除图片 {} 时，同时删除 {} 个人脸记录", id, faces.size());
+            faceRepository.deleteAll(faces);
+        }
+
+        // 删除相关的图片指派记录
+        photoAssignmentRepository.deleteByPhotoId(id);
+
         photoRepository.deleteById(id);
     }
 

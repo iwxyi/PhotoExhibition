@@ -516,7 +516,7 @@ public class FaceController {
             faceService.assignFaceToPerson(fid, personId, confirmed);
         }
         log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, faceIds.size());
-        return ResponseEntity.ok(Map.of("message", "已批量绑定/解绑 " + faceIds.size() + " 个人脸"));
+        return ResponseEntity.ok(Map.of("message", "已批量绑定 " + faceIds.size() + " 个人脸"));
     }
 
     /**
