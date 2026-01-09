@@ -68,7 +68,7 @@ else
 fi
 
 # 保存项目根目录
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT/backend" || exit 1
 
 echo ""

@@ -1,5 +1,6 @@
 server:
   port: 6060
+  address: 0.0.0.0  # 监听所有网络接口，允许外部访问
   servlet:
     context-path: /api
   tomcat:
@@ -19,19 +20,40 @@ spring:
       request-timeout: 600000
   
   datasource:
+    # H2 配置 (默认，适合开发和简单部署)
+    # driver-class-name: org.h2.Driver
+    # url: jdbc:h2:file:./data/photo_exhibition;DB_CLOSE_ON_EXIT=FALSE
+    # username: sa
+    # password: ""
+
+    # MySQL 配置 (生产环境推荐，取消注释下面的配置并注释掉上面的H2配置)
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root
     password: iwxyiroot
-  
+
+  # H2数据库控制台（开发环境可访问 http://localhost:6060/api/h2-console）
+  # h2:
+  #   console:
+  #     enabled: true
+  #     path: /h2-console
+  #     settings:
+  #       web-allow-others: true
+
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: false
     properties:
       hibernate:
+        # H2方言 (切换到H2时启用)
+        # dialect: org.hibernate.dialect.H2Dialect
+        # MySQL方言 (切换到MySQL时启用)
         dialect: org.hibernate.dialect.MySQL8Dialect
         format_sql: false
+
+# Redis配置（可选，如果没有Redis服务会自动禁用）
+# 如果Redis不可用，应用会使用内存缓存
 
 # 日志配置
 logging:
@@ -49,10 +71,12 @@ logging:
   pattern:
     console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
   
+  # Redis配置（如果Redis服务不可用，应用会自动使用内存缓存）
+  # 如需禁用Redis，将host设置为"disabled"
   redis:
-    host: localhost
+    host: disabled  # 设置为disabled以使用内存缓存
     port: 6379
-    password: 
+    password:
     database: 0
     timeout: 3000ms
     lettuce:

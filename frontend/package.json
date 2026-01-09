@@ -1,31 +1,140 @@
 {
-  "name": "photo-exhibition-frontend",
+  "name": "photo-exhibition",
   "version": "1.0.0",
-  "private": true,
+  "description": "高端摄影作品展示平台",
+  "main": "electron.js",
+  "homepage": "./",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx --fix --ignore-path .gitignore"
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx --fix --ignore-path .gitignore",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3030 && electron .\"",
+    "build-electron": "npm run build && electron-builder",
+    "build-electron-win": "npm run build && electron-builder --win",
+    "build-electron-mac": "npm run build && electron-builder --mac",
+    "build-electron-linux": "npm run build && electron-builder --linux",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "vue-router": "^4.2.5",
-    "pinia": "^2.1.7",
+    "@vueuse/core": "^10.7.0",
     "axios": "^1.6.2",
-    "@vueuse/core": "^10.7.0"
-    , "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.5"
   },
   "devDependencies": {
+    "@tailwindcss/forms": "^0.5.7",
     "@vitejs/plugin-vue": "^5.0.0",
     "@vue/tsconfig": "^0.5.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
     "typescript": "^5.3.3",
     "vite": "^5.0.10",
-    "vue-tsc": "^1.8.25",
-    "tailwindcss": "^3.4.0",
-    "postcss": "^8.4.32",
-    "autoprefixer": "^10.4.16",
-    "@tailwindcss/forms": "^0.5.7"
+    "vue-tsc": "^3.2.2",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.photoexhibition.app",
+    "productName": "PhotoExhibition",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.js",
+      "preload.js",
+      "!dist/**/*.map"
+    ],
+    "extraFiles": [
+      {
+        "from": "../backend/target/photo-exhibition-backend-1.0.0.jar",
+        "to": "backend/photo-exhibition-backend-1.0.0.jar"
+      },
+      {
+        "from": "../backend/models",
+        "to": "models"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.photography"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Graphics"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PhotoExhibition"
+    },
+    "publish": null
   }
 }
-

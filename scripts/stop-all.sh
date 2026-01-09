@@ -23,7 +23,7 @@ pkill -f "photo-exhibition" 2>/dev/null
 
 # 停止前端服务
 echo "正在停止前端服务..."
-FRONTEND_PID=$(lsof -ti:3000 2>/dev/null)
+FRONTEND_PID=$(lsof -ti:3030 2>/dev/null)
 if [ -n "$FRONTEND_PID" ]; then
     echo "  找到前端进程: $FRONTEND_PID"
     kill -9 $FRONTEND_PID 2>/dev/null

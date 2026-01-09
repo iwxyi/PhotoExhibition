@@ -24,7 +24,7 @@ if errorlevel 1 (
 echo [OK] Maven已安装
 
 REM 进入后端目录
-cd /d "%~dp0backend"
+cd /d "%~dp0..\backend"
 if errorlevel 1 (
     echo [错误] 无法进入backend目录
     pause

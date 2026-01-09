@@ -20,12 +20,20 @@ frontend/.vite/
 # OS
 .DS_Store
 Thumbs.db
+*.app/
 
 # Data
 data/
 models/
+logs/
 *.log
+*.log.*
 
 # Docker
 .env
 
+# Electron
+build/
+dist-electron/
+deploy/
+*.jar

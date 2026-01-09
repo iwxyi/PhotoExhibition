@@ -21,7 +21,7 @@ fi
 echo "✅ npm版本: $(npm -v)"
 
 # 进入前端目录
-cd "$(dirname "$0")/frontend" || exit 1
+cd "$(dirname "$0")/../frontend" || exit 1
 
 # 检查node_modules
 if [ ! -d "node_modules" ]; then
@@ -33,7 +33,7 @@ fi
 
 echo ""
 echo "开始启动前端开发服务器..."
-echo "访问地址: http://localhost:3000"
+echo "访问地址: http://localhost:3030"
 echo "按 Ctrl+C 停止服务"
 echo ""
 

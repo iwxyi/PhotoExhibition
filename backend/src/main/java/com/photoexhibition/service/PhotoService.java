@@ -442,8 +442,8 @@ public class PhotoService {
                 if (projectRoot.endsWith("backend")) {
                     projectRoot = new File(projectRoot).getParent();
                 }
-                String cleanPath = basePath.startsWith("./") 
-                    ? basePath.substring(2) 
+                String cleanPath = basePath.startsWith("./")
+                    ? basePath.substring(2)
                     : basePath;
                 basePath = new File(projectRoot, cleanPath).getAbsolutePath();
             }

@@ -141,7 +141,7 @@ mkdir -p data/photos
 docker-compose up -d
 
 # 4. 开始浏览
-# 打开浏览器访问: http://localhost:3000
+# 打开浏览器访问: http://localhost:3030
 # 默认管理员账户: admin / admin123
 ```
 
