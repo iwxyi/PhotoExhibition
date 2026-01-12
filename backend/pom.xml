@@ -108,7 +108,7 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- ONNX Runtime for人脸特征提取 -->
+        <!-- ONNX Runtime for AI功能 -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
@@ -192,4 +192,42 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- Profiles for ONNX Runtime CPU/GPU selection -->
+    <profiles>
+        <!-- 默认profile：自动检测平台（推荐） -->
+        <profile>
+            <id>auto</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <!-- 不需要重新定义依赖，使用默认的 -->
+        </profile>
+
+        <!-- 强制CPU版本（生产环境推荐） -->
+        <profile>
+            <id>cpu</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime</artifactId>
+                    <version>1.16.3</version>
+                    <!-- 不指定classifier，自动选择CPU版本 -->
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <!-- GPU版本（需要CUDA支持，仅限有GPU的环境） -->
+        <profile>
+            <id>gpu</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime</artifactId>
+                    <version>1.16.3</version>
+                    <classifier>gpu</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

@@ -1,11 +1,14 @@
 package com.photoexhibition.controller;
 
 import com.photoexhibition.dto.AlbumDTO;
+import com.photoexhibition.dto.LoginResponse;
 import com.photoexhibition.entity.AdminUser;
 import com.photoexhibition.repository.AdminUserRepository;
 import com.photoexhibition.service.AlbumService;
+import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.DataCleanupService;
 import com.photoexhibition.service.PhotoScanService;
+import com.photoexhibition.util.ONNXDiagnosticUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -25,6 +28,8 @@ public class AdminController {
     private final AdminUserRepository adminUserRepository;
     private final DataCleanupService dataCleanupService;
     private final AlbumService albumService;
+    private final AuthService authService;
+    private final ONNXDiagnosticUtil onnxDiagnosticUtil;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
@@ -529,6 +534,24 @@ public class AdminController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "更新照片时间失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 执行ONNX Runtime完整诊断
+     */
+    @PostMapping("/diagnostics/onnx")
+    public ResponseEntity<Map<String, Object>> runONNXDiagnostics() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            onnxDiagnosticUtil.performFullDiagnostic();
+            resp.put("message", "ONNX Runtime诊断完成，请查看日志输出");
+            resp.put("success", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", "诊断执行失败: " + e.getMessage());
             resp.put("success", false);
             return ResponseEntity.status(500).body(resp);
         }

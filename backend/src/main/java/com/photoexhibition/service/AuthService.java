@@ -35,6 +35,10 @@ public class AuthService {
                 .orElse(null);
 
         if (user == null) {
+            // 检查是否需要自动创建管理员账户
+            if (adminUserRepository.count() == 0) {
+                return createDefaultAdmin(request);
+            }
             log.warn("登录失败: 用户不存在 - {}", request.getUsername());
             throw new RuntimeException("用户名或密码错误");
         }
@@ -161,6 +165,38 @@ public class AuthService {
         log.info("用户名更改成功: {} -> {}", oldUsername, newUsername);
 
         return new LoginResponse(newToken, newUsername, user.getRole(), "用户名修改成功，请使用新用户名重新登录");
+    }
+
+    /**
+     * 创建默认管理员账户（当数据库中没有管理员账户时）
+     */
+    @Transactional
+    private LoginResponse createDefaultAdmin(LoginRequest request) {
+        log.info("数据库中没有管理员账户，开始自动创建默认管理员账户");
+
+        // 使用默认凭证验证
+        String defaultUsername = "admin";
+        String defaultPassword = "admin";
+
+        if (!defaultUsername.equals(request.getUsername()) || !defaultPassword.equals(request.getPassword())) {
+            throw new RuntimeException("系统尚未初始化，请使用默认凭证登录：用户名 admin，密码 admin");
+        }
+
+        // 创建默认管理员账户
+        AdminUser adminUser = new AdminUser();
+        adminUser.setUsername(defaultUsername);
+        adminUser.setPassword(passwordEncoder.encode(defaultPassword));
+        adminUser.setRole("ADMIN");
+        adminUser.setEnabled(true);
+        adminUser.setLoginAttempts(0);
+
+        adminUserRepository.save(adminUser);
+
+        String token = jwtConfig.generateToken(adminUser.getUsername(), adminUser.getRole());
+        log.info("默认管理员账户创建成功: {}", adminUser.getUsername());
+
+        return new LoginResponse(token, adminUser.getUsername(), adminUser.getRole(),
+                "系统初始化完成！默认管理员账户已创建，请及时修改密码以确保安全");
     }
 }
 

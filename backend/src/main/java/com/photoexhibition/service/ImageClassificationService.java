@@ -127,6 +127,14 @@ public class ImageClassificationService implements AutoCloseable {
                 return;
             }
 
+            // 预先检查ONNX Runtime是否可用
+            try {
+                Class.forName("ai.onnxruntime.OrtEnvironment");
+            } catch (ClassNotFoundException e) {
+                log.warn("ONNX Runtime类不存在，图像分类功能将被禁用。错误: {}", e.getMessage());
+                return;
+            }
+
             env = OrtEnvironment.getEnvironment();
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
             // 可以根据需要设置线程数等选项
@@ -141,8 +149,25 @@ public class ImageClassificationService implements AutoCloseable {
             }
             
             log.info("图像分类模型已加载: {} (语言: {})", modelPath, language);
+        } catch (NoClassDefFoundError e) {
+            log.warn("ONNX Runtime类初始化失败，图像分类功能将被禁用。错误: {}", e.getMessage());
+            log.warn("请检查: 1) ONNX Runtime JAR文件是否完整, 2) Java版本是否兼容 (>=11), 3) 系统权限是否足够");
+            log.warn("详细错误信息: ", e);
+            session = null;
+        } catch (UnsatisfiedLinkError e) {
+            log.warn("ONNX Runtime本地库缺失，图像分类功能将被禁用。错误: {}", e.getMessage());
+            log.warn("系统诊断信息:");
+            logSystemInfo();
+            log.warn("可能解决方案:");
+            log.warn("1. Windows: 安装 Visual C++ Redistributable 2015-2022 (x64)");
+            log.warn("2. Linux: 安装 libgomp1, libatlas-base-dev, libopenblas-dev");
+            log.warn("3. macOS: 安装通过 Homebrew 安装的依赖");
+            log.warn("4. 检查文件权限和系统路径");
+            log.warn("详细错误信息: ", e);
+            session = null;
         } catch (Exception e) {
-            log.debug("加载图像分类模型失败: {}，将使用基于规则的方法", modelPath, e);
+            log.debug("加载图像分类模型失败: {}，将使用基于规则的方法。错误: {}", modelPath, e.getMessage());
+            log.warn("详细错误信息: ", e);
             session = null;
         }
     }
@@ -493,6 +518,49 @@ public class ImageClassificationService implements AutoCloseable {
             if (session != null) session.close();
             if (env != null) env.close();
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 记录系统诊断信息
+     */
+    private void logSystemInfo() {
+        try {
+            // Java版本信息
+            log.warn("Java版本: {}", System.getProperty("java.version"));
+            log.warn("Java供应商: {}", System.getProperty("java.vendor"));
+            log.warn("Java主目录: {}", System.getProperty("java.home"));
+
+            // 操作系统信息
+            log.warn("操作系统: {} {}", System.getProperty("os.name"), System.getProperty("os.version"));
+            log.warn("系统架构: {}", System.getProperty("os.arch"));
+
+            // JVM信息
+            log.warn("JVM名称: {}", System.getProperty("java.vm.name"));
+            log.warn("JVM版本: {}", System.getProperty("java.vm.version"));
+
+            // 用户信息
+            log.warn("用户目录: {}", System.getProperty("user.dir"));
+            log.warn("用户主目录: {}", System.getProperty("user.home"));
+            log.warn("文件分隔符: {}", System.getProperty("file.separator"));
+            log.warn("路径分隔符: {}", System.getProperty("path.separator"));
+
+            // 库路径
+            String javaLibPath = System.getProperty("java.library.path");
+            log.warn("Java库路径: {}", javaLibPath != null ? javaLibPath.replace(System.getProperty("path.separator"), "\n  ") : "null");
+
+            // 检查ONNX Runtime JAR
+            try {
+                Class<?> clazz = Class.forName("ai.onnxruntime.OrtEnvironment");
+                log.warn("ONNX Runtime类加载成功: {}", clazz.getProtectionDomain().getCodeSource().getLocation());
+            } catch (ClassNotFoundException cnfe) {
+                log.warn("ONNX Runtime类未找到: {}", cnfe.getMessage());
+            } catch (Exception ex) {
+                log.warn("ONNX Runtime类状态异常: {}", ex.getMessage());
+            }
+
+        } catch (Exception e) {
+            log.warn("收集系统信息时出错: {}", e.getMessage());
         }
     }
 

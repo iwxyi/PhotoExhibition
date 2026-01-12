@@ -42,6 +42,7 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.lang.UnsatisfiedLinkError;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -841,11 +842,27 @@ public class PhotoScanService {
                     faces = faceService.getFacesByPhoto(photo.getId());
                 } else {
                     // 虽然通过contentHash找到，但没有人脸数据，需要检测
-                    faces = faceService.detectAndSaveFaces(imageFile, photo, false);
+                    try {
+                        faces = faceService.detectAndSaveFaces(imageFile, photo, false);
+                    } catch (UnsatisfiedLinkError e) {
+                        log.warn("人脸检测服务不可用（缺少系统依赖库），跳过人脸检测: {}。请安装 Microsoft Visual C++ Redistributable 或相关依赖。", imageFile.getName());
+                        faces = new ArrayList<>();
+                    } catch (Exception e) {
+                        log.warn("人脸检测失败，使用简单方法: {}", imageFile.getName(), e);
+                        faces = new ArrayList<>();
+                    }
                 }
             } else {
                 // 新照片或强制扫描，重新检测人脸
-                faces = faceService.detectAndSaveFaces(imageFile, photo, false);
+                try {
+                    faces = faceService.detectAndSaveFaces(imageFile, photo, false);
+                } catch (UnsatisfiedLinkError e) {
+                    log.warn("人脸检测服务不可用（缺少系统依赖库），跳过人脸检测: {}。请安装 Microsoft Visual C++ Redistributable 或相关依赖。", imageFile.getName());
+                    faces = new ArrayList<>();
+                } catch (Exception e) {
+                    log.warn("人脸检测失败，使用简单方法: {}", imageFile.getName(), e);
+                    faces = new ArrayList<>();
+                }
             }
 
             // 检测主体位置（使用已检测的人脸信息）

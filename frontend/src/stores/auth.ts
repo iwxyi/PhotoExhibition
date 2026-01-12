@@ -46,7 +46,10 @@ export const useAuthStore = defineStore('auth', () => {
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
       
       console.log('登录成功，Token已保存')
-      return { success: true }
+      return {
+        success: true,
+        message: responseData.message || '登录成功'
+      }
     } catch (error: any) {
       console.error('登录错误:', error)
       console.error('错误响应:', error.response)

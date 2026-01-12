@@ -187,6 +187,59 @@ data/photos/
 - **聚类阈值**: `face.clustering.min-threshold` - 人脸聚类相似度阈值
 - **缩略图尺寸**: 三级缩略图系统（400×400/800×800/1920×1920）
 
+### ONNX Runtime 配置
+
+项目支持不同的ONNX Runtime版本，以适应不同的部署环境：
+
+#### 环境选择
+```bash
+# 1. CPU版本（推荐，生产环境默认）
+./scripts/start-backend.sh  # 默认使用CPU版本
+
+# 2. GPU版本（需要CUDA支持）
+ONNX_PROFILE=gpu ./scripts/start-backend.sh
+
+# 3. 强制CPU版本
+ONNX_PROFILE=cpu ./scripts/start-backend.sh
+
+# 4. 自动检测平台
+ONNX_PROFILE=auto ./scripts/start-backend.sh
+```
+
+#### Windows环境
+```cmd
+REM CPU版本（推荐）
+set ONNX_PROFILE=cpu
+start-backend.bat
+
+REM GPU版本（需要CUDA）
+set ONNX_PROFILE=gpu
+start-backend.bat
+```
+
+#### Maven构建指定版本
+```bash
+# CPU版本
+mvn clean package -Pcpu
+
+# GPU版本
+mvn clean package -Pgpu
+
+# 自动检测
+mvn clean package -Pauto
+```
+
+#### 配置说明
+- **auto** (默认): 自动检测当前平台并选择合适的ONNX Runtime版本
+- **cpu**: 强制使用CPU版本，适合服务器环境，无需GPU
+- **gpu**: 使用GPU版本，需要CUDA支持，适合有独立显卡的环境
+- **windows/linux/macos**: 平台特定的优化配置
+
+#### 系统要求
+- **CPU版本**: Java 11+, 4GB+ RAM
+- **GPU版本**: CUDA 11.0+, cuDNN, 独立显卡
+- **推荐**: 服务器环境使用CPU版本，开发环境可根据硬件选择
+
 ---
 
 
@@ -210,6 +263,16 @@ data/photos/
 - 增加 JVM 内存分配
 - 调整批处理大小
 - 启用 Redis 缓存
+
+#### ONNX Runtime 问题
+```bash
+# 运行完整的ONNX Runtime诊断
+curl -X POST http://localhost:6060/api/admin/diagnostics/onnx \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# 查看详细日志
+tail -f logs/application.log
+```
 
 #### 数据库连接问题
 ```bash
