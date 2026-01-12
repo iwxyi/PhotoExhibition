@@ -211,7 +211,9 @@
                 <dependency>
                     <groupId>com.microsoft.onnxruntime</groupId>
                     <artifactId>onnxruntime</artifactId>
-                    <version>1.16.3</version>
+                    <!-- 1.16.3更优，1.8.1兼容旧服务器的版本 -->
+                    <!-- <version>1.16.3</version> -->
+                    <version>1.8.1</version>
                     <!-- 不指定classifier，自动选择CPU版本 -->
                 </dependency>
             </dependencies>
