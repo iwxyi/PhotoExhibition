@@ -162,8 +162,8 @@ const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const gridClass = computed(() => {
-  if (previewSize.value === 'xs') return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
   if (previewSize.value === 'sm') return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4'
+  if (previewSize.value === 'md') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
   if (previewSize.value === 'lg') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-7'
   return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
 })

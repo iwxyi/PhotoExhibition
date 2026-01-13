@@ -149,11 +149,11 @@ watch(albumSortOrder, async (newSort, oldSort) => {
   }
 })
 const coverGridClass = computed(() => {
-  if (coverSize.value === 'xs') {
-    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'
-  }
   if (coverSize.value === 'sm') {
     return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+  }
+  if (coverSize.value === 'md') {
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
   }
   if (coverSize.value === 'lg') {
     return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-6'
@@ -166,19 +166,20 @@ const getCurrentGridColumns = () => {
   const size = coverSize.value
   const width = window.innerWidth
 
-  if (size === 'xs') {
-    if (width >= 1280) return 6 // xl
-    if (width >= 1024) return 5 // lg
-    if (width >= 768) return 4 // md
-    if (width >= 640) return 3 // sm
-    return 3 // default (手机上3列)
-  }
-
   if (size === 'sm') {
     if (width >= 1280) return 5 // xl
     if (width >= 1024) return 4 // lg
-    if (width >= 640) return 3 // sm
+    if (width >= 768) return 3 // md
+    if (width >= 640) return 2 // sm
     return 2 // default (手机上2列)
+  }
+
+  if (size === 'md') {
+    if (width >= 1280) return 5 // xl
+    if (width >= 1024) return 4 // lg
+    if (width >= 768) return 3 // md
+    if (width >= 640) return 2 // sm
+    return 1 // default (手机上1列)
   }
 
   if (size === 'lg') {
@@ -202,7 +203,7 @@ const getDynamicLoadSize = () => {
   const viewportHeight = window.innerHeight
 
   // 估算每个相册卡片的高度（基于封面尺寸）
-  const cardHeight = coverSize.value === 'xs' ? 160 : coverSize.value === 'sm' ? 200 : coverSize.value === 'lg' ? 320 : 240
+  const cardHeight = coverSize.value === 'sm' ? 200 : coverSize.value === 'md' ? 240 : coverSize.value === 'lg' ? 320 : 240
   const gap = 24 // gap-6 = 1.5rem = 24px
 
   // 计算一行的高度（卡片高度 + 间距）

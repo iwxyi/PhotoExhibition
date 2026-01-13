@@ -49,6 +49,11 @@
     /* 瀑布流中图片的最大宽度 */
     max-width: 100%;
     break-inside: avoid;
+    /* 防止文本选择 */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
   }
 
   /* 瀑布流容器 */

@@ -10,7 +10,7 @@
           ⤓
         </button>
         <button class="btn-primary px-3 py-1 text-sm ml-1" @click="downloadZipSelected" title="下载 ZIP（服务器/回退兼容）">
-          🗜
+          📦
         </button>
       </div>
 
@@ -49,6 +49,7 @@
           :items="masonryItems"
           :column-count="columnCount"
           :gap="20"
+          :show-like-button="!multiSelectActive"
           @image-loaded="handleImageLoaded"
         >
           <template #default="{ item: photo, index }">
@@ -86,7 +87,7 @@
                 @click.stop="openViewer(index, $event)"
                 title="查看原图"
               >
-                🔍
+                ⤢
               </button>
               <div class="gradient-overlay">
                 <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
@@ -198,25 +199,25 @@ const columnCount = computed(() => {
   const width = windowWidth.value
   let count = 4 // 默认值 (md)
 
-  if (previewSize.value === 'xs') {
-    // 小: 最多列数
-    if (width < 640) count = 3
-    else if (width < 1024) count = 4
-    else if (width < 1280) count = 5
-    else count = 6
-  } else if (previewSize.value === 'sm') {
-    // 中: 中等列数
+  if (previewSize.value === 'sm') {
+    // 小: 中等列数
     if (width < 640) count = 2
     else if (width < 1024) count = 3
     else if (width < 1280) count = 4
     else count = 5
+  } else if (previewSize.value === 'md') {
+    // 中: 默认列数
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else if (width < 1280) count = 3
+    else count = 4
   } else if (previewSize.value === 'lg') {
     // 大: 最少列数
     if (width < 640) count = 1
     else if (width < 1024) count = 2
     else count = 3
   } else {
-    // md
+    // 默认 md
     if (width < 640) count = 1
     else if (width < 1024) count = 2
     else if (width < 1280) count = 3
@@ -256,6 +257,7 @@ let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let sliding = false
 let slideInitialPressedWasSelected = false
 let slideLastProcessedId: number | null = null
+let hasDraggedDuringPress = false // track if user dragged during pointer down
 // whether the last interaction was a long-press (suppress click)
 const longPressActivated = ref(false)
 
@@ -398,6 +400,12 @@ const openViewer = (idx: number, e: MouseEvent) => {
 
 // Handle photo interactions: click / long-press / sliding selection
 const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
+  // Prevent default browser behavior immediately (text selection, etc.)
+  e.preventDefault()
+
+  // reset drag tracking
+  hasDraggedDuringPress = false
+
   // start long-press timer
   if (longPressTimer) clearTimeout(longPressTimer)
   const photoId = photo.id
@@ -405,25 +413,30 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
   // adjust long-press duration by input type for better UX
   const ptrType = (e as any).pointerType || 'mouse'
   const useDuration = ptrType === 'touch' ? 450 : 600
-  // remember pointer start for mouse drag detection
+  // remember pointer start for mouse drag detection and long-press movement check
   const startX = (e as any).clientX || 0
   const startY = (e as any).clientY || 0
+  // flag to track if long-press has been cancelled due to movement
+  let longPressCancelled = false
 
   longPressTimer = setTimeout(() => {
-    // long press triggered
-    longPressActivated.value = true
-    if (!multiSelectActive.value) {
-      // activate multi-select and select pressed (use new Set for reactivity)
-      multiSelectActive.value = true
-      selectedIds.value = new Set([...selectedIds.value, photoId])
-      lastSelectedIndex.value = idx
-      // sliding initial state
-      slideInitialPressedWasSelected = wasSelected
-      sliding = true
-      slideLastProcessedId = photoId
-    } else {
-      // already in multi-select: treat as range-select between lastSelectedIndex and this idx
-      selectRange(lastSelectedIndex.value, idx)
+    // only trigger long press if not cancelled by movement
+    if (!longPressCancelled) {
+      // long press triggered
+      longPressActivated.value = true
+      if (!multiSelectActive.value) {
+        // activate multi-select and select pressed (use new Set for reactivity)
+        multiSelectActive.value = true
+        selectedIds.value = new Set([...selectedIds.value, photoId])
+        lastSelectedIndex.value = idx
+        // sliding initial state
+        slideInitialPressedWasSelected = wasSelected
+        sliding = true
+        slideLastProcessedId = photoId
+      } else {
+        // already in multi-select: treat as range-select between lastSelectedIndex and this idx
+        selectRange(lastSelectedIndex.value, idx)
+      }
     }
   }, useDuration)
 
@@ -432,34 +445,61 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
   try { (target as any)?.setPointerCapture?.((e as any).pointerId) } catch (e) {}
   // listen for pointermove globally
   const onMove = (ev: PointerEvent) => {
-    // mouse drag: if pointer is mouse and movement passes threshold, start sliding immediately
     const pType = (ev as any).pointerType || 'mouse'
-    if (pType === 'mouse' && !sliding) {
-      const dx = Math.abs((ev as any).clientX - startX)
-      const dy = Math.abs((ev as any).clientY - startY)
-      const moveThreshold = 6
-      if (dx > moveThreshold || dy > moveThreshold) {
-        // begin sliding selection for mouse drag
-        if (!multiSelectActive.value) {
-          multiSelectActive.value = true
-          slideInitialPressedWasSelected = wasSelected
-          sliding = true
-          slideLastProcessedId = photoId
-          longPressActivated.value = true
-          // ensure initial selection state set
-          selectedIds.value = new Set([...selectedIds.value, photoId])
-        } else {
-          // if already multi-select, treat drag start similarly
-          slideInitialPressedWasSelected = wasSelected
-          sliding = true
-          slideLastProcessedId = photoId
-          longPressActivated.value = true
+    const dx = Math.abs((ev as any).clientX - startX)
+    const dy = Math.abs((ev as any).clientY - startY)
+    const moveThreshold = 6
+
+
+    // For touch devices, cancel long-press if moved significantly (balance between finger jitter and drag prevention)
+    if (pType === 'touch' && !sliding && !longPressCancelled) {
+      // Allow small finger jitter but prevent obvious dragging
+      const touchMoveThreshold = 8 // Allow ~8px movement for natural finger jitter, but prevent dragging
+      if (dx > touchMoveThreshold || dy > touchMoveThreshold) {
+        // cancel long-press due to significant movement
+        longPressCancelled = true
+        hasDraggedDuringPress = true
+        if (longPressTimer) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
         }
+      }
+    }
+
+    // For mouse devices, cancel long-press if moved significantly (same logic as touch)
+    if (pType === 'mouse' && !sliding && !longPressCancelled) {
+      const mouseMoveThreshold = 8 // Same threshold as touch for consistency
+      if (dx > mouseMoveThreshold || dy > mouseMoveThreshold) {
+        // cancel long-press due to significant movement
+        longPressCancelled = true
+        hasDraggedDuringPress = true
+        if (longPressTimer) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
+        }
+      }
+    }
+
+    // mouse drag: only allow sliding selection if multi-select is already active
+    if (pType === 'mouse' && !sliding && multiSelectActive.value) {
+      if (dx > moveThreshold || dy > moveThreshold) {
+        // prevent default browser behavior (text selection, etc.) when starting drag selection
+        ev.preventDefault()
+        // begin sliding selection for mouse drag (only if multi-select is active)
+        slideInitialPressedWasSelected = wasSelected
+        sliding = true
+        slideLastProcessedId = photoId
+        // Don't set longPressActivated for mouse drag in active multi-select mode
         // cancel longPressTimer since we've started sliding
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
       }
     }
+
     if (!sliding) return
+
+    // prevent default browser behavior during sliding selection
+    ev.preventDefault()
+
     const pid = photoIdAtPoint(ev.clientX, ev.clientY)
     if (!pid || pid === slideLastProcessedId) return
     slideLastProcessedId = pid
@@ -501,6 +541,11 @@ const handlePhotoClick = (photo: any, idx: number, e: MouseEvent) => {
   if (longPressActivated.value) {
     // suppress click caused by long-press release
     longPressActivated.value = false
+    return
+  }
+  if (hasDraggedDuringPress) {
+    // suppress click caused by drag release
+    hasDraggedDuringPress = false
     return
   }
   if (multiSelectActive.value) {

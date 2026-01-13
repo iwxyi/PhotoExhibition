@@ -185,13 +185,13 @@ const themeStore = useThemeStore()
 const isPhotoWall = computed(() => route.path === '/wall')
 
 const coverOptions = [
-  { value: 'xs', label: '小' },
-  { value: 'sm', label: '中' },
+  { value: 'sm', label: '小' },
+  { value: 'md', label: '中' },
   { value: 'lg', label: '大' }
 ]
 const previewOptions = [
-  { value: 'xs', label: '小' },
-  { value: 'sm', label: '中' },
+  { value: 'sm', label: '小' },
+  { value: 'md', label: '中' },
   { value: 'lg', label: '大' }
 ]
 

@@ -31,7 +31,23 @@ spring:
     url: jdbc:mysql://localhost:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root
     password: iwxyiroot
-
+    
+    hikari:
+      # 连接池大小
+      maximum-pool-size: 20
+      minimum-idle: 5
+      
+      # 连接超时设置
+      connection-timeout: 30000  # 30秒
+      idle-timeout: 600000       # 10分钟
+      max-lifetime: 1800000      # 30分钟 (比MySQL wait_timeout短)
+      
+      # 连接测试
+      validation-timeout: 5000
+      leak-detection-threshold: 60000
+      
+      # 连接保持
+      keepalive-time: 300000     # 5分钟
   # H2数据库控制台（开发环境可访问 http://localhost:6060/api/h2-console）
   # h2:
   #   console:

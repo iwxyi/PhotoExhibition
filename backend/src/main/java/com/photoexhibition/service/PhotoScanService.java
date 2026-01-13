@@ -191,6 +191,13 @@ public class PhotoScanService {
     @Scheduled(fixedDelayString = "${photo.scan.scan-interval}000", initialDelayString = "${photo.scan.scan-interval}000")
     @Async
     public void scheduledScan() {
+        // 检查是否已有扫描在进行
+        if (isScanning.get() || activeScanCount.get() > 0) {
+            log.info("定时扫描跳过：已有扫描任务正在执行 (activeScanCount={}, isScanning={})", 
+                    activeScanCount.get(), isScanning.get());
+            return;
+        }
+        
         log.info("定时扫描: {}", basePath);
         scanDirectory(basePath);
     }

@@ -185,7 +185,7 @@ public class FaceDetectionService implements AutoCloseable {
 
     private void ensureSession() {
         if (detectionSession != null) return;
-
+        
         try {
             java.io.File modelFile = new java.io.File(detectionModelPath);
             if (!modelFile.exists()) {
@@ -200,7 +200,7 @@ public class FaceDetectionService implements AutoCloseable {
                 log.warn("ONNX Runtime类不存在，人脸检测功能将被禁用。错误: {}", e.getMessage());
                 return;
             }
-
+            
             env = OrtEnvironment.getEnvironment();
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
             // 可以根据需要设置线程数等选项

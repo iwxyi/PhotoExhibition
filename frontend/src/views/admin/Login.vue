@@ -151,7 +151,7 @@ const handleLogin = async () => {
           router.push('/admin')
         }, 3000)
       } else {
-        router.push('/admin')
+      router.push('/admin')
       }
     } else {
       error.value = result.message || '登录失败'

@@ -9,6 +9,7 @@
           <slot :item="item.data" :index="index" @image-loaded="handleImageLoaded" />
       <!-- 点赞覆盖层 -->
       <div
+        v-if="showLikeButton !== false"
         class="like-overlay"
         :class="{ 'visible': (likedIds.has(item.data?.id) || (likesMap.get(item.data?.id) || 0) > 0) }"
         @click.stop="likePhoto(item.data?.id, $event)"
@@ -53,6 +54,7 @@ const props = defineProps<{
   columnCount: number
   gap?: number
   itemMinWidth?: number
+  showLikeButton?: boolean
 }>()
 
 const containerRef = ref<HTMLElement>()
