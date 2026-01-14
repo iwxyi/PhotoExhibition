@@ -587,7 +587,7 @@ const handleScroll = () => {
 // 获取相册排序设置
 const loadAlbumSortOrder = async () => {
   try {
-    const response = await api.get('/admin/config/album-sort-order')
+    const response = await api.get('/albums/sort-order')
     const newSort = response.data.albumSortOrder || 'name_asc'
     albumSortOrder.value = newSort
   } catch (error) {

@@ -23,11 +23,11 @@ public class SystemConfigService {
     public static final String MAX_ALBUM_DEPTH_DESCRIPTION = "最大相册层级（从base-path下的第三级目录开始计算）";
 
     public static final String PHOTO_SORT_ORDER_KEY = "photo_sort_order";
-    public static final String PHOTO_SORT_ORDER_DEFAULT = "taken_at_desc";
+    public static final String PHOTO_SORT_ORDER_DEFAULT = "taken_at_asc";
     public static final String PHOTO_SORT_ORDER_DESCRIPTION = "照片排序方式";
 
     public static final String ALBUM_SORT_ORDER_KEY = "album_sort_order";
-    public static final String ALBUM_SORT_ORDER_DEFAULT = "name_asc";
+    public static final String ALBUM_SORT_ORDER_DEFAULT = "latest_photo_taken_desc";
     public static final String ALBUM_SORT_ORDER_DESCRIPTION = "相册排序方式";
 
     public static final String WALL_SORT_ORDER_KEY = "wall_sort_order";

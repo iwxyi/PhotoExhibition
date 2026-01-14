@@ -4,12 +4,16 @@ import com.photoexhibition.dto.AlbumDTO;
 import com.photoexhibition.dto.CoverImagesDTO;
 import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.service.AlbumService;
+import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/albums")
@@ -18,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 public class AlbumController {
 
     private final AlbumService albumService;
+    private final SystemConfigService systemConfigService;
 
     /**
      * 获取所有相册（相册模式）
@@ -94,6 +99,21 @@ public class AlbumController {
         String sortOrder = (String) request.get("photoSortOrder");
         AlbumDTO album = albumService.setAlbumPhotoSortOrder(id, sortOrder);
         return ResponseEntity.ok(album);
+    }
+
+    /**
+     * 获取相册排序设置（公开API）
+     */
+    @GetMapping("/sort-order")
+    public ResponseEntity<Map<String, Object>> getAlbumSortOrder() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("albumSortOrder", systemConfigService.getAlbumSortOrder());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
     }
 
     /**

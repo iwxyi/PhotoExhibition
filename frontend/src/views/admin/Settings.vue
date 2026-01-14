@@ -16,38 +16,44 @@
         </router-link>
       </div>
 
-      <!-- 相册层级设置 -->
+      <!-- 相册排序方式设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 class="text-lg font-light">最大相册层级</h2>
+            <h2 class="text-lg font-light">相册排序方式</h2>
             <p class="text-xs text-gray-400">
-              控制相册创建的层级深度，默认为1。超过此层级的子文件夹将不再创建独立相册，其中的图片会归属到上级相册。
+              设置相册列表的显示顺序，影响相册卡片的排列。
             </p>
             <p class="text-xs text-gray-400 mt-1">
-              路径结构：base-path/分类/顶级相册名/1级层级/2级层级/...，从"1级层级"开始计数。
+              控制相册在主页和相册列表页面的排序显示。
             </p>
           </div>
           <div class="flex items-center gap-3">
-            <input
-              v-model="maxAlbumDepth"
-              type="number"
-              min="0"
-              max="10"
-              class="w-20 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-              @input="maxAlbumDepth = Math.max(0, parseInt($event.target.value) || 0)"
-            />
-            <span class="text-xs text-gray-300">层级</span>
+            <select
+              v-model="albumSortOrder"
+              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="name_asc">相册名称正序</option>
+              <option value="name_desc">相册名称倒序</option>
+              <option value="latest_photo_taken_desc">相册拍摄时间倒序</option>
+              <option value="latest_photo_taken_asc">相册拍摄时间正序</option>
+              <option value="album_name_date_desc">相册名时间倒序</option>
+              <option value="album_name_date_asc">相册名时间正序</option>
+              <option value="created_at_desc">创建时间倒序</option>
+              <option value="created_at_asc">创建时间正序</option>
+            </select>
           </div>
         </div>
 
-        <!-- 设置说明 -->
+        <!-- 排序说明 -->
         <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
-          <h3 class="text-sm font-medium text-blue-300 mb-2">层级说明</h3>
+          <h3 class="text-sm font-medium text-blue-300 mb-2">排序说明</h3>
           <div class="text-xs text-gray-300 space-y-1">
-            <p>• 层级为 0：只创建顶级相册，所有子文件夹的图片都归属到顶级相册</p>
-            <p>• 层级为 1：创建到"1级层级"文件夹，2级及以下的所有图片都归属到"1级层级"相册</p>
-            <p>• 层级为 2：创建到"2级层级"文件夹，3级及以下的所有图片都归属到"2级层级"相册</p>
+            <p>• 相册名称：按照相册文件夹名称排序</p>
+            <p>• 相册拍摄时间：按照相册中最晚的照片拍摄时间排序（聚合相册包含所有子相册的照片）</p>
+            <p>• 相册名时间：从相册名称或上级路径中解析的时间，支持嵌套继承（如：2025.01.01、2025-01-01）</p>
+            <p>• 创建时间：按照相册首次创建的时间排序</p>
+            <p>• 倒序：最新的/最大的排在前面，正序：最旧的/最小的排在前面</p>
           </div>
         </div>
       </section>
@@ -91,70 +97,114 @@
         </div>
       </section>
 
-      <!-- 密码修改设置 -->
+      <!-- 图墙排序方式设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 class="text-lg font-light">修改管理员密码</h2>
+            <h2 class="text-lg font-light">图墙排序方式</h2>
             <p class="text-xs text-gray-400">
-              修改当前管理员账户的密码，提高账户安全性。
+              设置图墙页面的照片显示顺序，影响随机图墙和分类图墙的照片排列。
             </p>
             <p class="text-xs text-gray-400 mt-1">
-              密码长度至少6位，建议使用强密码。
+              不同于相册内的照片排序，这是全局图墙的排序设置。
             </p>
           </div>
-        </div>
-
-        <!-- 密码修改表单 -->
-        <div class="mt-6 space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">当前密码</label>
-              <input
-                v-model="currentPassword"
-                type="password"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="输入当前密码"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">新密码</label>
-              <input
-                v-model="newPassword"
-                type="password"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="输入新密码"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">确认新密码</label>
-              <input
-                v-model="confirmPassword"
-                type="password"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="再次输入新密码"
-              />
-            </div>
-          </div>
-
-          <div class="flex items-center gap-4">
-            <button
-              @click="changePassword"
-              :disabled="!canChangePassword || changingPassword"
-              class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium"
+          <div class="flex items-center gap-3">
+            <select
+              v-model="wallSortOrder"
+              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {{ changingPassword ? '修改中...' : '修改密码' }}
-            </button>
+              <option value="taken_at_desc">拍摄时间倒序</option>
+              <option value="taken_at_asc">拍摄时间正序</option>
+              <option value="filename_desc">文件名倒序</option>
+              <option value="filename_asc">文件名正序</option>
+              <option value="created_at_desc">创建时间倒序</option>
+              <option value="created_at_asc">创建时间正序</option>
+            </select>
           </div>
         </div>
 
-        <!-- 密码修改说明 -->
-        <div class="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
-          <h3 class="text-sm font-medium text-yellow-300 mb-2">安全提醒</h3>
+        <!-- 排序说明 -->
+        <div class="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-purple-300 mb-2">排序说明</h3>
           <div class="text-xs text-gray-300 space-y-1">
-            <p>• 修改密码后需要重新登录</p>
-            <p>• 建议定期更换密码以确保账户安全</p>
-            <p>• 如果忘记密码，需要通过数据库直接修改或重新初始化管理员账户</p>
+            <p>• 拍摄时间：按照片EXIF信息中的拍摄时间排序</p>
+            <p>• 文件名：按照片文件名（不含扩展名）排序</p>
+            <p>• 创建时间：按照片入库时间排序</p>
+            <p>• 倒序：最新的/最大的排在前面，正序：最旧的/最小的排在前面</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 相册层级设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">最大相册层级</h2>
+            <p class="text-xs text-gray-400">
+              控制相册创建的层级深度，默认为1。超过此层级的子文件夹将不再创建独立相册，其中的图片会归属到上级相册。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              路径结构：base-path/分类/顶级相册名/1级层级/2级层级/...，从"1级层级"开始计数。
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              v-model="maxAlbumDepth"
+              type="number"
+              min="0"
+              max="10"
+              class="w-20 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              @input="maxAlbumDepth = Math.max(0, parseInt($event.target.value) || 0)"
+            />
+            <span class="text-xs text-gray-300">层级</span>
+          </div>
+        </div>
+
+        <!-- 设置说明 -->
+        <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-blue-300 mb-2">层级说明</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 层级为 0：只创建顶级相册，所有子文件夹的图片都归属到顶级相册</p>
+            <p>• 层级为 1：创建到"1级层级"文件夹，2级及以下的所有图片都归属到"1级层级"相册</p>
+            <p>• 层级为 2：创建到"2级层级"文件夹，3级及以下的所有图片都归属到"2级层级"相册</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 人脸聚类设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">聚类显示最小人脸数量</h2>
+            <p class="text-xs text-gray-400">
+              设置人物管理页面中聚类结果的最小显示人脸数量，人脸数量少于此值的聚类将不显示。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              提高性能：过滤掉过小的聚类，减少计算量；保证准确性：避免遗漏潜在人物。
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              v-model="minClusterFaceCount"
+              type="number"
+              min="1"
+              max="10"
+              class="w-20 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              @input="minClusterFaceCount = Math.max(1, Math.min(10, parseInt($event.target.value) || 1))"
+            />
+            <span class="text-xs text-gray-300">人脸</span>
+          </div>
+        </div>
+
+        <!-- 设置说明 -->
+        <div class="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-green-300 mb-2">性能与准确性平衡</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>• 设为 1：显示所有聚类，包括单人脸聚类，准确性最高但性能较慢</p>
+            <p>• 设为 2：过滤掉单人脸聚类，性能提升但可能遗漏一些人物</p>
+            <p>• 设为 3+：只显示多人聚类，性能最佳但准确性降低</p>
+            <p>• 推荐值：2（平衡性能和准确性的最佳选择）</p>
           </div>
         </div>
       </section>
@@ -233,120 +283,70 @@
         </div>
       </section>
 
-      <!-- 相册排序方式设置 -->
+      <!-- 密码修改设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 class="text-lg font-light">相册排序方式</h2>
+            <h2 class="text-lg font-light">修改管理员密码</h2>
             <p class="text-xs text-gray-400">
-              设置相册列表的显示顺序，影响相册卡片的排列。
+              修改当前管理员账户的密码，提高账户安全性。
             </p>
             <p class="text-xs text-gray-400 mt-1">
-              控制相册在主页和相册列表页面的排序显示。
+              密码长度至少6位，建议使用强密码。
             </p>
           </div>
-          <div class="flex items-center gap-3">
-            <select
-              v-model="albumSortOrder"
-              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        </div>
+
+        <!-- 密码修改表单 -->
+        <div class="mt-6 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">当前密码</label>
+              <input
+                v-model="currentPassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="输入当前密码"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">新密码</label>
+              <input
+                v-model="newPassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="输入新密码"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-2">确认新密码</label>
+              <input
+                v-model="confirmPassword"
+                type="password"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="再次输入新密码"
+              />
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4">
+            <button
+              @click="changePassword"
+              :disabled="!canChangePassword || changingPassword"
+              class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium"
             >
-              <option value="name_asc">相册名称正序</option>
-              <option value="name_desc">相册名称倒序</option>
-              <option value="latest_photo_taken_desc">相册拍摄时间倒序</option>
-              <option value="latest_photo_taken_asc">相册拍摄时间正序</option>
-              <option value="album_name_date_desc">相册名时间倒序</option>
-              <option value="album_name_date_asc">相册名时间正序</option>
-              <option value="created_at_desc">创建时间倒序</option>
-              <option value="created_at_asc">创建时间正序</option>
-            </select>
+              {{ changingPassword ? '修改中...' : '修改密码' }}
+            </button>
           </div>
         </div>
 
-        <!-- 排序说明 -->
-        <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
-          <h3 class="text-sm font-medium text-blue-300 mb-2">排序说明</h3>
+        <!-- 密码修改说明 -->
+        <div class="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-yellow-300 mb-2">安全提醒</h3>
           <div class="text-xs text-gray-300 space-y-1">
-            <p>• 相册名称：按照相册文件夹名称排序</p>
-            <p>• 相册拍摄时间：按照相册中最晚的照片拍摄时间排序（聚合相册包含所有子相册的照片）</p>
-            <p>• 相册名时间：从相册名称或上级路径中解析的时间，支持嵌套继承（如：2025.01.01、2025-01-01）</p>
-            <p>• 创建时间：按照相册首次创建的时间排序</p>
-            <p>• 倒序：最新的/最大的排在前面，正序：最旧的/最小的排在前面</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- 图墙排序方式设置 -->
-      <section class="glass-panel p-6 space-y-4">
-        <div class="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h2 class="text-lg font-light">图墙排序方式</h2>
-            <p class="text-xs text-gray-400">
-              设置图墙页面的照片显示顺序，影响随机图墙和分类图墙的照片排列。
-            </p>
-            <p class="text-xs text-gray-400 mt-1">
-              不同于相册内的照片排序，这是全局图墙的排序设置。
-            </p>
-          </div>
-          <div class="flex items-center gap-3">
-            <select
-              v-model="wallSortOrder"
-              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="taken_at_desc">拍摄时间倒序</option>
-              <option value="taken_at_asc">拍摄时间正序</option>
-              <option value="filename_desc">文件名倒序</option>
-              <option value="filename_asc">文件名正序</option>
-              <option value="created_at_desc">创建时间倒序</option>
-              <option value="created_at_asc">创建时间正序</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- 排序说明 -->
-        <div class="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
-          <h3 class="text-sm font-medium text-purple-300 mb-2">排序说明</h3>
-          <div class="text-xs text-gray-300 space-y-1">
-            <p>• 拍摄时间：按照片EXIF信息中的拍摄时间排序</p>
-            <p>• 文件名：按照片文件名（不含扩展名）排序</p>
-            <p>• 创建时间：按照片入库时间排序</p>
-            <p>• 倒序：最新的/最大的排在前面，正序：最旧的/最小的排在前面</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- 人脸聚类设置 -->
-      <section class="glass-panel p-6 space-y-4">
-        <div class="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h2 class="text-lg font-light">聚类显示最小人脸数量</h2>
-            <p class="text-xs text-gray-400">
-              设置人物管理页面中聚类结果的最小显示人脸数量，人脸数量少于此值的聚类将不显示。
-            </p>
-            <p class="text-xs text-gray-400 mt-1">
-              提高性能：过滤掉过小的聚类，减少计算量；保证准确性：避免遗漏潜在人物。
-            </p>
-          </div>
-          <div class="flex items-center gap-3">
-            <input
-              v-model="minClusterFaceCount"
-              type="number"
-              min="1"
-              max="10"
-              class="w-20 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-              @input="minClusterFaceCount = Math.max(1, Math.min(10, parseInt($event.target.value) || 1))"
-            />
-            <span class="text-xs text-gray-300">人脸</span>
-          </div>
-        </div>
-
-        <!-- 设置说明 -->
-        <div class="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
-          <h3 class="text-sm font-medium text-green-300 mb-2">性能与准确性平衡</h3>
-          <div class="text-xs text-gray-300 space-y-1">
-            <p>• 设为 1：显示所有聚类，包括单人脸聚类，准确性最高但性能较慢</p>
-            <p>• 设为 2：过滤掉单人脸聚类，性能提升但可能遗漏一些人物</p>
-            <p>• 设为 3+：只显示多人聚类，性能最佳但准确性降低</p>
-            <p>• 推荐值：2（平衡性能和准确性的最佳选择）</p>
+            <p>• 修改密码后需要重新登录</p>
+            <p>• 建议定期更换密码以确保账户安全</p>
+            <p>• 如果忘记密码，需要通过数据库直接修改或重新初始化管理员账户</p>
           </div>
         </div>
       </section>

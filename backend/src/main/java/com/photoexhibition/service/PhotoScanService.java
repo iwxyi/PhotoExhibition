@@ -1271,8 +1271,6 @@ public class PhotoScanService {
                 reason = "处理新文件或强制处理";
             }
 
-            log.info("当前进度: {} / {}", currentCount, scanTotal.get());
-
             // 检查是否超过总数
             if (currentCount > scanTotal.get()) {
                 log.warn("计数超出: current({}) > total({}), 文件: {}", currentCount, scanTotal.get(), imageFile.getName());
@@ -1281,9 +1279,9 @@ public class PhotoScanService {
             // 仅在实际处理时记录日志，输出相对路径
             String relativePath = toRelativePath(filePath);
             if (foundByContentHash && !force) {
-                log.info("处理图片（复用数据）: {}", relativePath != null ? relativePath : filePath);
+                log.info("{}/{} 跳过: {}", currentCount, scanTotal.get(), relativePath != null ? relativePath : filePath);
             } else {
-                log.info("处理图片: {}", relativePath != null ? relativePath : filePath);
+                log.info("{}/{} 处理: {}", currentCount, scanTotal.get(), relativePath != null ? relativePath : filePath);
             }
 
             // 检查是否需要重新处理或继续处理（基于处理状态）
