@@ -3,14 +3,15 @@
     <nav class="fixed top-4 right-4 z-50">
       <!-- multi-select toolbar (placed before X so X stays at far right) -->
       <div v-if="multiSelectActive" class="inline-flex items-center gap-2 mr-3">
-        <span :class="themeStore.isDark ? 'text-white/90' : 'text-gray-900'" class="text-sm mr-2">已选 {{ selectedIds.size }} 张</span>
         <button class="btn-primary px-3 py-1 text-sm" @click="selectAll">全选</button>
         <button class="btn-primary px-3 py-1 text-sm ml-1" @click="invertSelection">反选</button>
-        <button class="btn-primary px-3 py-1 text-sm ml-1" @click="downloadSelected" title="下载选中">
-          ⤓
+        <button class="btn-primary px-3 py-1 text-sm ml-1 flex items-center gap-1" @click="downloadSelected" title="下载选中">
+          <span>⤓</span>
+          <span v-if="selectedIds.size > 0">{{ selectedIds.size }}</span>
         </button>
-        <button class="btn-primary px-3 py-1 text-sm ml-1" @click="downloadZipSelected" title="下载 ZIP（服务器/回退兼容）">
-          📦
+        <button class="btn-primary px-3 py-1 text-sm ml-1 flex items-center gap-1" @click="downloadZipSelected" title="下载 ZIP（服务器/回退兼容）">
+          <span>⤓</span>
+          <span>打包</span>
         </button>
       </div>
 
@@ -256,7 +257,9 @@ const lastSelectedIndex = ref<number | null>(null)
 let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let sliding = false
 let slideInitialPressedWasSelected = false
-let slideLastProcessedId: number | null = null
+let slideStartPhotoId: number | null = null // 滑动开始的图片ID
+let slideStartX = 0 // 滑动开始的X坐标
+let slideStartY = 0 // 滑动开始的Y坐标
 let hasDraggedDuringPress = false // track if user dragged during pointer down
 // whether the last interaction was a long-press (suppress click)
 const longPressActivated = ref(false)
@@ -285,7 +288,9 @@ const endPress = () => {
     longPressTimer = null
   }
   sliding = false
-  slideLastProcessedId = null
+  slideStartPhotoId = null
+  slideStartX = 0
+  slideStartY = 0
 }
 
 // helper to get photoId under point
@@ -296,6 +301,57 @@ const photoIdAtPoint = (x: number, y: number) => {
   if (!card) return null
   const idAttr = card.getAttribute('data-photo-id')
   return idAttr ? Number(idAttr) : null
+}
+
+// helper to get photo element rect
+const getPhotoRect = (photoId: number) => {
+  const photoElement = photoRefs.value.get(photoId)
+  return photoElement ? photoElement.getBoundingClientRect() : null
+}
+
+// helper to get all photos within a rectangle (box selection)
+const getPhotosInRect = (rect: DOMRect) => {
+  const photosInRect: number[] = []
+  photoRefs.value.forEach((element, photoId) => {
+    const photoRect = element.getBoundingClientRect()
+    // Check if photo rect overlaps with selection rect
+    if (photoRect.left < rect.right &&
+        photoRect.right > rect.left &&
+        photoRect.top < rect.bottom &&
+        photoRect.bottom > rect.top) {
+      photosInRect.push(photoId)
+    }
+  })
+  return photosInRect
+}
+
+// handle auto-scroll when dragging near screen edges
+const handleAutoScroll = (mouseX: number, mouseY: number) => {
+  const scrollZone = 50 // pixels from edge to start scrolling
+  const scrollSpeed = 8 // pixels per frame
+  const viewportHeight = window.innerHeight
+  const viewportWidth = window.innerWidth
+
+  let scrollX = 0
+  let scrollY = 0
+
+  // Check vertical scrolling
+  if (mouseY < scrollZone) {
+    scrollY = -scrollSpeed // scroll up
+  } else if (mouseY > viewportHeight - scrollZone) {
+    scrollY = scrollSpeed // scroll down
+  }
+
+  // Check horizontal scrolling
+  if (mouseX < scrollZone) {
+    scrollX = -scrollSpeed // scroll left
+  } else if (mouseX > viewportWidth - scrollZone) {
+    scrollX = scrollSpeed // scroll right
+  }
+
+  if (scrollX !== 0 || scrollY !== 0) {
+    window.scrollBy(scrollX, scrollY)
+  }
 }
 
 // range select between lastSelectedIndex and idx inclusive
@@ -412,7 +468,7 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
   const wasSelected = selectedIds.value.has(photoId)
   // adjust long-press duration by input type for better UX
   const ptrType = (e as any).pointerType || 'mouse'
-  const useDuration = ptrType === 'touch' ? 450 : 600
+  const useDuration = 300 // 统一使用300ms，避免与浏览器长按菜单冲突
   // remember pointer start for mouse drag detection and long-press movement check
   const startX = (e as any).clientX || 0
   const startY = (e as any).clientY || 0
@@ -432,7 +488,9 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
         // sliding initial state
         slideInitialPressedWasSelected = wasSelected
         sliding = true
-        slideLastProcessedId = photoId
+        slideStartPhotoId = photoId
+        slideStartX = startX
+        slideStartY = startY
       } else {
         // already in multi-select: treat as range-select between lastSelectedIndex and this idx
         selectRange(lastSelectedIndex.value, idx)
@@ -488,7 +546,9 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
         // begin sliding selection for mouse drag (only if multi-select is active)
         slideInitialPressedWasSelected = wasSelected
         sliding = true
-        slideLastProcessedId = photoId
+        slideStartPhotoId = photoId
+        slideStartX = startX
+        slideStartY = startY
         // Don't set longPressActivated for mouse drag in active multi-select mode
         // cancel longPressTimer since we've started sliding
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
@@ -500,14 +560,31 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
     // prevent default browser behavior during sliding selection
     ev.preventDefault()
 
-    const pid = photoIdAtPoint(ev.clientX, ev.clientY)
-    if (!pid || pid === slideLastProcessedId) return
-    slideLastProcessedId = pid
-    const shouldSelect = !slideInitialPressedWasSelected
-    // use new Set copies to ensure reactivity updates
+    // Calculate selection rectangle from start point to current point
+    const currentX = ev.clientX
+    const currentY = ev.clientY
+
+    const selectionRect = new DOMRect(
+      Math.min(slideStartX, currentX),
+      Math.min(slideStartY, currentY),
+      Math.abs(currentX - slideStartX),
+      Math.abs(currentY - slideStartY)
+    )
+
+    // Auto-scroll if near screen edges
+    handleAutoScroll(currentX, currentY)
+
+    // Get all photos within the selection rectangle
+    const photosInRect = getPhotosInRect(selectionRect)
+
+    // Update selection: always select photos in rectangle (box selection behavior)
     const cur = new Set(selectedIds.value)
-    if (shouldSelect) cur.add(pid)
-    else cur.delete(pid)
+
+    // Add all photos in the rectangle to selection
+    photosInRect.forEach(photoId => {
+      cur.add(photoId)
+    })
+
     selectedIds.value = cur
   }
   window.addEventListener('pointermove', onMove)
@@ -533,7 +610,9 @@ const onPhotoPointerUp = (_photo: any, _idx: number, _e: PointerEvent) => {
     longPressTimer = null
   }
   sliding = false
-  slideLastProcessedId = null
+  slideStartPhotoId = null
+  slideStartX = 0
+  slideStartY = 0
 }
 
 const handlePhotoClick = (photo: any, idx: number, e: MouseEvent) => {
@@ -993,26 +1072,27 @@ const startBackTransitionAndNavigate = () => {
   // 只有真正执行过展开动画的页面才能执行返回动画
   const shouldPerformBackTransition = animationPerformed
 
-  // 如果没有动画执行记录，清理可能残留的数据并直接返回
+  // 如果没有动画执行记录，清理可能残留的数据并导航到主页
   if (!shouldPerformBackTransition) {
     sessionStorage.removeItem('album-back-transition')
     sessionStorage.removeItem('album-navigation-active')
     sessionStorage.removeItem('album-animation-performed')
-    router.back()
+    // 直接导航到主页，而不是使用router.back()（因为可能没有有效的历史记录）
+    router.push('/')
     return
   }
 
   // 如果没有封面位置信息，直接跳转
   if (!storedData || photos.value.length === 0) {
-    // no stored data — direct navigation
-    router.back()
+    // no stored data — navigate to home
+    router.push('/')
     return
   }
 
   // 如果不是从正常导航来的，直接跳转
   if (!shouldPerformBackTransition) {
-    // not from navigation — direct navigation
-    router.back()
+    // not from navigation — navigate to home
+    router.push('/')
     return
   }
 
@@ -1108,8 +1188,8 @@ const startBackTransitionAndNavigate = () => {
     })
   } catch (error) {
     console.error('启动返回相册列表动画失败:', error)
-    // 出错时也要跳转
-    router.back()
+    // 出错时导航到主页
+    router.push('/')
   }
 }
 
