@@ -34,3 +34,41 @@ api.interceptors.response.use(
   }
 )
 
+// 评论相关API
+export interface CommentRequest {
+  albumId: number
+  parentId?: number
+  nickname: string
+  email: string
+  content: string
+}
+
+export interface CommentDTO {
+  id: number
+  albumId: number
+  parentId?: number
+  nickname: string
+  email: string
+  content: string
+  createdAt: string
+  updatedAt: string
+  replies?: CommentDTO[]
+}
+
+export const commentApi = {
+  // 创建评论
+  createComment: (data: CommentRequest) => api.post<CommentDTO>('/comments', data),
+
+  // 删除评论
+  deleteComment: (commentId: number, email: string) => api.delete(`/comments/${commentId}?email=${encodeURIComponent(email)}`),
+
+  // 获取相册评论（分页）
+  getAlbumComments: (albumId: number, page = 0, size = 10) => api.get(`/comments/albums/${albumId}?page=${page}&size=${size}`),
+
+  // 获取评论回复
+  getCommentReplies: (parentId: number) => api.get(`/comments/${parentId}/replies`),
+
+  // 获取相册评论总数
+  getAlbumCommentCount: (albumId: number) => api.get<number>(`/comments/albums/${albumId}/count`)
+}
+

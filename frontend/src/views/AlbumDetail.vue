@@ -43,7 +43,9 @@
           <div class="mb-12">
             <h1 class="text-4xl font-light mb-4" :style="textStyle">{{ album.name }}</h1>
             <p v-if="album.description" class="mb-4" :style="{ ...textStyle, opacity: 0.8 }">{{ album.description }}</p>
-            <p class="text-sm" :style="{ ...textStyle, opacity: 0.6 }">{{ album.photoCount }} 张照片</p>
+            <p class="text-sm" :style="{ ...textStyle, opacity: 0.6 }">
+              {{ album.photoCount }} 张照片{{ commentCount > 0 ? `，${commentCount} 条评论` : '' }}
+            </p>
           </div>
 
         <MasonryLayout
@@ -99,6 +101,12 @@
           </template>
         </MasonryLayout>
       </div>
+
+      <!-- 评论区域 -->
+      <CommentSection
+        :album-id="album?.id || 0"
+        :text-color="textStyle.color"
+      />
     </main>
     <PhotoViewer
       v-model:visible="viewerVisible"
@@ -122,6 +130,8 @@ import { useThemeStore } from '@/stores/theme'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import MasonryLayout from '@/components/MasonryLayout.vue'
+import CommentSection from '@/components/CommentSection.vue'
+import { commentApi } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -129,6 +139,9 @@ const photoStore = usePhotoStore()
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
+
+// 评论数量
+const commentCount = ref(0)
 
 const { atmosphereEnabled, previewSize } = useUiSettings()
 
@@ -1236,6 +1249,10 @@ onMounted(async () => {
 
   // 一次性加载该相册的所有照片（不分页），以便在相册详情中完整展示
   await photoStore.fetchAllPhotosByAlbum(albumId)
+
+  // 获取评论数量
+  await loadCommentCount(albumId)
+
   window.addEventListener('keydown', handleKeydown)
   // reference backButtonRef to satisfy linter (it's bound in template)
   void backButtonRef.value
@@ -1297,6 +1314,17 @@ onUnmounted(() => {
     ;(window as any).__albumTransitionCleanupTimer = null
   }
 })
+
+// 获取相册评论数量
+const loadCommentCount = async (albumId: number) => {
+  try {
+    const response = await commentApi.getAlbumCommentCount(albumId)
+    commentCount.value = response.data
+  } catch (error) {
+    console.error('Failed to load comment count:', error)
+    commentCount.value = 0
+  }
+}
 
 // 颜色处理工具函数
 const hexToRgb = (hex: string) => {
