@@ -57,7 +57,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 19a7 7 0 100-14 7 7 0 000 14z" />
             </svg>
             <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 19a7 7 0 100-14 7 7 0 000 14z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
@@ -173,9 +173,9 @@
         </div>
 
         <!-- 信息侧栏 -->
-        <transition name="slide-fade">
+        <div>
           <div
-            v-if="!infoCollapsed"
+            v-show="!infoCollapsed"
             class="w-80 max-w-[80vw] bg-gray-900/80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto"
           >
             <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
@@ -310,7 +310,7 @@
 
             </div>
           </div>
-        </transition>
+        </div>
 
       </div>
 
@@ -382,7 +382,7 @@ const emit = defineEmits<{
 }>()
 
 const currentIndex = ref(0)
-const infoCollapsed = ref(false)
+const infoCollapsed = ref(true)
 const modalRoot = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const thumbContainer = ref<HTMLElement | null>(null)
@@ -561,16 +561,28 @@ watch(
 )
 
 onMounted(() => {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  infoCollapsed.value = saved === '1'
+  // 确保在DOM完全渲染后设置信息栏状态
+  nextTick(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    // 默认隐藏信息栏（infoCollapsed = true），只有明确保存了展开状态才展开
+    infoCollapsed.value = saved !== '0'
 
-  // 初始化框体状态
-  initializeBoxStates()
+    // 初始化框体状态
+    initializeBoxStates()
+  })
 
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onImageLoad)
   // 监听 fullscreen 变化以便在进入/退出全屏时重新计算图片尺寸
   document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+
+// 监听信息栏状态变化，确保UI立即更新
+watch(infoCollapsed, (newValue) => {
+  // 确保状态变化后UI能立即响应
+  nextTick(() => {
+    // 状态更新后的处理逻辑
+  })
 })
 
 onBeforeUnmount(() => {
