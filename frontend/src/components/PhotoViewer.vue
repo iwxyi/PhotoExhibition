@@ -47,9 +47,6 @@
           >
             返回缩略图
           </button>
-          <button class="p-2 hover:bg-white/10 rounded" @click="prev">←</button>
-          <span class="text-xs sm:text-sm">{{ currentIndex + 1 }} / {{ photos.length }}</span>
-          <button class="p-2 hover:bg-white/10 rounded" @click="next">→</button>
           <button
             class="p-2 hover:bg-white/10 rounded"
             @click="toggleInfo"
@@ -112,6 +109,17 @@
                 :style="getImageStyle()"
                 ref="mainImage"
                 @load="onImageLoad"
+                draggable="false"
+              />
+
+              <!-- 过渡图片（进入动画） -->
+              <img
+                v-if="transitioningPhoto"
+                :key="'transition-' + transitioningPhoto.id"
+                :src="getImageUrl(transitioningPhoto)"
+                :alt="transitioningPhoto.filename"
+                class="select-none absolute inset-0 w-full h-full object-contain z-10"
+                :style="getTransitionImageTransformStyle()"
                 draggable="false"
               />
 
@@ -433,12 +441,41 @@ const lastTouchDistance = ref(0)
 const touchCenter = ref({ x: 0, y: 0 })
 const isPinching = ref(false)
 
+// 图片切换动画相关状态
+const imageTransitionOffset = ref(0) // 图片切换时的水平偏移
+const isImageTransitioning = ref(false) // 是否正在进行图片切换动画
+const pendingTransitionDirection = ref<'prev' | 'next' | null>(null) // 等待执行的切换方向
+const transitioningPhoto = ref<Photo | null>(null) // 正在过渡的图片（进入的图片）
+const transitionDirection = ref<'left' | 'right' | null>(null) // 过渡方向
+
 const STORAGE_KEY = 'pe-info-collapsed'
 const FOCUS_BOX_KEY = 'pe-focus-box-visible'
 const FACE_BOXES_KEY = 'pe-face-boxes-visible'
 const THUMB_KEY = 'pe-thumb-height'
 
 const currentPhoto = computed(() => props.photos?.[currentIndex.value])
+
+// 获取过渡图片的变换样式
+const getTransitionImageTransformStyle = () => {
+  if (!transitioningPhoto.value || !transitionDirection.value) return {}
+
+  // 过渡图片从边缘移动到中间
+  // next方向：从右边(100%)移动到中间(0%)
+  // prev方向：从左边(-100%)移动到中间(0%)
+  const direction = transitionDirection.value
+  const startOffset = direction === 'right' ? 100 : -100
+  const endOffset = 0
+
+  // 计算当前位置：从startOffset移动到endOffset
+  const progress = Math.abs(imageTransitionOffset.value) / 100
+  const currentOffset = startOffset + (endOffset - startOffset) * progress
+
+  return {
+    transform: `translateX(${currentOffset}%)`,
+    transition: 'none' // 动画由JavaScript控制
+  }
+}
+
 const router = useRouter()
 
 const openTag = (tag: any) => {
@@ -569,15 +606,78 @@ const onBackdropClick = (event: MouseEvent) => {
 }
 
 const prev = () => {
-  if (!props.photos?.length) return
-  currentIndex.value = (currentIndex.value - 1 + props.photos.length) % props.photos.length
-  // 切换照片时保持用户的全局偏好设置
+  if (!props.photos?.length || isImageTransitioning.value) return
+
+  // 如果正在触摸滑动中，设置等待切换方向
+  if (isDragging.value && scale.value === 1) {
+    pendingTransitionDirection.value = 'prev'
+    return
+  }
+
+  animateImageTransition('prev')
 }
 
 const next = () => {
-  if (!props.photos?.length) return
-  currentIndex.value = (currentIndex.value + 1) % props.photos.length
-  // 切换照片时保持用户的全局偏好设置
+  if (!props.photos?.length || isImageTransitioning.value) return
+
+  // 如果正在触摸滑动中，设置等待切换方向
+  if (isDragging.value && scale.value === 1) {
+    pendingTransitionDirection.value = 'next'
+    return
+  }
+
+  animateImageTransition('next')
+}
+
+// 带动画的图片切换
+const animateImageTransition = (direction: 'prev' | 'next') => {
+  if (isImageTransitioning.value) return
+
+  isImageTransitioning.value = true
+
+  // 记录当前的图片索引（动画过程中保持不变）
+  const currentIndexDuringAnimation = currentIndex.value
+
+  // 计算下一张图片的索引
+  const nextIndex = direction === 'next'
+    ? (currentIndexDuringAnimation + 1) % props.photos.length
+    : (currentIndexDuringAnimation - 1 + props.photos.length) % props.photos.length
+
+  // 设置过渡图片（新图片）和方向
+  transitioningPhoto.value = props.photos[nextIndex]
+  transitionDirection.value = direction === 'next' ? 'right' : 'left'
+
+  const duration = 300 // 动画持续时间ms
+  const startTime = Date.now()
+
+  const animate = () => {
+    const elapsed = Date.now() - startTime
+    const progress = Math.min(elapsed / duration, 1)
+
+    // 使用ease-out缓动：先快后慢
+    const easeProgress = 1 - Math.pow(1 - progress, 3)
+
+    // 计算移动偏移
+    // next方向：当前图片向左移(-100%)，新图片从右边移到中间(100% -> 0%)
+    // prev方向：当前图片向右移(+100%)，新图片从左边移到中间(-100% -> 0%)
+    const moveOffset = direction === 'next' ? -100 * easeProgress : 100 * easeProgress
+    imageTransitionOffset.value = moveOffset
+
+    if (progress < 1) {
+      requestAnimationFrame(animate)
+    } else {
+      // 动画完成，实际切换图片索引
+      currentIndex.value = nextIndex
+
+      // 重置状态
+      imageTransitionOffset.value = 0
+      transitioningPhoto.value = null
+      transitionDirection.value = null
+      isImageTransitioning.value = false
+    }
+  }
+
+  animate()
 }
 
 const jump = (idx: number) => {
@@ -713,7 +813,7 @@ const onWheelZoom = (e: WheelEvent) => {
 // 触摸缩放和拖拽
 const onTouchStartZoom = (e: TouchEvent) => {
   if (e.touches.length === 1) {
-    // 单指：准备拖拽
+    // 单指：准备拖拽或图片切换
     isDragging.value = true
     dragStart.value = {
       x: e.touches[0].clientX,
@@ -722,6 +822,16 @@ const onTouchStartZoom = (e: TouchEvent) => {
       translateY: translateY.value
     }
     touchStartX.value = e.touches[0].clientX
+
+    // 如果未缩放，准备图片滑动切换
+    if (scale.value === 1) {
+      imageTransitionOffset.value = 0
+      pendingTransitionDirection.value = null
+      // 预设两张图片，让用户能看到切换预览
+      const prevIndex = (currentIndex.value - 1 + props.photos.length) % props.photos.length
+      const nextIndex = (currentIndex.value + 1) % props.photos.length
+      // 这里暂时不设置transitioningPhoto，等待用户实际滑动再设置
+    }
   } else if (e.touches.length === 2) {
     // 双指：准备缩放
     isPinching.value = true
@@ -738,14 +848,47 @@ const onTouchStartZoom = (e: TouchEvent) => {
 
 const onTouchMoveZoom = (e: TouchEvent) => {
   e.preventDefault()
-  
-  if (e.touches.length === 1 && isDragging.value && scale.value > 1) {
-    // 单指拖拽（仅在缩放后）
-    const dx = e.touches[0].clientX - dragStart.value.x
-    const dy = e.touches[0].clientY - dragStart.value.y
-    translateX.value = dragStart.value.translateX + dx
-    translateY.value = dragStart.value.translateY + dy
-    constrainTranslation()
+
+  if (e.touches.length === 1 && isDragging.value) {
+    if (scale.value > 1) {
+      // 单指拖拽（仅在缩放后）
+      const dx = e.touches[0].clientX - dragStart.value.x
+      const dy = e.touches[0].clientY - dragStart.value.y
+      translateX.value = dragStart.value.translateX + dx
+      translateY.value = dragStart.value.translateY + dy
+      constrainTranslation()
+    } else {
+      // 未缩放时，图片跟随手指滑动
+      const dx = e.touches[0].clientX - touchStartX.value
+      const container = imageContainer.value
+      if (container) {
+        const containerWidth = container.clientWidth
+        const maxOffset = containerWidth * 0.5 // 最大滑动距离
+
+        // 根据滑动方向设置过渡图片
+        if (Math.abs(dx) > 5) { // 很小的移动就开始显示过渡图片
+          const direction = dx > 0 ? 'prev' : 'next'
+          const nextIndex = direction === 'next'
+            ? (currentIndex.value + 1) % props.photos.length
+            : (currentIndex.value - 1 + props.photos.length) % props.photos.length
+
+          // 如果还没有设置过渡图片，设置它
+          if (!transitioningPhoto.value) {
+            transitioningPhoto.value = props.photos[nextIndex]
+            transitionDirection.value = direction === 'next' ? 'right' : 'left'
+            pendingTransitionDirection.value = direction
+          }
+
+          // 计算两张图片的移动距离
+          // 手指滑动距离转换为图片移动距离，使用一定的阻尼效果
+          const moveRatio = 0.7 // 阻尼系数，让图片移动比手指慢一些
+          const moveDistance = dx * moveRatio
+
+          // 限制移动范围
+          imageTransitionOffset.value = Math.max(-maxOffset, Math.min(maxOffset, moveDistance))
+        }
+      }
+    }
   } else if (e.touches.length === 2 && isPinching.value) {
     // 双指缩放
     const touch1 = e.touches[0]
@@ -767,12 +910,20 @@ const onTouchMoveZoom = (e: TouchEvent) => {
 const onTouchEndZoom = (e: TouchEvent) => {
   if (e.touches.length === 0) {
     // 所有手指抬起
-    if (isDragging.value && scale.value === 1) {
-      // 如果未缩放，检查是否是滑动切换图片
-      const dx = e.changedTouches[0].clientX - touchStartX.value
-      if (Math.abs(dx) > 40) {
-        if (dx > 0) prev()
-        else next()
+    if (isDragging.value && scale.value === 1 && transitioningPhoto.value) {
+      // 如果未缩放且有过渡图片，处理滑动切换
+      const container = imageContainer.value
+      if (container) {
+        const threshold = container.clientWidth * 0.25 // 25%的容器宽度作为切换阈值
+
+        if (Math.abs(imageTransitionOffset.value) > threshold) {
+          // 滑动距离足够，完成切换
+          const direction = imageTransitionOffset.value > 0 ? 'prev' : 'next'
+          animateImageTransition(direction)
+        } else {
+          // 滑动距离不够，回到原位
+          animateImageReset()
+        }
       }
     }
     isDragging.value = false
@@ -788,6 +939,36 @@ const onTouchEndZoom = (e: TouchEvent) => {
       translateY: translateY.value
     }
   }
+}
+
+// 图片重置动画（回到原位）
+const animateImageReset = () => {
+  if (imageTransitionOffset.value === 0) return
+
+  const startOffset = imageTransitionOffset.value
+  const duration = 300 // 动画持续时间ms
+  const startTime = Date.now()
+
+  const animate = () => {
+    const elapsed = Date.now() - startTime
+    const progress = Math.min(elapsed / duration, 1)
+
+    // 使用弹性缓动效果
+    const easeProgress = 1 - Math.pow(1 - progress, 4)
+
+    imageTransitionOffset.value = startOffset * (1 - easeProgress)
+
+    if (progress < 1) {
+      requestAnimationFrame(animate)
+    } else {
+      imageTransitionOffset.value = 0
+      transitioningPhoto.value = null
+      transitionDirection.value = null
+      pendingTransitionDirection.value = null
+    }
+  }
+
+  animate()
 }
 
 const getTouchDistance = (touch1: Touch, touch2: Touch) => {
@@ -1085,12 +1266,14 @@ const visibleFaceList = computed(() => {
 
 // 双击缩放
 const onDoubleClick = (e: MouseEvent) => {
+  if (!mainImage.value || !imageContainer.value) return
+
   if (scale.value > 1) {
-    // 如果已缩放，重置
-    resetZoom()
+    // 如果已缩放，重置到原始大小
+    animateZoomToFit(1)
   } else {
-    // 否则放大到2倍
-    zoomAtPoint(e.clientX, e.clientY, 1)
+    // 放大到2倍，以点击位置为中心
+    animateZoomToPoint(2, e.clientX, e.clientY)
   }
 }
 
@@ -1143,9 +1326,95 @@ const constrainTranslation = () => {
 
 // 重置缩放
 const resetZoom = () => {
-  scale.value = 1
-  translateX.value = 0
-  translateY.value = 0
+  animateZoomToFit(1)
+}
+
+// 缩放到适合大小（重置）
+const animateZoomToFit = (targetScale: number) => {
+  const duration = 200 // 动画持续时间ms，加快到200ms
+  const startTime = Date.now()
+  const startScale = scale.value
+  const startTranslateX = translateX.value
+  const startTranslateY = translateY.value
+
+  const animate = () => {
+    const elapsed = Date.now() - startTime
+    const progress = Math.min(elapsed / duration, 1)
+
+    // 使用ease-in缓动：由快到慢
+    const easeProgress = progress * progress // ease-in quadratic
+
+    scale.value = startScale + (targetScale - startScale) * easeProgress
+    translateX.value = startTranslateX + (0 - startTranslateX) * easeProgress
+    translateY.value = startTranslateY + (0 - startTranslateY) * easeProgress
+
+    if (progress >= 1) {
+      constrainTranslation() // 动画结束后再约束位置
+    }
+
+    if (progress < 1) {
+      requestAnimationFrame(animate)
+    }
+  }
+
+  animate()
+}
+
+// 以指定点为中心的缩放动画
+const animateZoomToPoint = (targetScale: number, clientX: number, clientY: number) => {
+  if (!mainImage.value || !imageContainer.value) return
+
+  const container = imageContainer.value
+  const containerRect = container.getBoundingClientRect()
+
+  // 计算点击位置相对于容器的坐标
+  const clickX = clientX - containerRect.left
+  const clickY = clientY - containerRect.top
+
+  // 计算容器的中心点
+  const centerX = containerRect.width / 2
+  const centerY = containerRect.height / 2
+
+  // 当前状态：图片中心在容器中的位置
+  const currentCenterX = centerX + translateX.value
+  const currentCenterY = centerY + translateY.value
+
+  // 计算点击点相对于当前图片中心的偏移
+  const offsetX = clickX - currentCenterX
+  const offsetY = clickY - currentCenterY
+
+  // 计算目标状态：点击点应该成为新的图片中心
+  // 所以新的translate应该使点击点移动到容器中心
+  const targetTranslateX = centerX - clickX
+  const targetTranslateY = centerY - clickY
+
+  const duration = 200 // 动画持续时间ms，加快到200ms
+  const startTime = Date.now()
+  const startScale = scale.value
+  const startTranslateX = translateX.value
+  const startTranslateY = translateY.value
+
+  const animate = () => {
+    const elapsed = Date.now() - startTime
+    const progress = Math.min(elapsed / duration, 1)
+
+    // 使用ease-in缓动：由快到慢
+    const easeProgress = progress * progress // ease-in quadratic
+
+    scale.value = startScale + (targetScale - startScale) * easeProgress
+    translateX.value = startTranslateX + (targetTranslateX - startTranslateX) * easeProgress
+    translateY.value = startTranslateY + (targetTranslateY - startTranslateY) * easeProgress
+
+    if (progress >= 1) {
+      constrainTranslation() // 动画结束后再约束位置
+    }
+
+    if (progress < 1) {
+      requestAnimationFrame(animate)
+    }
+  }
+
+  animate()
 }
 
 // 获取图片样式（确保 object-contain 正确工作）
@@ -1186,27 +1455,47 @@ const getImageStyle = (): Record<string, string> => {
 
 // 获取图片变换样式
 const getImageTransformStyle = () => {
+  const baseTransform = `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`
+
+  // 在图片切换动画过程中，当前图片保持不动
+  if (isImageTransitioning.value) {
+    return {
+      transform: baseTransform,
+      transformOrigin: 'center center',
+      transition: 'none' // 动画由JavaScript控制
+    }
+  }
+
   return {
-    transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
-    transformOrigin: 'center center'
+    transform: baseTransform,
+    transformOrigin: 'center center',
+    transition: 'transform 0.3s ease-out'
   }
 }
 
 watch(
   () => currentIndex.value,
   () => {
-    scrollThumbIntoView()
-    // 图片切换时重置状态，等待新图片加载
-    imageSize.value = { width: 0, height: 0 }
-    imageLoaded.value = false
-    // 重置缩放
-    resetZoom()
-    // notify parent about index change so parent can sync selection/scroll in list
-    emit('viewer-index-change', {
-      index: currentIndex.value,
-      photoId: currentPhoto.value?.id,
-      faceIds: currentPhoto.value?.faces?.map((f: any) => f.id) || []
-    })
+    // 只有在非动画状态下才执行这些操作
+    if (!isImageTransitioning.value) {
+      scrollThumbIntoView()
+      // 图片切换时重置状态，等待新图片加载
+      imageSize.value = { width: 0, height: 0 }
+      imageLoaded.value = false
+      // 重置缩放
+      resetZoom()
+      // 重置图片切换动画状态
+      imageTransitionOffset.value = 0
+      transitioningPhoto.value = null
+      transitionDirection.value = null
+      pendingTransitionDirection.value = null
+      // notify parent about index change so parent can sync selection/scroll in list
+      emit('viewer-index-change', {
+        index: currentIndex.value,
+        photoId: currentPhoto.value?.id,
+        faceIds: currentPhoto.value?.faces?.map((f: any) => f.id) || []
+      })
+    }
     // 图片加载完成后会自动调用 onImageLoad
   }
 )
