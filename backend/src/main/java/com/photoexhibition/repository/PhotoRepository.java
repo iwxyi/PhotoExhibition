@@ -1,6 +1,7 @@
 package com.photoexhibition.repository;
 
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.ProcessingStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -122,5 +123,41 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      */
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.albumId = :albumId AND p.updatedAt > :since")
     Long countPhotosUpdatedAfter(@Param("albumId") Long albumId, @Param("since") java.time.LocalDateTime since);
+
+    /**
+     * 查找处理失败的照片
+     */
+    @Query("SELECT p FROM Photo p WHERE p.processingStatus = 'FAILED'")
+    List<Photo> findFailedPhotos();
+
+    /**
+     * 查找未完成处理的照片（不包括失败的）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.processingStatus != 'COMPLETED' AND p.processingStatus != 'FAILED'")
+    List<Photo> findIncompletePhotos();
+
+    /**
+     * 查找需要重新处理的照片（包括失败的和未完成的）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.processingStatus != 'COMPLETED'")
+    List<Photo> findPhotosNeedingReprocessing();
+
+    /**
+     * 统计处理失败的照片数量
+     */
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus = 'FAILED'")
+    Long countFailedPhotos();
+
+    /**
+     * 统计未完成处理的照片数量
+     */
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus != 'COMPLETED' AND p.processingStatus != 'FAILED'")
+    Long countIncompletePhotos();
+
+    /**
+     * 统计指定处理状态的照片数量
+     */
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus = :status")
+    Long countPhotosByProcessingStatus(@Param("status") ProcessingStatus status);
 }
 

@@ -77,6 +77,14 @@ public class AdminController {
     }
 
     /**
+     * 分析未扫描的文件
+     */
+    @GetMapping("/scan/analyze-unscanned")
+    public ResponseEntity<Map<String, Object>> analyzeUnscannedFiles() {
+        return ResponseEntity.ok(photoScanService.analyzeUnscannedFiles());
+    }
+
+    /**
      * 重建单张图片的人脸数据
      */
     @PostMapping("/photos/{id}/rescan-faces")

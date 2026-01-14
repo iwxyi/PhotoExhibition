@@ -171,6 +171,7 @@
               <option value="POST /admin/photos/update-times">更新照片时间（异步，重新从EXIF和路径提取拍摄时间）</option>
               <option value="POST /admin/photos/update-times-sync">更新照片时间（同步，重新从EXIF和路径提取拍摄时间）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
+              <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
             </select>
           </div>

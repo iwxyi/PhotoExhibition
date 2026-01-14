@@ -9,6 +9,7 @@ import com.drew.metadata.exif.ExifSubIFDDirectory;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.ProcessingStatus;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
@@ -40,6 +41,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.lang.UnsatisfiedLinkError;
@@ -116,6 +118,7 @@ public class PhotoScanService {
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
     private final AtomicInteger scanCurrent = new AtomicInteger(0);
     private final AtomicInteger scanTotal = new AtomicInteger(0);
+    private final Set<String> processedFiles = ConcurrentHashMap.newKeySet(); // 跟踪已处理的文件的路径
     private volatile LocalDateTime lastScanStart = null;
     private volatile LocalDateTime lastScanEnd = null;
 
@@ -151,6 +154,31 @@ public class PhotoScanService {
     public void onShutdown() {
         isShuttingDown.set(true);
         log.info("扫描服务正在关闭，停止所有异步任务");
+    }
+
+    /**
+     * 初始化现有照片的处理状态
+     */
+    @Async
+    public void initializeProcessingStatusAsync() {
+        try {
+            List<Photo> photos = photoRepository.findAll();
+            log.info("开始初始化照片处理状态，总计 {} 张", photos.size());
+            int updatedCount = 0;
+
+            for (Photo photo : photos) {
+                if (photo.getProcessingStatus() == ProcessingStatus.PENDING) {
+                    // 对于没有处理状态的照片，假设它们已经完成处理
+                    photo.setProcessingStatus(ProcessingStatus.COMPLETED);
+                    photoRepository.save(photo);
+                    updatedCount++;
+                }
+            }
+
+            log.info("初始化照片处理状态完成，更新了 {} 张照片", updatedCount);
+        } catch (Exception e) {
+            log.error("初始化照片处理状态失败", e);
+        }
     }
 
     /**
@@ -203,6 +231,233 @@ public class PhotoScanService {
     }
     
     /**
+     * 处理所有未完成的照片（优先处理）
+     * @return 处理的照片数量
+     */
+    private int processIncompletePhotosFirst() {
+        try {
+            List<Photo> incompletePhotos = photoRepository.findPhotosNeedingReprocessing();
+            if (incompletePhotos.isEmpty()) {
+                return 0;
+            }
+
+            log.info("优先处理 {} 张未完成的照片", incompletePhotos.size());
+
+            int processedCount = 0;
+            int successCount = 0;
+            int failCount = 0;
+
+            for (Photo photo : incompletePhotos) {
+                try {
+                    // 检查文件是否存在
+                    if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
+                        log.warn("照片 {} 没有原始路径，跳过", photo.getId());
+                        continue;
+                    }
+
+                    File imageFile = new File(photo.getOriginalPath());
+                    if (!imageFile.exists()) {
+                        log.warn("照片文件不存在: {}", photo.getOriginalPath());
+                        // 标记为失败，但不删除记录（文件可能被移动）
+                        photo.setProcessingStatus(ProcessingStatus.FAILED);
+                        photo.addProcessingError("文件不存在");
+                        photoRepository.save(photo);
+                        failCount++;
+                        continue;
+                    }
+
+                    // 获取相册信息
+                    Album album = albumRepository.findById(photo.getAlbumId()).orElse(null);
+                    if (album == null) {
+                        log.warn("照片 {} 的相册不存在，跳过", photo.getId());
+                        continue;
+                    }
+
+                    // 重新处理照片
+                    boolean foundByContentHash = photo.getContentHash() != null &&
+                                               photoRepository.findByContentHash(photo.getContentHash())
+                                                   .filter(p -> !p.getId().equals(photo.getId()))
+                                                   .isPresent();
+
+                    processPhotoStepByStep(imageFile, photo, album, photo.getContentHash(),
+                                         photo.getPathHash(), false, true, foundByContentHash);
+
+                    if (photo.getProcessingStatus() == ProcessingStatus.COMPLETED) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+
+                    processedCount++;
+
+                    // 每处理50张照片记录一次日志
+                    if (processedCount % 50 == 0) {
+                        log.info("已优先处理未完成照片: {}/{}", processedCount, incompletePhotos.size());
+                    }
+
+                } catch (Exception e) {
+                    failCount++;
+                    log.error("优先处理未完成照片失败: photoId={}, error={}", photo.getId(), e.getMessage());
+                }
+            }
+
+            log.info("优先处理未完成照片完成 - 总计: {} 张，成功: {} 张，失败: {} 张",
+                    processedCount, successCount, failCount);
+
+            return processedCount;
+        } catch (Exception e) {
+            log.error("优先处理未完成照片时发生错误", e);
+            return 0;
+        }
+    }
+
+    /**
+     * 统计文件系统中实际存在的照片数量
+     */
+    private long countPhotosInFilesystem() {
+        try {
+            Path basePath = resolveBasePath();
+            if (!Files.exists(basePath) || !Files.isDirectory(basePath)) {
+                return 0;
+            }
+
+            Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .collect(Collectors.toSet());
+
+            try (Stream<Path> paths = Files.walk(basePath)) {
+                return paths
+                    .filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        if (name.contains("_thumb")) return false;
+                        Path parent = p.getParent();
+                        if (parent != null && parent.getFileName().toString().equals(".thumbnails")) return false;
+                        String ext = FilenameUtils.getExtension(name).toLowerCase();
+                        return supportedSet.contains(ext);
+                    })
+                    .count();
+            }
+        } catch (Exception e) {
+            log.warn("统计文件系统照片数量失败", e);
+            return 0;
+        }
+    }
+
+    /**
+     * 分析未扫描的文件
+     */
+    public Map<String, Object> analyzeUnscannedFiles() {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            long filesystemTotal = countPhotosInFilesystem();
+            long databaseTotal = photoRepository.count();
+
+            result.put("filesystemTotal", filesystemTotal);
+            result.put("databaseTotal", databaseTotal);
+            result.put("unscanned", filesystemTotal - databaseTotal);
+
+            // 如果有未扫描的文件，尝试找出原因
+            if (filesystemTotal > databaseTotal) {
+                result.put("analysis", analyzeScanGaps());
+            }
+
+            result.put("success", true);
+        } catch (Exception e) {
+            log.error("分析未扫描文件失败", e);
+            result.put("success", false);
+            result.put("error", e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 分析扫描差距的原因
+     */
+    private Map<String, Object> analyzeScanGaps() {
+        Map<String, Object> analysis = new HashMap<>();
+
+        try {
+            // 获取文件系统中的所有照片路径
+            Set<String> filesystemPaths = getAllFilesystemPhotoPaths();
+
+            // 获取数据库中的所有照片路径
+            List<Photo> allPhotos = photoRepository.findAll();
+            Set<String> databasePaths = allPhotos.stream()
+                .map(Photo::getOriginalPath)
+                .collect(Collectors.toSet());
+
+            // 找出未扫描的文件
+            Set<String> unscannedPaths = new HashSet<>(filesystemPaths);
+            unscannedPaths.removeAll(databasePaths);
+
+            analysis.put("unscannedPaths", unscannedPaths);
+            analysis.put("unscannedCount", unscannedPaths.size());
+
+            // 分析未扫描文件的原因
+            Map<String, Integer> reasons = new HashMap<>();
+            for (String path : unscannedPaths) {
+                File file = new File(path);
+                if (!file.exists()) {
+                    reasons.put("文件不存在", reasons.getOrDefault("文件不存在", 0) + 1);
+                } else if (!file.canRead()) {
+                    reasons.put("无读取权限", reasons.getOrDefault("无读取权限", 0) + 1);
+                } else {
+                    reasons.put("其他原因", reasons.getOrDefault("其他原因", 0) + 1);
+                }
+            }
+
+            analysis.put("reasons", reasons);
+
+        } catch (Exception e) {
+            log.error("分析扫描差距失败", e);
+            analysis.put("error", e.getMessage());
+        }
+
+        return analysis;
+    }
+
+    /**
+     * 获取文件系统中所有照片的路径
+     */
+    private Set<String> getAllFilesystemPhotoPaths() {
+        Set<String> paths = new HashSet<>();
+
+        try {
+            Path basePath = resolveBasePath();
+            if (!Files.exists(basePath) || !Files.isDirectory(basePath)) {
+                return paths;
+            }
+
+            Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .collect(Collectors.toSet());
+
+            try (Stream<Path> stream = Files.walk(basePath)) {
+                stream.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        if (name.contains("_thumb")) return false;
+                        Path parent = p.getParent();
+                        if (parent != null && parent.getFileName().toString().equals(".thumbnails")) return false;
+                        String ext = FilenameUtils.getExtension(name).toLowerCase();
+                        return supportedSet.contains(ext);
+                    })
+                    .map(Path::toString)
+                    .forEach(paths::add);
+            }
+        } catch (Exception e) {
+            log.error("获取文件系统照片路径失败", e);
+        }
+
+        return paths;
+    }
+
+    /**
      * 异步触发扫描，避免阻塞接口
      */
     @Async
@@ -225,6 +480,12 @@ public class PhotoScanService {
     public void init() {
         log.info("扫描服务初始化: {}", basePath);
 
+        // 初始化现有照片的处理状态
+        initializeProcessingStatusAsync();
+
+        // 检查是否有需要重新处理的照片
+        checkAndRetryIncompletePhotos();
+
         // 检查是否需要初始化扫描：如果数据库中没有任何相册，则执行一次扫描
         try {
             long albumCount = albumRepository.count();
@@ -236,6 +497,35 @@ public class PhotoScanService {
             }
         } catch (Exception e) {
             log.warn("检查相册数量失败，跳过初始化扫描", e);
+        }
+    }
+
+    /**
+     * 检查并重试未完成的照片处理
+     */
+    private void checkAndRetryIncompletePhotos() {
+        try {
+            long failedCount = photoRepository.countFailedPhotos();
+            long incompleteCount = photoRepository.countIncompletePhotos();
+
+            if (failedCount > 0 || incompleteCount > 0) {
+                log.info("发现需要重新处理的照片 - 失败: {} 张，未完成: {} 张", failedCount, incompleteCount);
+
+                // 如果有失败的照片，启动重试任务
+                if (failedCount > 0) {
+                    log.info("启动失败照片重试任务");
+                    retryFailedPhotosAsync();
+                }
+
+                // 如果有未完成的照片，在下次扫描时会自动处理
+                if (incompleteCount > 0) {
+                    log.info("发现 {} 张未完成的照片，将在下次扫描时继续处理", incompleteCount);
+                }
+            } else {
+                log.info("所有照片处理状态正常");
+            }
+        } catch (Exception e) {
+            log.warn("检查未完成照片失败", e);
         }
     }
 
@@ -313,18 +603,145 @@ public class PhotoScanService {
         Map<String, Object> status = new HashMap<>();
         status.put("scanning", isScanning.get() || activeScanCount.get() > 0);
 
-        // 确保current不会超过total（处理递归处理导致的计数问题）
-        int current = scanCurrent.get();
-        int total = scanTotal.get();
-        if (current > total && total > 0) {
-            current = total;
+        // 处理并发扫描情况：如果有多个扫描在进行，显示并发状态，不显示进度
+        if (activeScanCount.get() > 1) {
+            status.put("concurrent", true);
+            status.put("activeScanCount", activeScanCount.get());
+            status.put("current", 0);
+            status.put("total", 0);
+            status.put("scanMode", "concurrent");
+            return status; // 并发扫描时不进行后续统计
+        } else {
+            status.put("concurrent", false);
         }
 
-        status.put("current", current);
-        status.put("total", total);
         status.put("lastScanStart", lastScanStart);
         status.put("lastScanEnd", lastScanEnd);
+
+        // 添加处理状态统计和文件系统统计
+        try {
+            long totalPhotos = photoRepository.count();
+            long failedCount = photoRepository.countFailedPhotos();
+            long completedCount = photoRepository.countPhotosByProcessingStatus(ProcessingStatus.COMPLETED);
+            long incompleteCount = totalPhotos - failedCount - completedCount;
+
+            // 确保计数不为负数（处理可能的计算误差）
+            incompleteCount = Math.max(0, incompleteCount);
+
+            status.put("processingStats", Map.of(
+                "total", totalPhotos,
+                "failed", failedCount,
+                "incomplete", incompleteCount,
+                "completed", completedCount
+            ));
+
+            // 添加文件系统中的实际照片数量统计，并设置扫描进度
+            try {
+                long filesystemTotal = countPhotosInFilesystem();
+
+                // 根据扫描状态设置进度显示
+                boolean isCurrentlyScanning = isScanning.get() || activeScanCount.get() > 0;
+                if (isCurrentlyScanning) {
+                    // 扫描进行中：显示本次遍历的照片数量 / 文件系统总照片数量
+                    int traversedThisScan = scanCurrent.get();  // 本次扫描已遍历的照片数量
+                    status.put("current", traversedThisScan);
+                    status.put("total", filesystemTotal);
+                    status.put("scanMode", "scanning"); // 表示正在扫描文件
+                    log.debug("扫描进度返回: 已遍历 {} / 总共 {}", traversedThisScan, filesystemTotal);
+                } else {
+                    // 扫描未进行：显示已扫描数量 / 总的照片数量
+                    status.put("current", totalPhotos);  // 已扫描数量（数据库中的照片）
+                    status.put("total", filesystemTotal); // 总的照片数量（文件系统中的照片）
+                    status.put("scanMode", "completed"); // 表示扫描已完成
+                }
+
+                status.put("filesystemStats", Map.of(
+                    "total", filesystemTotal,
+                    "scanned", totalPhotos,
+                    "unscanned", Math.max(0, filesystemTotal - totalPhotos)
+                ));
+            } catch (Exception e) {
+                log.debug("统计文件系统照片数量失败", e);
+                // 如果无法获取文件系统统计，则使用数据库统计作为fallback
+                status.put("current", totalPhotos);
+                status.put("total", totalPhotos); // fallback：已扫描数量作为总数
+                status.put("scanMode", "fallback");
+                status.put("filesystemStats", Map.of("error", "无法获取文件系统统计"));
+            }
+        } catch (Exception e) {
+            log.warn("获取处理状态统计失败", e);
+            status.put("processingStats", Map.of("error", "无法获取统计信息"));
+        }
+
         return status;
+    }
+
+    /**
+     * 重试所有失败的照片处理
+     */
+    @Async
+    @Transactional
+    public void retryFailedPhotosAsync() {
+        log.info("开始重试失败的照片处理");
+        try {
+            List<Photo> failedPhotos = photoRepository.findFailedPhotos();
+            log.info("发现 {} 张处理失败的照片", failedPhotos.size());
+
+            int retrySuccessCount = 0;
+            int retryFailCount = 0;
+
+            for (Photo photo : failedPhotos) {
+                try {
+                    // 重置处理状态为待处理
+                    photo.setProcessingStatus(ProcessingStatus.PENDING);
+                    photo.setProcessingErrors(null); // 清除之前的错误信息
+
+                    // 获取文件路径
+                    if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
+                        log.warn("照片 {} 没有原始路径，跳过重试", photo.getId());
+                        continue;
+                    }
+
+                    File imageFile = new File(photo.getOriginalPath());
+                    if (!imageFile.exists()) {
+                        log.warn("照片文件不存在，标记为失败: {}", photo.getOriginalPath());
+                        photo.setProcessingStatus(ProcessingStatus.FAILED);
+                        photo.addProcessingError("文件不存在");
+                        photoRepository.save(photo);
+                        retryFailCount++;
+                        continue;
+                    }
+
+                    // 获取相册信息
+                    Album album = albumRepository.findById(photo.getAlbumId()).orElse(null);
+                    if (album == null) {
+                        log.warn("照片 {} 的相册不存在，跳过重试", photo.getId());
+                        continue;
+                    }
+
+                    // 重新处理照片（强制处理）
+                    processPhotoStepByStep(imageFile, photo, album, photo.getContentHash(),
+                                         photo.getPathHash(), true, true, false);
+
+                    if (photo.getProcessingStatus() == ProcessingStatus.COMPLETED) {
+                        retrySuccessCount++;
+                        log.info("重试成功: {}", photo.getOriginalPath());
+                    } else {
+                        retryFailCount++;
+                        log.warn("重试仍然失败: {}", photo.getOriginalPath());
+                    }
+
+                } catch (Exception e) {
+                    retryFailCount++;
+                    log.error("重试照片处理失败: photoId={}, error={}", photo.getId(), e.getMessage());
+                }
+            }
+
+            log.info("重试完成，成功: {} 张，失败: {} 张", retrySuccessCount, retryFailCount);
+
+        } catch (Exception e) {
+            log.error("重试失败的照片处理任务失败", e);
+        }
     }
 
     /**
@@ -447,10 +864,17 @@ public class PhotoScanService {
         }
         activeScanCount.incrementAndGet();
         try {
-            isScanning.set(true);
-            scanCurrent.set(0);
-            scanTotal.set(0);
-            lastScanStart = LocalDateTime.now();
+            // 只有在没有其他扫描进行时才重置计数器和设置扫描状态
+            if (activeScanCount.get() == 1) {
+                isScanning.set(true);
+                scanCurrent.set(0);
+                scanTotal.set(0);
+                lastScanStart = LocalDateTime.now();
+            } else {
+                // 如果有并发扫描，为了避免计数混乱，我们不显示进度
+                // 或者可以为每个扫描任务分配独立的计数器
+                log.warn("检测到并发扫描 (activeScanCount={}), 进度显示可能不准确", activeScanCount.get());
+            }
 
             Path path;
             if (directoryPath == null || directoryPath.isEmpty() || directoryPath.equals(basePath)) {
@@ -503,6 +927,26 @@ public class PhotoScanService {
                 throw new IllegalArgumentException("路径不是文件夹: " + path);
             }
 
+            // 在扫描目录之前，先处理所有未完成的照片
+            int preProcessedCount = 0;
+            if (!force) {
+                preProcessedCount = processIncompletePhotosFirst();
+            }
+
+            // 预统计所有要扫描的文件总数
+            long totalFilesToScan = countPhotosInFilesystem();
+            log.info("文件系统统计结果: {} 张照片", totalFilesToScan);
+            log.info("本次扫描将处理 {} 张照片", totalFilesToScan);
+
+            // 重置扫描计数器，为扫描做准备
+            // 注意：只有在没有并发扫描时才重置，避免干扰其他扫描的进度
+            if (activeScanCount.get() == 1) {
+                scanCurrent.set(0);  // 从0开始计数已遍历的文件
+                scanTotal.set((int) totalFilesToScan);    // 设置总数，不限制上限
+                processedFiles.clear();  // 清空已处理文件跟踪
+                log.info("设置扫描总数: {}", totalFilesToScan);
+            }
+
             // 预统计总数用于进度显示
             // 注意：这里统计所有文件，包括可能被递归处理的超过层级的目录中的文件
             try (Stream<Path> paths = Files.walk(path)) {
@@ -521,11 +965,24 @@ public class PhotoScanService {
                         return supportedSet.contains(ext);
                     })
                     .count();
-                scanTotal.set(total);
-                log.info("预统计待扫描图片数量: {}", total);
+
+                // 如果是第一个扫描任务（没有并发），重置计数器
+                // 如果有并发，累积计数器（但这可能导致进度混乱）
+                if (activeScanCount.get() == 1) {
+                    scanTotal.set(total + preProcessedCount);
+                    scanCurrent.set(preProcessedCount); // 从优先处理的进度开始
+                } else {
+                    // 并发情况下，累积总数，但这可能不准确
+                    scanTotal.addAndGet(total);
+                }
+
+                log.info("预统计待扫描图片数量: {} (已优先处理: {})", total, preProcessedCount);
             } catch (Exception e) {
                 log.warn("统计待扫描图片数量失败: {}", e.getMessage());
-                scanTotal.set(0);
+                if (activeScanCount.get() == 1) {
+                    scanTotal.set(preProcessedCount);
+                    scanCurrent.set(preProcessedCount);
+                }
             }
 
             // 扫描所有子文件夹，跳过.thumbnails目录
@@ -648,20 +1105,36 @@ public class PhotoScanService {
             // 扫描目录中的图片文件
             List<File> imageFiles = findImageFiles(albumPath.toFile());
             String albumRelativePath = toRelativePath(album.getPath());
+
+            // 检查是否已经处理过这个相册目录
+            String albumKey = albumPath.toString() + "/";
+            log.info("处理相册目录: {} (key: {}, 已处理目录数: {})", albumRelativePath, albumKey, processedFiles.size());
+
+            if (processedFiles.contains(albumKey)) {
+                log.warn("相册目录重复处理，跳过: {} (key: {})", albumRelativePath, albumKey);
+                return;
+            }
+            processedFiles.add(albumKey);
+
             log.info("相册 {}: {} 张图片", albumRelativePath, imageFiles.size());
 
+            int processedCount = 0;
+            int skippedCount = 0;
             for (File imageFile : imageFiles) {
-                processPhotoFile(imageFile, album, force);
-            }
-
-            // 如果当前目录的深度没有超过最大层级，则递归处理子目录
-            if (depth <= maxDepth) {
-                try (Stream<Path> subPaths = Files.list(albumPath)) {
-                    subPaths.filter(Files::isDirectory)
-                        .filter(p -> !p.getFileName().toString().equals(".thumbnails"))
-                        .forEach(p -> processAlbumDirectory(p, force, album));
+                try {
+                    processPhotoFile(imageFile, album, force);
+                    processedCount++;
+                } catch (Exception e) {
+                    log.warn("处理文件失败，跳过: {} - {}", imageFile.getName(), e.getMessage());
+                    skippedCount++;
                 }
             }
+
+            if (skippedCount > 0) {
+                log.warn("相册 {} 处理完成: 成功 {}, 跳过 {}", albumRelativePath, processedCount, skippedCount);
+            }
+
+            // 注意：子目录的处理由scanDirectoryInternal的Files.walk统一管理，这里不再递归处理
 
             // 更新相册照片数量
             album.setPhotoCount(photoRepository.countByAlbumId(album.getId()).intValue());
@@ -739,12 +1212,13 @@ public class PhotoScanService {
     }
 
     /**
-     * 处理单张图片
+     * 处理单张图片（支持断点续上）
      */
     @Transactional
     public void processPhotoFile(File imageFile, Album album, boolean force) {
         // 检查应用是否正在关闭
         if (isShuttingDown.get()) {
+            log.debug("应用关闭，跳过文件: {}", imageFile.getName());
             return;
         }
 
@@ -753,6 +1227,12 @@ public class PhotoScanService {
 
         // 添加文件处理锁，防止同一文件被并发处理
         synchronized (filePath.intern()) {
+            // 检查文件是否已经处理过，避免重复计数
+            if (processedFiles.contains(filePath)) {
+                log.debug("文件已处理过，跳过: {}", imageFile.getName());
+                return;
+            }
+
             try {
                 // 跳过.thumbnails目录下的文件
                 if (filePath.contains("/.thumbnails/") || filePath.contains("\\.thumbnails\\")) {
@@ -763,10 +1243,9 @@ public class PhotoScanService {
                 if (imageFile.getName().contains("_thumb")) {
                 return;
             }
-            
-            // 进度累加（进入处理流程即视为已处理一个文件）
-            scanCurrent.incrementAndGet();
-            
+
+            // 文件计数已在相册层面完成，这里不需要重复计数
+
             // 计算内容哈希（SHA-256）
             String contentHash = calculateSha256(imageFile);
 
@@ -782,11 +1261,27 @@ public class PhotoScanService {
 
             // 记录是否通过contentHash找到的（已存在且内容相同）
             boolean foundByContentHash = photoByHash.isPresent() && photo.getId() != null;
-            
-            if (!force && photo.getUpdatedAt() != null && imageFile.lastModified() <= photo.getUpdatedAt()
-                    .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()) {
-                // 文件未更新且非强制，跳过
-                return;
+
+            // 所有到达这里的照片都算已遍历（无论是否需要处理）
+            int previousCount = scanCurrent.get();
+            int currentCount = scanCurrent.incrementAndGet();
+
+            // 将文件标记为已处理，避免重复计数
+            processedFiles.add(filePath);
+
+            // 详细日志：记录每次增加的原因和当前进度
+            String reason = "遍历文件";
+            if (!force && photo.getId() != null && photo.canSkipProcessing(force)) {
+                reason = "跳过已处理文件";
+            } else {
+                reason = "处理新文件或强制处理";
+            }
+
+            log.info("当前进度: {} / {}", currentCount, scanTotal.get());
+
+            // 检查是否超过总数
+            if (currentCount > scanTotal.get()) {
+                log.warn("计数超出: current({}) > total({}), 文件: {}", currentCount, scanTotal.get(), imageFile.getName());
             }
 
             // 仅在实际处理时记录日志，输出相对路径
@@ -797,112 +1292,11 @@ public class PhotoScanService {
                 log.info("处理图片: {}", relativePath != null ? relativePath : filePath);
             }
 
-            // 设置哈希值（只有新创建的照片才设置，避免重复）
-            if (photo.getId() == null) {
-                // 新照片，设置所有哈希值
-            photo.setContentHash(contentHash);
-            photo.setPathHash(pathHash);
-            } else if (force || photo.getContentHash() == null || photo.getContentHash().isEmpty()) {
-                // 强制扫描或哈希值为空时，更新哈希值
-                photo.setContentHash(contentHash);
-                photo.setPathHash(pathHash);
-            }
-            photo.setAlbumId(album.getId());
-            photo.setFilename(imageFile.getName());
-            // 更新路径（即使照片被移动，Face仍然通过photo_id关联，不受影响）
-            photo.setOriginalPath(filePath);
-            photo.setFileSize(imageFile.length());
+            // 检查是否需要重新处理或继续处理（基于处理状态）
+            boolean needsReprocessing = photo.getId() == null || photo.needsContinuation(force);
 
-            // 确保相册标签已初始化，避免懒加载异常（带标签查询）
-            Album albumWithTags = albumRepository.findByIdWithTags(album.getId()).orElse(album);
-            if (albumWithTags.getTags() == null) {
-                albumWithTags.setTags(new ArrayList<>());
-            }
-            album = albumWithTags;
-
-            // 提取EXIF信息
-            extractExifData(imageFile, photo);
-
-            // 生成缩略图和WebP
-            generateThumbnailAndWebP(imageFile, photo);
-
-            // 检查并重新生成缺失的缩略图
-            regenerateMissingThumbnails(imageFile, photo);
-
-            // 分析色彩
-            colorAnalysisService.analyzeColor(imageFile, photo);
-
-            // 计算质量评分
-            calculateQualityScore(photo);
-
-            // 先保存一次，确保有ID用于人脸关联
-            photoRepository.save(photo);
-
-            // 人脸检测与保存（在主体检测之前，以便主体检测可以使用人脸信息）
-            // 如果通过contentHash找到照片且已有人脸数据，且非强制扫描，可以跳过人脸检测（复用已有数据）
-            List<Face> faces;
-            if (foundByContentHash && !force && photo.getId() != null) {
-                // 检查是否已有人脸数据
-                long existingFaceCount = faceService.getFaceCountByPhoto(photo.getId());
-                if (existingFaceCount > 0) {
-                    log.debug("照片已有人脸数据，跳过重新检测（photoId={}, faceCount={}）", photo.getId(), existingFaceCount);
-                    faces = faceService.getFacesByPhoto(photo.getId());
-                } else {
-                    // 虽然通过contentHash找到，但没有人脸数据，需要检测
-                    try {
-                        faces = faceService.detectAndSaveFaces(imageFile, photo, false);
-                    } catch (UnsatisfiedLinkError e) {
-                        log.warn("人脸检测服务不可用（缺少系统依赖库），跳过人脸检测: {}。请安装 Microsoft Visual C++ Redistributable 或相关依赖。", imageFile.getName());
-                        faces = new ArrayList<>();
-                    } catch (Exception e) {
-                        log.warn("人脸检测失败，使用简单方法: {}", imageFile.getName(), e);
-                        faces = new ArrayList<>();
-                    }
-                }
-            } else {
-                // 新照片或强制扫描，重新检测人脸
-                try {
-                    faces = faceService.detectAndSaveFaces(imageFile, photo, false);
-                } catch (UnsatisfiedLinkError e) {
-                    log.warn("人脸检测服务不可用（缺少系统依赖库），跳过人脸检测: {}。请安装 Microsoft Visual C++ Redistributable 或相关依赖。", imageFile.getName());
-                    faces = new ArrayList<>();
-                } catch (Exception e) {
-                    log.warn("人脸检测失败，使用简单方法: {}", imageFile.getName(), e);
-                    faces = new ArrayList<>();
-                }
-            }
-
-            // 检测主体位置（使用已检测的人脸信息）
-            try {
-                subjectDetectionService.detectSubject(imageFile, photo, faces);
-            } catch (Exception e) {
-                log.warn("检测主体位置失败: {}", imageFile.getName(), e);
-            }
-
-            // 合并相册标签到照片标签，便于搜索（复制一份避免懒加载问题）
-            List<Tag> albumTags = album.getTags() == null ? new ArrayList<>() : new ArrayList<>(album.getTags());
-            Set<String> albumTagNames = albumTags.stream()
-                .map(Tag::getName)
-                .collect(java.util.stream.Collectors.toSet());
-            
-            if (!albumTags.isEmpty()) {
-                if (photo.getTags() == null) {
-                    photo.setTags(new java.util.HashSet<>());
-                }
-                // 添加相册标签，避免重复
-                for (Tag albumTag : albumTags) {
-                    if (!photo.getTags().contains(albumTag)) {
-                        photo.getTags().add(albumTag);
-                    }
-                }
-            }
-
-            // 智能标签（含人脸信息）
-            // 强制扫描时，删除旧智能标签后重新生成；普通扫描时追加
-            // 传递相册标签名称，确保不会误删相册标签
-                smartTagService.applySmartTags(imageFile, photo, faces.size(), force, albumTagNames);
-
-                photoRepository.save(photo);
+            // 逐步处理每个步骤，支持断点续上
+            processPhotoStepByStep(imageFile, photo, album, contentHash, pathHash, force, needsReprocessing, foundByContentHash);
             } catch (IllegalStateException e) {
             // 应用关闭时的异常，静默处理
             if (e.getMessage() != null && e.getMessage().contains("关闭")) {
@@ -924,6 +1318,220 @@ public class PhotoScanService {
             }
         }
         } // end synchronized block
+    }
+
+    /**
+     * 逐步处理照片的各个步骤，支持断点续上
+     */
+    private void processPhotoStepByStep(File imageFile, Photo photo, Album album, String contentHash,
+                                       String pathHash, boolean force, boolean needsReprocessing,
+                                       boolean foundByContentHash) {
+        try {
+            // 步骤1: 设置基础信息
+            if (photo.getProcessingStatus() == ProcessingStatus.PENDING || needsReprocessing) {
+                processBasicInfo(photo, album, contentHash, pathHash, imageFile);
+                photo.advanceProcessingStatus();
+                photoRepository.save(photo);
+            }
+
+            // 步骤2: 确保相册标签已初始化
+            Album albumWithTags = albumRepository.findByIdWithTags(album.getId()).orElse(album);
+            if (albumWithTags.getTags() == null) {
+                albumWithTags.setTags(new ArrayList<>());
+            }
+            album = albumWithTags;
+
+            // 步骤3: 提取EXIF信息
+            if (photo.getProcessingStatus() == ProcessingStatus.BASIC_INFO_DONE || needsReprocessing) {
+                try {
+                    extractExifData(imageFile, photo);
+                    photo.advanceProcessingStatus();
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    photo.markProcessingFailed("EXIF提取失败: " + e.getMessage());
+                    photoRepository.save(photo);
+                    throw e;
+                }
+            }
+
+            // 步骤4: 生成缩略图
+            if (photo.getProcessingStatus() == ProcessingStatus.BASIC_INFO_DONE ||
+                photo.getProcessingStatus() == ProcessingStatus.THUMBNAILS_DONE || needsReprocessing) {
+                try {
+                    generateThumbnailAndWebP(imageFile, photo);
+                    regenerateMissingThumbnails(imageFile, photo);
+                    photo.setProcessingStatus(ProcessingStatus.THUMBNAILS_DONE);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    photo.markProcessingFailed("缩略图生成失败: " + e.getMessage());
+                    photoRepository.save(photo);
+                    throw e;
+                }
+            }
+
+            // 步骤5: 分析色彩和质量评分
+            if (photo.getProcessingStatus() == ProcessingStatus.THUMBNAILS_DONE ||
+                photo.getProcessingStatus() == ProcessingStatus.ANALYSIS_DONE || needsReprocessing) {
+                try {
+                    colorAnalysisService.analyzeColor(imageFile, photo);
+                    calculateQualityScore(photo);
+                    photo.setProcessingStatus(ProcessingStatus.ANALYSIS_DONE);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    photo.markProcessingFailed("色彩分析失败: " + e.getMessage());
+                    photoRepository.save(photo);
+                    throw e;
+                }
+            }
+
+            // 步骤6: 人脸检测
+            List<Face> faces = new ArrayList<>();
+            if (photo.getProcessingStatus() == ProcessingStatus.ANALYSIS_DONE ||
+                photo.getProcessingStatus() == ProcessingStatus.FACES_DONE || needsReprocessing) {
+                try {
+                    faces = processFaces(imageFile, photo, force, foundByContentHash);
+                    photo.setProcessingStatus(ProcessingStatus.FACES_DONE);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    photo.markProcessingFailed("人脸检测失败: " + e.getMessage());
+                    photoRepository.save(photo);
+                    throw e;
+                }
+            } else if (photo.getProcessingStatus().ordinal() >= ProcessingStatus.FACES_DONE.ordinal()) {
+                // 如果已经完成人脸检测，获取现有的人脸数据
+                faces = faceService.getFacesByPhoto(photo.getId());
+            }
+
+            // 步骤7: 主体检测
+            if (photo.getProcessingStatus() == ProcessingStatus.FACES_DONE ||
+                photo.getProcessingStatus() == ProcessingStatus.SUBJECT_DONE || needsReprocessing) {
+                try {
+                    subjectDetectionService.detectSubject(imageFile, photo, faces);
+                    photo.setProcessingStatus(ProcessingStatus.SUBJECT_DONE);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    photo.markProcessingFailed("主体检测失败: " + e.getMessage());
+                    photoRepository.save(photo);
+                    throw e;
+                }
+            }
+
+            // 步骤8: 智能标签
+            if (photo.getProcessingStatus() == ProcessingStatus.SUBJECT_DONE ||
+                photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE || needsReprocessing) {
+                try {
+                    processTags(photo, album, imageFile, faces.size(), force);
+                    photo.setProcessingStatus(ProcessingStatus.TAGS_DONE);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    photo.markProcessingFailed("标签处理失败: " + e.getMessage());
+                    photoRepository.save(photo);
+                    throw e;
+                }
+            }
+
+            // 步骤9: 完成处理
+            if (photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE) {
+                photo.setProcessingStatus(ProcessingStatus.COMPLETED);
+                photoRepository.save(photo);
+            }
+
+        } catch (Exception e) {
+            // 如果是处理失败，记录错误但不抛出异常，确保其他图片能继续处理
+            if (photo.getProcessingStatus() != ProcessingStatus.FAILED) {
+                photo.markProcessingFailed("未知处理错误: " + e.getMessage());
+                photoRepository.save(photo);
+            }
+            log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+        }
+    }
+
+    /**
+     * 处理照片基础信息
+     */
+    private void processBasicInfo(Photo photo, Album album, String contentHash, String pathHash, File imageFile) {
+        // 设置哈希值（只有新创建的照片才设置，避免重复）
+        if (photo.getId() == null) {
+            // 新照片，设置所有哈希值
+            photo.setContentHash(contentHash);
+            photo.setPathHash(pathHash);
+        } else if (photo.getContentHash() == null || photo.getContentHash().isEmpty()) {
+            // 哈希值为空时，更新哈希值
+            photo.setContentHash(contentHash);
+            photo.setPathHash(pathHash);
+        }
+        photo.setAlbumId(album.getId());
+        photo.setFilename(imageFile.getName());
+        photo.setOriginalPath(imageFile.getAbsolutePath());
+        photo.setFileSize(imageFile.length());
+        photo.setProcessingStatus(ProcessingStatus.BASIC_INFO_DONE);
+    }
+
+    /**
+     * 处理人脸检测
+     */
+    private List<Face> processFaces(File imageFile, Photo photo, boolean force, boolean foundByContentHash) {
+        List<Face> faces;
+
+        if (foundByContentHash && !force && photo.getId() != null) {
+            // 检查是否已有人脸数据
+            long existingFaceCount = faceService.getFaceCountByPhoto(photo.getId());
+            if (existingFaceCount > 0) {
+                log.debug("照片已有人脸数据，跳过重新检测（photoId={}, faceCount={}）", photo.getId(), existingFaceCount);
+                faces = faceService.getFacesByPhoto(photo.getId());
+            } else {
+                // 虽然通过contentHash找到，但没有人脸数据，需要检测
+                faces = detectFacesSafely(imageFile, photo);
+            }
+        } else {
+            // 新照片或强制扫描，重新检测人脸
+            faces = detectFacesSafely(imageFile, photo);
+        }
+
+        return faces;
+    }
+
+    /**
+     * 安全的人脸检测（处理异常）
+     */
+    private List<Face> detectFacesSafely(File imageFile, Photo photo) {
+        try {
+            return faceService.detectAndSaveFaces(imageFile, photo, false);
+        } catch (UnsatisfiedLinkError e) {
+            log.warn("人脸检测服务不可用（缺少系统依赖库），跳过人脸检测: {}。请安装 Microsoft Visual C++ Redistributable 或相关依赖。", imageFile.getName());
+            return new ArrayList<>();
+        } catch (Exception e) {
+            log.warn("人脸检测失败，使用简单方法: {}", imageFile.getName(), e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 处理标签
+     */
+    private void processTags(Photo photo, Album album, File imageFile, int faceCount, boolean force) {
+        // 合并相册标签到照片标签，便于搜索（复制一份避免懒加载问题）
+        List<Tag> albumTags = album.getTags() == null ? new ArrayList<>() : new ArrayList<>(album.getTags());
+        Set<String> albumTagNames = albumTags.stream()
+            .map(Tag::getName)
+            .collect(java.util.stream.Collectors.toSet());
+
+        if (!albumTags.isEmpty()) {
+            if (photo.getTags() == null) {
+                photo.setTags(new HashSet<>());
+            }
+            // 添加相册标签，避免重复
+            for (Tag albumTag : albumTags) {
+                if (!photo.getTags().contains(albumTag)) {
+                    photo.getTags().add(albumTag);
+                }
+            }
+        }
+
+        // 智能标签（含人脸信息）
+        // 强制扫描时，删除旧智能标签后重新生成；普通扫描时追加
+        // 传递相册标签名称，确保不会误删相册标签
+        smartTagService.applySmartTags(imageFile, photo, faceCount, force, albumTagNames);
     }
 
     /**
@@ -1379,6 +1987,14 @@ public class PhotoScanService {
         if (isShuttingDown.get()) {
             return;
         }
+
+        // 检查是否已经处理过这个目录
+        String dirKey = directory.toString() + "/";
+        if (processedFiles.contains(dirKey)) {
+            log.debug("递归目录已处理过，跳过: {}", directory.getFileName());
+            return;
+        }
+        processedFiles.add(dirKey);
 
         try {
             // 处理当前目录的图片

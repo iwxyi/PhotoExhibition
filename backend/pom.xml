@@ -112,7 +112,7 @@
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
-            <version>1.16.3</version>
+            <version>1.8.1</version>
         </dependency>
 
         <!-- Jackson JSR310支持（Java 8时间类型） -->
@@ -188,6 +188,12 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                    <!-- 添加JVM参数解决Windows bat文件中的中文乱码问题 -->
+                    <jvmArguments>
+                        <jvmArgument>-Dfile.encoding=UTF-8</jvmArgument>
+                        <jvmArgument>-Dsun.stdout.encoding=UTF-8</jvmArgument>
+                        <jvmArgument>-Dsun.stderr.encoding=UTF-8</jvmArgument>
+                    </jvmArguments>
                 </configuration>
             </plugin>
         </plugins>
@@ -226,7 +232,7 @@
                 <dependency>
                     <groupId>com.microsoft.onnxruntime</groupId>
                     <artifactId>onnxruntime</artifactId>
-                    <version>1.16.3</version>
+                    <version>1.8.1</version>
                     <classifier>gpu</classifier>
                 </dependency>
             </dependencies>

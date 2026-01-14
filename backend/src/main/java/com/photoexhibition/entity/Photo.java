@@ -103,6 +103,75 @@ public class Photo {
     @Column(name = "is_featured")
     private Boolean isFeatured = false;
 
+    // 处理状态跟踪字段
+    @Enumerated(EnumType.STRING)
+    @Column(name = "processing_status", length = 50)
+    private ProcessingStatus processingStatus = ProcessingStatus.PENDING;
+
+    @Column(name = "processing_errors", columnDefinition = "TEXT")
+    private String processingErrors; // JSON格式存储处理过程中的错误信息
+
+    /**
+     * 获取处理状态
+     */
+    public ProcessingStatus getProcessingStatus() {
+        return processingStatus != null ? processingStatus : ProcessingStatus.PENDING;
+    }
+
+    /**
+     * 设置处理状态
+     */
+    public void setProcessingStatus(ProcessingStatus processingStatus) {
+        this.processingStatus = processingStatus;
+    }
+
+    /**
+     * 更新处理状态到下一个步骤
+     */
+    public void advanceProcessingStatus() {
+        this.processingStatus = getProcessingStatus().getNextStep();
+    }
+
+    /**
+     * 标记处理失败
+     */
+    public void markProcessingFailed(String error) {
+        this.processingStatus = ProcessingStatus.FAILED;
+        addProcessingError(error);
+    }
+
+    /**
+     * 添加处理错误信息
+     */
+    public void addProcessingError(String error) {
+        if (this.processingErrors == null) {
+            this.processingErrors = error;
+        } else {
+            this.processingErrors += "; " + error;
+        }
+    }
+
+    /**
+     * 检查是否可以跳过处理（用于断点续上）
+     */
+    public boolean canSkipProcessing(boolean force) {
+        return getProcessingStatus().canSkip() && !force;
+    }
+
+    /**
+     * 检查是否需要重新处理
+     */
+    public boolean needsReprocessing(boolean force) {
+        return getProcessingStatus().needsReprocessing(force);
+    }
+
+    /**
+     * 检查是否需要继续处理
+     */
+    public boolean needsContinuation(boolean force) {
+        return getProcessingStatus().needsContinuation(force);
+    }
+
     @ManyToMany(fetch = FetchType.EAGER, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
         name = "photo_tag",

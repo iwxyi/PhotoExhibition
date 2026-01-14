@@ -4,6 +4,7 @@
       v-if="visible"
       class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col outline-none focus:outline-none"
       @keydown.stop.prevent="onKeydown"
+      @click="onBackdropClick"
       tabindex="0"
       ref="modalRoot"
     >
@@ -86,7 +87,7 @@
         </div>
       </div>
 
-      <div class="flex-1 flex overflow-hidden min-h-0">
+      <div class="flex-1 flex overflow-hidden min-h-0" @click="onBackdropClick">
         <!-- 主图区域 -->
         <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0">
           <div class="relative w-full h-full flex items-center justify-center overflow-hidden" ref="imageContainer">
@@ -548,6 +549,23 @@ const toggleInfo = () => {
 
 const close = () => {
   emit('update:visible', false)
+}
+
+const onBackdropClick = (event: MouseEvent) => {
+  // Close if clicked on backdrop or main content area (but not on interactive elements)
+  const target = event.target as HTMLElement
+  const currentTarget = event.currentTarget as HTMLElement
+
+  // Always close if clicked on the backdrop itself
+  if (target === currentTarget) {
+    close()
+    return
+  }
+
+  // Also close if clicked on main content area (but not on the image)
+  if (target.closest('.flex-1.flex.overflow-hidden') && !target.closest('img, button, svg')) {
+    close()
+  }
 }
 
 const prev = () => {
