@@ -647,7 +647,6 @@ public class PhotoScanService {
                     status.put("current", traversedThisScan);
                     status.put("total", filesystemTotal);
                     status.put("scanMode", "scanning"); // 表示正在扫描文件
-                    log.debug("扫描进度返回: 已遍历 {} / 总共 {}", traversedThisScan, filesystemTotal);
                 } else {
                     // 扫描未进行：显示已扫描数量 / 总的照片数量
                     status.put("current", totalPhotos);  // 已扫描数量（数据库中的照片）
@@ -927,11 +926,7 @@ public class PhotoScanService {
                 throw new IllegalArgumentException("路径不是文件夹: " + path);
             }
 
-            // 在扫描目录之前，先处理所有未完成的照片
-            int preProcessedCount = 0;
-            if (!force) {
-                preProcessedCount = processIncompletePhotosFirst();
-            }
+            // 取消优先处理逻辑，所有照片都在正常的目录遍历中处理
 
             // 预统计所有要扫描的文件总数
             long totalFilesToScan = countPhotosInFilesystem();
@@ -966,22 +961,21 @@ public class PhotoScanService {
                     })
                     .count();
 
-                // 如果是第一个扫描任务（没有并发），重置计数器
-                // 如果有并发，累积计数器（但这可能导致进度混乱）
+                // 设置扫描总数（只有第一个扫描任务才设置）
                 if (activeScanCount.get() == 1) {
-                    scanTotal.set(total + preProcessedCount);
-                    scanCurrent.set(preProcessedCount); // 从优先处理的进度开始
+                    scanTotal.set(total);
+                    scanCurrent.set(0); // 从0开始计数
                 } else {
                     // 并发情况下，累积总数，但这可能不准确
                     scanTotal.addAndGet(total);
                 }
 
-                log.info("预统计待扫描图片数量: {} (已优先处理: {})", total, preProcessedCount);
+                log.info("预统计待扫描图片数量: {}", total);
             } catch (Exception e) {
                 log.warn("统计待扫描图片数量失败: {}", e.getMessage());
                 if (activeScanCount.get() == 1) {
-                    scanTotal.set(preProcessedCount);
-                    scanCurrent.set(preProcessedCount);
+                    scanTotal.set(0);
+                    scanCurrent.set(0);
                 }
             }
 
@@ -1108,7 +1102,7 @@ public class PhotoScanService {
 
             // 检查是否已经处理过这个相册目录
             String albumKey = albumPath.toString() + "/";
-            log.info("处理相册目录: {} (key: {}, 已处理目录数: {})", albumRelativePath, albumKey, processedFiles.size());
+            log.info("处理相册目录: {}", albumRelativePath);
 
             if (processedFiles.contains(albumKey)) {
                 log.warn("相册目录重复处理，跳过: {} (key: {})", albumRelativePath, albumKey);

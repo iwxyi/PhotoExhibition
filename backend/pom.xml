@@ -189,11 +189,11 @@
                         </exclude>
                     </excludes>
                     <!-- 添加JVM参数解决Windows bat文件中的中文乱码问题 -->
-                    <jvmArguments>
-                        <jvmArgument>-Dfile.encoding=UTF-8</jvmArgument>
-                        <jvmArgument>-Dsun.stdout.encoding=UTF-8</jvmArgument>
-                        <jvmArgument>-Dsun.stderr.encoding=UTF-8</jvmArgument>
-                    </jvmArguments>
+                    <jvmArgs>
+                        <jvmArg>-Dfile.encoding=UTF-8</jvmArg>
+                        <jvmArg>-Dsun.stdout.encoding=UTF-8</jvmArg>
+                        <jvmArg>-Dsun.stderr.encoding=UTF-8</jvmArg>
+                    </jvmArgs>
                 </configuration>
             </plugin>
         </plugins>

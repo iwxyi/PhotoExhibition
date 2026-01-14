@@ -91,48 +91,43 @@ public class SmartTagService {
     public void applySmartTags(File imageFile, Photo photo, int faceCount, boolean force, Set<String> albumTagNames) {
         // 先生成智能标签名称（用于识别哪些是智能标签）
         Set<String> names = generateSmartTags(imageFile, photo, faceCount);
-        
-        // 如果强制重建，先删除旧的智能标签（保留相册标签和手动标签）
-        if (force && photo.getTags() != null && !photo.getTags().isEmpty()) {
-            Set<Tag> tagsToRemove = new HashSet<>();
-            Set<String> albumTagSet = albumTagNames != null ? albumTagNames : Set.of();
-            
-            for (Tag tag : photo.getTags()) {
-                // 只删除智能标签，保留相册标签和手动标签
-                if (isSmartTag(tag.getName(), albumTagSet, names)) {
-                    tagsToRemove.add(tag);
+
+        // 准备最终的标签集合
+        Set<Tag> finalTags = new HashSet<>();
+
+        // 保留非智能标签（相册标签和手动标签）
+        Set<String> albumTagSet = albumTagNames != null ? albumTagNames : Set.of();
+        if (photo.getTags() != null) {
+            for (Tag existingTag : photo.getTags()) {
+                if (!isSmartTag(existingTag.getName(), albumTagSet, names)) {
+                    // 这不是智能标签，保留它
+                    finalTags.add(existingTag);
                 }
             }
-            if (!tagsToRemove.isEmpty()) {
-                photo.getTags().removeAll(tagsToRemove);
-                log.info("强制扫描：删除 {} 个旧智能标签，保留 {} 个手动标签", 
-                    tagsToRemove.size(), photo.getTags().size());
+        }
+
+        // 添加智能标签
+        if (!names.isEmpty()) {
+            // 记录生成的智能标签
+            log.info("AI分类生成 {} 个标签: [{}]", names.size(), String.join(", ", names));
+
+            for (String name : names) {
+                Tag tag = tagRepository.findByName(name)
+                    .orElseGet(() -> {
+                        Tag t = new Tag();
+                        t.setName(name);
+                        return tagRepository.save(t);
+                    });
+                finalTags.add(tag);
             }
         }
 
-        if (names.isEmpty()) {
-            return;
-        }
+        // 设置最终的标签集合
+        photo.setTags(finalTags);
 
-        if (photo.getTags() == null) {
-            photo.setTags(new HashSet<>());
-        }
-
-        // 记录生成的智能标签
-        log.info("AI分类生成 {} 个标签: [{}]", names.size(), String.join(", ", names));
-
-        // 添加新生成的智能标签（避免重复添加）
-        for (String name : names) {
-            Tag tag = tagRepository.findByName(name)
-                .orElseGet(() -> {
-                    Tag t = new Tag();
-                    t.setName(name);
-                    return tagRepository.save(t);
-                });
-            // 检查是否已经包含此标签，避免重复添加导致主键冲突
-            if (!photo.getTags().contains(tag)) {
-            photo.getTags().add(tag);
-            }
+        if (force) {
+            log.info("强制扫描：重新设置标签，保留 {} 个非智能标签，添加 {} 个智能标签",
+                finalTags.size() - names.size(), names.size());
         }
     }
 
