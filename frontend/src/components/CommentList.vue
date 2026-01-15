@@ -9,19 +9,25 @@
     <!-- 评论列表 -->
     <div v-if="comments.length > 0" class="space-y-6">
       <CommentItem
-        v-for="comment in comments"
+        v-for="comment in visibleComments"
         :key="comment.id"
         :comment="comment"
         :text-color="textColor"
         :album-id="albumId"
-        @reply-added="$emit('reply-added')"
+        :background-color="backgroundColor"
+        :border-color="borderColor"
+        :input-border-color="inputBorderColor"
+        :is-dark-mode="props.isDarkMode"
+        :is-atmosphere-enabled="props.isAtmosphereEnabled"
+        :reply-status-map="props.replyStatusMap"
+        @reply-added="(reply, parentId) => $emit('reply-added', reply, parentId)"
         @comment-deleted="$emit('comment-deleted', $event)"
       />
     </div>
 
     <!-- 没有评论 -->
     <div v-else-if="!loading" class="text-center py-12">
-      <p class="text-gray-500 dark:text-gray-400">暂无评论，快来发表第一条评论吧！</p>
+      <p class="text-white/60">暂无评论，快来发表第一条评论吧！</p>
     </div>
 
     <!-- 加载更多 -->
@@ -29,7 +35,7 @@
       <button
         @click="$emit('load-more')"
         :disabled="loading"
-        class="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        class="px-6 py-2 border border-white/30 text-white/80 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50 backdrop-blur-sm"
       >
         {{ loading ? '加载中...' : '加载更多评论' }}
       </button>
@@ -38,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import CommentItem from './CommentItem.vue'
 import { CommentDTO } from '@/api'
 
@@ -47,6 +54,12 @@ interface Props {
   loading: boolean
   hasMore: boolean
   textColor?: string
+  backgroundColor?: string
+  borderColor?: string
+  inputBorderColor?: string
+  isDarkMode?: boolean
+  isAtmosphereEnabled?: boolean
+  replyStatusMap?: Map<number, boolean>
 }
 
 interface Emits {
@@ -55,8 +68,13 @@ interface Emits {
   (e: 'reply-added'): void
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 defineEmits<Emits>()
+
+// 过滤掉已删除的评论
+const visibleComments = computed(() => {
+  return props.comments.filter(comment => !comment.deleted)
+})
 </script>
 
 <style scoped>

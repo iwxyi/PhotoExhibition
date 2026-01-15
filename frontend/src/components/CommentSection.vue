@@ -1,11 +1,17 @@
 <template>
-  <div class="comment-section max-w-4xl mx-auto mt-12 px-4">
-    <h2 class="text-2xl font-light mb-8" :style="{ color: textColor }">评论</h2>
+  <div v-show="commentSectionVisible" class="comment-section max-w-4xl mx-auto mt-12 px-4 transition-opacity duration-500 ease-in-out" :class="{ 'opacity-0': !commentSectionVisible, 'opacity-100': commentSectionVisible }">
+    <h2 class="text-2xl font-light mb-8 text-white">评论</h2>
 
     <!-- 评论列表 -->
     <CommentList
       :album-id="albumId"
       :text-color="textColor"
+      :background-color="backgroundColor"
+      :border-color="borderColor"
+      :input-border-color="inputBorderColor"
+      :is-dark-mode="props.isDarkMode"
+      :is-atmosphere-enabled="props.isAtmosphereEnabled"
+      :reply-status-map="replyStatusMap"
       :comments="comments"
       :loading="loading"
       :has-more="hasMore"
@@ -14,15 +20,20 @@
       @reply-added="handleReplyAdded"
     />
 
-    <!-- 已评论提示或评论表单 -->
-    <div v-if="hasUserCommented" class="text-center py-6">
-      <p :style="{ color: textColor, opacity: 0.7 }" class="text-lg">已评论</p>
-      <p :style="{ color: textColor, opacity: 0.5 }" class="text-sm mt-2">每个用户对一个相册只能发表一条评论</p>
+    <!-- 评论表单或已评论提示 -->
+    <div v-if="hasCommentedToday" class="text-center py-6">
+      <p :style="{ color: textColor, opacity: 0.7 }" class="text-lg">您已评论</p>
+      <p :style="{ color: textColor, opacity: 0.5 }" class="text-sm mt-2">每天只能发表一条评论</p>
     </div>
     <CommentForm
       v-else
       :album-id="albumId"
       :text-color="textColor"
+      :background-color="backgroundColor"
+      :border-color="borderColor"
+      :input-border-color="inputBorderColor"
+      :is-dark-mode="props.isDarkMode"
+      :is-atmosphere-enabled="props.isAtmosphereEnabled"
       @comment-added="handleCommentAdded"
     />
   </div>
@@ -37,10 +48,20 @@ import { commentApi, CommentDTO } from '@/api'
 interface Props {
   albumId: number
   textColor?: string
+  backgroundColor?: string
+  borderColor?: string
+  inputBorderColor?: string
+  isDarkMode?: boolean
+  isAtmosphereEnabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  textColor: '#1a1a1a'
+  textColor: '#1a1a1a',
+  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  borderColor: 'rgba(229, 231, 235, 0.5)',
+  inputBorderColor: 'rgb(107 114 128 / 0.5)',
+  isDarkMode: false,
+  isAtmosphereEnabled: false
 })
 
 const comments = ref<CommentDTO[]>([])
@@ -49,38 +70,16 @@ const hasMore = ref(true)
 const currentPage = ref(0)
 const pageSize = 10
 
-// 用户是否已经对该相册发表过评论
-const hasUserCommented = ref(false)
+// 评论区域是否可见（延迟显示）
+const commentSectionVisible = ref(false)
 
-// 获取当前用户信息
-const getCurrentUserInfo = () => {
-  try {
-    const saved = localStorage.getItem('comment-user-info')
-    if (saved) {
-      return JSON.parse(saved)
-    }
-  } catch (error) {
-    console.error('Failed to load user info:', error)
-  }
-  return null
-}
-
-// 检查用户是否已经评论过
-const checkIfUserHasCommented = () => {
-  const userInfo = getCurrentUserInfo()
-  if (!userInfo || !userInfo.email) {
-    hasUserCommented.value = false
-    return
-  }
-
-  // 检查顶级评论中是否有当前用户的评论
-  const userComment = comments.value.find(comment =>
-    !comment.parentId && comment.email === userInfo.email
-  )
-  hasUserCommented.value = !!userComment
-}
+// 用户今天是否已经发过评论
+const hasCommentedToday = ref(false)
 
 const textColor = computed(() => props.textColor)
+const backgroundColor = computed(() => props.backgroundColor)
+const borderColor = computed(() => props.borderColor)
+const inputBorderColor = computed(() => props.inputBorderColor)
 
 // 加载评论
 const loadComments = async (page = 0) => {
@@ -100,8 +99,11 @@ const loadComments = async (page = 0) => {
     hasMore.value = !response.data.last
     currentPage.value = page
 
-    // 检查用户是否已经评论过
-    checkIfUserHasCommented()
+    // 检查用户今天是否已经发过评论
+    checkIfUserHasCommentedToday()
+
+    // 批量检查所有评论的回复状态
+    await checkAllReplyStatus(comments.value)
   } catch (error) {
     console.error('Failed to load comments:', error)
   } finally {
@@ -121,8 +123,6 @@ const handleCommentAdded = (newComment: CommentDTO) => {
   // 如果是顶级评论，添加到列表开头
   if (!newComment.parentId) {
     comments.value.unshift(newComment)
-    // 检查用户是否已经评论过
-    checkIfUserHasCommented()
   } else {
     // 如果是回复，刷新评论列表（简化处理）
     loadComments(0)
@@ -145,19 +145,131 @@ const handleCommentDeleted = (deletedCommentId: number) => {
   }
 
   comments.value = removeComment(comments.value)
+}
 
-  // 重新检查用户是否已经评论过（删除评论后可能需要重新显示表单）
-  checkIfUserHasCommented()
+// 检查用户今天是否已经发过评论（调用后端API，使用服务器时间）
+const checkIfUserHasCommentedToday = async () => {
+  try {
+    const userInfo = JSON.parse(localStorage.getItem('comment-user-info') || '{}')
+    if (!userInfo.email) {
+      hasCommentedToday.value = false
+      return
+    }
+
+    // 调用后端API检查用户今天是否已经评论过此相册
+    const response = await commentApi.hasUserCommentedOnAlbumToday(props.albumId, userInfo.email)
+    hasCommentedToday.value = response.data
+  } catch (error) {
+    console.error('Failed to check if user has commented today:', error)
+    hasCommentedToday.value = false
+  }
+}
+
+// 存储所有评论的回复状态
+const replyStatusMap = ref<Map<number, boolean>>(new Map())
+
+// 批量检查所有评论的回复状态
+const checkAllReplyStatus = async (comments: CommentDTO[]) => {
+  try {
+    const userInfo = JSON.parse(localStorage.getItem('comment-user-info') || '{}')
+    if (!userInfo.email) return
+
+    // 收集所有需要检查的评论ID（包括嵌套回复）
+    const commentIds: number[] = []
+    const collectCommentIds = (commentList: CommentDTO[]) => {
+      for (const comment of commentList) {
+        commentIds.push(comment.id)
+        if (comment.replies && comment.replies.length > 0) {
+          collectCommentIds(comment.replies)
+        }
+      }
+    }
+    collectCommentIds(comments)
+
+    if (commentIds.length === 0) return
+
+    // 使用批量API一次性获取所有回复状态
+    try {
+      const response = await commentApi.batchHasUserRepliedToComments(commentIds, userInfo.email)
+      const newStatusMap = new Map<number, boolean>()
+
+      // 将API返回的对象转换为Map
+      Object.entries(response.data).forEach(([commentId, hasReplied]) => {
+        newStatusMap.set(Number(commentId), hasReplied as boolean)
+      })
+
+      replyStatusMap.value = newStatusMap
+    } catch (error) {
+      console.error('Failed to batch check reply status:', error)
+      // 如果批量API失败，回退到单个API调用
+      await fallbackToIndividualChecks(commentIds, userInfo.email)
+    }
+  } catch (error) {
+    console.error('Failed to check all reply status:', error)
+  }
+}
+
+// 回退方案：单个API调用
+const fallbackToIndividualChecks = async (commentIds: number[], email: string) => {
+  console.warn('Falling back to individual API calls for reply status checks')
+
+  const statusPromises = commentIds.map(async (commentId) => {
+    try {
+      const response = await commentApi.hasUserRepliedToComment(commentId, email)
+      return { commentId, hasReplied: response.data }
+    } catch (error) {
+      console.error(`Failed to check reply status for comment ${commentId}:`, error)
+      return { commentId, hasReplied: false }
+    }
+  })
+
+  const results = await Promise.all(statusPromises)
+  const newStatusMap = new Map<number, boolean>()
+  results.forEach(({ commentId, hasReplied }) => {
+    newStatusMap.set(commentId, hasReplied)
+  })
+
+  replyStatusMap.value = newStatusMap
 }
 
 // 处理回复添加
-const handleReplyAdded = () => {
-  // 刷新评论列表以显示新回复
-  loadComments(0)
+const handleReplyAdded = (newReply: CommentDTO, parentId: number) => {
+  // 创建comments的深拷贝，修改后再重新赋值以触发Vue响应式更新
+  const updateCommentsWithReply = (comments: CommentDTO[]): CommentDTO[] => {
+    return comments.map(comment => {
+      if (comment.id === parentId) {
+        // 找到父评论，添加回复
+        const updatedComment = { ...comment }
+        if (!updatedComment.replies) {
+          updatedComment.replies = []
+        }
+        // 创建新的replies数组，确保Vue检测到变化
+        updatedComment.replies = [...updatedComment.replies, newReply]
+        return updatedComment
+      } else if (comment.replies && comment.replies.length > 0) {
+        // 递归处理嵌套回复
+        const updatedComment = { ...comment }
+        updatedComment.replies = updateCommentsWithReply(comment.replies)
+        return updatedComment
+      }
+      return comment
+    })
+  }
+
+  // 更新comments数组，触发Vue响应式更新
+  comments.value = updateCommentsWithReply(comments.value)
+
+  // 更新回复状态Map，标记用户已回复此评论
+  replyStatusMap.value.set(parentId, true)
 }
 
 onMounted(() => {
   loadComments(0)
+
+  // 延迟显示评论区域，避免闪烁
+  setTimeout(() => {
+    commentSectionVisible.value = true
+  }, 300)
 })
 </script>
 

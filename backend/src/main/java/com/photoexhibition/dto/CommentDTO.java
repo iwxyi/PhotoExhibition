@@ -14,6 +14,9 @@ public class CommentDTO {
     private String content;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Boolean deleted;
+
+    private String ipAddress;
 
     // 回复列表（仅在查询顶级评论时包含）
     private List<CommentDTO> replies;

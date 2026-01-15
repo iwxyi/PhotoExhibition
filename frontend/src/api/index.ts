@@ -52,6 +52,7 @@ export interface CommentDTO {
   content: string
   createdAt: string
   updatedAt: string
+  deleted: boolean
   replies?: CommentDTO[]
 }
 
@@ -67,6 +68,25 @@ export const commentApi = {
 
   // 获取评论回复
   getCommentReplies: (parentId: number) => api.get(`/comments/${parentId}/replies`),
+
+  // 检查用户是否已经对指定评论回复过
+  hasUserRepliedToComment: (parentId: number, email?: string) => {
+    const params = new URLSearchParams()
+    if (email) params.append('email', email)
+    return api.get<boolean>(`/comments/${parentId}/has-replied?${params.toString()}`)
+  },
+  batchHasUserRepliedToComments: (commentIds: number[], email?: string) => {
+    const params = new URLSearchParams()
+    if (email) params.append('email', email)
+    return api.post<Record<number, boolean>>(`/comments/batch-has-replied?${params.toString()}`, commentIds)
+  },
+
+  // 检查用户今天是否已经对指定相册发表过评论
+  hasUserCommentedOnAlbumToday: (albumId: number, email?: string) => {
+    const params = new URLSearchParams()
+    if (email) params.append('email', email)
+    return api.get<boolean>(`/comments/albums/${albumId}/has-commented-today?${params.toString()}`)
+  },
 
   // 获取相册评论总数
   getAlbumCommentCount: (albumId: number) => api.get<number>(`/comments/albums/${albumId}/count`)

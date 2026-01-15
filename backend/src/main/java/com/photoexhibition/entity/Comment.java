@@ -33,6 +33,12 @@ public class Comment {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(name = "deleted", nullable = false)
+    private Boolean deleted = false;
+
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

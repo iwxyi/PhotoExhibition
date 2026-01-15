@@ -15,19 +15,19 @@ import java.util.List;
 public interface CommentRepository extends JpaRepository<Comment, Long> {
 
     /**
-     * 根据相册ID查询顶级评论（parentId为null）
+     * 根据相册ID查询顶级评论（parentId为null，未删除）
      */
-    Page<Comment> findByAlbumIdAndParentIdIsNullOrderByCreatedAtDesc(Long albumId, Pageable pageable);
+    Page<Comment> findByAlbumIdAndParentIdIsNullAndDeletedFalseOrderByCreatedAtDesc(Long albumId, Pageable pageable);
 
     /**
-     * 根据父评论ID查询回复
+     * 根据父评论ID查询回复（未删除）
      */
-    List<Comment> findByParentIdOrderByCreatedAtAsc(Long parentId);
+    List<Comment> findByParentIdAndDeletedFalseOrderByCreatedAtAsc(Long parentId);
 
     /**
-     * 根据相册ID查询所有评论
+     * 根据相册ID查询所有评论（未删除）
      */
-    List<Comment> findByAlbumIdOrderByCreatedAtDesc(Long albumId);
+    List<Comment> findByAlbumIdAndDeletedFalseOrderByCreatedAtDesc(Long albumId);
 
     /**
      * 根据邮箱查询用户在指定时间范围内的评论数量
@@ -36,7 +36,26 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     long countByEmailAndCreatedAtAfter(@Param("email") String email, @Param("startTime") LocalDateTime startTime);
 
     /**
-     * 检查用户是否已经对指定相册发表过顶级评论
+     * 根据标识符（邮箱或IP）查询用户在指定时间范围内的评论数量
      */
-    boolean existsByAlbumIdAndEmailAndParentIdIsNull(Long albumId, String email);
+    @Query("SELECT COUNT(c) FROM Comment c WHERE ((c.email = :identifier AND c.email != '') OR (c.email = '' AND c.ipAddress = :identifier)) AND c.createdAt >= :startTime")
+    long countByIdentifierAndCreatedAtAfter(@Param("identifier") String identifier, @Param("startTime") LocalDateTime startTime);
+
+    /**
+     * 检查用户是否已经对指定评论回复过（使用标识符）
+     */
+    @Query("SELECT COUNT(c) > 0 FROM Comment c WHERE c.parentId = :parentId AND ((c.email = :identifier AND c.email != '') OR (c.email = '' AND c.ipAddress = :identifier)) AND c.deleted = false")
+    boolean hasUserRepliedToComment(@Param("parentId") Long parentId, @Param("identifier") String identifier);
+
+    /**
+     * 检查用户今天是否已经对指定相册发表过顶级评论
+     */
+    @Query("SELECT COUNT(c) > 0 FROM Comment c WHERE c.albumId = :albumId AND ((c.email = :identifier AND c.email != '') OR (c.email = '' AND c.ipAddress = :identifier)) AND c.parentId IS NULL AND c.deleted = false AND DATE(c.createdAt) = DATE(CURRENT_DATE)")
+    boolean hasUserCommentedOnAlbumToday(@Param("albumId") Long albumId, @Param("identifier") String identifier);
+
+    /**
+     * 检查用户是否已经对指定相册发表过顶级评论（未删除）
+     */
+    boolean existsByAlbumIdAndEmailAndParentIdIsNullAndDeletedFalse(Long albumId, String email);
+
 }

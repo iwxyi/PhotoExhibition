@@ -106,6 +106,11 @@
       <CommentSection
         :album-id="album?.id || 0"
         :text-color="textStyle.color"
+        :background-color="commentBackgroundColor"
+        :border-color="commentBorderColor"
+        :input-border-color="inputBorderColor"
+        :is-dark-mode="themeStore.isDark"
+        :is-atmosphere-enabled="atmosphereEnabled"
       />
     </main>
     <PhotoViewer
@@ -204,6 +209,52 @@ const albumAtmosphereEffects = computed(() => {
     return []
   }
   return album.value?.atmosphereEffects || [] as any[]
+})
+
+// 评论区域背景和边框颜色
+const commentBackgroundColor = computed(() => {
+  if (atmosphereEnabled.value && album.value?.backgroundColor) {
+    // 启用氛围时，使用半透明的相册背景色
+    const bgColor = album.value.backgroundColor!
+    // 将十六进制颜色转换为rgba，添加透明度
+    if (bgColor.startsWith('#')) {
+      const r = parseInt(bgColor.slice(1, 3), 16)
+      const g = parseInt(bgColor.slice(3, 5), 16)
+      const b = parseInt(bgColor.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, 0.85)`
+    }
+    return 'rgba(255, 255, 255, 0.85)'
+  } else {
+    // 关闭氛围时使用半透明的主题背景色
+    return themeStore.isDark ? 'rgba(31, 41, 55, 0.85)' : 'rgba(255, 255, 255, 0.85)'
+  }
+})
+
+const commentBorderColor = computed(() => {
+  if (atmosphereEnabled.value && album.value?.backgroundColor) {
+    // 启用氛围时，使用更透明的边框
+    const bgColor = album.value.backgroundColor!
+    if (bgColor.startsWith('#')) {
+      const r = parseInt(bgColor.slice(1, 3), 16)
+      const g = parseInt(bgColor.slice(3, 5), 16)
+      const b = parseInt(bgColor.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, 0.3)`
+    }
+    return 'rgba(229, 231, 235, 0.3)'
+  } else {
+    // 关闭氛围时使用半透明的主题边框色
+    return themeStore.isDark ? 'rgba(75, 85, 99, 0.3)' : 'rgba(229, 231, 235, 0.3)'
+  }
+})
+
+// 输入框边框颜色（根据背景模式）
+const inputBorderColor = computed(() => {
+  // 如果开启氛围模式或处于夜间模式，使用浅白色边框
+  if (atmosphereEnabled.value || themeStore.isDark) {
+    return 'rgb(255 255 255 / 0.3)' // 浅白色
+  }
+  // 日间模式使用深灰色边框
+  return 'rgb(107 114 128 / 0.5)' // 深灰色
 })
 
 // 计算列数（响应式，与主页保持一致）

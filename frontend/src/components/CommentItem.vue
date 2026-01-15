@@ -1,5 +1,5 @@
 <template>
-  <div class="comment-item">
+  <div class="comment-item group">
     <div class="flex space-x-4">
       <!-- 用户头像 -->
       <div class="flex-shrink-0">
@@ -26,16 +26,15 @@
           </button>
         </div>
 
-        <div class="text-gray-700 dark:text-gray-300 mb-3 whitespace-pre-wrap">
+        <div :class="`mb-3 whitespace-pre-wrap ${getTextColorClass()}`">
           {{ comment.content }}
         </div>
 
         <!-- 操作按钮 -->
-        <div class="flex items-center space-x-4 text-sm">
+        <div v-if="!hasUserRepliedInTree() && !isOwnComment()" class="flex items-center space-x-4 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200">
           <button
-            v-if="!comment.parentId"
             @click="toggleReply"
-            class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            class="text-blue-400 hover:text-blue-300"
           >
             回复
           </button>
@@ -47,6 +46,11 @@
           :album-id="albumId"
           :parent-id="comment.id"
           :text-color="textColor"
+          :background-color="backgroundColor"
+          :border-color="borderColor"
+          :input-border-color="inputBorderColor"
+          :is-dark-mode="props.isDarkMode"
+          :is-atmosphere-enabled="props.isAtmosphereEnabled"
           @comment-added="handleReplyAdded"
           @cancel="showReplyForm = false"
         />
@@ -59,6 +63,12 @@
             :comment="reply"
             :text-color="textColor"
             :album-id="albumId"
+            :background-color="backgroundColor"
+            :border-color="borderColor"
+            :input-border-color="inputBorderColor"
+            :is-dark-mode="props.isDarkMode"
+            :is-atmosphere-enabled="props.isAtmosphereEnabled"
+            :reply-status-map="props.replyStatusMap"
             @reply-added="$emit('reply-added')"
             @comment-deleted="$emit('comment-deleted', $event)"
           />
@@ -69,14 +79,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import CommentForm from './CommentForm.vue'
 import { commentApi, CommentDTO } from '@/api'
+import { useThemeStore } from '@/stores/theme'
 
 interface Props {
   comment: CommentDTO
   albumId: number
   textColor?: string
+  backgroundColor?: string
+  borderColor?: string
+  inputBorderColor?: string
+  isDarkMode?: boolean
+  isAtmosphereEnabled?: boolean
+  replyStatusMap?: Map<number, boolean>
 }
 
 interface Emits {
@@ -91,6 +108,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 
 const showReplyForm = ref(false)
+const hasReplied = ref(props.replyStatusMap?.get(props.comment.id) || false)
 
 // 格式化日期
 const formatDate = (dateString: string) => {
@@ -114,9 +132,18 @@ const formatDate = (dateString: string) => {
 
 // 判断是否可以删除评论（通过邮箱匹配）
 const canDelete = (comment: CommentDTO) => {
-  // 这里可以根据需要实现更复杂的权限检查
-  // 目前简单地允许删除所有评论（实际应用中应该验证用户身份）
-  return true
+  // 从localStorage获取当前用户信息
+  try {
+    const saved = localStorage.getItem('comment-user-info')
+    if (saved) {
+      const userInfo = JSON.parse(saved)
+      // 只有评论作者才能删除自己的评论
+      return userInfo.email === comment.email
+    }
+  } catch (error) {
+    console.error('Failed to load user info:', error)
+  }
+  return false
 }
 
 // 删除评论
@@ -139,20 +166,86 @@ const toggleReply = () => {
   showReplyForm.value = !showReplyForm.value
 }
 
-// 处理回复添加
+// 处理回复添加后更新状态
 const handleReplyAdded = (reply: CommentDTO) => {
   showReplyForm.value = false
-  emit('reply-added')
+  hasReplied.value = true // 标记为已回复
+  emit('reply-added', reply, props.comment.id)
 }
+
+// 获取文字颜色类
+const getTextColorClass = () => {
+  // 如果开启氛围模式或处于夜间模式，使用白色文字
+  if (props.isAtmosphereEnabled || props.isDarkMode) {
+    return 'text-white/90'
+  }
+  // 日间模式使用黑色文字
+  return 'text-black'
+}
+
+// 检查是否是用户自己的评论
+const isOwnComment = () => {
+  try {
+    const userInfo = JSON.parse(localStorage.getItem('comment-user-info') || '{}')
+    if (!userInfo.email) return false
+
+    // 通过邮箱匹配判断是否是自己的评论
+    return userInfo.email === props.comment.email
+  } catch (error) {
+    return false
+  }
+}
+
+// 检查用户是否对这个评论树中的任何评论回复过
+const hasUserRepliedInTree = () => {
+  if (!props.replyStatusMap) return false
+
+  // 检查用户是否对当前评论回复过
+  if (props.replyStatusMap.get(props.comment.id)) {
+    return true
+  }
+
+  // 递归检查子评论
+  const checkReplies = (replies: any[]): boolean => {
+    for (const reply of replies) {
+      if (props.replyStatusMap?.get(reply.id)) {
+        return true
+      }
+      if (reply.replies && reply.replies.length > 0) {
+        if (checkReplies(reply.replies)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  // 检查当前评论的所有回复
+  if (props.comment.replies && props.comment.replies.length > 0) {
+    return checkReplies(props.comment.replies)
+  }
+
+  return false
+}
+
+
+onMounted(() => {
+  // 回复状态现在由父组件提供，无需单独检查
+})
 </script>
 
 <style scoped>
 .comment-item {
-  padding: 1rem 0;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.dark .comment-item {
-  border-bottom-color: #374151;
+.comment-item:last-child {
+  border-bottom: none;
+}
+
+/* 当没有回复按钮时，减少底部间距 */
+.comment-item:has(.comment-item > div > div > div:not([style*="opacity: 1"])) {
+  padding-bottom: 0.5rem;
 }
 </style>

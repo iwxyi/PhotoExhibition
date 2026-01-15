@@ -1,5 +1,5 @@
 <template>
-  <div class="comment-form bg-white dark:bg-gray-800 rounded-lg p-6 mb-8 shadow-sm border border-gray-200 dark:border-gray-700">
+  <div class="comment-form bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-lg p-6 mb-8 shadow-sm border border-gray-200/50 dark:border-gray-700/50" :style="{ backgroundColor: backgroundColor, borderColor: borderColor }">
     <h3 class="text-lg font-medium mb-4" :style="{ color: textColor }">
       {{ parentId ? '回复评论' : '发表评论' }}
     </h3>
@@ -17,24 +17,23 @@
             type="text"
             required
             maxlength="50"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-            :style="{ color: textColor }"
-            placeholder="请输入昵称"
+            :class="`w-full px-3 py-2 bg-white/10 dark:bg-white/5 backdrop-blur-sm border rounded-md focus:outline-none focus:border-blue-500 placeholder-white/70 ${getTextColorClass()}`"
+            :style="{ borderColor: inputBorderColor }"
+            placeholder="所有人可见"
           />
         </div>
         <div>
           <label for="email" class="block text-sm font-medium mb-2" :style="{ color: textColor }">
-            邮箱 <span class="text-red-500">*</span>
+            邮箱
           </label>
           <input
             id="email"
             v-model="formData.email"
             type="email"
-            required
             maxlength="100"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-            :style="{ color: textColor }"
-            placeholder="请输入邮箱"
+            :class="`w-full px-3 py-2 bg-white/10 dark:bg-white/5 backdrop-blur-sm border rounded-md focus:outline-none focus:border-blue-500 placeholder-white/70 ${getTextColorClass()}`"
+            :style="{ borderColor: inputBorderColor }"
+            placeholder="隐藏，用于接收被回复的通知"
           />
         </div>
       </div>
@@ -50,11 +49,11 @@
           required
           maxlength="1000"
           rows="4"
-          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none dark:bg-gray-700 dark:text-white"
-          :style="{ color: textColor }"
+          :class="`w-full px-3 py-2 bg-white/10 dark:bg-white/5 backdrop-blur-sm border rounded-md focus:outline-none focus:border-blue-500 resize-none placeholder-white/70 ${getTextColorClass()}`"
+          :style="{ borderColor: inputBorderColor }"
           placeholder="请输入评论内容..."
         ></textarea>
-        <div class="text-right text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <div :class="`text-right text-sm mt-1 ${props.isAtmosphereEnabled || props.isDarkMode ? 'text-white/70' : 'text-gray-600'}`">
           {{ formData.content.length }}/1000
         </div>
       </div>
@@ -65,14 +64,14 @@
           v-if="parentId"
           type="button"
           @click="$emit('cancel')"
-          class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+          :class="`px-4 py-2 ${props.isAtmosphereEnabled || props.isDarkMode ? 'text-white/70 hover:text-white' : 'text-gray-600 hover:text-gray-800'}`"
         >
           取消回复
         </button>
         <button
           type="submit"
           :disabled="submitting || !isFormValid"
-          class="ml-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="ml-auto px-6 py-2 bg-blue-500/80 hover:bg-blue-500 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300/50 disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm"
         >
           {{ submitting ? '提交中...' : (parentId ? '回复' : '发表评论') }}
         </button>
@@ -82,13 +81,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { commentApi, CommentRequest, CommentDTO } from '@/api'
 
 interface Props {
   albumId: number
   parentId?: number
   textColor?: string
+  backgroundColor?: string
+  borderColor?: string
+  inputBorderColor?: string
+  isDarkMode?: boolean
+  isAtmosphereEnabled?: boolean
 }
 
 interface Emits {
@@ -97,12 +101,28 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  textColor: '#1a1a1a'
+  textColor: '#1a1a1a',
+  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  borderColor: 'rgba(229, 231, 235, 0.5)',
+  inputBorderColor: 'rgb(107 114 128 / 0.5)',
+  isDarkMode: false,
+  isAtmosphereEnabled: false
 })
 
 const emit = defineEmits<Emits>()
 
 const submitting = ref(false)
+const inputBorderColor = computed(() => props.inputBorderColor)
+
+// 获取文字颜色类
+const getTextColorClass = () => {
+  // 如果开启氛围模式或处于夜间模式，使用白色文字
+  if (props.isAtmosphereEnabled || props.isDarkMode) {
+    return 'text-white'
+  }
+  // 日间模式使用黑色文字
+  return 'text-black'
+}
 
 // 从localStorage加载用户信息
 const loadUserInfo = () => {
@@ -141,16 +161,38 @@ const initUserInfo = () => {
   formData.value.email = userInfo.email
 }
 
-// 监听parentId变化，更新表单数据
+// 监听parentId变化，更新表单数据并聚焦
 watch(() => props.parentId, (newParentId) => {
   formData.value.parentId = newParentId
+
+  // 延迟聚焦，确保DOM更新完成
+  setTimeout(() => {
+    nextTick(() => {
+      const userInfo = loadUserInfo()
+      if (!userInfo.nickname || userInfo.nickname.trim() === '') {
+        // 没有昵称，聚焦到昵称输入框
+        const nicknameInput = document.querySelector('#nickname') as HTMLInputElement
+        if (nicknameInput && nicknameInput.offsetParent !== null) { // 确保元素可见
+          nicknameInput.focus()
+          nicknameInput.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      } else {
+        // 有昵称，聚焦到评论输入框
+        const contentTextarea = document.querySelector('#content') as HTMLTextAreaElement
+        if (contentTextarea && contentTextarea.offsetParent !== null) { // 确保元素可见
+          contentTextarea.focus()
+          contentTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }
+    })
+  }, 100)
 })
 
 const isFormValid = computed(() => {
+  const email = formData.value.email.trim()
   return formData.value.nickname.trim().length > 0 &&
-         formData.value.email.trim().length > 0 &&
-         formData.value.email.includes('@') &&
-         formData.value.content.trim().length > 0
+         formData.value.content.trim().length > 0 &&
+         (email.length === 0 || email.includes('@'))
 })
 
 const submitComment = async () => {
