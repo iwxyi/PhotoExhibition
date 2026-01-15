@@ -19,7 +19,7 @@ const previewSizeMap: Record<PreviewSize, number> = {
 const coverSize = ref<CoverSize>((localStorage.getItem(COVER_KEY) as CoverSize) || 'md')
 const previewSize = ref<PreviewSize>((localStorage.getItem(PREVIEW_KEY) as PreviewSize) || 'md')
 const parallaxEnabled = ref<boolean>(localStorage.getItem(PARALLAX_KEY) !== 'false') // 默认启用
-const atmosphereEnabled = ref<boolean>(localStorage.getItem(ATMOSPHERE_KEY) !== 'false') // 默认启用
+const atmosphereEnabled = ref<boolean>(localStorage.getItem(ATMOSPHERE_KEY) === 'true') // 默认关闭
 const viewOriginalEnabled = ref<boolean>(localStorage.getItem(VIEW_ORIGINAL_KEY) === 'true') // 默认关闭
 
 export function useUiSettings() {

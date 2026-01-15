@@ -34,6 +34,7 @@
       </div>
     </nav>
 
+
     <!-- 相册网格 -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint; will-change: transform;">
       <!-- 分类 Tabs -->

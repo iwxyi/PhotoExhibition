@@ -1,21 +1,23 @@
 <template>
-  <div class="relative z-[70]" ref="settingsRef">
-    <button
-      @click="toggleSettings"
-      class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
-      title="设置"
-      :class="{ 'text-blue-600 dark:text-blue-400': showSettings }"
-    >
-      <svg class="w-6 h-6 transition-transform duration-200" :class="{ 'rotate-90': showSettings }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.072c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.072 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.072 2.573c.94 1.543-.827 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.072c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.072c-1.543.94-3.31-.827-2.37-2.37a1.724 1.724 0 00-1.072-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.072-2.573c-.94-1.543.827-3.31 2.37-2.37.964.587 2.203.138 2.573-1.072z" />
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    </button>
+  <!-- 设置按钮留在原地 -->
+  <button
+    @click="toggleSettings"
+    class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+    title="设置"
+    :class="{ 'text-blue-600 dark:text-blue-400': showSettings }"
+  >
+    <svg class="w-6 h-6 transition-transform duration-200" :class="{ 'rotate-90': showSettings }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.072c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.072 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.072 2.573c.94 1.543-.827 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.072c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.072c-1.543.94-3.31-.827-2.37-2.37a1.724 1.724 0 00-1.072-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.072-2.573c-.94-1.543.827-3.31 2.37-2.37.964.587 2.203.138 2.573-1.072z" />
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  </button>
 
+  <!-- 菜单弹窗使用teleport移动到body级别 -->
+  <Teleport to="body">
     <!-- 点击外部区域隐藏菜单的遮罩层 -->
     <div
       v-if="showSettings"
-      class="fixed top-0 left-0 w-screen h-screen z-[100] bg-black/10 cursor-pointer"
+      class="fixed top-0 left-0 w-screen h-screen z-[2000] bg-black/5 cursor-pointer"
       @click="closeSettings"
     ></div>
 
@@ -26,7 +28,7 @@
       <div
         v-if="showSettings"
         ref="menuRef"
-        class="fixed top-20 right-4 w-72 glass-panel z-[110] p-4 space-y-4 shadow-2xl"
+        class="fixed top-20 right-4 w-72 glass-panel z-[2100] p-4 space-y-4 shadow-2xl"
         @click.stop
       >
       <!-- 管理入口 -->
@@ -161,7 +163,7 @@
       </div>
       </div>
     </transition>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

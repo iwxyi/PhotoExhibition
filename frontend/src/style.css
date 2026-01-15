@@ -10,17 +10,17 @@
     --pe-accent-l: 56%;
 
     /* 玻璃、圆角等全局设计变量 */
-    --pe-glass-blur: 18px;
+    --pe-glass-blur: 20px;
     --pe-radius-lg: 16px;
 
-    --pe-surface-bg: rgba(248, 250, 252, 0.92);
+    --pe-surface-bg: rgba(248, 250, 252, 0.7);
     --pe-surface-border: rgba(148, 163, 184, 0.35);
     --pe-surface-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
     --pe-admin-bg: radial-gradient(circle at top left, #0f172a, #020617);
   }
 
   .dark {
-    --pe-surface-bg: rgba(15, 23, 42, 0.88);
+    --pe-surface-bg: rgba(15, 23, 42, 0.7);
     --pe-surface-bg-rgb: 15, 23, 42;
     --pe-surface-border: rgba(148, 163, 184, 0.35);
     --pe-surface-shadow: 0 22px 55px rgba(0, 0, 0, 0.75);
@@ -117,7 +117,7 @@
     backdrop-filter: blur(var(--pe-glass-blur));
     -webkit-backdrop-filter: blur(var(--pe-glass-blur));
     /* Fallback for browsers that don't support backdrop-filter */
-    background: rgba(var(--pe-surface-bg-rgb, 248, 250, 252), 0.95);
+    background: rgba(var(--pe-surface-bg-rgb, 248, 250, 252), 0.7);
     /* Main background - must come after fallback to override it */
     background: var(--pe-surface-bg);
   }
