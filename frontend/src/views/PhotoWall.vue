@@ -21,6 +21,7 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
+            <FilterPanel v-model:show="showFilter" />
             <SettingsMenu />
           </div>
         </div>
@@ -117,6 +118,7 @@ import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
@@ -134,6 +136,7 @@ const currentPage = ref(0)
 const hasMore = ref(true)
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
+const showFilter = ref(false)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const savedScrollTop = ref(0)
 const masonryContainer = ref<HTMLElement | null>(null)

@@ -21,6 +21,7 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
+            <FilterPanel v-model:show="showFilter" />
             <SettingsMenu />
           </div>
         </div>
@@ -119,6 +120,7 @@ import { useThemeStore } from '@/stores/theme'
 import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
@@ -136,6 +138,7 @@ const loading = computed(() => photoStore.loading)
 const currentPage = ref(0)
 const hasMore = ref(true)
 const savedScrollTop = ref(0)
+const showFilter = ref(false)
 const isLoadingMore = ref(false)
 
 // 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
