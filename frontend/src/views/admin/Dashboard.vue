@@ -168,8 +168,9 @@
               <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
               <option value="POST /admin/cleanup/duplicate-faces">清理重复人脸（删除同一照片的重复人脸记录）</option>
               <option value="POST /admin/albums/update-times">更新相册时间（重新计算拍摄时间和相册名时间）</option>
-              <option value="POST /admin/photos/update-times">更新照片时间（异步，重新从EXIF和路径提取拍摄时间）</option>
-              <option value="POST /admin/photos/update-times-sync">更新照片时间（同步，重新从EXIF和路径提取拍摄时间）</option>
+              <option value="POST /admin/photos/update-times">更新照片时间（重新从EXIF和路径提取拍摄时间）</option>
+              <!-- 同步更新照片时间已移除；仅保留异步接口 -->
+              <option value="POST /admin/update-exif-data">更新 EXIF 数值字段（回填历史图片）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
@@ -226,6 +227,21 @@
             <label class="block text-sm text-gray-400 mb-2">响应结果</label>
             <pre class="bg-gray-900 p-4 rounded-lg overflow-auto text-sm">{{ JSON.stringify(apiResponse, null, 2) }}</pre>
           </div>
+          <div v-if="taskStatus" class="mt-4 bg-gray-900 p-3 rounded-lg">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <div class="text-sm text-gray-200">任务 ID: <span class="text-sky-300">{{ taskStatus.taskId }}</span></div>
+                <div class="text-xs text-gray-400">状态: <span class="text-sky-300">{{ taskStatus.status }}</span></div>
+                <div class="text-xs text-gray-400">进度: <span class="text-sky-300">{{ taskStatus.current }} / {{ taskStatus.total }}</span></div>
+              </div>
+              <div>
+                <button @click="stopTaskPoll" class="px-2 py-1 text-xs bg-red-600 rounded">停止</button>
+              </div>
+            </div>
+            <div class="text-xs text-gray-300 max-h-48 overflow-auto">
+              <pre class="whitespace-pre-wrap break-words">{{ taskStatus.logs.join('\n') }}</pre>
+            </div>
+          </div>
         </div>
       </div>
       </div>
@@ -269,6 +285,46 @@ const pathInput = ref('')
 const faceIdInput = ref('')
 const topInput = ref('')
 const thresholdInput = ref('')
+
+const taskStatus = ref<any | null>(null)
+let taskPollTimer: number | null = null
+
+const stopTaskPoll = () => {
+  if (taskPollTimer) {
+    clearInterval(taskPollTimer)
+    taskPollTimer = null
+  }
+  taskStatus.value = null
+}
+
+const pollTask = async (taskId: string) => {
+  stopTaskPoll()
+  taskStatus.value = { taskId, status: 'pending', logs: [] }
+  taskPollTimer = window.setInterval(async () => {
+    try {
+      const res = await api.get(`/admin/tasks/${taskId}`)
+      const data = res.data
+      if (data && data.found) {
+        taskStatus.value = {
+          taskId: data.taskId,
+          status: data.status,
+          current: data.current,
+          total: data.total,
+          complete: data.complete,
+          logs: data.logs || []
+        }
+        if (data.complete) {
+          stopTaskPoll()
+        }
+      } else {
+        // not found -> stop polling
+        stopTaskPoll()
+      }
+    } catch (e) {
+      // ignore transient errors but stop after repeated failures could be added
+    }
+  }, 2000)
+}
 
 const loadStats = async () => {
   try {
@@ -448,8 +504,8 @@ const testApi = async () => {
   }
 
   // 更新照片时间需要确认
-  if (selectedApi.value === 'POST /admin/photos/update-times' || selectedApi.value === 'POST /admin/photos/update-times-sync') {
-    const isAsync = selectedApi.value === 'POST /admin/photos/update-times'
+  if (selectedApi.value === 'POST /admin/photos/update-times') {
+    const isAsync = true
     const confirmed = confirm(
       '📸 更新照片时间信息\n\n' +
       '此操作将：\n' +
@@ -474,6 +530,16 @@ const testApi = async () => {
     if (!confirmed) {
       return
     }
+  }
+
+  // 更新 EXIF 数值字段需要确认（可能较慢）
+  if (selectedApi.value === 'POST /admin/update-exif-data') {
+    const confirmed = confirm(
+      '⚠️ 确认回填所有照片的 EXIF 字段？\n\n' +
+      '此操作会遍历数据库中的所有照片并尝试解析/回填EXIF字段（快门秒数、焦距mm、光圈值、ISO、镜头型号），可能需要较长时间。\n\n' +
+      '建议在低访问时段执行，确定要继续吗？'
+    )
+    if (!confirmed) return
   }
 
   // 清理重复人脸数据需要确认
@@ -524,6 +590,11 @@ const testApi = async () => {
     const response = await api(config)
     apiResponse.value = response.data
     
+    // 如果后端返回 taskId，则开始轮询任务状态
+    if (response.data && response.data.taskId) {
+      pollTask(response.data.taskId)
+    }
+    
     // 清理成功后刷新统计数据
     if (selectedApi.value === 'POST /admin/cleanup/all' && response.data.success) {
       await loadStats()
@@ -558,6 +629,7 @@ onUnmounted(() => {
     clearInterval(scanTimer)
     scanTimer = null
   }
+  stopTaskPoll()
 })
 
 const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))

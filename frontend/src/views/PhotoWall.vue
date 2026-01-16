@@ -36,10 +36,10 @@
         <button class="text-blue-500 hover:underline" @click="clearTag">清除标签过滤</button>
       </div>
       <div v-if="currentFilters" class="mb-6 flex items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-300">
-        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60">
+        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60 cursor-pointer hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors" @click="showFilterPanel = true">
           筛选：{{ filterSummary }}
         </div>
-        <button class="text-red-500 hover:underline" @click="clearFilters">清空筛选 ×</button>
+        <button class="text-red-500 hover:text-red-600 text-lg font-bold leading-none" @click="clearFilters">×</button>
       </div>
       <div ref="masonryContainer" class="masonry-container">
         <div
@@ -171,6 +171,7 @@ const filterSummary = computed(() => {
   if (f.cameraModel) parts.push(f.cameraModel)
   if (f.lensModel) parts.push(f.lensModel)
   if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
+  if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${f.minShutterSpeed || '∞'}-${f.maxShutterSpeed || '∞'}`)
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
   if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
   if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
@@ -180,6 +181,8 @@ const filterSummary = computed(() => {
 const clearFilters = async () => {
   photoStore.clearLastFilters()
   await loadInitial()
+  // 滚动到页面顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 // 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
@@ -893,6 +896,8 @@ const loadInitial = async () => {
   } else {
     await photoStore.fetchPhotoWall(0)
   }
+  // 滚动到页面顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 const hydrateFromRoute = () => {

@@ -34,10 +34,10 @@
         <p class="text-gray-600 dark:text-gray-400">发现高质量摄影作品</p>
       </div>
       <div v-if="currentFilters" class="mb-6 flex items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-300">
-        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60">
+        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60 cursor-pointer hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors" @click="showFilterPanel = true">
           筛选：{{ filterSummary }}
         </div>
-        <button class="text-red-500 hover:underline" @click="clearFilters">清空筛选 ×</button>
+        <button class="text-red-500 hover:text-red-600 text-lg font-bold leading-none" @click="clearFilters">×</button>
       </div>
 
       <div v-if="loading && photos.length === 0" class="flex justify-center items-center h-96">
@@ -180,6 +180,9 @@ const gridClass = computed(() => {
 // 当前已启用的筛选（来自 store.lastFilters）
 const currentFilters = computed(() => photoStore.lastFilters || null)
 
+// 已查看的图片ID集合（避免重复显示）
+const viewedPhotoIds = ref(new Set<number>())
+
 const filterSummary = computed(() => {
   const f = currentFilters.value
   if (!f) return ''
@@ -188,6 +191,7 @@ const filterSummary = computed(() => {
   if (f.cameraModel) parts.push(f.cameraModel)
   if (f.lensModel) parts.push(f.lensModel)
   if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
+  if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${f.minShutterSpeed || '∞'}-${f.maxShutterSpeed || '∞'}`)
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
   if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
   if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
@@ -197,6 +201,8 @@ const filterSummary = computed(() => {
 const clearFilters = async () => {
   photoStore.clearLastFilters()
   await loadInitial()
+  // 滚动到页面顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 const openViewer = (idx: number, e: MouseEvent) => {
@@ -487,7 +493,12 @@ const loadMore = async () => {
         return
       }
       // 如果当前存在过滤条件，使用同样的过滤参数分页加载（保留随机页面的大小）
-      data = await photoStore.filterPhotos(filtersObj, currentPage.value, 12)
+      const excludeIds = Array.from(viewedPhotoIds.value)
+      const filtersWithExclusion = {
+        ...filtersObj,
+        excludePhotoIds: excludeIds.length > 0 ? excludeIds : [-1] // 如果为空，传-1（不可能的ID）
+      }
+      data = await photoStore.filterPhotos(filtersWithExclusion, currentPage.value, 12)
     } else {
       data = await photoStore.fetchRandomPhotos(currentPage.value, 12, 70)
     }
@@ -500,6 +511,13 @@ const loadMore = async () => {
     }
 
     hasMore.value = !data.last
+
+    // 记录已查看的图片ID（避免后续重复显示）
+    if (data.content && data.content.length > 0) {
+      data.content.forEach((photo: any) => {
+        viewedPhotoIds.value.add(photo.id)
+      })
+    }
 
     // 恢复滚动位置
     nextTick(() => {
@@ -543,12 +561,28 @@ const loadInitial = async () => {
     hasMore.value = true
     let data: any
     if (photoStore.lastFilters) {
-      data = await photoStore.filterPhotos(photoStore.lastFilters, 0, 12)
+      // 筛选模式：传递已查看的图片ID列表以避免重复
+      const excludeIds = Array.from(viewedPhotoIds.value)
+      const filtersWithExclusion = {
+        ...photoStore.lastFilters,
+        excludePhotoIds: excludeIds.length > 0 ? excludeIds : [-1] // 如果为空，传-1（不可能的ID）
+      }
+      data = await photoStore.filterPhotos(filtersWithExclusion, 0, 12)
     } else {
       data = await photoStore.fetchRandomPhotos(0, 12, 70)
     }
+
+    // 记录已查看的图片ID
+    if (data.content && data.content.length > 0) {
+      data.content.forEach((photo: any) => {
+        viewedPhotoIds.value.add(photo.id)
+      })
+    }
+
     hasMore.value = !data.last
     window.addEventListener('scroll', handleScroll, { passive: true })
+    // 滚动到页面顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (error) {
     console.error('初始化加载失败:', error)
     hasMore.value = false

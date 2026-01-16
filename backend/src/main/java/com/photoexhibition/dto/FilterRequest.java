@@ -1,6 +1,7 @@
 package com.photoexhibition.dto;
 
 import lombok.Data;
+import java.util.Arrays;
 import java.util.List;
 
 @Data
@@ -19,6 +20,8 @@ public class FilterRequest {
     private Integer maxIso;              // 最大ISO
     private String dominantColor;        // 主色调
     private Double minQualityScore;      // 最小质量评分
+    private Boolean randomOrder = false;     // 是否随机排序
+    private List<Long> excludePhotoIds = java.util.Arrays.asList(-1L);      // 排除的图片ID列表（避免重复显示，默认-1表示不排除）
     private Integer page = 0;
     private Integer size = 20;
 }

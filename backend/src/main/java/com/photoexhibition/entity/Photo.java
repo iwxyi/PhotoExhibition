@@ -80,7 +80,17 @@ public class Photo {
     @Column(name = "shutter_speed", length = 50)
     private String shutterSpeed;
 
+    @Column(name = "iso")
     private Integer iso;
+    
+    @Column(name = "shutter_speed_seconds")
+    private Double shutterSpeedSeconds;
+
+    @Column(name = "focal_length_mm")
+    private Double focalLengthMm;
+
+    @Column(name = "aperture_value")
+    private Double apertureValue;
 
     @Column(name = "taken_at")
     private LocalDateTime takenAt;

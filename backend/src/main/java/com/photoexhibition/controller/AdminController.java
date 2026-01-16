@@ -40,6 +40,26 @@ public class AdminController {
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
+     * 单独触发更新所有照片的 EXIF 字段（用于已存在图片的后处理）
+     * 包括数值字段（快门秒数、焦距mm、光圈值）和字符串字段（ISO、镜头型号）
+     */
+    @PostMapping("/update-exif-data")
+    public ResponseEntity<Map<String, Object>> updateAllExifData() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String taskId = java.util.UUID.randomUUID().toString();
+            photoScanService.updateAllExifNumericFieldsAsync(taskId);
+            resp.put("taskId", taskId);
+            resp.put("message", "已异步触发 EXIF 字段批量更新");
+            return ResponseEntity.accepted().body(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+
+    /**
      * 手动触发扫描
      */
     @PostMapping("/scan")
@@ -136,6 +156,24 @@ public class AdminController {
     @GetMapping("/scan/status")
     public ResponseEntity<Map<String, Object>> getScanStatus() {
         return ResponseEntity.ok(photoScanService.getScanStatus());
+    }
+
+    /**
+     * 查询后台异步任务状态（包含日志）
+     */
+    @GetMapping("/tasks/{taskId}")
+    public ResponseEntity<Map<String, Object>> getTaskStatus(@PathVariable String taskId) {
+        try {
+            Map<String, Object> resp = photoScanService.getTaskStatus(taskId);
+            if (resp.get("found") != null && !(Boolean) resp.get("found")) {
+                return ResponseEntity.status(404).body(resp);
+            }
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(err);
+        }
     }
 
     /**

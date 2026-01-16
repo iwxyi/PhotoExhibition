@@ -499,8 +499,36 @@ const applyFilters = async () => {
     dominantColor: filters.value.dominantColor || null,
     minQualityScore: filters.value.minQualityScore || null
   }
-  await photoStore.filterPhotos(filterData)
+
+
+  // 只有当有有效的筛选条件时才进行筛选
+  if (hasEffectiveFilters(filterData)) {
+    await photoStore.filterPhotos(filterData)
+  } else {
+    // 没有有效筛选条件时，清除之前的筛选状态
+    photoStore.clearLastFilters()
+  }
+
   closePanel()
+}
+
+// 检查筛选条件是否有实际限制（非默认值）
+const hasEffectiveFilters = (filterData: any) => {
+  return (
+    (filterData.tagIds && filterData.tagIds.length > 0) ||
+    (filterData.cameraModel && filterData.cameraModel.trim() !== '') ||
+    (filterData.lensModel && filterData.lensModel.trim() !== '') ||
+    (filterData.dominantColor && filterData.dominantColor.trim() !== '') ||
+    (filterData.minQualityScore && filterData.minQualityScore > 0) ||
+    (filterData.minFocalLength !== null && filterData.minFocalLength !== undefined) ||
+    (filterData.maxFocalLength !== null && filterData.maxFocalLength !== undefined) ||
+    (filterData.minShutterSpeed !== null && filterData.minShutterSpeed !== undefined) ||
+    (filterData.maxShutterSpeed !== null && filterData.maxShutterSpeed !== undefined) ||
+    (filterData.minAperture !== null && filterData.minAperture !== undefined) ||
+    (filterData.maxAperture !== null && filterData.maxAperture !== undefined) ||
+    (filterData.minIso !== null && filterData.minIso !== undefined) ||
+    (filterData.maxIso !== null && filterData.maxIso !== undefined)
+  )
 }
 
 const resetFilters = () => {
@@ -510,6 +538,8 @@ const resetFilters = () => {
   filters.value.dominantColor = null
   filters.value.minQualityScore = 0
   selectedTags.value = []
+  // 清除筛选状态
+  photoStore.clearLastFilters()
 }
 
 // 打开/关闭面板的处理，确保按需加载筛选选项（避免刷新时自动请求）

@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.JpaSort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -93,7 +94,14 @@ public class PhotoController {
      */
     @PostMapping("/filter")
     public ResponseEntity<Page<PhotoDTO>> filterPhotos(@RequestBody FilterRequest request) {
-        Pageable pageable = PageRequest.of(request.getPage(), request.getSize());
+        Pageable pageable;
+        if (request.getRandomOrder() != null && request.getRandomOrder()) {
+            // 随机排序 - 使用 JpaSort.unsafe 处理原生 SQL 函数
+            pageable = PageRequest.of(request.getPage(), request.getSize(), JpaSort.unsafe("RAND()"));
+        } else {
+            // 默认排序（按ID降序）
+            pageable = PageRequest.of(request.getPage(), request.getSize(), org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id"));
+        }
         Page<PhotoDTO> photos = photoService.filterPhotos(request, pageable);
         return ResponseEntity.ok(photos);
     }

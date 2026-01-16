@@ -190,6 +190,9 @@ public class PhotoService {
         Double maxShutterSpeed = request.getMaxShutterSpeed();
         Integer minIso = request.getMinIso();
         Integer maxIso = request.getMaxIso();
+        String dominantColor = request.getDominantColor();
+        Double minQualityScore = request.getMinQualityScore();
+        List<Long> excludePhotoIds = request.getExcludePhotoIds();
 
         // 按人物筛选（优先级最高）
         if (request.getPersonId() != null) {
@@ -216,6 +219,9 @@ public class PhotoService {
                 maxShutterSpeed,
                 minIso,
                 maxIso,
+                dominantColor,
+                minQualityScore,
+                excludePhotoIds,
                 pageable
             );
         }
@@ -224,23 +230,12 @@ public class PhotoService {
             photos = photoRepository.findAll(pageable);
         }
 
-        // 进一步筛选（色彩、质量评分等）
-        List<PhotoDTO> filtered = photos.getContent().stream()
+        // 转换为DTO（所有筛选条件已在数据库查询中处理）
+        List<PhotoDTO> dtos = photos.getContent().stream()
             .map(this::convertToDTO)
-            .filter(dto -> {
-                if (request.getDominantColor() != null && 
-                    !request.getDominantColor().equals(dto.getDominantColor())) {
-                    return false;
-                }
-                if (request.getMinQualityScore() != null && 
-                    (dto.getQualityScore() == null || dto.getQualityScore() < request.getMinQualityScore())) {
-                    return false;
-                }
-                return true;
-            })
             .collect(Collectors.toList());
 
-        return new org.springframework.data.domain.PageImpl<>(filtered, pageable, filtered.size());
+        return new org.springframework.data.domain.PageImpl<>(dtos, pageable, photos.getTotalElements());
     }
 
     /**
@@ -375,6 +370,31 @@ public class PhotoService {
     /**
      * 转换为DTO
      */
+    /**
+     * 将快门秒数转换为分数形式显示
+     * 示例：0.06666666666666667 -> "1/15", 0.5 -> "1/2", 2.0 -> "2"
+     */
+    private String formatShutterSpeedFromSeconds(Double seconds) {
+        if (seconds == null || seconds == 0) return "0";
+        if (seconds >= 1) return String.valueOf(Math.round(seconds));  // 超出1秒显示整数
+        if (seconds >= 0.1) return String.format("%.1f", seconds);  // 0.1秒到1秒之间显示小数
+        // 小于一秒显示倒数，分母取整
+        int denominator = (int) Math.round(1.0 / seconds);
+        return "1/" + denominator;
+    }
+
+    /**
+     * 测试快门速度格式化方法（开发调试用）
+     */
+    public void testShutterSpeedFormatting() {
+        double[] testValues = {0.06666666666666667, 0.5, 2.0, 0.25, 0.125, 0.03333333333333333, 1.5, 0.1, 0.05};
+        log.info("快门速度格式化测试:");
+        for (double value : testValues) {
+            String formatted = formatShutterSpeedFromSeconds(value);
+            log.info("  {} -> {}", value, formatted);
+        }
+    }
+
     private PhotoDTO convertToDTO(Photo photo) {
         PhotoDTO dto = new PhotoDTO();
         dto.setId(photo.getId());
@@ -421,7 +441,14 @@ public class PhotoService {
         dto.setLensModel(photo.getLensModel());
         dto.setFocalLength(photo.getFocalLength());
         dto.setAperture(photo.getAperture());
-        dto.setShutterSpeed(photo.getShutterSpeed());
+
+        // 优先使用原始快门字符串，如果没有则从秒数转换为分数形式
+        String shutterSpeedDisplay = photo.getShutterSpeed();
+        if (shutterSpeedDisplay == null && photo.getShutterSpeedSeconds() != null) {
+            shutterSpeedDisplay = formatShutterSpeedFromSeconds(photo.getShutterSpeedSeconds());
+        }
+        dto.setShutterSpeed(shutterSpeedDisplay);
+
         dto.setIso(photo.getIso());
         dto.setTakenAt(photo.getTakenAt());
         dto.setQualityScore(photo.getQualityScore());

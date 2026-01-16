@@ -57,6 +57,18 @@ import java.security.DigestInputStream;
 @Service
 public class PhotoScanService {
 
+    // 简单的任务状态记录结构（用于后台异步任务的进度与日志查询）
+    private static class TaskStatus {
+        public String taskId;
+        public String status;
+        public final List<String> logs = Collections.synchronizedList(new ArrayList<>());
+        public int current = 0;
+        public int total = 0;
+        public boolean complete = false;
+        public LocalDateTime startTime;
+        public LocalDateTime endTime;
+    }
+
     @Value("${photo.scan.base-path}")
     private String basePath;
 
@@ -118,6 +130,9 @@ public class PhotoScanService {
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
+    // task tracking for async admin tasks
+    private final ConcurrentHashMap<String, TaskStatus> tasks = new ConcurrentHashMap<>();
+    private final ThreadLocal<String> currentTaskId = new ThreadLocal<>();
     private final AtomicInteger scanCurrent = new AtomicInteger(0);
     private final AtomicInteger scanTotal = new AtomicInteger(0);
     private final Set<String> processedFiles = ConcurrentHashMap.newKeySet(); // 跟踪已处理的文件的路径
@@ -152,6 +167,43 @@ public class PhotoScanService {
         this.systemConfigService = systemConfigService;
         this.filterOptionService = filterOptionService;
         this.objectMapper = objectMapper;
+    }
+    
+    private void createTask(String taskId, String initialMessage) {
+        TaskStatus ts = new TaskStatus();
+        ts.taskId = taskId;
+        ts.status = "running";
+        ts.startTime = LocalDateTime.now();
+        if (initialMessage != null) ts.logs.add(LocalDateTime.now().toString() + " " + initialMessage);
+        tasks.put(taskId, ts);
+    }
+
+    private void appendTaskLog(String taskId, String msg) {
+        if (taskId == null) return;
+        TaskStatus ts = tasks.get(taskId);
+        if (ts != null) {
+            ts.logs.add(LocalDateTime.now().toString() + " " + msg);
+        }
+    }
+
+    private void setTaskProgress(String taskId, int current, int total) {
+        if (taskId == null) return;
+        TaskStatus ts = tasks.get(taskId);
+        if (ts != null) {
+            ts.current = current;
+            ts.total = total;
+        }
+    }
+
+    private void completeTask(String taskId, String finalMessage) {
+        if (taskId == null) return;
+        TaskStatus ts = tasks.get(taskId);
+        if (ts != null) {
+            ts.complete = true;
+            ts.status = "completed";
+            ts.endTime = LocalDateTime.now();
+            if (finalMessage != null) ts.logs.add(LocalDateTime.now().toString() + " " + finalMessage);
+        }
     }
     
     @PreDestroy
@@ -476,6 +528,29 @@ public class PhotoScanService {
     public void rescanDirectoryAsync(String directoryPath) {
         rescanDirectory(directoryPath);
     }
+
+    /**
+     * 异步更新所有照片的 EXIF 数值字段（后台任务）
+     */
+    @Async
+    public void updateAllExifNumericFieldsAsync(String taskId) {
+        log.info("异步任务 {}: 开始更新所有照片的 EXIF 字段", taskId);
+        createTask(taskId, "任务已启动");
+        currentTaskId.set(taskId);
+        try {
+            updateAllExifNumericFields();
+            appendTaskLog(taskId, "处理完成，等待汇总");
+            completeTask(taskId, "已完成");
+            log.info("异步任务 {}: 更新完成", taskId);
+        } catch (Exception e) {
+            appendTaskLog(taskId, "发生异常: " + e.getMessage());
+            completeTask(taskId, "已失败");
+            log.error("异步任务 {}: 更新 EXIF 数值字段失败", taskId, e);
+        } finally {
+            currentTaskId.remove();
+        }
+    }
+
     
     /**
      * 应用启动后执行一次扫描
@@ -1567,16 +1642,25 @@ public class PhotoScanService {
                     String focalLength = subIfdDirectory.getString(ExifSubIFDDirectory.TAG_FOCAL_LENGTH);
                     photo.setFocalLength(focalLength);
                     exifMap.put("focalLength", focalLength);
+                    // parse numeric mm value
+                    Double focalMm = parseFocalLengthToMm(focalLength);
+                    photo.setFocalLengthMm(focalMm);
                 }
                 if (subIfdDirectory.containsTag(ExifSubIFDDirectory.TAG_FNUMBER)) {
                     String aperture = subIfdDirectory.getString(ExifSubIFDDirectory.TAG_FNUMBER);
                     photo.setAperture(aperture);
                     exifMap.put("aperture", aperture);
+                    // parse numeric aperture
+                    Double apertureVal = parseApertureValue(aperture);
+                    photo.setApertureValue(apertureVal);
                 }
                 if (subIfdDirectory.containsTag(ExifSubIFDDirectory.TAG_EXPOSURE_TIME)) {
                     String shutterSpeed = subIfdDirectory.getString(ExifSubIFDDirectory.TAG_EXPOSURE_TIME);
                     photo.setShutterSpeed(shutterSpeed);
                     exifMap.put("shutterSpeed", shutterSpeed);
+                    // parse exposure time to seconds
+                    Double seconds = parseShutterToSeconds(shutterSpeed);
+                    photo.setShutterSpeedSeconds(seconds);
                 }
                 if (subIfdDirectory.containsTag(ExifSubIFDDirectory.TAG_ISO_EQUIVALENT)) {
                     Integer iso = subIfdDirectory.getInteger(ExifSubIFDDirectory.TAG_ISO_EQUIVALENT);
@@ -1597,6 +1681,16 @@ public class PhotoScanService {
                 for (com.drew.metadata.Tag tag : directory.getTags()) {
                     exifMap.put(tag.getTagName(), tag.getDescription());
                 }
+            }
+
+            // 尝试从 exifMap 中提取镜头型号（兼容多种键名）
+            Object lensVal = exifMap.get("Lens Model");
+            if (lensVal == null) lensVal = exifMap.get("Lens");
+            if (lensVal == null) lensVal = exifMap.get("LensModel");
+            if (lensVal != null) {
+                String lensModel = String.valueOf(lensVal);
+                photo.setLensModel(lensModel);
+                exifMap.put("lensModel", lensModel);
             }
 
             // 保存为JSON
@@ -1626,6 +1720,184 @@ public class PhotoScanService {
                 }
             }
         }
+    }
+
+    /**
+     * Parse shutter/exposure string to seconds (e.g. "1/80" -> 0.0125, "0.5" -> 0.5)
+     */
+    private Double parseShutterToSeconds(String shutter) {
+        if (shutter == null) return null;
+        try {
+            String s = shutter.trim().toLowerCase();
+            // remove "sec" or "s"
+            s = s.replaceAll("sec", "").replaceAll("s", "").trim();
+            if (s.contains("/")) {
+                String[] parts = s.split("/");
+                if (parts.length == 2) {
+                    double num = Double.parseDouble(parts[0]);
+                    double den = Double.parseDouble(parts[1]);
+                    if (den != 0) return num / den;
+                }
+            }
+            // try parse as decimal
+            return Double.parseDouble(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Double parseFocalLengthToMm(String focal) {
+        if (focal == null) return null;
+        try {
+            String s = focal.trim().toLowerCase();
+            s = s.replaceAll("mm", "").trim();
+            // sometimes "28" or "28.0"
+            return Double.parseDouble(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Double parseApertureValue(String aperture) {
+        if (aperture == null) return null;
+        try {
+            String s = aperture.trim().toLowerCase();
+            s = s.replaceAll("f/", "").replaceAll("f", "").trim();
+            return Double.parseDouble(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Update EXIF fields for all photos by parsing existing exifData or string fields.
+     * Includes both numeric fields (shutter speed seconds, focal length mm, aperture value)
+     * and string fields (ISO, lens model).
+     */
+    @Transactional
+    public void updateAllExifNumericFields() {
+        log.info("开始批量更新所有照片的 EXIF 字段...");
+        Iterable<Photo> all = photoRepository.findAll();
+        int total = (int) photoRepository.count();
+        int count = 0;
+        int processed = 0;
+        String tid = currentTaskId.get();
+        if (tid != null) {
+            setTaskProgress(tid, 0, total);
+            appendTaskLog(tid, "开始遍历 " + total + " 张照片");
+        }
+        for (Photo photo : all) {
+            boolean changed = false;
+            // try use existing string fields first
+            if (photo.getShutterSpeedSeconds() == null) {
+                Double sec = null;
+                String s = photo.getShutterSpeed();
+                if (s != null) sec = parseShutterToSeconds(s);
+                // fallback to exifData JSON
+                if (sec == null && photo.getExifData() != null) {
+                    try {
+                        Map m = new com.fasterxml.jackson.databind.ObjectMapper().readValue(photo.getExifData(), Map.class);
+                        Object val = m.get("Exposure Time");
+                        if (val == null) val = m.get("ExposureTime");
+                        if (val == null) val = m.get("shutterSpeed");
+                        if (val != null) sec = parseShutterToSeconds(String.valueOf(val));
+                    } catch (Exception ignored) {}
+                }
+                if (sec != null) {
+                    photo.setShutterSpeedSeconds(sec);
+                    changed = true;
+                }
+            }
+
+            if (photo.getFocalLengthMm() == null) {
+                Double fl = null;
+                String s = photo.getFocalLength();
+                if (s != null) fl = parseFocalLengthToMm(s);
+                if (fl == null && photo.getExifData() != null) {
+                    try {
+                        Map m = new com.fasterxml.jackson.databind.ObjectMapper().readValue(photo.getExifData(), Map.class);
+                        Object val = m.get("Focal Length");
+                        if (val == null) val = m.get("focalLength");
+                        if (val != null) fl = parseFocalLengthToMm(String.valueOf(val));
+                    } catch (Exception ignored) {}
+                }
+                if (fl != null) {
+                    photo.setFocalLengthMm(fl);
+                    changed = true;
+                }
+            }
+
+            if (photo.getApertureValue() == null) {
+                Double ap = null;
+                String s = photo.getAperture();
+                if (s != null) ap = parseApertureValue(s);
+                if (ap == null && photo.getExifData() != null) {
+                    try {
+                        Map m = new com.fasterxml.jackson.databind.ObjectMapper().readValue(photo.getExifData(), Map.class);
+                        Object val = m.get("F-Number");
+                        if (val == null) val = m.get("aperture");
+                        if (val != null) ap = parseApertureValue(String.valueOf(val));
+                    } catch (Exception ignored) {}
+                }
+                if (ap != null) {
+                    photo.setApertureValue(ap);
+                    changed = true;
+                }
+            }
+
+            // Update ISO if not set
+            if (photo.getIso() == null && photo.getExifData() != null) {
+                try {
+                    Map m = new com.fasterxml.jackson.databind.ObjectMapper().readValue(photo.getExifData(), Map.class);
+                    Object isoVal = m.get("ISO Speed Ratings");
+                    if (isoVal == null) isoVal = m.get("ISO");
+                    if (isoVal == null) isoVal = m.get("iso");
+                    if (isoVal != null) {
+                        try {
+                            Integer iso = Integer.valueOf(String.valueOf(isoVal));
+                            photo.setIso(iso);
+                            changed = true;
+                        } catch (NumberFormatException e) {
+                            // ignore invalid ISO values
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // Update lens model if not set
+            if ((photo.getLensModel() == null || photo.getLensModel().isEmpty()) && photo.getExifData() != null) {
+                try {
+                    Map m = new com.fasterxml.jackson.databind.ObjectMapper().readValue(photo.getExifData(), Map.class);
+                    Object lensVal = m.get("Lens Model");
+                    if (lensVal == null) lensVal = m.get("Lens");
+                    if (lensVal == null) lensVal = m.get("LensModel");
+                    if (lensVal == null) lensVal = m.get("lensModel");
+                    if (lensVal != null) {
+                        String lensModel = String.valueOf(lensVal);
+                        if (!lensModel.trim().isEmpty()) {
+                            photo.setLensModel(lensModel.trim());
+                            changed = true;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            if (changed) {
+                photoRepository.save(photo);
+                count++;
+            }
+            // 进度上报（每10张汇报一次）
+            processed++;
+            if (tid != null && (processed % 10 == 0 || processed == total)) {
+                setTaskProgress(tid, processed, total);
+                appendTaskLog(tid, "已处理 " + processed + " / " + total + " 张");
+            }
+        }
+        if (tid != null) {
+            setTaskProgress(tid, processed, total);
+            appendTaskLog(tid, "处理结束, 共有 " + count + " 张照片被更新");
+        }
+        log.info("EXIF 字段更新完成, 更新 {} 张照片", count);
     }
 
     /**
@@ -2322,6 +2594,29 @@ public class PhotoScanService {
         }
 
         log.info("批量更新照片时间完成，总共处理 {} 张照片，成功更新 {} 张", processedCount.get(), updatedCount.get());
+    }
+
+    /**
+     * 获取后台异步任务的状态与日志
+     */
+    public Map<String, Object> getTaskStatus(String taskId) {
+        Map<String, Object> resp = new HashMap<>();
+        TaskStatus ts = tasks.get(taskId);
+        if (ts == null) {
+            resp.put("found", false);
+            resp.put("taskId", taskId);
+            return resp;
+        }
+        resp.put("found", true);
+        resp.put("taskId", ts.taskId);
+        resp.put("status", ts.status);
+        resp.put("current", ts.current);
+        resp.put("total", ts.total);
+        resp.put("complete", ts.complete);
+        resp.put("startTime", ts.startTime != null ? ts.startTime.toString() : null);
+        resp.put("endTime", ts.endTime != null ? ts.endTime.toString() : null);
+        resp.put("logs", new ArrayList<>(ts.logs));
+        return resp;
     }
 
     /**

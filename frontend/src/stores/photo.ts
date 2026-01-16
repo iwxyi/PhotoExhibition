@@ -327,12 +327,35 @@ export const usePhotoStore = defineStore('photo', () => {
       }
       lastFilters.value = filters
       lastFiltersActive.value = true
-      const response = await api.post('/photos/filter', { ...filters, page, size })
-      if (page === 0) {
-        photos.value = response.data.content
-      } else {
-        photos.value = [...photos.value, ...response.data.content]
+      // 检查是否需要随机排序（在随机页面时）
+      const path = typeof window !== 'undefined' ? window.location.pathname : ''
+      const isRandomPage = path.indexOf('/random') === 0 || currentView.value === 'random'
+      const response = await api.post('/photos/filter', {
+        ...filters,
+        page,
+        size,
+        randomOrder: isRandomPage
+      })
+
+      // Assign filter results to the appropriate list depending on currentView
+      try {
+        const path = typeof window !== 'undefined' ? window.location.pathname : ''
+        if (path.indexOf('/random') === 0 || currentView.value === 'random') {
+          if (page === 0) photosRandom.value = response.data.content
+          else photosRandom.value = [...photosRandom.value, ...response.data.content]
+        } else {
+          if (page === 0) photosWall.value = response.data.content
+          else photosWall.value = [...photosWall.value, ...response.data.content]
+        }
+      } catch (e) {
+        // fallback to generic photos array
+        if (page === 0) {
+          photos.value = response.data.content
+        } else {
+          photos.value = [...photos.value, ...response.data.content]
+        }
       }
+
       // 标记是否已加载完当前过滤条件对应的所有页
       lastFiltersExhausted.value = !!response.data.last
       return response.data

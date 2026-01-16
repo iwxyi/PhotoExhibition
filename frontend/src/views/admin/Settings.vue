@@ -375,6 +375,7 @@
           >
             {{ scanning ? '扫描中...' : '立即重新扫描' }}
           </button>
+          <!-- EXIF 更新入口已集成到 API 测试工具中 -->
           <span class="text-xs text-gray-400">
             这将根据新设置重建所有相册结构，可能需要较长时间
           </span>
@@ -589,6 +590,8 @@ const triggerForceScan = async () => {
     scanning.value = false
   }
 }
+
+// EXIF 更新由 API 测试工具触发
 
 // 获取排序方式的显示名称
 const getSortOrderName = (sortOrder: string): string => {

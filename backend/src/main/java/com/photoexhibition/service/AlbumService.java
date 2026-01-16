@@ -455,6 +455,18 @@ public class AlbumService {
     /**
      * 转换Photo为DTO
      */
+    /**
+     * 将快门秒数转换为分数形式显示
+     */
+    private String formatShutterSpeedFromSeconds(Double seconds) {
+        if (seconds == null || seconds == 0) return "0";
+        if (seconds >= 1) return String.valueOf(Math.round(seconds));  // 超出1秒显示整数
+        if (seconds >= 0.1) return String.format("%.1f", seconds);  // 0.1秒到1秒之间显示小数
+        // 小于一秒显示倒数，分母取整
+        int denominator = (int) Math.round(1.0 / seconds);
+        return "1/" + denominator;
+    }
+
     private PhotoDTO convertPhotoToDTO(Photo photo) {
         PhotoDTO dto = new PhotoDTO();
         dto.setId(photo.getId());
@@ -500,7 +512,14 @@ public class AlbumService {
         dto.setLensModel(photo.getLensModel());
         dto.setFocalLength(photo.getFocalLength());
         dto.setAperture(photo.getAperture());
-        dto.setShutterSpeed(photo.getShutterSpeed());
+
+        // 优先使用原始快门字符串，如果没有则从秒数转换为分数形式
+        String shutterSpeedDisplay = photo.getShutterSpeed();
+        if (shutterSpeedDisplay == null && photo.getShutterSpeedSeconds() != null) {
+            shutterSpeedDisplay = formatShutterSpeedFromSeconds(photo.getShutterSpeedSeconds());
+        }
+        dto.setShutterSpeed(shutterSpeedDisplay);
+
         dto.setIso(photo.getIso());
         dto.setTakenAt(photo.getTakenAt());
         dto.setQualityScore(photo.getQualityScore());

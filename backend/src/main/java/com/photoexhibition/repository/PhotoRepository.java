@@ -34,25 +34,31 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
         value = "SELECT * FROM photo p WHERE " +
                 "(:cameraModel IS NULL OR p.camera_model = :cameraModel) AND " +
                 "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
-                "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) >= :minAperture) AND " +
-                "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) <= :maxAperture) AND " +
-                "(:minFocalLength IS NULL OR p.focal_length >= :minFocalLength) AND " +
-                "(:maxFocalLength IS NULL OR p.focal_length <= :maxFocalLength) AND " +
-                "(:minShutterSpeed IS NULL OR p.shutter_speed >= :minShutterSpeed) AND " +
-                "(:maxShutterSpeed IS NULL OR p.shutter_speed <= :maxShutterSpeed) AND " +
+                "(:minAperture IS NULL OR p.aperture_value >= :minAperture) AND " +
+                "(:maxAperture IS NULL OR p.aperture_value <= :maxAperture) AND " +
+                "(:minFocalLength IS NULL OR p.focal_length_mm >= :minFocalLength) AND " +
+                "(:maxFocalLength IS NULL OR p.focal_length_mm <= :maxFocalLength) AND " +
+                "(:minShutterSpeed IS NULL OR p.shutter_speed_seconds >= :minShutterSpeed) AND " +
+                "(:maxShutterSpeed IS NULL OR p.shutter_speed_seconds <= :maxShutterSpeed) AND " +
                 "(:minIso IS NULL OR p.iso >= :minIso) AND " +
-                "(:maxIso IS NULL OR p.iso <= :maxIso)",
+                "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
+                "(:dominantColor IS NULL OR p.dominant_color = :dominantColor) AND " +
+                "(:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND " +
+                "(p.id NOT IN :excludePhotoIds)",
         countQuery = "SELECT count(*) FROM photo p WHERE " +
                 "(:cameraModel IS NULL OR p.camera_model = :cameraModel) AND " +
                 "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
-                "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) >= :minAperture) AND " +
-                "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) <= :maxAperture) AND " +
-                "(:minFocalLength IS NULL OR p.focal_length >= :minFocalLength) AND " +
-                "(:maxFocalLength IS NULL OR p.focal_length <= :maxFocalLength) AND " +
-                "(:minShutterSpeed IS NULL OR p.shutter_speed >= :minShutterSpeed) AND " +
-                "(:maxShutterSpeed IS NULL OR p.shutter_speed <= :maxShutterSpeed) AND " +
+                "(:minAperture IS NULL OR p.aperture_value >= :minAperture) AND " +
+                "(:maxAperture IS NULL OR p.aperture_value <= :maxAperture) AND " +
+                "(:minFocalLength IS NULL OR p.focal_length_mm >= :minFocalLength) AND " +
+                "(:maxFocalLength IS NULL OR p.focal_length_mm <= :maxFocalLength) AND " +
+                "(:minShutterSpeed IS NULL OR p.shutter_speed_seconds >= :minShutterSpeed) AND " +
+                "(:maxShutterSpeed IS NULL OR p.shutter_speed_seconds <= :maxShutterSpeed) AND " +
                 "(:minIso IS NULL OR p.iso >= :minIso) AND " +
-                "(:maxIso IS NULL OR p.iso <= :maxIso)",
+                "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
+                "(:dominantColor IS NULL OR p.dominant_color = :dominantColor) AND " +
+                "(:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND " +
+                "(p.id NOT IN :excludePhotoIds)",
         nativeQuery = true
     )
     Page<Photo> findByExifFilters(@Param("cameraModel") String cameraModel,
@@ -65,6 +71,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   @Param("maxShutterSpeed") Double maxShutterSpeed,
                                   @Param("minIso") Integer minIso,
                                   @Param("maxIso") Integer maxIso,
+                                  @Param("dominantColor") String dominantColor,
+                                  @Param("minQualityScore") Double minQualityScore,
+                                  @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                   Pageable pageable);
 
     @Query(
@@ -199,19 +208,19 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     /**
      * 获取焦距范围 [最小值, 最大值]
      */
-    @Query(value = "SELECT MIN(CAST(p.focal_length AS DECIMAL(10,2))), MAX(CAST(p.focal_length AS DECIMAL(10,2))) FROM photo p WHERE p.focal_length IS NOT NULL", nativeQuery = true)
+    @Query(value = "SELECT MIN(p.focal_length_mm), MAX(p.focal_length_mm) FROM photo p WHERE p.focal_length_mm IS NOT NULL", nativeQuery = true)
     Double[] findFocalLengthRange();
 
     /**
      * 获取快门速度范围 [最小值, 最大值]
      */
-    @Query(value = "SELECT MIN(CAST(p.shutter_speed AS DECIMAL(10,4))), MAX(CAST(p.shutter_speed AS DECIMAL(10,4))) FROM photo p WHERE p.shutter_speed IS NOT NULL", nativeQuery = true)
+    @Query(value = "SELECT MIN(p.shutter_speed_seconds), MAX(p.shutter_speed_seconds) FROM photo p WHERE p.shutter_speed_seconds IS NOT NULL", nativeQuery = true)
     Double[] findShutterSpeedRange();
 
     /**
      * 获取光圈范围 [最小值, 最大值]
      */
-    @Query(value = "SELECT MIN(CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,2))), MAX(CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,2))) FROM photo p WHERE p.aperture IS NOT NULL", nativeQuery = true)
+    @Query(value = "SELECT MIN(p.aperture_value), MAX(p.aperture_value) FROM photo p WHERE p.aperture_value IS NOT NULL", nativeQuery = true)
     Double[] findApertureRange();
 
     /**
