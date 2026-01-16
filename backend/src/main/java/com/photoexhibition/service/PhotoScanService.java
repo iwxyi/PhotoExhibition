@@ -2047,7 +2047,7 @@ public class PhotoScanService {
 
         for (Album album : allAlbums) {
             try {
-                albumAtmosphereAnalysisService.analyzeAndUpdateAlbumAtmosphere(album.getId());
+                atmosphereAnalysisService.analyzeAlbumAtmosphere(album.getId());
                 albumCount++;
             } catch (Exception e) {
                 log.warn("更新相册 {} 的氛围失败: {}", album.getId(), e.getMessage());

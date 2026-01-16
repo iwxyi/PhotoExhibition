@@ -131,11 +131,11 @@
                 :key="person.id"
                 @click="mergeToExistingPerson(person)"
                 class="flex-shrink-0 px-2 py-1 rounded text-[10px] transition-colors"
-                :class="person.similarity >= 60
+                :class="person.similarity >= 0.6
                   ? 'bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-300 hover:text-blue-200'
                   : 'bg-gray-600/20 hover:bg-gray-600/40 border border-gray-500/30 text-gray-400 hover:text-gray-300'"
               >
-                {{ person.name || '未命名' }} ({{ person.similarity.toFixed(0) }}%)
+                {{ person.name || '未命名' }} ({{ (person.similarity * 100).toFixed(0) }}%)
               </button>
             </div>
           </div>
@@ -960,8 +960,8 @@ const similarPersons = computed(() => {
   const currentName = selectedPersonName.value.trim().toLowerCase()
 
   if (!currentName) {
-    // 没输入名字，显示所有相似度>=40%的推荐人物
-    return similarPersonsData.value.filter(person => person.similarity >= 40)
+    // 没输入名字，显示所有相似度>=30%的推荐人物
+    return similarPersonsData.value.filter(person => person.similarity >= 0.3)
   } else {
     // 输入了名字，显示包含该名字的人物，按相似度排序（不限制最低相似度）
     return similarPersonsData.value
