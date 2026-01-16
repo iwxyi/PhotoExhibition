@@ -190,7 +190,7 @@ public class PhotoService {
         Double maxShutterSpeed = request.getMaxShutterSpeed();
         Integer minIso = request.getMinIso();
         Integer maxIso = request.getMaxIso();
-        String dominantColor = request.getDominantColor();
+        String colorCategory = request.getColorCategory();
         Double minQualityScore = request.getMinQualityScore();
         List<Long> excludePhotoIds = request.getExcludePhotoIds();
 
@@ -201,6 +201,10 @@ public class PhotoService {
         // 标签筛选
         else if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
             photos = photoRepository.findByTagIds(request.getTagIds(), pageable);
+        }
+        // 颜色筛选（独立筛选条件）
+        else if (colorCategory != null && !colorCategory.trim().isEmpty()) {
+            photos = photoRepository.findByColorCategory(colorCategory, minQualityScore, excludePhotoIds, pageable);
         }
         // EXIF筛选
         else if (cameraModel != null || lensModel != null ||
@@ -219,7 +223,7 @@ public class PhotoService {
                 maxShutterSpeed,
                 minIso,
                 maxIso,
-                dominantColor,
+                colorCategory,
                 minQualityScore,
                 excludePhotoIds,
                 pageable
@@ -227,7 +231,16 @@ public class PhotoService {
         }
         // 默认获取所有
         else {
-            photos = photoRepository.findAll(pageable);
+            // 检查是否为随机排序
+            boolean isRandomOrder = pageable.getSort().stream()
+                .anyMatch(order -> "RAND()".equals(order.getProperty()));
+
+            if (isRandomOrder) {
+                // 使用自定义的随机查询方法
+                photos = photoRepository.findAllRandom(pageable);
+            } else {
+                photos = photoRepository.findAll(pageable);
+            }
         }
 
         // 转换为DTO（所有筛选条件已在数据库查询中处理）
@@ -413,6 +426,7 @@ public class PhotoService {
         dto.setHeight(photo.getHeight());
         dto.setFormat(photo.getFormat());
         dto.setDominantColor(photo.getDominantColor());
+        dto.setColorCategory(photo.getColorCategory());
 
         // 解析颜色调色板
         if (photo.getColorPalette() != null) {

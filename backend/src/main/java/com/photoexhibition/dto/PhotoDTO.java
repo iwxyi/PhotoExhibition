@@ -22,6 +22,7 @@ public class PhotoDTO {
     private Integer height;
     private String format;
     private String dominantColor;
+    private String colorCategory;
     private List<String> colorPalette;
     private Map<String, Object> exifData;
     private String cameraMake;

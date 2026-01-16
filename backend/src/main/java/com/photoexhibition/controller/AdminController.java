@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/admin")
@@ -43,6 +44,38 @@ public class AdminController {
      * 单独触发更新所有照片的 EXIF 字段（用于已存在图片的后处理）
      * 包括数值字段（快门秒数、焦距mm、光圈值）和字符串字段（ISO、镜头型号）
      */
+    @PostMapping("/recalculate-photo-colors")
+    public ResponseEntity<Map<String, Object>> recalculatePhotoColors() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String taskId = UUID.randomUUID().toString();
+            photoScanService.recalculateAllPhotoColorsAsync(taskId);
+            resp.put("message", "已异步触发照片颜色重新计算");
+            resp.put("taskId", taskId);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("照片颜色重新计算失败", e);
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PostMapping("/update-color-categories")
+    public ResponseEntity<Map<String, Object>> updateColorCategories() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String taskId = UUID.randomUUID().toString();
+            photoScanService.updateAllColorCategoriesAsync(taskId);
+            resp.put("message", "已异步触发颜色分类批量更新");
+            resp.put("taskId", taskId);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("颜色分类更新失败", e);
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
     @PostMapping("/update-exif-data")
     public ResponseEntity<Map<String, Object>> updateAllExifData() {
         Map<String, Object> resp = new HashMap<>();

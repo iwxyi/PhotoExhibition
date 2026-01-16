@@ -530,6 +530,56 @@ public class PhotoScanService {
     }
 
     /**
+     * 异步重新计算所有照片的颜色相关属性（后台任务）
+     */
+    @Async
+    public void recalculateAllPhotoColorsAsync(String taskId) {
+        log.info("异步任务 {}: 开始重新计算所有照片的颜色相关属性", taskId);
+        createTask(taskId, "任务已启动");
+        currentTaskId.set(taskId);
+        try {
+            recalculateAllPhotoColors();
+            appendTaskLog(taskId, "颜色重新计算完成，开始更新筛选选项");
+            // 更新筛选选项
+            try {
+                filterOptionService.updateAllFilterOptions();
+                appendTaskLog(taskId, "筛选选项更新完成");
+            } catch (Exception e) {
+                log.error("更新筛选选项失败", e);
+                appendTaskLog(taskId, "筛选选项更新失败: " + e.getMessage());
+                // 不抛出异常，避免影响整体任务
+            }
+            completeTask(taskId, "已完成");
+            log.info("异步任务 {}: 颜色重新计算完成", taskId);
+        } catch (Exception e) {
+            completeTask(taskId, "已失败");
+            log.error("异步任务 {}: 重新计算颜色相关属性失败", taskId, e);
+        } finally {
+            currentTaskId.remove();
+        }
+    }
+
+    /**
+     * 异步更新所有照片的颜色分类（后台任务）
+     */
+    @Async
+    public void updateAllColorCategoriesAsync(String taskId) {
+        log.info("异步任务 {}: 开始更新所有照片的颜色分类", taskId);
+        createTask(taskId, "任务已启动");
+        currentTaskId.set(taskId);
+        try {
+            updateAllColorCategories();
+            completeTask(taskId, "已完成");
+            log.info("异步任务 {}: 颜色分类更新完成", taskId);
+        } catch (Exception e) {
+            completeTask(taskId, "已失败");
+            log.error("异步任务 {}: 更新颜色分类失败", taskId, e);
+        } finally {
+            currentTaskId.remove();
+        }
+    }
+
+    /**
      * 异步更新所有照片的 EXIF 数值字段（后台任务）
      */
     @Async
@@ -539,7 +589,16 @@ public class PhotoScanService {
         currentTaskId.set(taskId);
         try {
             updateAllExifNumericFields();
-            appendTaskLog(taskId, "处理完成，等待汇总");
+            appendTaskLog(taskId, "EXIF更新完成，开始更新筛选选项");
+            // 更新筛选选项
+            try {
+                filterOptionService.updateAllFilterOptions();
+                appendTaskLog(taskId, "筛选选项更新完成");
+            } catch (Exception e) {
+                log.error("更新筛选选项失败", e);
+                appendTaskLog(taskId, "筛选选项更新失败: " + e.getMessage());
+                // 不抛出异常，避免影响整体任务
+            }
             completeTask(taskId, "已完成");
             log.info("异步任务 {}: 更新完成", taskId);
         } catch (Exception e) {
@@ -1898,6 +1957,153 @@ public class PhotoScanService {
             appendTaskLog(tid, "处理结束, 共有 " + count + " 张照片被更新");
         }
         log.info("EXIF 字段更新完成, 更新 {} 张照片", count);
+    }
+
+    /**
+     * 重新计算所有照片的颜色相关属性
+     */
+    public void recalculateAllPhotoColors() {
+        log.info("开始重新计算所有照片的颜色相关属性...");
+        Iterable<Photo> all = photoRepository.findAll();
+        int total = (int) photoRepository.count();
+        int count = 0;
+        int processed = 0;
+        String tid = currentTaskId.get();
+        if (tid != null) {
+            setTaskProgress(tid, 0, total);
+            appendTaskLog(tid, "开始遍历 " + total + " 张照片");
+        }
+
+        for (Photo photo : all) {
+            boolean changed = false;
+
+            // 重新分析照片颜色
+            try {
+                File imageFile = new File(photo.getOriginalPath());
+                if (imageFile.exists()) {
+                    // 清除现有的颜色数据
+                    photo.setDominantColor(null);
+                    photo.setColorPalette(null);
+                    photo.setColorCategory(null);
+
+                    // 重新分析颜色
+                    colorAnalysisService.analyzeColor(imageFile, photo);
+
+                    // 如果有主色调，设置颜色分类
+                    if (photo.getDominantColor() != null) {
+                        String category = ColorAnalysisService.classifyColor(photo.getDominantColor());
+                        photo.setColorCategory(category);
+                    }
+
+                    changed = true;
+                } else {
+                    log.warn("照片文件不存在: {}", photo.getOriginalPath());
+                }
+            } catch (Exception e) {
+                log.warn("重新分析照片 {} 的颜色失败: {}", photo.getId(), e.getMessage());
+            }
+
+            if (changed) {
+                photoRepository.save(photo);
+                count++;
+            }
+
+            // 进度上报（每10张汇报一次）
+            processed++;
+            if (tid != null && (processed % 10 == 0 || processed == total)) {
+                setTaskProgress(tid, processed, total);
+                appendTaskLog(tid, "已处理 " + processed + " / " + total + " 张");
+            }
+        }
+
+        if (tid != null) {
+            setTaskProgress(tid, processed, total);
+            appendTaskLog(tid, "照片颜色重新计算完成，开始更新相册氛围");
+        }
+
+        // 更新所有相册的氛围
+        try {
+            updateAllAlbumAtmospheres();
+            if (tid != null) {
+                appendTaskLog(tid, "相册氛围更新完成");
+            }
+        } catch (Exception e) {
+            log.error("更新相册氛围失败", e);
+            if (tid != null) {
+                appendTaskLog(tid, "相册氛围更新失败: " + e.getMessage());
+            }
+        }
+
+        log.info("颜色重新计算完成, 更新 {} 张照片", count);
+    }
+
+    /**
+     * 更新所有相册的氛围
+     */
+    private void updateAllAlbumAtmospheres() {
+        log.info("开始更新所有相册的氛围...");
+        Iterable<Album> allAlbums = albumRepository.findAll();
+        int albumCount = 0;
+
+        for (Album album : allAlbums) {
+            try {
+                albumAtmosphereAnalysisService.analyzeAndUpdateAlbumAtmosphere(album.getId());
+                albumCount++;
+            } catch (Exception e) {
+                log.warn("更新相册 {} 的氛围失败: {}", album.getId(), e.getMessage());
+            }
+        }
+
+        log.info("相册氛围更新完成, 更新了 {} 个相册", albumCount);
+    }
+
+    /**
+     * 批量更新所有照片的颜色分类
+     */
+    public void updateAllColorCategories() {
+        log.info("开始批量更新所有照片的颜色分类...");
+        Iterable<Photo> all = photoRepository.findAll();
+        int total = (int) photoRepository.count();
+        int count = 0;
+        int processed = 0;
+        String tid = currentTaskId.get();
+        if (tid != null) {
+            setTaskProgress(tid, 0, total);
+            appendTaskLog(tid, "开始遍历 " + total + " 张照片");
+        }
+
+        for (Photo photo : all) {
+            boolean changed = false;
+
+            // 为有主色调但没有颜色分类的照片设置颜色分类
+            if (photo.getDominantColor() != null && (photo.getColorCategory() == null || photo.getColorCategory().isEmpty())) {
+                try {
+                    String category = com.photoexhibition.service.ColorAnalysisService.classifyColor(photo.getDominantColor());
+                    photo.setColorCategory(category);
+                    changed = true;
+                } catch (Exception e) {
+                    log.warn("为照片 {} 设置颜色分类失败: {}", photo.getId(), e.getMessage());
+                }
+            }
+
+            if (changed) {
+                photoRepository.save(photo);
+                count++;
+            }
+
+            // 进度上报（每10张汇报一次）
+            processed++;
+            if (tid != null && (processed % 10 == 0 || processed == total)) {
+                setTaskProgress(tid, processed, total);
+                appendTaskLog(tid, "已处理 " + processed + " / " + total + " 张");
+            }
+        }
+
+        if (tid != null) {
+            setTaskProgress(tid, processed, total);
+            appendTaskLog(tid, "处理结束, 共有 " + count + " 张照片被更新");
+        }
+        log.info("颜色分类更新完成, 更新 {} 张照片", count);
     }
 
     /**

@@ -101,7 +101,7 @@
               <label class="block text-sm font-medium mb-2">
                 焦距: {{ filters.focalLengthRange[0] === null ? '不限' : formatFocalLength(filters.focalLengthRange[0]) }} - {{ filters.focalLengthRange[1] === null ? '不限' : formatFocalLength(filters.focalLengthRange[1]) }}{{ filters.focalLengthRange[0] !== null && filters.focalLengthRange[1] !== null ? 'mm' : '' }}
               </label>
-              <div class="relative px-2 py-2">
+              <div class="relative px-2 py-2" @click="handleTrackClick($event, 'focalLength')">
                 <!-- 背景线 -->
                 <div class="absolute top-1/2 left-0 right-0 h-1 bg-gray-300 dark:bg-gray-600 rounded-full transform -translate-y-1/2"></div>
 
@@ -118,9 +118,10 @@
                 <div
                   v-for="(mark, index) in focalLengthMarks"
                   :key="'focal-' + mark"
-                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10"
+                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer"
                   :style="{ left: (index / (focalLengthMarks.length - 1)) * 100 + '%' }"
                   v-show="index >= getFocalLengthStartIndex() && index <= getFocalLengthEndIndex()"
+                  @click="handleMarkClick($event, 'focalLength', mark)"
                 ></div>
 
                 <!-- 最小值滑块 -->
@@ -156,7 +157,7 @@
               <label class="block text-sm font-medium mb-2">
                 快门速度: {{ filters.shutterSpeedRange[0] === null ? '不限' : formatShutterSpeed(filters.shutterSpeedRange[0]) }} - {{ filters.shutterSpeedRange[1] === null ? '不限' : formatShutterSpeed(filters.shutterSpeedRange[1]) }}
               </label>
-              <div class="relative px-2 py-2">
+              <div class="relative px-2 py-2" @click="handleTrackClick($event, 'shutterSpeed')">
                 <!-- 背景线 -->
                 <div class="absolute top-1/2 left-0 right-0 h-1 bg-gray-300 dark:bg-gray-600 rounded-full transform -translate-y-1/2"></div>
 
@@ -173,9 +174,10 @@
                 <div
                   v-for="(mark, index) in shutterSpeedMarks"
                   :key="'shutter-' + mark"
-                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-green-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10"
+                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-green-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer"
                   :style="{ left: (index / (shutterSpeedMarks.length - 1)) * 100 + '%' }"
                   v-show="index >= getShutterSpeedStartIndex() && index <= getShutterSpeedEndIndex()"
+                  @click="handleMarkClick($event, 'shutterSpeed', mark)"
                 ></div>
 
                 <!-- 最小值滑块 -->
@@ -211,7 +213,7 @@
               <label class="block text-sm font-medium mb-2">
                 光圈: {{ filters.apertureRange[0] === null ? '不限' : 'f/' + formatAperture(filters.apertureRange[0]) }} - {{ filters.apertureRange[1] === null ? '不限' : 'f/' + formatAperture(filters.apertureRange[1]) }}
               </label>
-              <div class="relative px-2 py-2">
+              <div class="relative px-2 py-2" @click="handleTrackClick($event, 'aperture')">
                 <!-- 背景线 -->
                 <div class="absolute top-1/2 left-0 right-0 h-1 bg-gray-300 dark:bg-gray-600 rounded-full transform -translate-y-1/2"></div>
 
@@ -228,9 +230,10 @@
                 <div
                   v-for="(mark, index) in apertureMarks"
                   :key="'aperture-' + mark"
-                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-purple-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10"
+                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-purple-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer"
                   :style="{ left: (index / (apertureMarks.length - 1)) * 100 + '%' }"
                   v-show="index >= getApertureStartIndex() && index <= getApertureEndIndex()"
+                  @click="handleMarkClick($event, 'aperture', mark)"
                 ></div>
 
                 <!-- 最小值滑块 -->
@@ -266,7 +269,7 @@
               <label class="block text-sm font-medium mb-2">
                 ISO: {{ filters.isoRange[0] === null ? '不限' : filters.isoRange[0] }} - {{ filters.isoRange[1] === null ? '不限' : filters.isoRange[1] }}
               </label>
-              <div class="relative px-2 py-2">
+              <div class="relative px-2 py-2" @click="handleTrackClick($event, 'iso')">
                 <!-- 背景线 -->
                 <div class="absolute top-1/2 left-0 right-0 h-1 bg-gray-300 dark:bg-gray-600 rounded-full transform -translate-y-1/2"></div>
 
@@ -283,9 +286,10 @@
                 <div
                   v-for="(mark, index) in isoMarks"
                   :key="'iso-' + mark"
-                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-orange-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10"
+                  class="absolute top-1/2 w-1.5 h-1.5 bg-white dark:bg-gray-800 border border-orange-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer"
                   :style="{ left: (index / (isoMarks.length - 1)) * 100 + '%' }"
                   v-show="index >= getIsoStartIndex() && index <= getIsoEndIndex()"
+                  @click="handleMarkClick($event, 'iso', mark)"
                 ></div>
 
                 <!-- 最小值滑块 -->
@@ -318,13 +322,45 @@
 
               <!-- 色彩筛选 -->
               <div>
-                <label class="block text-sm font-medium mb-2">主色调</label>
-                <input
-                :value="filters.dominantColor || '#ffffff'"
-                @input="filters.dominantColor = $event.target.value !== '#ffffff' ? $event.target.value : null"
-                  type="color"
-                  class="h-10 w-full rounded-lg cursor-pointer"
-                />
+                <label class="block text-sm font-medium mb-2">颜色分类</label>
+                <div class="relative overflow-visible">
+                  <!-- 横向滚动容器 -->
+                  <div class="flex gap-3 overflow-x-auto pb-2 px-0 pt-2 scroll-smooth color-dots-container"
+                       style="scrollbar-width: none; -ms-overflow-style: none;">
+                    <!-- 全部选项 -->
+                    <button
+                      @click="selectColor('')"
+                      :class="[
+                        'flex-shrink-0 w-8 h-8 rounded-full border-2 transition-all duration-200 hover:scale-110 transform-gpu flex items-center justify-center text-xs font-medium',
+                        filters.colorCategory === ''
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+                      ]"
+                    >
+                      全部
+                    </button>
+
+                    <!-- 颜色圆点 -->
+                    <button
+                      v-for="color in colorOptions"
+                      :key="color.value"
+                      @click="selectColor(color.value)"
+                      :class="[
+                        'flex-shrink-0 w-8 h-8 rounded-full border-2 transition-all duration-200 hover:scale-110 transform-gpu',
+                        filters.colorCategory === color.value
+                          ? 'border-blue-500 ring-2 ring-blue-200 dark:ring-blue-800'
+                          : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+                      ]"
+                      :style="{ backgroundColor: color.hex }"
+                      :title="color.label"
+                    ></button>
+                  </div>
+                </div>
+
+                <!-- 当前选中颜色显示 -->
+                <div v-if="filters.colorCategory" class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                  已选择: {{ getCurrentColorLabel() }}
+                </div>
               </div>
 
               <!-- 质量评分 -->
@@ -394,6 +430,21 @@ const filterOptions = ref({
   isoRange: [null, null] as [number | null, number | null]
 })
 
+// 颜色选项数据
+const colorOptions = [
+  { value: 'RED', hex: '#ef4444', label: '红色' },
+  { value: 'ORANGE', hex: '#f97316', label: '橙色' },
+  { value: 'YELLOW', hex: '#eab308', label: '黄色' },
+  { value: 'GREEN', hex: '#22c55e', label: '绿色' },
+  { value: 'BLUE', hex: '#3b82f6', label: '蓝色' },
+  { value: 'PURPLE', hex: '#a855f7', label: '紫色' },
+  { value: 'PINK', hex: '#ec4899', label: '粉色' },
+  { value: 'BROWN', hex: '#8B4513', label: '棕色' },
+  { value: 'GRAY', hex: '#6b7280', label: '灰色' },
+  { value: 'BLACK', hex: '#000000', label: '黑色' },
+  { value: 'WHITE', hex: '#ffffff', label: '白色' }
+]
+
 // 筛选条件
 const selectedTags = ref<any[]>([])
 const filters = ref({
@@ -403,9 +454,35 @@ const filters = ref({
   shutterSpeedRange: [null, null] as [number | null, number | null],
   apertureRange: [null, null] as [number | null, number | null],
   isoRange: [null, null] as [number | null, number | null],
-  dominantColor: null,
+  colorCategory: '',
   minQualityScore: 0
 })
+
+// 确保范围值的有效性：min <= max
+const validateRange = (range: [number | null, number | null], type: string) => {
+  const [min, max] = range
+  if (min !== null && max !== null && min > max) {
+    // 如果min > max，交换它们
+    return [max, min] as [number | null, number | null]
+  }
+  return range
+}
+
+watch(() => filters.value.focalLengthRange, (newRange) => {
+  filters.value.focalLengthRange = validateRange(newRange, 'focalLength')
+}, { deep: true })
+
+watch(() => filters.value.shutterSpeedRange, (newRange) => {
+  filters.value.shutterSpeedRange = validateRange(newRange, 'shutterSpeed')
+}, { deep: true })
+
+watch(() => filters.value.apertureRange, (newRange) => {
+  filters.value.apertureRange = validateRange(newRange, 'aperture')
+}, { deep: true })
+
+watch(() => filters.value.isoRange, (newRange) => {
+  filters.value.isoRange = validateRange(newRange, 'iso')
+}, { deep: true })
 
 // 滑块锚点 (添加不限选项)
 const focalLengthMarks = ['不限', 16, 24, 35, 50, 85, 105, 200, 400, 600, 800, '不限']
@@ -496,20 +573,25 @@ const applyFilters = async () => {
     maxAperture: filters.value.apertureRange[1],
     minIso: filters.value.isoRange[0],
     maxIso: filters.value.isoRange[1],
-    dominantColor: filters.value.dominantColor || null,
+    colorCategory: filters.value.colorCategory || null,
     minQualityScore: filters.value.minQualityScore || null
   }
 
+  try {
+    // 只有当有有效的筛选条件时才进行筛选
+    if (hasEffectiveFilters(filterData)) {
+      await photoStore.filterPhotos(filterData)
+    } else {
+      // 没有有效筛选条件时，清除之前的筛选状态
+      photoStore.clearLastFilters()
+    }
 
-  // 只有当有有效的筛选条件时才进行筛选
-  if (hasEffectiveFilters(filterData)) {
-    await photoStore.filterPhotos(filterData)
-  } else {
-    // 没有有效筛选条件时，清除之前的筛选状态
-    photoStore.clearLastFilters()
+    closePanel()
+  } catch (error) {
+    console.error('筛选失败:', error)
+    // 可以在这里添加用户友好的错误提示
+    alert('筛选失败，请稍后重试')
   }
-
-  closePanel()
 }
 
 // 检查筛选条件是否有实际限制（非默认值）
@@ -518,7 +600,7 @@ const hasEffectiveFilters = (filterData: any) => {
     (filterData.tagIds && filterData.tagIds.length > 0) ||
     (filterData.cameraModel && filterData.cameraModel.trim() !== '') ||
     (filterData.lensModel && filterData.lensModel.trim() !== '') ||
-    (filterData.dominantColor && filterData.dominantColor.trim() !== '') ||
+    (filterData.colorCategory && filterData.colorCategory.trim() !== '') ||
     (filterData.minQualityScore && filterData.minQualityScore > 0) ||
     (filterData.minFocalLength !== null && filterData.minFocalLength !== undefined) ||
     (filterData.maxFocalLength !== null && filterData.maxFocalLength !== undefined) ||
@@ -535,7 +617,7 @@ const resetFilters = () => {
   setDefaultRanges()
   filters.value.cameraModel = ''
   filters.value.lensModel = ''
-  filters.value.dominantColor = null
+  filters.value.colorCategory = ''
   filters.value.minQualityScore = 0
   selectedTags.value = []
   // 清除筛选状态
@@ -578,6 +660,46 @@ const formatShutterSpeed = (value: number | null) => {
 
 const formatAperture = (value: number | null) => {
   return value ? value.toFixed(1) : '0.0'
+}
+
+// 获取当前选中颜色的标签
+const getCurrentColorLabel = () => {
+  if (!filters.value.colorCategory) return ''
+  const color = colorOptions.find(c => c.value === filters.value.colorCategory)
+  return color ? color.label : filters.value.colorCategory
+}
+
+// 选择颜色并立即应用筛选
+const selectColor = async (colorValue: string) => {
+  filters.value.colorCategory = colorValue
+  // 立即应用筛选
+  const filterData = {
+    tagIds: selectedTags.value.map(t => t.id),
+    cameraModel: filters.value.cameraModel || null,
+    lensModel: filters.value.lensModel || null,
+    minFocalLength: filters.value.focalLengthRange[0],
+    maxFocalLength: filters.value.focalLengthRange[1],
+    minShutterSpeed: filters.value.shutterSpeedRange[0],
+    maxShutterSpeed: filters.value.shutterSpeedRange[1],
+    minAperture: filters.value.apertureRange[0],
+    maxAperture: filters.value.apertureRange[1],
+    minIso: filters.value.isoRange[0],
+    maxIso: filters.value.isoRange[1],
+    colorCategory: filters.value.colorCategory || null,
+    minQualityScore: filters.value.minQualityScore || null
+  }
+
+  try {
+    if (hasEffectiveFilters(filterData)) {
+      await photoStore.filterPhotos(filterData)
+    } else {
+      photoStore.clearLastFilters()
+    }
+    // 自动关闭面板
+    closePanel()
+  } catch (error) {
+    console.error('颜色筛选失败:', error)
+  }
 }
 
 const displayShutterLabel = (mark: any) => {
@@ -631,6 +753,206 @@ const startDrag = (event: MouseEvent, type: string, index: number) => {
   document.addEventListener('mousemove', handleDrag)
   document.addEventListener('mouseup', stopDrag)
   event.preventDefault()
+}
+
+// 处理标记点击 - 直接设置标记值到距离最近的滑块
+const handleMarkClick = (event: MouseEvent, type: string, mark: any) => {
+  event.stopPropagation() // 防止触发轨道点击
+
+  const adjustedValue = mark === '不限' ? null : mark
+
+  // 确保range数组已初始化
+  const rangeKey = `${type}Range`
+  if (!filters.value[rangeKey]) {
+    filters.value[rangeKey] = [null, null]
+  }
+
+  // 获取当前范围值
+  const currentRange = filters.value[rangeKey]
+  const [currentMin, currentMax] = currentRange
+
+  // 获取对应的marks数组
+  let marks: any[] = []
+  switch (type) {
+    case 'focalLength':
+      marks = focalLengthMarks
+      break
+    case 'shutterSpeed':
+      marks = shutterSpeedMarks
+      break
+    case 'aperture':
+      marks = apertureMarks
+      break
+    case 'iso':
+      marks = isoMarks
+      break
+  }
+
+  // 决定设置哪个滑块的逻辑
+  if (currentMin === null && currentMax === null) {
+    // 两个都是null，设置最小值
+    filters.value[rangeKey][0] = adjustedValue
+  } else if (currentMin === null) {
+    // 只有最小值为null，设置最小值
+    filters.value[rangeKey][0] = adjustedValue
+  } else if (currentMax === null) {
+    // 只有最大值为null，设置最大值
+    filters.value[rangeKey][1] = adjustedValue
+  } else {
+    // 两个都有值，基于刻度索引距离选择最近的滑块
+    const clickedIndex = marks.indexOf(mark)
+    const minIndex = marks.indexOf(currentMin)
+    const maxIndex = marks.indexOf(currentMax)
+
+    if (clickedIndex === -1 || minIndex === -1 || maxIndex === -1) {
+      // 如果找不到索引，回退到数值距离计算
+      const minDiff = Math.abs(adjustedValue - currentMin)
+      const maxDiff = Math.abs(adjustedValue - currentMax)
+      if (minDiff <= maxDiff) {
+        filters.value[rangeKey][0] = adjustedValue
+      } else {
+        filters.value[rangeKey][1] = adjustedValue
+      }
+    } else {
+      // 基于刻度索引距离计算
+      const minIndexDiff = Math.abs(clickedIndex - minIndex)
+      const maxIndexDiff = Math.abs(clickedIndex - maxIndex)
+      if (minIndexDiff <= maxIndexDiff) {
+        filters.value[rangeKey][0] = adjustedValue
+      } else {
+        filters.value[rangeKey][1] = adjustedValue
+      }
+    }
+  }
+}
+
+// 处理轨道点击 - 移动距离点击位置最近的滑块
+const handleTrackClick = (event: MouseEvent, type: string) => {
+  // 防止与滑块拖拽冲突
+  if (isDragging) return
+
+  const container = (event.currentTarget as HTMLElement)
+  const rect = container.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const clickPercent = Math.max(0, Math.min(100, (x / rect.width) * 100))
+
+  const min = getCurrentMin(type)
+  const max = getCurrentMax(type)
+  const clickValue = min + (clickPercent / 100) * (max - min)
+
+  // 根据类型调整步长
+  let adjustedValue = clickValue
+  switch (type) {
+    case 'focalLength':
+      const focalIndex = Math.round(clickPercent / 100 * (focalLengthMarks.length - 1))
+      const clampedFocalIndex = Math.max(0, Math.min(focalLengthMarks.length - 1, focalIndex))
+      const focalMark = focalLengthMarks[clampedFocalIndex]
+      adjustedValue = focalMark === '不限' ? null : focalMark
+      break
+    case 'shutterSpeed':
+      const shutterIndex = Math.round(clickPercent / 100 * (shutterSpeedMarks.length - 1))
+      const clampedShutterIndex = Math.max(0, Math.min(shutterSpeedMarks.length - 1, shutterIndex))
+      const shutterMark = shutterSpeedMarks[clampedShutterIndex]
+      adjustedValue = shutterMark === '不限' ? null : shutterMark
+      break
+    case 'aperture':
+      const apertureIndex = Math.round(clickPercent / 100 * (apertureMarks.length - 1))
+      const clampedApertureIndex = Math.max(0, Math.min(apertureMarks.length - 1, apertureIndex))
+      const apertureMark = apertureMarks[clampedApertureIndex]
+      adjustedValue = apertureMark === '不限' ? null : apertureMark
+      break
+    case 'iso':
+      const isoIndex = Math.round(clickPercent / 100 * (isoMarks.length - 1))
+      const clampedIsoIndex = Math.max(0, Math.min(isoMarks.length - 1, isoIndex))
+      const isoMark = isoMarks[clampedIsoIndex]
+      adjustedValue = isoMark === '不限' ? null : isoMark
+      break
+  }
+
+  // 确保range数组已初始化
+  const rangeKey = `${type}Range`
+  if (!filters.value[rangeKey]) {
+    filters.value[rangeKey] = [null, null]
+  }
+
+  // 获取当前范围值
+  const currentRange = filters.value[rangeKey]
+  const [currentMin, currentMax] = currentRange
+
+  // 如果两个滑块都是null，根据点击位置设置（左侧设置最小值，右侧设置最大值）
+  if (currentMin === null && currentMax === null) {
+    if (clickPercent < 50) {
+      // 点击左侧，设置最小值
+      filters.value[rangeKey][0] = adjustedValue
+    } else {
+      // 点击右侧，设置最大值
+      filters.value[rangeKey][1] = adjustedValue
+    }
+    return
+  }
+
+  // 如果只有一个滑块被设置，设置另一个滑块
+  if (currentMin === null) {
+    filters.value[rangeKey][0] = adjustedValue
+    return
+  }
+  if (currentMax === null) {
+    filters.value[rangeKey][1] = adjustedValue
+    return
+  }
+
+  // 两个滑块都被设置，基于刻度索引距离选择最近的滑块
+  // 获取对应的marks数组
+  let marks: any[] = []
+  switch (type) {
+    case 'focalLength':
+      marks = focalLengthMarks
+      break
+    case 'shutterSpeed':
+      marks = shutterSpeedMarks
+      break
+    case 'aperture':
+      marks = apertureMarks
+      break
+    case 'iso':
+      marks = isoMarks
+      break
+  }
+
+  const clickedIndex = marks.indexOf(adjustedValue)
+  const minIndex = marks.indexOf(currentMin)
+  const maxIndex = marks.indexOf(currentMax)
+
+  if (clickedIndex === -1 || minIndex === -1 || maxIndex === -1) {
+    // 如果找不到索引，回退到数值距离计算
+    const minDiff = Math.abs(adjustedValue - currentMin)
+    const maxDiff = Math.abs(adjustedValue - currentMax)
+    if (minDiff <= maxDiff) {
+      filters.value[rangeKey][0] = adjustedValue
+    } else {
+      filters.value[rangeKey][1] = adjustedValue
+    }
+  } else {
+    // 基于刻度索引距离计算
+    const minIndexDiff = Math.abs(clickedIndex - minIndex)
+    const maxIndexDiff = Math.abs(clickedIndex - maxIndex)
+
+    if (minIndexDiff < maxIndexDiff) {
+      // 距离最小值更近，设置最小值
+      filters.value[rangeKey][0] = adjustedValue
+    } else if (maxIndexDiff < minIndexDiff) {
+      // 距离最大值更近，设置最大值
+      filters.value[rangeKey][1] = adjustedValue
+    } else {
+      // 距离相同时，根据点击位置相对于滑块条中心的位置来决定
+      // 点击位置在左半边偏向设置最小值，右半边偏向设置最大值
+      if (clickPercent < 50) {
+        filters.value[rangeKey][0] = adjustedValue
+      } else {
+        filters.value[rangeKey][1] = adjustedValue
+      }
+    }
+  }
 }
 
 const handleDrag = (event: MouseEvent) => {
@@ -1145,6 +1467,25 @@ onBeforeUnmount(() => {
 .dark .range-slider::-moz-range-thumb {
   background: #60a5fa;
   border-color: #1f2937;
+}
+
+/* 颜色圆点容器样式 */
+.color-dots-container::-webkit-scrollbar {
+  display: none;
+}
+
+.color-dots-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 为白色圆点添加特殊边框 */
+.color-dots-container button[style*="ffffff"] {
+  border-color: #d1d5db !important;
+}
+
+.dark .color-dots-container button[style*="ffffff"] {
+  border-color: #374151 !important;
 }
 </style>
 

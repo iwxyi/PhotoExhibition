@@ -36,7 +36,7 @@
         <button class="text-blue-500 hover:underline" @click="clearTag">清除标签过滤</button>
       </div>
       <div v-if="currentFilters" class="mb-6 flex items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-300">
-        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60 cursor-pointer hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors" @click="showFilterPanel = true">
+        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60 cursor-pointer hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors" @click="showFilter = true">
           筛选：{{ filterSummary }}
         </div>
         <button class="text-red-500 hover:text-red-600 text-lg font-bold leading-none" @click="clearFilters">×</button>
@@ -170,6 +170,23 @@ const filterSummary = computed(() => {
   if (f.tagIds && f.tagIds.length) parts.push(`${f.tagIds.length} 标签`)
   if (f.cameraModel) parts.push(f.cameraModel)
   if (f.lensModel) parts.push(f.lensModel)
+  if (f.colorCategory) {
+    // 转换颜色类别为中文显示
+    const colorMap: Record<string, string> = {
+      'RED': '🔴 红色',
+      'ORANGE': '🟠 橙色',
+      'YELLOW': '🟡 黄色',
+      'GREEN': '🟢 绿色',
+      'BLUE': '🔵 蓝色',
+      'PURPLE': '🟣 紫色',
+      'PINK': '🩷 粉色',
+      'BROWN': '🤎 棕色',
+      'GRAY': '⚪ 灰色',
+      'BLACK': '⚫ 黑色',
+      'WHITE': '⚪ 白色'
+    }
+    parts.push(colorMap[f.colorCategory] || f.colorCategory)
+  }
   if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
   if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${f.minShutterSpeed || '∞'}-${f.maxShutterSpeed || '∞'}`)
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)

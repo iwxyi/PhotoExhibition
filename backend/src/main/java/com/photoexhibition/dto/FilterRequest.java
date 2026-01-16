@@ -18,7 +18,7 @@ public class FilterRequest {
     private Double maxShutterSpeed;      // 最大快门速度
     private Integer minIso;              // 最小ISO
     private Integer maxIso;              // 最大ISO
-    private String dominantColor;        // 主色调
+    private String colorCategory;        // 颜色分类
     private Double minQualityScore;      // 最小质量评分
     private Boolean randomOrder = false;     // 是否随机排序
     private List<Long> excludePhotoIds = java.util.Arrays.asList(-1L);      // 排除的图片ID列表（避免重复显示，默认-1表示不排除）

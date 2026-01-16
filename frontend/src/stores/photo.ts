@@ -36,7 +36,7 @@ export interface Photo {
   width?: number
   height?: number
   format?: string
-  dominantColor?: string
+  colorCategory?: string
   colorPalette?: string[]
   exifData?: Record<string, any>
   cameraMake?: string
@@ -359,6 +359,10 @@ export const usePhotoStore = defineStore('photo', () => {
       // 标记是否已加载完当前过滤条件对应的所有页
       lastFiltersExhausted.value = !!response.data.last
       return response.data
+    } catch (error) {
+      console.error('筛选照片失败:', error)
+      // 重新抛出错误，让调用方处理
+      throw error
     } finally {
       loading.value = false
       lastFiltersLoading.value = false

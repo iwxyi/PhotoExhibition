@@ -26,6 +26,13 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore ORDER BY RAND()")
     List<Photo> findRandomHighQualityPhotos(@Param("minScore") Double minScore, Pageable pageable);
+
+    @Query(
+        value = "SELECT * FROM photo ORDER BY RAND()",
+        countQuery = "SELECT count(*) FROM photo",
+        nativeQuery = true
+    )
+    Page<Photo> findAllRandom(Pageable pageable);
     
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.qualityScore >= :minScore")
     Long countByQualityScoreGreaterThanEqual(@Param("minScore") Double minScore);
@@ -42,7 +49,7 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                 "(:maxShutterSpeed IS NULL OR p.shutter_speed_seconds <= :maxShutterSpeed) AND " +
                 "(:minIso IS NULL OR p.iso >= :minIso) AND " +
                 "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
-                "(:dominantColor IS NULL OR p.dominant_color = :dominantColor) AND " +
+                "(:colorCategory IS NULL OR p.color_category = :colorCategory) AND " +
                 "(:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND " +
                 "(p.id NOT IN :excludePhotoIds)",
         countQuery = "SELECT count(*) FROM photo p WHERE " +
@@ -56,7 +63,7 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                 "(:maxShutterSpeed IS NULL OR p.shutter_speed_seconds <= :maxShutterSpeed) AND " +
                 "(:minIso IS NULL OR p.iso >= :minIso) AND " +
                 "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
-                "(:dominantColor IS NULL OR p.dominant_color = :dominantColor) AND " +
+                "(:colorCategory IS NULL OR p.color_category = :colorCategory) AND " +
                 "(:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND " +
                 "(p.id NOT IN :excludePhotoIds)",
         nativeQuery = true
@@ -71,7 +78,7 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   @Param("maxShutterSpeed") Double maxShutterSpeed,
                                   @Param("minIso") Integer minIso,
                                   @Param("maxIso") Integer maxIso,
-                                  @Param("dominantColor") String dominantColor,
+                                  @Param("colorCategory") String colorCategory,
                                   @Param("minQualityScore") Double minQualityScore,
                                   @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                   Pageable pageable);
@@ -100,6 +107,19 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
         nativeQuery = true
     )
     Page<Photo> findByPersonId(@Param("personId") Long personId, Pageable pageable);
+
+    /**
+     * 按颜色类别筛选照片
+     */
+    @Query(
+        value = "SELECT * FROM photo p WHERE p.color_category = :colorCategory AND (:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND (p.id NOT IN :excludePhotoIds)",
+        countQuery = "SELECT count(*) FROM photo p WHERE p.color_category = :colorCategory AND (:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND (p.id NOT IN :excludePhotoIds)",
+        nativeQuery = true
+    )
+    Page<Photo> findByColorCategory(@Param("colorCategory") String colorCategory,
+                                   @Param("minQualityScore") Double minQualityScore,
+                                   @Param("excludePhotoIds") List<Long> excludePhotoIds,
+                                   Pageable pageable);
 
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();
 
@@ -204,6 +224,12 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      */
     @Query(value = "SELECT p.lens_model, COUNT(*) as count FROM photo p WHERE p.lens_model IS NOT NULL AND p.lens_model != '' GROUP BY p.lens_model ORDER BY count DESC, p.lens_model", nativeQuery = true)
     List<Object[]> findLensModelsWithCount();
+
+    /**
+     * 获取颜色分类及对应的照片数量
+     */
+    @Query(value = "SELECT p.color_category, COUNT(*) as count FROM photo p WHERE p.color_category IS NOT NULL AND p.color_category != '' GROUP BY p.color_category ORDER BY count DESC, p.color_category", nativeQuery = true)
+    List<Object[]> findColorCategoriesWithCount();
 
     /**
      * 获取焦距范围 [最小值, 最大值]

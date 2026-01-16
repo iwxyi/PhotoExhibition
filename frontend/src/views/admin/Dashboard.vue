@@ -171,6 +171,8 @@
               <option value="POST /admin/photos/update-times">更新照片时间（重新从EXIF和路径提取拍摄时间）</option>
               <!-- 同步更新照片时间已移除；仅保留异步接口 -->
               <option value="POST /admin/update-exif-data">更新 EXIF 数值字段（回填历史图片）</option>
+              <option value="POST /admin/update-color-categories">更新颜色分类（为历史图片设置颜色分类）</option>
+              <option value="POST /admin/recalculate-photo-colors">更新照片颜色（重新计算色调、分类、相册氛围等）</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
@@ -537,6 +539,32 @@ const testApi = async () => {
     const confirmed = confirm(
       '⚠️ 确认回填所有照片的 EXIF 字段？\n\n' +
       '此操作会遍历数据库中的所有照片并尝试解析/回填EXIF字段（快门秒数、焦距mm、光圈值、ISO、镜头型号），可能需要较长时间。\n\n' +
+      '建议在低访问时段执行，确定要继续吗？'
+    )
+    if (!confirmed) return
+  }
+
+  // 更新颜色分类需要确认
+  if (selectedApi.value === 'POST /admin/update-color-categories') {
+    const confirmed = confirm(
+      '🎨 确认更新所有照片的颜色分类？\n\n' +
+      '此操作会为所有已有主色调的照片设置颜色分类（红色、蓝色、绿色等），便于按颜色分类筛选照片。\n\n' +
+      '建议在低访问时段执行，确定要继续吗？'
+    )
+    if (!confirmed) return
+  }
+
+  // 更新照片颜色需要确认（更全面的重新计算）
+  if (selectedApi.value === 'POST /admin/recalculate-photo-colors') {
+    const confirmed = confirm(
+      '🎨🖼️ 确认重新计算所有照片的颜色？\n\n' +
+      '此操作将：\n' +
+      '• 重新分析所有照片的主色调\n' +
+      '• 重新生成照片的调色板\n' +
+      '• 重新设置颜色分类\n' +
+      '• 更新所有相册的氛围效果\n' +
+      '• 更新筛选选项\n\n' +
+      '这是一个非常耗时的操作，可能需要几分钟到几十分钟。\n\n' +
       '建议在低访问时段执行，确定要继续吗？'
     )
     if (!confirmed) return

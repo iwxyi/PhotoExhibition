@@ -56,6 +56,9 @@ public class Photo {
     @Column(name = "dominant_color", length = 20)
     private String dominantColor;
 
+    @Column(name = "color_category", length = 20)
+    private String colorCategory;
+
     @Column(name = "color_palette", columnDefinition = "JSON")
     private String colorPalette;
 

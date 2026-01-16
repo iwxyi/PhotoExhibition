@@ -32,6 +32,9 @@ public class FilterOptionService {
             // 更新镜头型号
             updateLensModels();
 
+            // 更新颜色分类
+            updateColorCategories();
+
             // 更新焦距范围
             updateFocalLengthRange();
 
@@ -81,6 +84,18 @@ public class FilterOptionService {
                 .toList();
         options.put("lensModels", lensModels);
 
+        // 获取颜色分类（带数量）
+        List<Map<String, Object>> colorCategories = filterOptionRepository.findByOptionTypeOrderByOptionKey("color_categories")
+                .stream()
+                .map(option -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("name", option.getOptionKey());
+                    item.put("count", option.getPhotoCount());
+                    return item;
+                })
+                .toList();
+        options.put("colorCategories", colorCategories);
+
         // 获取范围值
         Double[] focalLengthRange = getRangeValues("focal_length");
         options.put("focalLengthRange", focalLengthRange);
@@ -129,6 +144,23 @@ public class FilterOptionService {
 
         filterOptionRepository.saveAll(options);
         log.info("更新了 {} 个镜头型号", options.size());
+    }
+
+    private void updateColorCategories() {
+        filterOptionRepository.deleteByOptionType("color_categories");
+
+        // 获取颜色分类及其数量
+        List<Object[]> colorStats = photoRepository.findColorCategoriesWithCount();
+        List<FilterOption> options = colorStats.stream()
+                .map(stat -> {
+                    String category = (String) stat[0];
+                    Number count = (Number) stat[1];
+                    return new FilterOption(null, "color_categories", category, null, null, count.intValue(), null, null);
+                })
+                .toList();
+
+        filterOptionRepository.saveAll(options);
+        log.info("更新了 {} 个颜色分类", options.size());
     }
 
     private void updateFocalLengthRange() {
