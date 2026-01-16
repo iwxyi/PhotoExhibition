@@ -3,6 +3,7 @@ package com.photoexhibition.service;
 import com.photoexhibition.entity.FilterOption;
 import com.photoexhibition.repository.FilterOptionRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ public class FilterOptionService {
 
     private final FilterOptionRepository filterOptionRepository;
     private final PhotoRepository photoRepository;
+    private final TagRepository tagRepository;
 
     /**
      * 更新所有筛选选项
@@ -95,6 +97,21 @@ public class FilterOptionService {
                 })
                 .toList();
         options.put("colorCategories", colorCategories);
+
+        // 获取标签（带数量）
+        List<Map<String, Object>> tags = tagRepository.findAllWithCount()
+                .stream()
+                .filter(tag -> tag.getPhotoCount() > 0) // 只显示有照片的标签
+                .map(tag -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("id", tag.getId());
+                    item.put("name", tag.getName());
+                    item.put("color", tag.getColor());
+                    item.put("count", tag.getPhotoCount());
+                    return item;
+                })
+                .toList();
+        options.put("tags", tags);
 
         // 获取范围值
         Double[] focalLengthRange = getRangeValues("focal_length");

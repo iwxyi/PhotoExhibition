@@ -11,10 +11,85 @@
     </button>
 
     <Teleport to="body">
+      <!-- 标签弹窗背景遮罩 -->
+      <div v-if="showTagSelector" class="fixed inset-0 z-40 bg-black/5 cursor-pointer" @click="closeTagSelector"></div>
+
+      <!-- 筛标签选择弹窗 -->
+      <Teleport to="body">
+        <div v-if="showTagSelector" class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none p-4">
+          <div class="filter-panel-glass tag-selector-modal pointer-events-auto p-0 max-w-2xl w-full mx-4 max-h-[90vh] flex flex-col" :class="{ 'dark-modal-bg': isDarkMode }" @click.stop>
+          <!-- 弹窗头部 -->
+          <div class="flex justify-between items-center p-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 class="text-xl font-semibold">选择标签</h3>
+            <button @click="closeTagSelector" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- 弹窗内容 -->
+          <div class="flex-1 overflow-y-auto p-6">
+            <!-- 搜索框 -->
+            <div class="mb-4">
+              <input v-model="tagSearchQuery" type="text" placeholder="搜索标签..." class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+            </div>
+
+            <!-- 标签气泡瀑布流 -->
+            <div class="min-h-[300px]">
+              <div class="flex flex-wrap gap-3">
+                <button
+                  v-for="tag in filteredTags"
+                  :key="tag.id"
+                  @click="toggleTagSelection(tag)"
+                  :class="[
+                    'px-3 py-2 rounded-full text-sm font-medium transition-all duration-200 hover:scale-105 transform-gpu border',
+                    isTagSelectedInModal(tag.id)
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                      : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
+                  ]"
+                  :style="isTagSelectedInModal(tag.id) ? {} : {
+                    backgroundColor: tag.color,
+                    color: isDarkMode ? getDarkModeContrastColor(tag.color) : getContrastColor(tag.color)
+                  }"
+                >
+                  {{ tag.name }}({{ tag.count }})
+                </button>
+              </div>
+
+              <!-- 无结果提示 -->
+              <div v-if="filteredTags.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
+                没有找到匹配的标签
+              </div>
+            </div>
+          </div>
+
+          <!-- 弹窗底部 -->
+          <div class="flex justify-between items-center p-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div class="text-sm text-gray-500 dark:text-gray-400">
+              已选择 {{ selectedTagsInModal.length }} 个标签
+            </div>
+            <div class="flex gap-3">
+              <button @click="closeTagSelector" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                取消
+              </button>
+              <button
+                @click="confirmTagSelection"
+                :disabled="selectedTagsInModal.length === 0"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                确定 ({{ selectedTagsInModal.length }})
+              </button>
+            </div>
+          </div>
+        </div>
+        </div>
+      </Teleport>
+
       <!-- 遮罩层 -->
       <div
         v-if="show"
-        class="fixed inset-0 z-[2000] bg-black/5 cursor-pointer"
+        class="fixed inset-0 z-40 bg-black/5 cursor-pointer"
         :class="{ 'opacity-0': !animating, 'opacity-100': animating }"
         style="transition: opacity 0.3s ease;"
         @click="closePanel"
@@ -23,12 +98,12 @@
       <!-- 弹窗 -->
         <div
           v-if="show"
-        class="fixed inset-0 z-[2100] flex items-center justify-center pointer-events-none"
+        class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
         >
           <div
           ref="panelRef"
           class="filter-panel-glass pointer-events-auto p-0 max-w-2xl w-full mx-4 max-h-[90vh] flex flex-col"
-          :class="{ 'opacity-0 scale-95': !animating, 'opacity-100 scale-100': animating }"
+          :class="{ 'opacity-0 scale-95': !animating, 'opacity-100 scale-100': animating, 'dark-modal-bg': isDarkMode }"
           style="transition: all 0.3s ease;"
             @click.stop
           >
@@ -48,26 +123,6 @@
           <!-- 可滚动内容区域 -->
           <div class="flex-1 overflow-y-auto px-6">
             <form @submit.prevent="applyFilters" class="space-y-6">
-              <!-- 标签筛选 -->
-              <div>
-                <label class="block text-sm font-medium mb-2">标签</label>
-                <div class="flex flex-wrap gap-2">
-                  <span
-                    v-for="tag in selectedTags"
-                    :key="tag.id"
-                    class="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-full text-sm flex items-center gap-2"
-                  >
-                    {{ tag.name }}
-                    <button
-                      @click="removeTag(tag.id)"
-                      class="hover:text-red-500"
-                    >
-                      ×
-                    </button>
-                  </span>
-                </div>
-              </div>
-
             <!-- 设备信息 -->
               <div class="grid grid-cols-2 gap-4">
                 <div>
@@ -320,6 +375,35 @@
                 </div>
               </div>
 
+              <!-- 标签筛选 -->
+              <div>
+                <label class="block text-sm font-medium mb-2">标签</label>
+
+                <!-- 已选标签 -->
+                <div v-if="selectedTags.length > 0" class="flex flex-wrap gap-2 mb-3">
+                  <span
+                    v-for="tag in selectedTags"
+                    :key="tag.id"
+                    class="px-3 py-1 rounded-full text-sm flex items-center gap-2"
+                    :style="{ backgroundColor: tag.color || '#e5e7eb', color: getContrastColor(tag.color) }"
+                  >
+                    {{ tag.name }}
+                    <button @click="removeTag(tag.id)" class="hover:text-red-500 ml-1">×</button>
+                  </span>
+                </div>
+
+                <!-- 添加标签按钮 -->
+                <button
+                  @click="openTagSelector"
+                  class="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span class="text-sm">添加标签</span>
+                </button>
+              </div>
+
               <!-- 色彩筛选 -->
               <div>
                 <label class="block text-sm font-medium mb-2">颜色分类</label>
@@ -403,8 +487,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { usePhotoStore } from '@/stores/photo'
+import { useThemeStore } from '@/stores/theme'
 import { api } from '@/api'
 
 const props = defineProps<{
@@ -412,22 +497,25 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'update:show': [value: boolean]
+  'update:show': [value: boolean],
+  'update:selectedTags': [value: any[]]
 }>()
 
 const photoStore = usePhotoStore()
+const themeStore = useThemeStore()
 const show = ref(props.show)
 const animating = ref(false)
 const panelRef = ref<HTMLElement>()
 
 // 筛选选项数据
 const filterOptions = ref({
-  cameraModels: [] as string[],
-  lensModels: [] as string[],
+  cameraModels: [] as any[],
+  lensModels: [] as any[],
   focalLengthRange: [null, null] as [number | null, number | null],
   shutterSpeedRange: [null, null] as [number | null, number | null],
   apertureRange: [null, null] as [number | null, number | null],
-  isoRange: [null, null] as [number | null, number | null]
+  isoRange: [null, null] as [number | null, number | null],
+  tags: [] as any[]
 })
 
 // 颜色选项数据
@@ -447,6 +535,15 @@ const colorOptions = [
 
 // 筛选条件
 const selectedTags = ref<any[]>([])
+const showTagSelector = ref(false)
+const tagSearchQuery = ref('')
+const selectedTagsInModal = ref<any[]>([])
+
+// 当selectedTags变化时通知父组件
+watch(selectedTags, (newTags) => {
+  emit('update:selectedTags', newTags)
+}, { deep: true })
+
 const filters = ref({
   cameraModel: '',
   lensModel: '',
@@ -556,6 +653,93 @@ const closePanel = () => {
   }, 300)
 }
 
+// 可选标签（排除已选中的）
+const availableTags = computed(() => {
+  return filterOptions.value.tags.filter(tag => !isTagSelected(tag.id))
+})
+
+// 过滤后的标签（用于弹窗）
+const filteredTags = computed(() => {
+  const query = tagSearchQuery.value.toLowerCase()
+  return filterOptions.value.tags.filter(tag =>
+    tag.name.toLowerCase().includes(query)
+  )
+})
+
+// 检测是否处于暗色模式
+const isDarkMode = computed(() => {
+  return themeStore.isDark
+})
+
+// 检查标签是否已选中
+const isTagSelected = (tagId: number) => {
+  return selectedTags.value.some(tag => tag.id === tagId)
+}
+
+// 检查标签在弹窗中是否选中
+const isTagSelectedInModal = (tagId: number) => {
+  return selectedTagsInModal.value.some(tag => tag.id === tagId)
+}
+
+// 切换单个标签选择
+const toggleTagSelection = (tag: any) => {
+  const index = selectedTagsInModal.value.findIndex(t => t.id === tag.id)
+  if (index > -1) {
+    selectedTagsInModal.value.splice(index, 1)
+  } else {
+    selectedTagsInModal.value.push(tag)
+  }
+}
+
+// 不再需要全选功能
+
+// 打开标签选择器
+const openTagSelector = () => {
+  selectedTagsInModal.value = [...selectedTags.value] // 初始化为当前已选标签
+  showTagSelector.value = true
+}
+
+// 关闭标签选择器
+const closeTagSelector = () => {
+  showTagSelector.value = false
+  tagSearchQuery.value = ''
+  selectedTagsInModal.value = []
+}
+
+// 确认标签选择
+const confirmTagSelection = async () => {
+  selectedTags.value = [...selectedTagsInModal.value]
+
+  // 立即应用筛选
+  const filterData = {
+    tagIds: selectedTags.value.map(t => t.id),
+    cameraModel: filters.value.cameraModel || null,
+    lensModel: filters.value.lensModel || null,
+    minFocalLength: filters.value.focalLengthRange[0],
+    maxFocalLength: filters.value.focalLengthRange[1],
+    minShutterSpeed: filters.value.shutterSpeedRange[0],
+    maxShutterSpeed: filters.value.shutterSpeedRange[1],
+    minAperture: filters.value.apertureRange[0],
+    maxAperture: filters.value.apertureRange[1],
+    minIso: filters.value.isoRange[0],
+    maxIso: filters.value.isoRange[1],
+    colorCategory: filters.value.colorCategory || null,
+    minQualityScore: filters.value.minQualityScore || null
+  }
+
+  try {
+    if (hasEffectiveFilters(filterData)) {
+      await photoStore.filterPhotos(filterData)
+    } else {
+      photoStore.clearLastFilters()
+    }
+    closeTagSelector()
+  } catch (error) {
+    console.error('标签筛选失败:', error)
+  }
+}
+
+// 移除标签
 const removeTag = (tagId: number) => {
   selectedTags.value = selectedTags.value.filter(t => t.id !== tagId)
 }
@@ -620,8 +804,10 @@ const resetFilters = () => {
   filters.value.colorCategory = ''
   filters.value.minQualityScore = 0
   selectedTags.value = []
-  // 清除筛选状态
+  // 清除筛选状态并刷新页面内容
   photoStore.clearLastFilters()
+  // 触发页面刷新
+  emit('reset')
 }
 
 // 打开/关闭面板的处理，确保按需加载筛选选项（避免刷新时自动请求）
@@ -667,6 +853,45 @@ const getCurrentColorLabel = () => {
   if (!filters.value.colorCategory) return ''
   const color = colorOptions.find(c => c.value === filters.value.colorCategory)
   return color ? color.label : filters.value.colorCategory
+}
+
+// 获取对比色（用于标签文字颜色）
+const getContrastColor = (hexColor: string) => {
+  if (!hexColor) return '#374151' // 默认深色文字
+
+  // 移除#号
+  const color = hexColor.replace('#', '')
+
+  // 转换为RGB
+  const r = parseInt(color.substr(0, 2), 16)
+  const g = parseInt(color.substr(2, 2), 16)
+  const b = parseInt(color.substr(4, 2), 16)
+
+  // 计算亮度 (YIQ公式)
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000
+
+  // 返回黑色或白色文字
+  return brightness > 128 ? '#374151' : '#f9fafb'
+}
+
+// 获取暗色模式下的对比色（确保在深色背景下可见）
+const getDarkModeContrastColor = (hexColor: string) => {
+  if (!hexColor) return '#f9fafb' // 默认白色文字
+
+  // 移除#号
+  const color = hexColor.replace('#', '')
+
+  // 转换为RGB
+  const r = parseInt(color.substr(0, 2), 16)
+  const g = parseInt(color.substr(2, 2), 16)
+  const b = parseInt(color.substr(4, 2), 16)
+
+  // 计算亮度 (YIQ公式)
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000
+
+  // 在暗色模式下，确保文字在深色弹窗背景下可见
+  // 如果标签背景较浅，使用深色文字；如果标签背景较深，使用浅色文字
+  return brightness > 160 ? '#1f2937' : '#f9fafb' // 深灰色或白色
 }
 
 // 选择颜色并立即应用筛选
@@ -1422,10 +1647,11 @@ onBeforeUnmount(() => {
   background: rgba(248, 250, 252, 0.7);
 }
 
-.dark :deep(.filter-panel-glass) {
-  background: rgba(15, 23, 42, 0.7);
-  border-color: rgba(148, 163, 184, 0.35);
-  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.75);
+/* 暗色模式弹窗样式 */
+.dark-modal-bg {
+  background: rgba(15, 23, 42, 0.8) !important;
+  border-color: rgba(71, 85, 105, 0.5) !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8) !important;
 }
 
 /* 范围滑块样式 */

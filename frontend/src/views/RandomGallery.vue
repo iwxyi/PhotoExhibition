@@ -21,7 +21,7 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
-            <FilterPanel v-model:show="showFilter" />
+            <FilterPanel v-model:show="showFilter" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" />
             <SettingsMenu />
           </div>
         </div>
@@ -180,6 +180,14 @@ const gridClass = computed(() => {
 // 当前已启用的筛选（来自 store.lastFilters）
 const currentFilters = computed(() => photoStore.lastFilters || null)
 
+// 选中的标签列表
+const selectedTags = ref<any[]>([])
+
+// 更新选中的标签
+const updateSelectedTags = (tags: any[]) => {
+  selectedTags.value = tags
+}
+
 // 已查看的图片ID集合（避免重复显示）
 const viewedPhotoIds = ref(new Set<number>())
 
@@ -187,7 +195,14 @@ const filterSummary = computed(() => {
   const f = currentFilters.value
   if (!f) return ''
   const parts: string[] = []
-  if (f.tagIds && f.tagIds.length) parts.push(`${f.tagIds.length} 标签`)
+  if (f.tagIds && f.tagIds.length) {
+    // 获取标签名称列表
+    const tagNames = f.tagIds.map(id => {
+      const tag = selectedTags.value.find(t => t.id === id)
+      return tag ? tag.name : `ID:${id}`
+    })
+    parts.push(`标签(${f.tagIds.length})：${tagNames.join('，')}`)
+  }
   if (f.cameraModel) parts.push(f.cameraModel)
   if (f.lensModel) parts.push(f.lensModel)
   if (f.colorCategory) {
@@ -217,6 +232,14 @@ const filterSummary = computed(() => {
 
 const clearFilters = async () => {
   photoStore.clearLastFilters()
+  selectedTags.value = [] // 重置选中的标签
+  await loadInitial()
+  // 滚动到页面顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const handleFilterReset = async () => {
+  selectedTags.value = [] // 重置选中的标签
   await loadInitial()
   // 滚动到页面顶部
   window.scrollTo({ top: 0, behavior: 'smooth' })
