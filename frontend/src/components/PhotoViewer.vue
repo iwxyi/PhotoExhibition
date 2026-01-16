@@ -84,9 +84,9 @@
         </div>
       </div>
 
-      <div class="flex-1 flex overflow-hidden min-h-0" @click="onBackdropClick">
+      <div class="flex-1 flex overflow-hidden min-h-0 relative" @click="onBackdropClick">
         <!-- 主图区域 -->
-        <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0">
+        <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0" :class="{ 'pr-80': !infoCollapsed }">
           <div class="relative w-full h-full flex items-center justify-center overflow-hidden" ref="imageContainer">
             <div
               class="relative inline-block viewer-open-anim"
@@ -173,141 +173,126 @@
         </div>
 
         <!-- 信息侧栏 -->
-        <div>
-          <div
-            v-show="!infoCollapsed"
-            class="w-80 max-w-[80vw] bg-gray-900/80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto"
-          >
-            <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <span class="text-sm font-semibold">信息</span>
-              <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfo">折叠</button>
+        <div v-if="!infoCollapsed" class="absolute top-0 right-0 bottom-0 w-80 bg-gray-900/80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <span class="text-sm font-semibold">信息</span>
+            <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfo">折叠</button>
+          </div>
+          <div class="flex-1 overflow-auto px-4 py-3 space-y-2 text-xs leading-relaxed">
+            <!-- 基本信息 -->
+            <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
+            <div v-if="currentPhoto?.takenAt"><span class="opacity-60">拍摄时间：</span>{{ formatDate(currentPhoto.takenAt) }}</div>
+            <div v-if="currentPhoto?.createdAt"><span class="opacity-60">入库时间：</span>{{ formatDate(currentPhoto.createdAt) }}</div>
+
+            <!-- 相机和镜头信息 -->
+            <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
+              <span class="opacity-60">相机：</span>{{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
             </div>
-            <div class="flex-1 overflow-auto px-4 py-3 space-y-2 text-xs leading-relaxed">
-              <!-- 基本信息 -->
-              <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
-              <div v-if="currentPhoto?.takenAt"><span class="opacity-60">拍摄时间：</span>{{ formatDate(currentPhoto.takenAt) }}</div>
-              <div v-if="currentPhoto?.createdAt"><span class="opacity-60">入库时间：</span>{{ formatDate(currentPhoto.createdAt) }}</div>
+            <div v-if="currentPhoto?.lensModel"><span class="opacity-60">镜头：</span>{{ currentPhoto.lensModel }}</div>
 
-              <!-- 相机和镜头信息 -->
-              <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
-                <span class="opacity-60">相机：</span>{{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
-              </div>
-              <div v-if="currentPhoto?.lensModel"><span class="opacity-60">镜头：</span>{{ currentPhoto.lensModel }}</div>
+            <!-- 拍摄参数 -->
+            <div class="grid grid-cols-2 gap-2">
+              <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
+              <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
+              <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
+              <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
+            </div>
 
-              <!-- 拍摄参数 -->
-              <div class="grid grid-cols-2 gap-2">
-                <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
-                <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
-                <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
-                <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
-              </div>
+            <!-- 图片规格 -->
+            <div v-if="currentPhoto?.width && currentPhoto?.height">
+              <span class="opacity-60">尺寸：</span>{{ currentPhoto.width }} × {{ currentPhoto.height }}
+              <span v-if="currentPhoto?.format" class="ml-2 opacity-60">格式：</span>{{ currentPhoto.format }}
+            </div>
+            <div v-if="currentPhoto?.fileSize">
+              <span class="opacity-60">文件大小：</span>{{ formatFileSize(currentPhoto.fileSize) }}
+            </div>
 
-              <!-- 图片规格 -->
-              <div v-if="currentPhoto?.width && currentPhoto?.height">
-                <span class="opacity-60">尺寸：</span>{{ currentPhoto.width }} × {{ currentPhoto.height }}
-                <span v-if="currentPhoto?.format" class="ml-2 opacity-60">格式：</span>{{ currentPhoto.format }}
-              </div>
-              <div v-if="currentPhoto?.fileSize">
-                <span class="opacity-60">文件大小：</span>{{ formatFileSize(currentPhoto.fileSize) }}
-              </div>
-
-              <!-- 质量和统计 -->
-              <div class="grid grid-cols-2 gap-2">
-                <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量评分：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
-                <div v-if="currentPhoto?.viewCount"><span class="opacity-60">查看次数：</span>{{ currentPhoto.viewCount }}</div>
-                <div v-if="currentPhoto?.likeCount"><span class="opacity-60">点赞次数：</span>{{ currentPhoto.likeCount }}</div>
-                <div v-if="currentPhoto?.isFeatured !== undefined">
-                  <span class="opacity-60">精选：</span>
-                  <span :class="currentPhoto.isFeatured ? 'text-yellow-400' : 'text-gray-400'">
-                    {{ currentPhoto.isFeatured ? '✓' : '✗' }}
-                  </span>
-                </div>
-              </div>
-              <div v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined">
-                <span class="opacity-60">聚焦位置：</span>
-                <span class="inline-flex items-center gap-2">
-                  X: {{ currentPhoto.focusX.toFixed(1) }}%, Y: {{ currentPhoto.focusY.toFixed(1) }}%
-                  <button
-                    class="text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-                    @click="toggleFocusBox"
-                  >
-                    {{ showFocusBox ? '隐藏框' : '显示框' }}
-                  </button>
+            <!-- 质量和统计 -->
+            <div class="grid grid-cols-2 gap-2">
+              <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量评分：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
+              <div v-if="currentPhoto?.viewCount"><span class="opacity-60">查看次数：</span>{{ currentPhoto.viewCount }}</div>
+              <div v-if="currentPhoto?.likeCount"><span class="opacity-60">点赞次数：</span>{{ currentPhoto.likeCount }}</div>
+              <div v-if="currentPhoto?.isFeatured !== undefined">
+                <span class="opacity-60">精选：</span>
+                <span :class="currentPhoto.isFeatured ? 'text-yellow-400' : 'text-gray-400'">
+                  {{ currentPhoto.isFeatured ? '✓' : '✗' }}
                 </span>
               </div>
-              <div v-if="currentPhoto?.faces?.length">
-                <span class="opacity-60">人脸框：</span>
+            </div>
+            <div v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined">
+              <span class="opacity-60">聚焦位置：</span>
+              <span class="inline-flex items-center gap-2">
+                X: {{ currentPhoto.focusX.toFixed(1) }}%, Y: {{ currentPhoto.focusY.toFixed(1) }}%
                 <button
-                  class="ml-2 text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-                  @click="toggleFaceBoxes"
+                  class="text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
+                  @click="toggleFocusBox"
                 >
-                  {{ showFaceBoxes ? '隐藏' : '显示' }}
+                  {{ showFocusBox ? '隐藏框' : '显示框' }}
                 </button>
-              </div>
-              <div v-if="currentPhoto?.tags?.length">
-                <span class="opacity-60">标签：</span>
-                <span class="inline-flex flex-wrap gap-2 mt-1">
-                  <span
-                    v-for="t in currentPhoto.tags.slice(0, 8)"
-                    :key="t.id"
-                    class="px-2 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20"
-                    @click.stop="openTag(t)"
-                  >
-                    {{ t.name }}
-                  </span>
+              </span>
+            </div>
+            <div v-if="currentPhoto?.faces?.length">
+              <span class="opacity-60">人脸框：</span>
+              <button
+                class="ml-2 text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
+                @click="toggleFaceBoxes"
+              >
+                {{ showFaceBoxes ? '隐藏' : '显示' }}
+              </button>
+            </div>
+            <div v-if="currentPhoto?.tags?.length">
+              <span class="opacity-60">标签：</span>
+              <span class="inline-flex flex-wrap gap-2 mt-1">
+                <span
+                  v-for="t in currentPhoto.tags.slice(0, 8)"
+                  :key="t.id"
+                  class="px-2 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20"
+                  @click.stop="openTag(t)"
+                >
+                  {{ t.name }}
                 </span>
-              </div>
-              <div v-if="currentPhoto?.faces?.length">
-                <span class="opacity-60">人脸列表：</span>
-                <div class="mt-2 grid grid-cols-2 gap-2">
-                  <div
+              </span>
+            </div>
+            <div v-if="currentPhoto?.faces?.length">
+              <span class="opacity-60">人脸列表：</span>
+              <div class="mt-2 grid grid-cols-2 gap-2">
+                <div
                   v-for="(f, idx) in visibleFaceList"
-                    :key="f.id || idx"
-                class="flex items-center gap-2 p-1 rounded transition-colors"
-                    @click.stop="f.personId && f.personName ? openPersonByFace(f) : null"
-                  >
-                    <div
-                      class="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0 border border-white/10"
-                      :style="getFaceAvatarStyle(f)"
-                      :title="getFaceTooltip(f)"
-                    ></div>
-                    <div class="text-xs truncate">
-                      <div class="font-semibold" :class="f.isConfirmed ? 'text-green-300' : 'text-amber-200'">
-                        {{ f.personName || '未命名' }}
-                      </div>
-                      <div class="text-[11px] text-gray-400 truncate">
-                        置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
-                      </div>
+                  :key="f.id || idx"
+                  class="flex items-center gap-2 p-1 rounded transition-colors"
+                  @click.stop="f.personId && f.personName ? openPersonByFace(f) : null"
+                >
+                  <div
+                    class="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0 border border-white/10"
+                    :style="getFaceAvatarStyle(f)"
+                    :title="getFaceTooltip(f)"
+                  ></div>
+                  <div class="text-xs truncate">
+                    <div class="font-semibold" :class="f.isConfirmed ? 'text-green-300' : 'text-amber-200'">
+                      {{ f.personName || '未命名' }}
+                    </div>
+                    <div class="text-[11px] text-gray-400 truncate">
+                      置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <!-- 主色调信息 -->
-              <div v-if="currentPhoto?.dominantColor">
-                <span class="opacity-60">主色调：</span>
-                <span
-                  class="inline-block w-4 h-4 rounded border border-white/20 ml-2"
-                  :style="{ backgroundColor: currentPhoto.dominantColor }"
-                  :title="currentPhoto.dominantColor"
-                ></span>
-                <span class="ml-2 font-mono text-xs">{{ currentPhoto.dominantColor }}</span>
-              </div>
-
-              <!-- 调色板 -->
-              <div v-if="currentPhoto?.colorPalette?.length">
-                <span class="opacity-60">调色板：</span>
-                <div class="flex gap-1 mt-1">
-                  <span
-                    v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 6)"
-                    :key="idx"
-                    class="inline-block w-3 h-3 rounded border border-white/10"
-                    :style="{ backgroundColor: color }"
-                    :title="color"
-                  ></span>
-                </div>
-              </div>
-
+            <!-- 调色板 -->
+            <div v-if="currentPhoto?.colorPalette?.length">
+              <span class="opacity-60">调色板：</span>
+              <!-- 主色调十六进制代码 -->
+              <span v-if="currentPhoto?.dominantColor" class="font-mono text-xs mr-2">{{ currentPhoto.dominantColor }}</span>
+              <!-- 调色板颜色 -->
+              <span
+                v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 6)"
+                :key="idx"
+                class="inline-block w-3 h-3 rounded border border-white/10 mr-1 cursor-pointer hover:border-white/30 hover:scale-110 transition-all duration-150"
+                :style="{ backgroundColor: color }"
+                :title="getColorTooltip(color)"
+                @click="copyColorToClipboard(color)"
+              ></span>
             </div>
           </div>
         </div>
@@ -496,6 +481,88 @@ const openPersonByFace = (face: { personId?: number; personName?: string }) => {
   window.open(route.href, '_blank')
 }
 
+// 复制颜色值到剪贴板
+const copyColorToClipboard = async (color: string) => {
+  try {
+    // 确保是十六进制格式
+    const hexColor = color.startsWith('#') ? color : `#${color}`
+    await navigator.clipboard.writeText(hexColor)
+    // 可以添加一个简单的反馈提示
+    console.log(`颜色 ${hexColor} 已复制到剪贴板`)
+  } catch (err) {
+    console.error('复制失败:', err)
+    // 降级方案
+    const textArea = document.createElement('textarea')
+    const hexColor = color.startsWith('#') ? color : `#${color}`
+    textArea.value = hexColor
+    document.body.appendChild(textArea)
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
+  }
+}
+
+// 生成多种格式的颜色值显示
+const getColorTooltip = (color: string) => {
+  if (!color) return ''
+
+  // 确保是有效的颜色值
+  const hexColor = color.startsWith('#') ? color : `#${color}`
+
+  try {
+    // 创建临时元素来转换颜色格式
+    const tempDiv = document.createElement('div')
+    tempDiv.style.color = hexColor
+    document.body.appendChild(tempDiv)
+
+    const computedStyle = window.getComputedStyle(tempDiv)
+    const rgbColor = computedStyle.color
+
+    document.body.removeChild(tempDiv)
+
+    // 解析RGB值
+    const rgbMatch = rgbColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/)
+    if (rgbMatch) {
+      const r = parseInt(rgbMatch[1])
+      const g = parseInt(rgbMatch[2])
+      const b = parseInt(rgbMatch[3])
+
+      return `HEX: ${hexColor}\nRGB: ${rgbColor}\nHSL: hsl(${rgbToHsl(r, g, b)})`
+    }
+  } catch (e) {
+    // 如果转换失败，只显示HEX
+  }
+
+  return `HEX: ${hexColor}`
+}
+
+// RGB转HSL的辅助函数
+const rgbToHsl = (r: number, g: number, b: number): string => {
+  r /= 255
+  g /= 255
+  b /= 255
+
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let h = 0
+  let s = 0
+  const l = (max + min) / 2
+
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break
+      case g: h = (b - r) / d + 2; break
+      case b: h = (r - g) / d + 4; break
+    }
+    h /= 6
+  }
+
+  return `${Math.round(h * 360)}°, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%`
+}
+
 watch(
   () => props.visible,
   (val) => {
@@ -592,6 +659,7 @@ onBeforeUnmount(() => {
 })
 
 const toggleInfo = () => {
+  const wasCollapsed = infoCollapsed.value
   infoCollapsed.value = !infoCollapsed.value
   localStorage.setItem(STORAGE_KEY, infoCollapsed.value ? '1' : '0')
 }
@@ -1336,7 +1404,6 @@ const constrainTranslation = () => {
   translateY.value = Math.max(-maxY, Math.min(maxY, translateY.value))
 }
 
-// 重置缩放
 const resetZoom = () => {
   animateZoomToFit(1)
 }
