@@ -787,6 +787,7 @@
     :start-index="viewerIndex"
     :auto-show-faces="true"
     :open-options="viewerOpenOptions"
+    :albums="photoStore.albums"
     @viewer-index-change="onViewerIndexChange"
   />
 
@@ -2337,12 +2338,6 @@ const assignSelectedAlbumFaces = async () => {
   if (!selectedPersonId.value) return
   isBatchAssigning.value = true
   try {
-    console.info('开始相册批量认领', {
-      selectedPersonId: selectedPersonId.value,
-      selectedAlbumId: selectedAlbum.value?.albumId,
-      selectedAlbumFacesSize: selectedAlbumFaces.value.size,
-      similarFacesLength: selectedAlbum.value?.similarFaces?.length || 0
-    })
     const hasSelection = selectedAlbumFaces.value.size > 0
     const albumPhotos = selectedAlbum.value?.albumPhotos || []
     const faceMap: Record<number, any> = {}
@@ -2376,20 +2371,23 @@ const assignSelectedAlbumFaces = async () => {
         }
       })
     } else {
-      faceIds = (selectedAlbum.value?.similarFaces || []).map((f: any) => f.id).filter(Boolean)
+      // 当没有选中任何项目时，从所有相册照片中收集未认领的人脸
+      albumPhotos.forEach((photo: any) => {
+        ;(photo.faces || []).forEach((face: any) => {
+          // 只收集未分配或分配给其他人物的人脸
+          if (face.personId !== selectedPersonId.value) {
+            faceIds.push(face.id)
+          }
+        })
+      })
     }
 
     // dedupe
     faceIds = Array.from(new Set(faceIds))
-    console.info('计算到以下待认领人脸ID', { faceIds })
     if (faceIds.length === 0) {
-      console.warn('相册批量认领：没有可认领的人脸')
       alert('没有可认领的人脸（可能已被认领或所选项目没有人脸）')
       return
     }
-
-    // 批量接口一次性提交可认领的人脸
-    console.info('准备调用后端批量认领接口', { faceIds, personId: selectedPersonId.value })
     await api.post('/admin/faces/batch-assign', {
       faceIds,
       personId: selectedPersonId.value,
@@ -3596,32 +3594,57 @@ const selectAlbum = async (album: AlbumRecommendation) => {
 }
 
 const claimSelectedAlbumFaces = async () => {
+
   if (!selectedPersonId.value) {
+    console.warn('没有选择人物')
     alert('请先选择一个已确认的人物')
     return
   }
 
   if (!selectedAlbum.value) {
+    console.warn('没有选择相册')
     alert('请先选择一个相册')
     return
   }
 
-  if (selectedAlbum.value.similarFaces.length === 0) {
-    alert('该相册没有相似人脸')
+  // 从本地缓存的相册数据中收集所有人脸ID，只要不是当前人物的就认领
+  const faceIds: number[] = []
+  const albumPhotos = selectedAlbum.value.albumPhotos || []
+
+  if (!albumPhotos || albumPhotos.length === 0) {
+    alert('相册数据未加载，请先选择相册并等待数据加载完成')
     return
   }
 
-  const faceIds = selectedAlbum.value.similarFaces.map(f => f.id)
+  albumPhotos.forEach((photo: any) => {
+    if (photo.faces && photo.faces.length > 0) {
+      photo.faces.forEach((face: any) => {
+        // 只认领未分配（personId为null）或分配给其他人物的人脸
+        if (face.personId === null || face.personId === undefined || face.personId !== selectedPersonId.value) {
+          faceIds.push(face.id)
+        }
+      })
+    }
+  })
 
-    try {
+  console.log('可认领人脸IDs:', faceIds)
+
+  if (faceIds.length === 0) {
+    alert('没有可认领的人脸（可能已被认领或所选项目没有人脸）')
+    return
+  }
+
+  try {
     await api.post('/admin/faces/batch-assign', {
       faceIds,
       personId: selectedPersonId.value,
       confirmed: true
     })
 
-    // 从选中相册中移除这些照片
-    selectedAlbum.value.similarFaces = []
+    // 重新加载相册数据以反映认领结果
+    if (selectedAlbum.value) {
+      await loadAlbumPhotos(selectedAlbum.value.albumId)
+    }
 
     // 刷新其他数据
     await Promise.all([
