@@ -12,6 +12,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/photos")
 @RequiredArgsConstructor
@@ -93,6 +96,15 @@ public class PhotoController {
         Pageable pageable = PageRequest.of(request.getPage(), request.getSize());
         Page<PhotoDTO> photos = photoService.filterPhotos(request, pageable);
         return ResponseEntity.ok(photos);
+    }
+
+    /**
+     * 获取筛选选项
+     */
+    @GetMapping("/filter-options")
+    public ResponseEntity<Map<String, Object>> getFilterOptions() {
+        Map<String, Object> options = photoService.getFilterOptions();
+        return ResponseEntity.ok(options);
     }
 
     /**

@@ -14,6 +14,7 @@ import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.TagRepository;
+import com.photoexhibition.service.FilterOptionService;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.commons.io.FilenameUtils;
@@ -113,6 +114,7 @@ public class PhotoScanService {
     private final AlbumAtmosphereAnalysisService atmosphereAnalysisService;
     private final AtmosphereEffectsService atmosphereEffectsService;
     private final SystemConfigService systemConfigService;
+    private final FilterOptionService filterOptionService;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -135,6 +137,7 @@ public class PhotoScanService {
                            AlbumAtmosphereAnalysisService atmosphereAnalysisService,
                            AtmosphereEffectsService atmosphereEffectsService,
                            SystemConfigService systemConfigService,
+                           FilterOptionService filterOptionService,
                            ObjectMapper objectMapper) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
@@ -147,6 +150,7 @@ public class PhotoScanService {
         this.atmosphereAnalysisService = atmosphereAnalysisService;
         this.atmosphereEffectsService = atmosphereEffectsService;
         this.systemConfigService = systemConfigService;
+        this.filterOptionService = filterOptionService;
         this.objectMapper = objectMapper;
     }
     
@@ -992,6 +996,13 @@ public class PhotoScanService {
             lastScanEnd = LocalDateTime.now();
             if (activeScanCount.decrementAndGet() <= 0) {
                 isScanning.set(false);
+                // 扫描完成后更新筛选选项
+                try {
+                    filterOptionService.updateAllFilterOptions();
+                } catch (Exception e) {
+                    log.error("更新筛选选项失败", e);
+                    // 不抛出异常，避免影响扫描结果
+                }
             }
         }
     }

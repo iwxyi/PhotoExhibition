@@ -33,6 +33,12 @@
         <h1 class="text-4xl font-light mb-4">随机精选</h1>
         <p class="text-gray-600 dark:text-gray-400">发现高质量摄影作品</p>
       </div>
+      <div v-if="currentFilters" class="mb-6 flex items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-300">
+        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60">
+          筛选：{{ filterSummary }}
+        </div>
+        <button class="text-red-500 hover:underline" @click="clearFilters">清空筛选 ×</button>
+      </div>
 
       <div v-if="loading && photos.length === 0" class="flex justify-center items-center h-96">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
@@ -133,7 +139,7 @@ const { previewSize } = useUiSettings()
 const { isMobile } = useMobileNav()
 const { isHidden: navHidden } = useNavAutoHide()
 
-const photos = computed(() => photoStore.photos)
+const photos = computed(() => photoStore.photosRandom)
 const loading = computed(() => photoStore.loading)
 const currentPage = ref(0)
 const hasMore = ref(true)
@@ -170,6 +176,28 @@ const gridClass = computed(() => {
   if (previewSize.value === 'lg') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-7'
   return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
 })
+
+// 当前已启用的筛选（来自 store.lastFilters）
+const currentFilters = computed(() => photoStore.lastFilters || null)
+
+const filterSummary = computed(() => {
+  const f = currentFilters.value
+  if (!f) return ''
+  const parts: string[] = []
+  if (f.tagIds && f.tagIds.length) parts.push(`${f.tagIds.length} 标签`)
+  if (f.cameraModel) parts.push(f.cameraModel)
+  if (f.lensModel) parts.push(f.lensModel)
+  if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
+  if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
+  if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
+  if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
+  return parts.join(' · ')
+})
+
+const clearFilters = async () => {
+  photoStore.clearLastFilters()
+  await loadInitial()
+}
 
 const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
@@ -427,16 +455,52 @@ const loadMore = async () => {
   
   try {
     isLoadingMore.value = true
+    // 如果筛选请求正在进行，先不触发加载更多（避免竞态）
+    if (photoStore.lastFiltersLoading && photoStore.lastFiltersLoading.value) {
+      isLoadingMore.value = false
+      return
+    }
+    // 如果存在活动筛选且已被标记为耗尽，直接停止并不增加页码
+    if (photoStore.lastFiltersExhausted && photoStore.lastFiltersExhausted.value) {
+      hasMore.value = false
+      isLoadingMore.value = false
+      return
+    }
     currentPage.value++
-    const data = await photoStore.fetchRandomPhotos(currentPage.value, 12, 70)
     
+    let data: any
+    if (photoStore.isFiltersLoading && photoStore.isFiltersLoading()) {
+      isLoadingMore.value = false
+      return
+    }
+    if (photoStore.hasActiveFilters && photoStore.hasActiveFilters()) {
+      if (photoStore.lastFiltersExhausted && photoStore.lastFiltersExhausted.value) {
+        hasMore.value = false
+        isLoadingMore.value = false
+        return
+      }
+      const filtersObj = photoStore.lastFilters && photoStore.lastFilters
+      if (!filtersObj) {
+        currentPage.value--
+        hasMore.value = false
+        isLoadingMore.value = false
+        return
+      }
+      // 如果当前存在过滤条件，使用同样的过滤参数分页加载（保留随机页面的大小）
+      data = await photoStore.filterPhotos(filtersObj, currentPage.value, 12)
+    } else {
+      data = await photoStore.fetchRandomPhotos(currentPage.value, 12, 70)
+    }
+
     if (!data || !data.content || data.content.length === 0) {
+      // 回退页码（请求未返回数据）
+      currentPage.value--
       hasMore.value = false
       return
     }
-    
+
     hasMore.value = !data.last
-    
+
     // 恢复滚动位置
     nextTick(() => {
       window.scrollTo({ top: scrollTop, behavior: 'instant' })
@@ -471,24 +535,41 @@ const handleScroll = () => {
   }, 100)
 }
 
-onMounted(async () => {
+const loadInitial = async () => {
   try {
     // 初始化点赞数据
     loadLikedFromStorage()
     currentPage.value = 0
     hasMore.value = true
-    const data = await photoStore.fetchRandomPhotos(0, 12, 70)
+    let data: any
+    if (photoStore.lastFilters) {
+      data = await photoStore.filterPhotos(photoStore.lastFilters, 0, 12)
+    } else {
+      data = await photoStore.fetchRandomPhotos(0, 12, 70)
+    }
     hasMore.value = !data.last
     window.addEventListener('scroll', handleScroll, { passive: true })
   } catch (error) {
     console.error('初始化加载失败:', error)
     hasMore.value = false
   }
+}
+
+onMounted(async () => {
+  // 声明当前活跃视图为 random（避免其他视图触发 random API）
+  photoStore.setCurrentView && photoStore.setCurrentView('random')
+  // (debug) 暴露 store 用于临时调试：在 Console 中检查 window.__photoStore.lastFilters 等
+  // 之后会在 unmounted 时清除
+  try { (window as any).__photoStore = photoStore } catch(e) {}
+  await loadInitial()
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
   if (scrollTimer) clearTimeout(scrollTimer)
+  // 清除当前视图标识
+  photoStore.setCurrentView && photoStore.setCurrentView(null)
+  try { delete (window as any).__photoStore } catch(e) {}
 })
 
 onActivated(() => {
@@ -501,6 +582,8 @@ onActivated(() => {
 onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
   window.removeEventListener('scroll', handleScroll)
+  // 清除当前视图标识，防止切换时残留触发请求
+  photoStore.setCurrentView && photoStore.setCurrentView(null)
 })
 </script>
 

@@ -35,6 +35,12 @@
         </span>
         <button class="text-blue-500 hover:underline" @click="clearTag">清除标签过滤</button>
       </div>
+      <div v-if="currentFilters" class="mb-6 flex items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-300">
+        <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60">
+          筛选：{{ filterSummary }}
+        </div>
+        <button class="text-red-500 hover:underline" @click="clearFilters">清空筛选 ×</button>
+      </div>
       <div ref="masonryContainer" class="masonry-container">
         <div
           v-for="(photo, idx) in photos"
@@ -130,7 +136,7 @@ const themeStore = useThemeStore()
 const route = useRoute()
 const router = useRouter()
 
-const photos = computed(() => photoStore.photos)
+const photos = computed(() => photoStore.photosWall)
 const loading = computed(() => photoStore.loading)
 const currentPage = ref(0)
 const hasMore = ref(true)
@@ -153,6 +159,28 @@ const activeTagId = ref<number | null>(null)
 const activeTagName = ref<string | null>(null)
 const activePersonId = ref<number | null>(null)
 const activePersonName = ref<string | null>(null)
+
+// 当前已启用的筛选（来自 store.lastFilters）
+const currentFilters = computed(() => photoStore.lastFilters || null)
+
+const filterSummary = computed(() => {
+  const f = currentFilters.value
+  if (!f) return ''
+  const parts: string[] = []
+  if (f.tagIds && f.tagIds.length) parts.push(`${f.tagIds.length} 标签`)
+  if (f.cameraModel) parts.push(f.cameraModel)
+  if (f.lensModel) parts.push(f.lensModel)
+  if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
+  if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
+  if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
+  if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
+  return parts.join(' · ')
+})
+
+const clearFilters = async () => {
+  photoStore.clearLastFilters()
+  await loadInitial()
+}
 
 // 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
 const likedIds = ref<Set<number>>(new Set())
@@ -670,20 +698,47 @@ const loadMore = async () => {
   
   try {
     isLoadingMore.value = true
-    currentPage.value++
-    const data = activePersonId.value
-      ? await photoStore.fetchPhotosByPerson(activePersonId.value, currentPage.value)
-      : activeTagId.value
-        ? await photoStore.fetchPhotosByTag(activeTagId.value, currentPage.value)
-        : await photoStore.fetchPhotoWall(currentPage.value)
-    
-    if (!data || !data.content || data.content.length === 0) {
+    // 如果筛选请求正在进行，先不触发加载更多（避免竞态）
+    if (photoStore.isFiltersLoading && photoStore.isFiltersLoading()) {
+      isLoadingMore.value = false
+      return
+    }
+    // 如果存在活动筛选且已被标记为耗尽，直接停止并不增加页码
+    if (photoStore.lastFiltersExhausted && photoStore.lastFiltersExhausted.value) {
       hasMore.value = false
       return
     }
+    currentPage.value++
     
+    let data: any
+    // 使用 store 的同步 helper判断是否处于活动筛选
+    if (photoStore.hasActiveFilters && photoStore.hasActiveFilters()) {
+      // 只有当 lastFilters.value 可用时才继续分页请求；否则避免传 undefined 导致覆盖原有 filters
+      const filtersObj = photoStore.lastFilters && photoStore.lastFilters
+      if (!filtersObj) {
+        // 保持当前页码不变（因为尚未成功加载新页），并结束加载
+        currentPage.value--
+        hasMore.value = false
+        return
+      }
+      data = await photoStore.filterPhotos(filtersObj, currentPage.value)
+    } else if (activePersonId.value) {
+      data = await photoStore.fetchPhotosByPerson(activePersonId.value, currentPage.value)
+    } else if (activeTagId.value) {
+      data = await photoStore.fetchPhotosByTag(activeTagId.value, currentPage.value)
+    } else {
+      data = await photoStore.fetchPhotoWall(currentPage.value)
+    }
+
+    if (!data || !data.content || data.content.length === 0) {
+      // 回退页码（请求未返回数据）
+      currentPage.value--
+      hasMore.value = false
+      return
+    }
+
     hasMore.value = !data.last
-    
+
     // 等待新图片加载后重新布局并恢复滚动位置
     nextTick(() => {
       setTimeout(() => {
@@ -780,6 +835,8 @@ onMounted(async () => {
     // 初始化点赞数据
     loadLikedFromStorage()
     hydrateFromRoute()
+    // 声明当前活跃视图为 wall（避免其他视图触发 wall API）
+    photoStore.setCurrentView && photoStore.setCurrentView('wall')
     await loadInitial()
     window.addEventListener('scroll', handleScroll, { passive: true })
     window.addEventListener('resize', handleResize)
@@ -800,6 +857,8 @@ onUnmounted(() => {
   if (scrollTimer) clearTimeout(scrollTimer)
   if (resizeTimer) clearTimeout(resizeTimer)
   if (layoutTimer) clearTimeout(layoutTimer)
+  // 清除当前视图标识
+  photoStore.setCurrentView && photoStore.setCurrentView(null)
 })
 
 onActivated(() => {
@@ -825,7 +884,9 @@ onActivated(() => {
 const loadInitial = async () => {
   currentPage.value = 0
   hasMore.value = true
-  if (activePersonId.value) {
+  if (photoStore.lastFilters) {
+    await photoStore.filterPhotos(photoStore.lastFilters, 0)
+  } else if (activePersonId.value) {
     await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
   } else if (activeTagId.value) {
     await photoStore.fetchPhotosByTag(activeTagId.value, 0)
@@ -873,6 +934,8 @@ onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('resize', handleResize)
+  // 清除当前视图标识，防止切换时残留触发请求
+  photoStore.setCurrentView && photoStore.setCurrentView(null)
 })
 </script>
 

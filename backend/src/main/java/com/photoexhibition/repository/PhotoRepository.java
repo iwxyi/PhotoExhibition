@@ -36,6 +36,10 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                 "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
                 "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) >= :minAperture) AND " +
                 "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) <= :maxAperture) AND " +
+                "(:minFocalLength IS NULL OR p.focal_length >= :minFocalLength) AND " +
+                "(:maxFocalLength IS NULL OR p.focal_length <= :maxFocalLength) AND " +
+                "(:minShutterSpeed IS NULL OR p.shutter_speed >= :minShutterSpeed) AND " +
+                "(:maxShutterSpeed IS NULL OR p.shutter_speed <= :maxShutterSpeed) AND " +
                 "(:minIso IS NULL OR p.iso >= :minIso) AND " +
                 "(:maxIso IS NULL OR p.iso <= :maxIso)",
         countQuery = "SELECT count(*) FROM photo p WHERE " +
@@ -43,6 +47,10 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                 "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
                 "(:minAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) >= :minAperture) AND " +
                 "(:maxAperture IS NULL OR CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,3)) <= :maxAperture) AND " +
+                "(:minFocalLength IS NULL OR p.focal_length >= :minFocalLength) AND " +
+                "(:maxFocalLength IS NULL OR p.focal_length <= :maxFocalLength) AND " +
+                "(:minShutterSpeed IS NULL OR p.shutter_speed >= :minShutterSpeed) AND " +
+                "(:maxShutterSpeed IS NULL OR p.shutter_speed <= :maxShutterSpeed) AND " +
                 "(:minIso IS NULL OR p.iso >= :minIso) AND " +
                 "(:maxIso IS NULL OR p.iso <= :maxIso)",
         nativeQuery = true
@@ -51,6 +59,10 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   @Param("lensModel") String lensModel,
                                   @Param("minAperture") Double minAperture,
                                   @Param("maxAperture") Double maxAperture,
+                                  @Param("minFocalLength") Double minFocalLength,
+                                  @Param("maxFocalLength") Double maxFocalLength,
+                                  @Param("minShutterSpeed") Double minShutterSpeed,
+                                  @Param("maxShutterSpeed") Double maxShutterSpeed,
                                   @Param("minIso") Integer minIso,
                                   @Param("maxIso") Integer maxIso,
                                   Pageable pageable);
@@ -159,5 +171,53 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      */
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus = :status")
     Long countPhotosByProcessingStatus(@Param("status") ProcessingStatus status);
+
+    /**
+     * 获取所有不重复的相机型号
+     */
+    @Query(value = "SELECT DISTINCT p.camera_model FROM photo p WHERE p.camera_model IS NOT NULL AND p.camera_model != '' ORDER BY p.camera_model", nativeQuery = true)
+    List<String> findDistinctCameraModels();
+
+    /**
+     * 获取所有不重复的镜头型号
+     */
+    @Query(value = "SELECT DISTINCT p.lens_model FROM photo p WHERE p.lens_model IS NOT NULL AND p.lens_model != '' ORDER BY p.lens_model", nativeQuery = true)
+    List<String> findDistinctLensModels();
+
+    /**
+     * 获取相机型号及对应的照片数量
+     */
+    @Query(value = "SELECT p.camera_model, COUNT(*) as count FROM photo p WHERE p.camera_model IS NOT NULL AND p.camera_model != '' GROUP BY p.camera_model ORDER BY count DESC, p.camera_model", nativeQuery = true)
+    List<Object[]> findCameraModelsWithCount();
+
+    /**
+     * 获取镜头型号及对应的照片数量
+     */
+    @Query(value = "SELECT p.lens_model, COUNT(*) as count FROM photo p WHERE p.lens_model IS NOT NULL AND p.lens_model != '' GROUP BY p.lens_model ORDER BY count DESC, p.lens_model", nativeQuery = true)
+    List<Object[]> findLensModelsWithCount();
+
+    /**
+     * 获取焦距范围 [最小值, 最大值]
+     */
+    @Query(value = "SELECT MIN(CAST(p.focal_length AS DECIMAL(10,2))), MAX(CAST(p.focal_length AS DECIMAL(10,2))) FROM photo p WHERE p.focal_length IS NOT NULL", nativeQuery = true)
+    Double[] findFocalLengthRange();
+
+    /**
+     * 获取快门速度范围 [最小值, 最大值]
+     */
+    @Query(value = "SELECT MIN(CAST(p.shutter_speed AS DECIMAL(10,4))), MAX(CAST(p.shutter_speed AS DECIMAL(10,4))) FROM photo p WHERE p.shutter_speed IS NOT NULL", nativeQuery = true)
+    Double[] findShutterSpeedRange();
+
+    /**
+     * 获取光圈范围 [最小值, 最大值]
+     */
+    @Query(value = "SELECT MIN(CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,2))), MAX(CAST(REPLACE(p.aperture, 'f/', '') AS DECIMAL(10,2))) FROM photo p WHERE p.aperture IS NOT NULL", nativeQuery = true)
+    Double[] findApertureRange();
+
+    /**
+     * 获取ISO范围 [最小值, 最大值]
+     */
+    @Query(value = "SELECT MIN(p.iso), MAX(p.iso) FROM photo p WHERE p.iso IS NOT NULL", nativeQuery = true)
+    Integer[] findIsoRange();
 }
 

@@ -13,6 +13,7 @@ import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
+import com.photoexhibition.service.FilterOptionService;
 import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import java.io.File;
 import java.nio.file.Paths;
@@ -38,6 +43,7 @@ public class PhotoService {
     private final PhotoRepository photoRepository;
     private final FaceRepository faceRepository;
     private final AlbumRepository albumRepository;
+    private final FilterOptionService filterOptionService;
     private final ObjectMapper objectMapper;
     private final SystemConfigService systemConfigService;
     private final PhotoAssignmentRepository photoAssignmentRepository;
@@ -157,6 +163,13 @@ public class PhotoService {
     }
 
     /**
+     * 获取筛选选项
+     */
+    public Map<String, Object> getFilterOptions() {
+        return filterOptionService.getFilterOptions();
+    }
+
+    /**
      * 高级筛选
      */
     public Page<PhotoDTO> filterPhotos(FilterRequest request, Pageable pageable) {
@@ -171,6 +184,10 @@ public class PhotoService {
                 : null;
         Double minAperture = request.getMinAperture();
         Double maxAperture = request.getMaxAperture();
+        Double minFocalLength = request.getMinFocalLength();
+        Double maxFocalLength = request.getMaxFocalLength();
+        Double minShutterSpeed = request.getMinShutterSpeed();
+        Double maxShutterSpeed = request.getMaxShutterSpeed();
         Integer minIso = request.getMinIso();
         Integer maxIso = request.getMaxIso();
 
@@ -185,12 +202,18 @@ public class PhotoService {
         // EXIF筛选
         else if (cameraModel != null || lensModel != null ||
                  minAperture != null || maxAperture != null ||
+                 minFocalLength != null || maxFocalLength != null ||
+                 minShutterSpeed != null || maxShutterSpeed != null ||
                  minIso != null || maxIso != null) {
             photos = photoRepository.findByExifFilters(
                 cameraModel,
                 lensModel,
                 minAperture,
                 maxAperture,
+                minFocalLength,
+                maxFocalLength,
+                minShutterSpeed,
+                maxShutterSpeed,
                 minIso,
                 maxIso,
                 pageable

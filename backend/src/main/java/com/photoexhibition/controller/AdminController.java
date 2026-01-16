@@ -7,13 +7,17 @@ import com.photoexhibition.repository.AdminUserRepository;
 import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.DataCleanupService;
+import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.service.FilterOptionService;
 import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.util.ONNXDiagnosticUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,12 +26,15 @@ import java.util.Map;
 @RequestMapping("/admin")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Slf4j
 public class AdminController {
 
     private final PhotoScanService photoScanService;
     private final AdminUserRepository adminUserRepository;
     private final DataCleanupService dataCleanupService;
     private final AlbumService albumService;
+    private final FilterOptionService filterOptionService;
+    private final PhotoRepository photoRepository;
     private final AuthService authService;
     private final ONNXDiagnosticUtil onnxDiagnosticUtil;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -64,6 +71,61 @@ public class AdminController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "强制扫描失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 更新筛选选项
+     */
+    @PostMapping("/filter-options/update")
+    public ResponseEntity<Map<String, Object>> updateFilterOptions() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            filterOptionService.updateAllFilterOptions();
+            resp.put("message", "筛选选项更新完成");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("筛选选项更新失败", e);
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "更新失败");
+            resp.put("stackTrace", e.getStackTrace().toString());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/debug/photo-data")
+    public ResponseEntity<Map<String, Object>> debugPhotoData() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            // 查询镜头数据
+            var lensData = photoRepository.findDistinctLensModels();
+            resp.put("lensModels", lensData);
+
+            // 查询相机数据
+            var cameraData = photoRepository.findDistinctCameraModels();
+            resp.put("cameraModels", cameraData);
+
+            // 查询一些示例照片的镜头信息
+            var samplePhotos = photoRepository.findAll(org.springframework.data.domain.PageRequest.of(0, 5));
+            List<Map<String, Object>> photoDetails = new ArrayList<>();
+            for (var photo : samplePhotos.getContent()) {
+                Map<String, Object> detail = new HashMap<>();
+                detail.put("id", photo.getId());
+                detail.put("filename", photo.getFilename());
+                detail.put("cameraModel", photo.getCameraModel());
+                detail.put("lensModel", photo.getLensModel());
+                detail.put("focalLength", photo.getFocalLength());
+                detail.put("aperture", photo.getAperture());
+                detail.put("shutterSpeed", photo.getShutterSpeed());
+                detail.put("iso", photo.getIso());
+                photoDetails.add(detail);
+            }
+            resp.put("samplePhotos", photoDetails);
+
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("查询照片数据失败", e);
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "查询失败");
             return ResponseEntity.status(500).body(resp);
         }
     }

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { api } from '@/api'
 
 export interface Album {
@@ -91,6 +91,8 @@ export interface CoverImages {
 export const usePhotoStore = defineStore('photo', () => {
   const albums = ref<Album[]>([])
   const photos = ref<Photo[]>([])
+  const photosWall = ref<Photo[]>([])
+  const photosRandom = ref<Photo[]>([])
   const categories = ref<string[]>([])
   const currentAlbum = ref<Album | null>(null)
   const currentPhoto = ref<Photo | null>(null)
@@ -164,6 +166,20 @@ export const usePhotoStore = defineStore('photo', () => {
   }
 
   const fetchPhotoWall = async (page = 0, size = 20) => {
+    // 仅当当前路由在 /wall 且当前活跃视图是 'wall' 时才真正请求 wall 接口，
+    // 这样可以防止在路由已变更但旧的异步任务尚未取消时触发请求造成闪烁。
+    try {
+      const path = typeof window !== 'undefined' ? window.location.pathname : ''
+      if (path.indexOf('/wall') !== 0 || currentView.value !== 'wall') {
+        return { content: [], last: true }
+      }
+    } catch (e) {
+      return { content: [], last: true }
+    }
+    // 如果当前存在 lastFilters，阻止回退到未筛选的 wall 接口（以避免在筛选会话中加载无关图片）
+    if (lastFilters.value) {
+      return { content: [], last: true }
+    }
     loading.value = true
     try {
       // 添加多个缓存破坏参数
@@ -183,10 +199,11 @@ export const usePhotoStore = defineStore('photo', () => {
         }
       })
       if (page === 0) {
-        photos.value = response.data.content
+        photosWall.value = response.data.content
       } else {
-        photos.value = [...photos.value, ...response.data.content]
+        photosWall.value = [...photosWall.value, ...response.data.content]
       }
+      // response handled
       return response.data
     } finally {
       loading.value = false
@@ -194,21 +211,49 @@ export const usePhotoStore = defineStore('photo', () => {
   }
 
   const fetchRandomPhotos = async (page = 0, size = 12, minQualityScore = 70) => {
+    try {
+      const path = typeof window !== 'undefined' ? window.location.pathname : ''
+      if (path.indexOf('/random') !== 0 || currentView.value !== 'random') {
+        return { content: [], last: true }
+      }
+    } catch (e) {
+      return { content: [], last: true }
+    }
+    if (lastFilters.value) {
+      return { content: [], last: true }
+    }
     loading.value = true
     try {
       const response = await api.get('/photos/random', { 
         params: { page, size, minQualityScore } 
       })
       if (page === 0) {
-        photos.value = response.data.content
+        photosRandom.value = response.data.content
       } else {
-        photos.value = [...photos.value, ...response.data.content]
+        photosRandom.value = [...photosRandom.value, ...response.data.content]
       }
+      console.log(`[${new Date().toISOString()}] [photoStore] fetchRandomPhotos response.last=${!!response.data.last} received=${response.data.content?.length||0}`)
       return response.data
     } finally {
       loading.value = false
     }
   }
+ 
+  // 保存上次使用的过滤条件，供分页加载继续使用
+  const lastFilters = ref<any | null>(null)
+  // 当 lastFilters 对应的分页全部加载完毕时置为 true，防止回退到未筛选加载
+  const lastFiltersExhausted = ref<boolean>(false)
+  // 标记当前是否处于筛选会话（即用户已应用过筛选且未清空）
+  const lastFiltersActive = ref<boolean>(false)
+  // 标记当前是否正在请求筛选（用于避免并发的 loadMore 在筛选尚未完成时触发）
+  const lastFiltersLoading = ref<boolean>(false)
+  // 当前活跃视图标识（'wall'|'random'|null），用于避免非活跃视图触发其 API
+  const currentView = ref<string | null>(null)
+
+  // 监听 lastFilters 的变化（保留空监听以便未来可插入监控）
+  watch(lastFilters, (_newVal, _oldVal) => {
+    // no-op
+  })
 
   const fetchPhotoById = async (id: number) => {
     loading.value = true
@@ -225,10 +270,20 @@ export const usePhotoStore = defineStore('photo', () => {
     loading.value = true
     try {
       const response = await api.post('/photos/filter', { tagIds: [tagId], page, size })
-      if (page === 0) {
-        photos.value = response.data.content
-      } else {
-        photos.value = [...photos.value, ...response.data.content]
+      // Assign filter results to the appropriate list depending on currentView
+      try {
+        const path = typeof window !== 'undefined' ? window.location.pathname : ''
+        if (path.indexOf('/random') === 0 || currentView.value === 'random') {
+          if (page === 0) photosRandom.value = response.data.content
+          else photosRandom.value = [...photosRandom.value, ...response.data.content]
+        } else {
+          if (page === 0) photosWall.value = response.data.content
+          else photosWall.value = [...photosWall.value, ...response.data.content]
+        }
+      } catch (e) {
+        // fallback
+        if (page === 0) photos.value = response.data.content
+        else photos.value = [...photos.value, ...response.data.content]
       }
       return response.data
     } finally {
@@ -240,10 +295,20 @@ export const usePhotoStore = defineStore('photo', () => {
     loading.value = true
     try {
       const response = await api.post('/photos/filter', { personId, page, size })
-      if (page === 0) {
-        photos.value = response.data.content
-      } else {
-        photos.value = [...photos.value, ...response.data.content]
+      // Assign filter results to the appropriate list depending on currentView
+      try {
+        const path = typeof window !== 'undefined' ? window.location.pathname : ''
+        if (path.indexOf('/random') === 0 || currentView.value === 'random') {
+          if (page === 0) photosRandom.value = response.data.content
+          else photosRandom.value = [...photosRandom.value, ...response.data.content]
+        } else {
+          if (page === 0) photosWall.value = response.data.content
+          else photosWall.value = [...photosWall.value, ...response.data.content]
+        }
+      } catch (e) {
+        // fallback
+        if (page === 0) photos.value = response.data.content
+        else photos.value = [...photos.value, ...response.data.content]
       }
       return response.data
     } finally {
@@ -253,13 +318,37 @@ export const usePhotoStore = defineStore('photo', () => {
 
   const filterPhotos = async (filters: any, page = 0, size = 20) => {
     loading.value = true
+    lastFiltersLoading.value = true
     try {
+      // 记录当前过滤条件
+      // 防御性处理：如果 caller 传入了 undefined，但是我们之前已有 lastFilters，则保留之前的 filters（避免被覆盖为 undefined）
+      if (!filters && lastFilters.value) {
+        filters = lastFilters.value
+      }
+      lastFilters.value = filters
+      lastFiltersActive.value = true
       const response = await api.post('/photos/filter', { ...filters, page, size })
-      photos.value = response.data.content
+      if (page === 0) {
+        photos.value = response.data.content
+      } else {
+        photos.value = [...photos.value, ...response.data.content]
+      }
+      // 标记是否已加载完当前过滤条件对应的所有页
+      lastFiltersExhausted.value = !!response.data.last
       return response.data
     } finally {
       loading.value = false
+      lastFiltersLoading.value = false
     }
+  }
+
+  // helper: 是否存在活动筛选（同步判断，用于视图层快速分支）
+  const hasActiveFilters = () => {
+    return !!(lastFilters.value || lastFiltersActive.value)
+  }
+
+  const isFiltersLoading = () => {
+    return !!lastFiltersLoading.value
   }
 
   // 添加相册到现有列表（用于预加载缓冲区）
@@ -273,6 +362,10 @@ export const usePhotoStore = defineStore('photo', () => {
       if (!seen.has(a.id)) seen.set(a.id, a)
     })
     albums.value = Array.from(seen.values())
+  }
+
+  const setCurrentView = (view: string | null) => {
+    currentView.value = view
   }
 
   return {
@@ -293,7 +386,22 @@ export const usePhotoStore = defineStore('photo', () => {
     fetchPhotosByTag,
     fetchPhotosByPerson,
     filterPhotos,
-    addAlbums
+    addAlbums,
+    // expose lastFilters and helpers so views can continue pagination or clear filters
+    lastFilters,
+    lastFiltersExhausted,
+    lastFiltersActive,
+    clearLastFilters: () => { 
+      lastFilters.value = null; 
+      lastFiltersExhausted.value = false; 
+      lastFiltersActive.value = false 
+    },
+    hasActiveFilters,
+    isFiltersLoading,
+    photosWall,
+    photosRandom,
+    currentView,
+    setCurrentView
   }
 })
 

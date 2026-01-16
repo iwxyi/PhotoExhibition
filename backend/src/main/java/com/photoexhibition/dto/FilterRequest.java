@@ -11,6 +11,10 @@ public class FilterRequest {
     private String lensModel;            // 镜头型号
     private Double minAperture;          // 最小光圈
     private Double maxAperture;          // 最大光圈
+    private Double minFocalLength;       // 最小焦距
+    private Double maxFocalLength;       // 最大焦距
+    private Double minShutterSpeed;      // 最小快门速度
+    private Double maxShutterSpeed;      // 最大快门速度
     private Integer minIso;              // 最小ISO
     private Integer maxIso;              // 最大ISO
     private String dominantColor;        // 主色调
