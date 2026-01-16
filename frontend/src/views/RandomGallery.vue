@@ -21,7 +21,7 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
-            <FilterPanel v-model:show="showFilter" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" />
+            <FilterPanel v-model:show="showFilter" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
         </div>
@@ -196,7 +196,7 @@ const filterSummary = computed(() => {
   if (!f) return ''
   const parts: string[] = []
   if (f.tagIds && f.tagIds.length) {
-    // 获取标签名称列表
+    // 获取标签名称列表 - 从选中的标签中查找
     const tagNames = f.tagIds.map(id => {
       const tag = selectedTags.value.find(t => t.id === id)
       return tag ? tag.name : `ID:${id}`
@@ -223,12 +223,29 @@ const filterSummary = computed(() => {
     parts.push(colorMap[f.colorCategory] || f.colorCategory)
   }
   if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
-  if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${f.minShutterSpeed || '∞'}-${f.maxShutterSpeed || '∞'}`)
+  if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${formatShutterSpeed(f.minShutterSpeed) || '∞'}-${formatShutterSpeed(f.maxShutterSpeed) || '∞'}`)
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
   if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
   if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
   return parts.join(' · ')
 })
+
+// 格式化快门速度显示
+const formatShutterSpeed = (value: number | null) => {
+  if (value === null) return null
+  if (value === 0) return '0'
+
+  // 如果快门速度 >= 1秒，显示整数
+  if (value >= 1) return Math.round(value).toString()
+
+  // 如果快门速度 < 1秒，转换为分数形式
+  const denominator = Math.round(1 / value)
+
+  // 确保分母是合理的范围
+  if (denominator < 1 || denominator > 8000) return value.toString()
+
+  return `1/${denominator}`
+}
 
 const clearFilters = async () => {
   photoStore.clearLastFilters()
@@ -243,6 +260,12 @@ const handleFilterReset = async () => {
   await loadInitial()
   // 滚动到页面顶部
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const handleFiltersApplied = () => {
+  // 重置分页状态，让新的筛选可以重新加载更多
+  currentPage.value = 0
+  hasMore.value = true
 }
 
 const openViewer = (idx: number, e: MouseEvent) => {
@@ -424,7 +447,7 @@ const startLoop = () => {
 
 const spawnCanvasBurst = (x: number, y: number) => {
   ensureCanvas()
-  const count = 12
+  const count = 20
   // main colorful particles - upward burst only
   for (let i = 0; i < count; i++) {
     // distribute particles upward (-π/2 ± π/6, i.e., -90° ± 30°)
@@ -538,9 +561,9 @@ const loadMore = async () => {
         ...filtersObj,
         excludePhotoIds: excludeIds.length > 0 ? excludeIds : [-1] // 如果为空，传-1（不可能的ID）
       }
-      data = await photoStore.filterPhotos(filtersWithExclusion, currentPage.value, 12)
+      data = await photoStore.filterPhotos(filtersWithExclusion, currentPage.value, 20)
     } else {
-      data = await photoStore.fetchRandomPhotos(currentPage.value, 12, 70)
+      data = await photoStore.fetchRandomPhotos(currentPage.value, 20, 70)
     }
 
     if (!data || !data.content || data.content.length === 0) {
@@ -607,9 +630,9 @@ const loadInitial = async () => {
         ...photoStore.lastFilters,
         excludePhotoIds: excludeIds.length > 0 ? excludeIds : [-1] // 如果为空，传-1（不可能的ID）
       }
-      data = await photoStore.filterPhotos(filtersWithExclusion, 0, 12)
+      data = await photoStore.filterPhotos(filtersWithExclusion, 0, 20)
     } else {
-      data = await photoStore.fetchRandomPhotos(0, 12, 70)
+      data = await photoStore.fetchRandomPhotos(0, 20, 70)
     }
 
     // 记录已查看的图片ID

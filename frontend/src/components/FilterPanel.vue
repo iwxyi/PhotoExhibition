@@ -498,7 +498,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:show': [value: boolean],
-  'update:selectedTags': [value: any[]]
+  'update:selectedTags': [value: any[]],
+  'filters-applied': []
 }>()
 
 const photoStore = usePhotoStore()
@@ -733,6 +734,8 @@ const confirmTagSelection = async () => {
     } else {
       photoStore.clearLastFilters()
     }
+    // 通知父组件筛选已应用，需要重置分页状态
+    emit('filters-applied')
     closeTagSelector()
   } catch (error) {
     console.error('标签筛选失败:', error)
@@ -769,6 +772,11 @@ const applyFilters = async () => {
       // 没有有效筛选条件时，清除之前的筛选状态
       photoStore.clearLastFilters()
     }
+
+    // 通知父组件更新选中的标签状态
+    emit('update:selectedTags', selectedTags.value)
+    // 通知父组件筛选已应用，需要重置分页状态
+    emit('filters-applied')
 
     closePanel()
   } catch (error) {
@@ -920,6 +928,8 @@ const selectColor = async (colorValue: string) => {
     } else {
       photoStore.clearLastFilters()
     }
+    // 通知父组件筛选已应用，需要重置分页状态
+    emit('filters-applied')
     // 自动关闭面板
     closePanel()
   } catch (error) {
