@@ -139,9 +139,9 @@
 
                 <!-- 刻度标记 -->
                 <div class="relative mt-5">
-                  <div class="text-xs text-gray-500">
+                  <div class="text-xs text-gray-500" ref="focalMarksRef">
                     <span v-for="(mark, index) in focalLengthMarks" :key="mark"
-                          v-show="index >= getFocalLengthStartIndex() && index <= getFocalLengthEndIndex()"
+                          v-show="index >= getFocalLengthStartIndex() && index <= getFocalLengthEndIndex() && visibleFocal.has(index)"
                           class="absolute text-center"
                           :style="{ left: 'calc(' + (index / (focalLengthMarks.length - 1)) * 100 + '% + ' + getMarkOffset(index, focalLengthMarks) + 'px)', transform: 'translateX(-50%)' }">
                       {{ mark === '不限' ? '∞' : mark }}
@@ -194,12 +194,12 @@
 
                 <!-- 刻度标记 -->
                 <div class="relative mt-5">
-                  <div class="text-xs text-gray-500">
+                  <div class="text-xs text-gray-500" ref="shutterMarksRef">
                     <span v-for="(mark, index) in shutterSpeedMarks" :key="mark"
-                          v-show="index >= getShutterSpeedStartIndex() && index <= getShutterSpeedEndIndex()"
+                          v-show="index >= getShutterSpeedStartIndex() && index <= getShutterSpeedEndIndex() && visibleShutter.has(index)"
                           class="absolute text-center"
                           :style="{ left: 'calc(' + (index / (shutterSpeedMarks.length - 1)) * 100 + '% + ' + getMarkOffset(index, shutterSpeedMarks) + 'px)', transform: 'translateX(-50%)' }">
-                      {{ mark === '不限' ? '∞' : (shutterHiddenIndexes.includes(index) ? '' : formatShutterSpeed(mark)) }}
+                      {{ mark === '不限' ? '∞' : (shutterHiddenIndexes.includes(index) ? '' : displayShutterLabel(mark)) }}
                     </span>
                   </div>
                 </div>
@@ -249,9 +249,9 @@
 
                 <!-- 刻度标记 -->
                 <div class="relative mt-5">
-                  <div class="text-xs text-gray-500">
+                  <div class="text-xs text-gray-500" ref="apertureMarksRef">
                     <span v-for="(mark, index) in apertureMarks" :key="mark"
-                          v-show="index >= getApertureStartIndex() && index <= getApertureEndIndex()"
+                          v-show="index >= getApertureStartIndex() && index <= getApertureEndIndex() && visibleAperture.has(index)"
                           class="absolute text-center"
                           :style="{ left: 'calc(' + (index / (apertureMarks.length - 1)) * 100 + '% + ' + getMarkOffset(index, apertureMarks) + 'px)', transform: 'translateX(-50%)' }">
                       {{ mark === '不限' ? '∞' : 'f/' + mark }}
@@ -304,12 +304,12 @@
 
                 <!-- 刻度标记 -->
                 <div class="relative mt-5">
-                  <div class="text-xs text-gray-500">
+                  <div class="text-xs text-gray-500" ref="isoMarksRef">
                     <span v-for="(mark, index) in isoMarks" :key="mark"
-                          v-show="index >= getIsoStartIndex() && index <= getIsoEndIndex()"
+                          v-show="index >= getIsoStartIndex() && index <= getIsoEndIndex() && visibleIso.has(index)"
                           class="absolute text-center"
                           :style="{ left: 'calc(' + (index / (isoMarks.length - 1)) * 100 + '% + ' + getMarkOffset(index, isoMarks) + 'px)', transform: 'translateX(-50%)' }">
-                      {{ mark === '不限' ? '∞' : (isoHiddenIndexes.includes(index) ? '' : mark) }}
+                      {{ mark === '不限' ? '∞' : (isoHiddenIndexes.includes(index) ? '' : displayIsoLabel(mark)) }}
                     </span>
                   </div>
                 </div>
@@ -367,7 +367,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { usePhotoStore } from '@/stores/photo'
 import { api } from '@/api'
 
@@ -441,10 +441,23 @@ watch(() => props.show, async (val) => {
     // 显示弹窗
     show.value = true
     await nextTick()
+    // ensure ResizeObserver observes newly rendered mark containers
+    if (resizeObserver) {
+      if (focalMarksRef.value) resizeObserver.observe(focalMarksRef.value)
+      if (shutterMarksRef.value) resizeObserver.observe(shutterMarksRef.value)
+      if (apertureMarksRef.value) resizeObserver.observe(apertureMarksRef.value)
+      if (isoMarksRef.value) resizeObserver.observe(isoMarksRef.value)
+    }
+    // recalc visible after DOM is rendered
+    updateAllVisible()
     // 延迟一帧开始动画，确保DOM已渲染
     requestAnimationFrame(() => {
       animating.value = true
     })
+    // extra recalculation after a short delay (fonts/layout)
+    setTimeout(() => {
+      updateAllVisible()
+    }, 50)
   } else {
     // 隐藏弹窗
     animating.value = false
@@ -535,6 +548,34 @@ const formatShutterSpeed = (value: number | null) => {
 
 const formatAperture = (value: number | null) => {
   return value ? value.toFixed(1) : '0.0'
+}
+
+const displayShutterLabel = (mark: any) => {
+  if (mark === '不限') return '∞'
+  // if value is number use formatShutterSpeed but apply narrow-screen shortening if needed
+  const cw = shutterMarksRef.value ? shutterMarksRef.value.clientWidth : 9999
+  const txt = formatShutterSpeed(mark)
+  if (cw < 320 && typeof mark === 'number') {
+    // Prefer fractional display for small shutter speeds (1/xxx) to avoid "0.00" issues.
+    if (mark < 1) {
+      const denom = Math.round(1 / mark)
+      if (denom >= 1000) return `1/${Math.round(denom / 1000)}k`
+      return `1/${denom}`
+    }
+    // >=1s: show integer seconds
+    return `${Math.round(mark)}`
+  }
+  return txt
+}
+
+const displayIsoLabel = (mark: any) => {
+  if (mark === '不限') return '∞'
+  const cw = isoMarksRef.value ? isoMarksRef.value.clientWidth : 9999
+  if (cw < 320 && typeof mark === 'number' && mark >= 1000) {
+    const short = mark / 1000
+    return Number.isInteger(short) ? `${short}k` : `${short.toFixed(1)}k`
+  }
+  return String(mark)
 }
 
 // 拖拽相关状态
@@ -819,13 +860,203 @@ const getMarkOffset = (index: number, marks: any[], spreadPx = 1) => {
 }
 
 // 快门速度隐藏文本的索引（但保留吸附点），如果需要调整只改这组数组
-const shutterHiddenIndexes = [2, 4, 6, 8, 10, 12]
+const shutterHiddenIndexes: number[] = [] // 2, 4, 6, 8, 10, 12
 // ISO 隐藏文本索引（保留吸附点），例如隐藏 12800 文本
-const isoHiddenIndexes = [7, 9]
+const isoHiddenIndexes: number[] = []  // 7, 9
 
 const shouldShowShutterText = (index: number) => {
   return !shutterHiddenIndexes.includes(index)
 }
+
+// 简易动态刻度显示：基于容器宽度与估算的最小标签宽度，按步长显示刻度文本（不影响吸附点）
+const focalMarksRef = ref<HTMLElement | null>(null)
+const shutterMarksRef = ref<HTMLElement | null>(null)
+const apertureMarksRef = ref<HTMLElement | null>(null)
+const isoMarksRef = ref<HTMLElement | null>(null)
+
+const visibleFocal = ref<Set<number>>(new Set())
+const visibleShutter = ref<Set<number>>(new Set())
+const visibleAperture = ref<Set<number>>(new Set())
+const visibleIso = ref<Set<number>>(new Set())
+
+const minLabelGapPx = 0 // minimum extra gap between labels (pixels)
+
+// measure text width by creating a hidden DOM span (more accurate with exact CSS)
+const measureTextWidth = (() => {
+  let measurer: HTMLSpanElement | null = null
+  return (container: HTMLElement | null, text: string) => {
+    try {
+      if (!measurer) {
+        measurer = document.createElement('span')
+        measurer.style.position = 'absolute'
+        measurer.style.visibility = 'hidden'
+        measurer.style.whiteSpace = 'nowrap'
+        measurer.style.pointerEvents = 'none'
+        measurer.style.left = '-9999px'
+        document.body.appendChild(measurer)
+      }
+      // copy container classes if available so Tailwind styles (font-size, color) match exactly
+      if (container && container.className) {
+        measurer.className = String(container.className)
+      } else {
+        const style = window.getComputedStyle(document.body)
+        measurer.style.font = style.font || ''
+        measurer.style.fontSize = style.fontSize || ''
+        measurer.style.fontFamily = style.fontFamily || ''
+        measurer.style.fontWeight = style.fontWeight || ''
+        measurer.style.fontStyle = style.fontStyle || ''
+      }
+      measurer.textContent = String(text)
+      return measurer.offsetWidth || String(text).length * 8
+    } catch (e) {
+      return String(text).length * 8
+    }
+  }
+})()
+
+const measureVisible = (container: HTMLElement | null, marks: any[], outRef: any, formatter: (m: any) => string, manualHidden: number[] = []) => {
+  // outRef is a Ref<Set<number>>
+  const outSet: Set<number> = outRef.value
+  outSet.clear()
+  if (!container || marks.length === 0) {
+    for (let i = 0; i < marks.length; i++) outSet.add(i)
+    return
+  }
+  const containerWidth = container.clientWidth || 1
+  const n = marks.length
+  // measure all label widths
+  const widths: number[] = marks.map((m, i) => {
+    const text = formatter(m)
+    return measureTextWidth(container, text) + 8 // small padding
+  })
+  // compute target centers for each mark (including getMarkOffset)
+  const centers: number[] = []
+  for (let i = 0; i < n; i++) {
+    const percent = (n > 1) ? (i / (n - 1)) : 0.5
+    const base = percent * containerWidth
+    // apply slightly larger spread for shutter/iso to reduce collisions of dense numeric labels
+    let spreadForSet = 1
+    if (marks === shutterSpeedMarks) spreadForSet = 3
+    else if (marks === isoMarks) spreadForSet = 2
+    else if (marks === apertureMarks) spreadForSet = 1.5
+    const offset = getMarkOffset(i, marks, spreadForSet)
+    centers.push(base + offset)
+  }
+
+  // Build candidate intervals [start, end] with small required gap
+  const halfG = minLabelGapPx / 2
+  type Candidate = { idx: number; start: number; end: number; weight: number }
+  const candidates: Candidate[] = []
+  for (let i = 0; i < n; i++) {
+    if (manualHidden.includes(i)) continue
+    const half = widths[i] / 2
+    const start = Math.max(0, centers[i] - half - halfG)
+    const end = Math.min(containerWidth, centers[i] + half + halfG)
+    // weight favors shorter labels: more weight for smaller widths
+    const weight = Math.max(1, Math.round(containerWidth / widths[i]))
+    candidates.push({ idx: i, start, end, weight })
+  }
+
+  // sort by end for DP
+  candidates.sort((a, b) => a.end - b.end)
+
+  // compute p[j] = rightmost index < j that doesn't overlap j
+  const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd
+  const m = candidates.length
+  const p: number[] = new Array(m).fill(-1)
+  for (let j = 0; j < m; j++) {
+    for (let i = j - 1; i >= 0; i--) {
+      if (!overlaps(candidates[i].start, candidates[i].end, candidates[j].start, candidates[j].end)) {
+        p[j] = i
+        break
+      }
+    }
+  }
+
+  // DP for weighted interval scheduling
+  const dp: number[] = new Array(m).fill(0)
+  const take: boolean[] = new Array(m).fill(false)
+  for (let j = 0; j < m; j++) {
+    const includeWeight = candidates[j].weight + (p[j] !== -1 ? dp[p[j]] : 0)
+    const excludeWeight = j > 0 ? dp[j - 1] : 0
+    if (includeWeight >= excludeWeight) {
+      dp[j] = includeWeight
+      take[j] = true
+    } else {
+      dp[j] = excludeWeight
+      take[j] = false
+    }
+  }
+
+  // reconstruct selected set
+  const selectedIdxs = new Set<number>()
+  let j = m - 1
+  while (j >= 0) {
+    if (take[j]) {
+      selectedIdxs.add(candidates[j].idx)
+      j = p[j]
+    } else {
+      j--
+    }
+  }
+
+  // Ensure endpoints (0 and n-1) are present when possible: try to add them by removing conflicting ones
+  const findByIdx = (idx: number) => candidates.find((c) => c.idx === idx)
+  const tryAddEndpoint = (endpointIdx: number) => {
+    const cand = findByIdx(endpointIdx)
+    if (!cand) return
+    if (selectedIdxs.has(endpointIdx)) return
+    // find selected that overlap with cand
+    const overlapping = Array.from(selectedIdxs).filter((selIdx) => {
+      const selCand = findByIdx(selIdx)
+      if (!selCand) return false
+      return overlaps(selCand.start, selCand.end, cand.start, cand.end)
+    })
+    if (overlapping.length === 0) {
+      selectedIdxs.add(endpointIdx)
+    } else {
+      // replace the first overlapping only if endpoint is shorter (prefer showing endpoint)
+      const selCand = findByIdx(overlapping[0])
+      if (selCand && (cand.end - cand.start) <= (selCand.end - selCand.start)) {
+        selectedIdxs.delete(selCand.idx)
+        selectedIdxs.add(cand.idx)
+      }
+    }
+  }
+  tryAddEndpoint(0)
+  tryAddEndpoint(n - 1)
+
+  // write to outSet
+  for (const idx of selectedIdxs) outSet.add(idx)
+}
+
+const updateAllVisible = () => {
+  measureVisible(focalMarksRef.value, focalLengthMarks, visibleFocal, (m) => (m === '不限' ? '∞' : String(m)))
+  // use the same display formatter used for rendering to avoid mismatch
+  measureVisible(shutterMarksRef.value, shutterSpeedMarks, visibleShutter, displayShutterLabel, shutterHiddenIndexes)
+  measureVisible(apertureMarksRef.value, apertureMarks, visibleAperture, (m) => (m === '不限' ? '∞' : 'f/' + String(m)))
+  measureVisible(isoMarksRef.value, isoMarks, visibleIso, displayIsoLabel, isoHiddenIndexes)
+}
+
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  updateAllVisible()
+  resizeObserver = new ResizeObserver(() => {
+    updateAllVisible()
+  })
+  // Observe all slider containers
+  if (focalMarksRef.value) resizeObserver.observe(focalMarksRef.value)
+  if (shutterMarksRef.value) resizeObserver.observe(shutterMarksRef.value)
+  if (apertureMarksRef.value) resizeObserver.observe(apertureMarksRef.value)
+  if (isoMarksRef.value) resizeObserver.observe(isoMarksRef.value)
+})
+onBeforeUnmount(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+})
 </script>
 
 <style scoped>

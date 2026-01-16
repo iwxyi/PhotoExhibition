@@ -558,9 +558,6 @@ const loadInitial = async () => {
 onMounted(async () => {
   // 声明当前活跃视图为 random（避免其他视图触发 random API）
   photoStore.setCurrentView && photoStore.setCurrentView('random')
-  // (debug) 暴露 store 用于临时调试：在 Console 中检查 window.__photoStore.lastFilters 等
-  // 之后会在 unmounted 时清除
-  try { (window as any).__photoStore = photoStore } catch(e) {}
   await loadInitial()
 })
 

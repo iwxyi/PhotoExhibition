@@ -232,7 +232,7 @@ export const usePhotoStore = defineStore('photo', () => {
       } else {
         photosRandom.value = [...photosRandom.value, ...response.data.content]
       }
-      console.log(`[${new Date().toISOString()}] [photoStore] fetchRandomPhotos response.last=${!!response.data.last} received=${response.data.content?.length||0}`)
+      // response handled
       return response.data
     } finally {
       loading.value = false
