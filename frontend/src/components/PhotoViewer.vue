@@ -173,50 +173,100 @@
         </div>
 
         <!-- 信息侧栏 -->
-        <div v-if="!infoCollapsed" class="absolute top-0 right-0 bottom-0 w-80 bg-gray-900/80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto">
+        <div v-if="!infoCollapsed" class="absolute top-0 right-0 bottom-0 w-80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto transition-all duration-300"
+             :class="infoTransparent ? 'bg-gray-900/30' : 'bg-gray-900/80'">
           <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <span class="text-sm font-semibold">信息</span>
-            <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfo">折叠</button>
+            <button class="text-xs opacity-70 hover:opacity-100" @click="toggleInfoTransparency">
+              {{ infoTransparent ? '不透明' : '透明' }}
+            </button>
           </div>
           <div class="flex-1 overflow-auto px-4 py-3 space-y-2 text-xs leading-relaxed">
             <!-- 基本信息 -->
             <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
-            <div v-if="currentPhoto?.takenAt"><span class="opacity-60">拍摄时间：</span>{{ formatDate(currentPhoto.takenAt) }}</div>
-            <div v-if="currentPhoto?.createdAt"><span class="opacity-60">入库时间：</span>{{ formatDate(currentPhoto.createdAt) }}</div>
+            <div v-if="currentAlbumPath">
+              <span class="opacity-60">路径：</span>
+              <span
+                class="truncate opacity-80 cursor-pointer hover:opacity-100"
+                :title="'点击跳转到相册: ' + currentAlbumPath"
+                @click="openAlbum"
+              >
+                {{ currentAlbumPath }}
+              </span>
+            </div>
+            <div v-if="currentPhoto?.takenAt">
+              <span class="opacity-60">拍摄时间：</span>
+              <span class="cursor-pointer hover:opacity-100" @click="filterByTakenAt">
+                {{ formatDate(currentPhoto.takenAt) }}
+              </span>
+            </div>
 
             <!-- 相机和镜头信息 -->
             <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
-              <span class="opacity-60">相机：</span>{{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
+              <span class="opacity-60">相机：</span>
+              <span class="cursor-pointer hover:opacity-100" @click="filterByCamera">
+                {{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
+              </span>
             </div>
-            <div v-if="currentPhoto?.lensModel"><span class="opacity-60">镜头：</span>{{ currentPhoto.lensModel }}</div>
+            <div v-if="currentPhoto?.lensModel">
+              <span class="opacity-60">镜头：</span>
+              <span class="cursor-pointer hover:opacity-100" @click="filterByLens">
+                {{ currentPhoto.lensModel }}
+              </span>
+            </div>
 
-            <!-- 拍摄参数 -->
+            <!-- 参数网格布局 -->
             <div class="grid grid-cols-2 gap-2">
-              <div v-if="currentPhoto?.focalLength"><span class="opacity-60">焦距：</span>{{ currentPhoto.focalLength }}</div>
-              <div v-if="currentPhoto?.aperture"><span class="opacity-60">光圈：</span>{{ currentPhoto.aperture }}</div>
-              <div v-if="currentPhoto?.shutterSpeed"><span class="opacity-60">快门：</span>{{ currentPhoto.shutterSpeed }}</div>
-              <div v-if="currentPhoto?.iso"><span class="opacity-60">ISO：</span>{{ currentPhoto.iso }}</div>
-            </div>
-
-            <!-- 图片规格 -->
-            <div v-if="currentPhoto?.width && currentPhoto?.height">
-              <span class="opacity-60">尺寸：</span>{{ currentPhoto.width }} × {{ currentPhoto.height }}
-              <span v-if="currentPhoto?.format" class="ml-2 opacity-60">格式：</span>{{ currentPhoto.format }}
-            </div>
-            <div v-if="currentPhoto?.fileSize">
-              <span class="opacity-60">文件大小：</span>{{ formatFileSize(currentPhoto.fileSize) }}
-            </div>
-
-            <!-- 质量和统计 -->
-            <div class="grid grid-cols-2 gap-2">
-              <div v-if="currentPhoto?.qualityScore"><span class="opacity-60">质量评分：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}</div>
-              <div v-if="currentPhoto?.viewCount"><span class="opacity-60">查看次数：</span>{{ currentPhoto.viewCount }}</div>
-              <div v-if="currentPhoto?.likeCount"><span class="opacity-60">点赞次数：</span>{{ currentPhoto.likeCount }}</div>
-              <div v-if="currentPhoto?.isFeatured !== undefined">
-                <span class="opacity-60">精选：</span>
-                <span :class="currentPhoto.isFeatured ? 'text-yellow-400' : 'text-gray-400'">
-                  {{ currentPhoto.isFeatured ? '✓' : '✗' }}
+              <!-- 第一行：焦距和光圈 -->
+              <div v-if="currentPhoto?.focalLength">
+                <span class="opacity-60">焦距：</span>
+                <span class="cursor-pointer hover:opacity-100" @click="filterByFocalLength">
+                  {{ currentPhoto.focalLength }}
                 </span>
+              </div>
+              <div v-if="currentPhoto?.aperture">
+                <span class="opacity-60">光圈：</span>
+                <span class="cursor-pointer hover:opacity-100" @click="filterByAperture">
+                  {{ currentPhoto.aperture }}
+                </span>
+              </div>
+
+              <!-- 第二行：快门和ISO -->
+              <div v-if="currentPhoto?.shutterSpeed">
+                <span class="opacity-60">快门：</span>
+                <span class="cursor-pointer hover:opacity-100" @click="filterByShutterSpeed">
+                  {{ currentPhoto.shutterSpeed }}
+                </span>
+              </div>
+              <div v-if="currentPhoto?.iso">
+                <span class="opacity-60">ISO：</span>
+                <span class="cursor-pointer hover:opacity-100" @click="filterByIso">
+                  {{ currentPhoto.iso }}
+                </span>
+              </div>
+
+              <!-- 第三行：尺寸和格式 -->
+              <div v-if="currentPhoto?.width && currentPhoto?.height">
+                <span class="opacity-60">尺寸：</span>{{ currentPhoto.width }} × {{ currentPhoto.height }}
+              </div>
+              <div v-if="currentPhoto?.format">
+                <span class="opacity-60">格式：</span>{{ currentPhoto.format }}
+              </div>
+
+              <!-- 第四行：文件大小和质量评分 -->
+              <div v-if="currentPhoto?.fileSize">
+                <span class="opacity-60">文件大小：</span>{{ formatFileSize(currentPhoto.fileSize) }}
+              </div>
+              <div v-if="currentPhoto?.qualityScore">
+                <span class="opacity-60">质量评分：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}
+              </div>
+
+              <!-- 第五行：查看次数和点赞次数 -->
+              <div v-if="currentPhoto?.viewCount">
+                <span class="opacity-60">查看次数：</span>{{ currentPhoto.viewCount }}
+              </div>
+              <div v-if="currentPhoto?.likeCount">
+                <span class="opacity-60">点赞次数：</span>{{ currentPhoto.likeCount }}
               </div>
             </div>
             <div v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined">
@@ -260,7 +310,8 @@
                   v-for="(f, idx) in visibleFaceList"
                   :key="f.id || idx"
                   class="flex items-center gap-2 p-1 rounded transition-colors"
-                  @click.stop="f.personId && f.personName ? openPersonByFace(f) : null"
+                  :class="f.isConfirmed && f.personId && f.personName ? 'cursor-pointer hover:bg-white/10' : ''"
+                  @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : null"
                 >
                   <div
                     class="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0 border border-white/10"
@@ -282,8 +333,8 @@
             <!-- 调色板 -->
             <div v-if="currentPhoto?.colorPalette?.length">
               <span class="opacity-60">调色板：</span>
-              <!-- 主色调十六进制代码 -->
-              <span v-if="currentPhoto?.dominantColor" class="font-mono text-xs mr-2">{{ currentPhoto.dominantColor }}</span>
+              <!-- 当前显示的十六进制代码 -->
+              <span class="font-mono text-xs mr-2">{{ displayedColor }}</span>
               <!-- 调色板颜色 -->
               <span
                 v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 6)"
@@ -291,6 +342,7 @@
                 class="inline-block w-3 h-3 rounded border border-white/10 mr-1 cursor-pointer hover:border-white/30 hover:scale-110 transition-all duration-150"
                 :style="{ backgroundColor: color }"
                 :title="getColorTooltip(color)"
+                @mouseenter="displayedColor = getColorHex(color)"
                 @click="copyColorToClipboard(color)"
               ></span>
             </div>
@@ -368,6 +420,7 @@ const emit = defineEmits<{
 
 const currentIndex = ref(0)
 const infoCollapsed = ref(true)
+const infoTransparent = ref(false) // 控制信息栏透明度
 const modalRoot = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const thumbContainer = ref<HTMLElement | null>(null)
@@ -412,6 +465,9 @@ const imageWrapper = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 
+// 调色板当前显示的颜色值
+const displayedColor = ref('')
+
 // 缩略图到查看器的开场动画
 const isOpeningFromThumb = ref(false)
 const openAnimStyle = ref<Record<string, string>>({})
@@ -433,12 +489,129 @@ const pendingTransitionDirection = ref<'prev' | 'next' | null>(null) // 等待�
 const transitioningPhoto = ref<Photo | null>(null) // 正在过渡的图片（进入的图片）
 const transitionDirection = ref<'left' | 'right' | null>(null) // 过渡方向
 
-const STORAGE_KEY = 'pe-info-collapsed'
+const STORAGE_KEY = 'pe-info-transparent'
 const FOCUS_BOX_KEY = 'pe-focus-box-visible'
 const FACE_BOXES_KEY = 'pe-face-boxes-visible'
 const THUMB_KEY = 'pe-thumb-height'
 
-const currentPhoto = computed(() => props.photos?.[currentIndex.value])
+// 初始化状态
+infoCollapsed.value = localStorage.getItem('pe-info-collapsed') === '1'
+infoTransparent.value = localStorage.getItem(STORAGE_KEY) === '1'
+
+// 使用ref来确保响应式更新
+const currentPhotoRef = ref<Photo | null>(null)
+
+// 监听currentIndex变化，更新currentPhotoRef
+watch(
+  () => currentIndex.value,
+  (newIndex) => {
+    currentPhotoRef.value = props.photos?.[newIndex] || null
+  },
+  { immediate: true }
+)
+
+// 同时监听props.photos变化
+watch(
+  () => props.photos,
+  (newPhotos) => {
+    if (newPhotos) {
+      currentPhotoRef.value = newPhotos[currentIndex.value] || null
+    }
+  },
+  { immediate: true }
+)
+
+const currentPhoto = computed(() => currentPhotoRef.value)
+
+// 当照片变化时，初始化调色板显示的颜色值
+watch(currentPhoto, (newPhoto) => {
+  if (newPhoto?.dominantColor) {
+    displayedColor.value = newPhoto.dominantColor
+  } else if (newPhoto?.colorPalette?.length) {
+    displayedColor.value = getColorHex(newPhoto.colorPalette[0])
+  } else {
+    displayedColor.value = ''
+  }
+}, { immediate: true })
+
+// 获取当前照片的相册路径
+const currentAlbumPath = computed(() => {
+  const photo = currentPhoto.value
+  const photoId = photo?.id
+  const originalPath = photo?.originalPath
+
+  // 检查是否有照片数据
+  if (!photo) {
+    console.warn(`[路径计算] 照片数据不存在 - 照片ID: ${photoId}`)
+    return null
+  }
+
+  // 检查是否有originalPath
+  if (!originalPath) {
+    console.warn(`[路径计算] originalPath为空 - 照片ID: ${photo?.id}, 文件名: ${photo?.filename}`)
+    return null
+  }
+
+  // 检查originalPath是否为字符串
+  if (typeof originalPath !== 'string') {
+    console.warn(`[路径计算] originalPath不是字符串类型 - 照片ID: ${photoId}, 类型: ${typeof originalPath}, 值:`, originalPath)
+    return null
+  }
+
+  try {
+    // 从originalPath中提取相册路径
+    // originalPath格式: /data/photos/分类/相册名/文件名.jpg
+    // 我们需要提取: 分类/相册名
+    const pathParts = originalPath.split('/').filter(p => p.length > 0)
+
+    // 处理不同的路径格式
+    let category = ''
+    let album = ''
+
+    if (pathParts.length >= 5 && pathParts[0] === 'data' && pathParts[1] === 'photos') {
+      // 标准格式：/data/photos/分类/相册名/文件名.jpg
+      category = pathParts[2]
+      album = pathParts[3]
+      console.log(`[路径计算] 使用标准格式解析 - 照片ID: ${photoId}, 路径: ${originalPath}`)
+    } else if (pathParts.length >= 4 && pathParts[0] === 'data' && pathParts[1] === 'photos') {
+      // 简化的标准格式：/data/photos/相册名/文件名.jpg（没有分类）
+      category = '未分类'
+      album = pathParts[2]
+      console.log(`[路径计算] 使用简化标准格式解析 - 照片ID: ${photoId}, 路径: ${originalPath}`)
+    } else if (pathParts.length >= 3) {
+      // 直接格式：/分类/相册名/文件名.jpg
+      category = pathParts[0]
+      album = pathParts[1]
+      console.log(`[路径计算] 使用直接格式解析 - 照片ID: ${photoId}, 路径: ${originalPath}`)
+    } else if (pathParts.length >= 2) {
+      // 最简格式：/相册名/文件名.jpg（没有分类）
+      category = '未分类'
+      album = pathParts[0]
+      console.log(`[路径计算] 使用最简格式解析 - 照片ID: ${photoId}, 路径: ${originalPath}`)
+    } else {
+      console.warn(`[路径计算] 路径分段太少，无法提取相册信息 - 照片ID: ${photoId}, 文件名: ${photo?.filename}, 路径: ${originalPath}, 分段数: ${pathParts.length}, 分段:`, pathParts)
+      return null
+    }
+
+    // 检查提取的结果是否有效
+    if (!category || !album) {
+      console.warn(`[路径计算] 分类或相册名称为空 - 照片ID: ${photoId}, 文件名: ${photo?.filename}, 路径: ${originalPath}, 分类: "${category}", 相册: "${album}"`)
+      return null
+    }
+
+    const result = `${category}/${album}`
+    console.log(`[路径计算] 成功提取路径 - 照片ID: ${photoId}, 结果: ${result}`)
+    return result
+
+    // 路径格式不符合预期
+    console.warn(`[路径计算] 路径格式不符合预期 - 照片ID: ${photoId}, 文件名: ${photo?.filename}, 路径: ${originalPath}, 分段数: ${pathParts.length}, 分段:`, pathParts)
+    return null
+
+  } catch (error) {
+    console.error(`[路径计算] 提取相册路径时发生异常 - 照片ID: ${photoId}, 文件名: ${photo?.filename}, 路径: ${originalPath}, 错误:`, error)
+    return null
+  }
+})
 
 // 获取过渡图片的变换样式
 const getTransitionImageTransformStyle = () => {
@@ -481,6 +654,94 @@ const openPersonByFace = (face: { personId?: number; personName?: string }) => {
   window.open(route.href, '_blank')
 }
 
+// 打开相册
+const openAlbum = () => {
+  if (!currentPhoto.value) return
+  const route = router.resolve({ path: `/album/${currentPhoto.value.albumId}` })
+  window.open(route.href, '_blank')
+}
+
+// 根据拍摄时间筛选
+const filterByTakenAt = () => {
+  if (!currentPhoto.value?.takenAt) return
+  const date = new Date(currentPhoto.value.takenAt)
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const filters = {
+    takenAtYear: year,
+    takenAtMonth: month
+  }
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  window.open(route.href, '_blank')
+}
+
+// 根据相机筛选
+const filterByCamera = () => {
+  if (!currentPhoto.value?.cameraMake && !currentPhoto.value?.cameraModel) return
+  const cameraModel = currentPhoto.value.cameraModel || ''
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify({ cameraModel }) } })
+  window.open(route.href, '_blank')
+}
+
+// 根据镜头筛选
+const filterByLens = () => {
+  if (!currentPhoto.value?.lensModel) return
+  const lensModel = currentPhoto.value.lensModel
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify({ lensModel }) } })
+  window.open(route.href, '_blank')
+}
+
+// 根据焦距筛选
+const filterByFocalLength = () => {
+  if (!currentPhoto.value?.focalLength) return
+  const focalLength = parseFloat(currentPhoto.value.focalLength.replace('mm', ''))
+  const filters = {
+    minFocalLength: focalLength,
+    maxFocalLength: focalLength
+  }
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  window.open(route.href, '_blank')
+}
+
+// 根据光圈筛选
+const filterByAperture = () => {
+  if (!currentPhoto.value?.aperture) return
+  const aperture = parseFloat(currentPhoto.value.aperture.replace('f/', ''))
+  const filters = {
+    minAperture: aperture,
+    maxAperture: aperture
+  }
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  window.open(route.href, '_blank')
+}
+
+// 根据快门速度筛选
+const filterByShutterSpeed = () => {
+  if (!currentPhoto.value?.shutterSpeed) return
+  // 需要将快门速度转换为数值（秒）
+  let shutterSpeed = currentPhoto.value.shutterSpeed
+  if (shutterSpeed.startsWith('1/')) {
+    shutterSpeed = (1 / parseInt(shutterSpeed.substring(2))).toString()
+  }
+  const filters = {
+    minShutterSpeed: parseFloat(shutterSpeed),
+    maxShutterSpeed: parseFloat(shutterSpeed)
+  }
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  window.open(route.href, '_blank')
+}
+
+// 根据ISO筛选
+const filterByIso = () => {
+  if (!currentPhoto.value?.iso) return
+  const filters = {
+    minIso: currentPhoto.value.iso,
+    maxIso: currentPhoto.value.iso
+  }
+  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  window.open(route.href, '_blank')
+}
+
 // 复制颜色值到剪贴板
 const copyColorToClipboard = async (color: string) => {
   try {
@@ -500,6 +761,12 @@ const copyColorToClipboard = async (color: string) => {
     document.execCommand('copy')
     document.body.removeChild(textArea)
   }
+}
+
+// 获取颜色的十六进制表示
+const getColorHex = (color: string) => {
+  if (!color) return ''
+  return color.startsWith('#') ? color : `#${color}`
 }
 
 // 生成多种格式的颜色值显示
@@ -658,10 +925,17 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 
+// 切换信息栏显示/隐藏
 const toggleInfo = () => {
   const wasCollapsed = infoCollapsed.value
   infoCollapsed.value = !infoCollapsed.value
-  localStorage.setItem(STORAGE_KEY, infoCollapsed.value ? '1' : '0')
+  localStorage.setItem('pe-info-collapsed', infoCollapsed.value ? '1' : '0')
+}
+
+// 切换信息栏透明度
+const toggleInfoTransparency = () => {
+  infoTransparent.value = !infoTransparent.value
+  localStorage.setItem(STORAGE_KEY, infoTransparent.value ? '1' : '0')
 }
 
 const close = () => {

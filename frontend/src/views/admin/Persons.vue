@@ -787,7 +787,6 @@
     :start-index="viewerIndex"
     :auto-show-faces="true"
     :open-options="viewerOpenOptions"
-    :albums="photoStore.albums"
     @viewer-index-change="onViewerIndexChange"
   />
 

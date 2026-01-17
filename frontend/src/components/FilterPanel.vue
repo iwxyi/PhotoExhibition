@@ -494,6 +494,7 @@ import { api } from '@/api'
 
 const props = defineProps<{
   show: boolean
+  initialFilters?: any
 }>()
 
 const emit = defineEmits<{
@@ -555,6 +556,29 @@ const filters = ref({
   colorCategory: '',
   minQualityScore: 0
 })
+
+// 监听外部传入的初始筛选条件
+watch(() => props.initialFilters, (newFilters) => {
+  if (newFilters) {
+    // 更新内部筛选状态
+    if (newFilters.cameraModel !== undefined) filters.value.cameraModel = newFilters.cameraModel
+    if (newFilters.lensModel !== undefined) filters.value.lensModel = newFilters.lensModel
+    if (newFilters.minFocalLength !== undefined || newFilters.maxFocalLength !== undefined) {
+      filters.value.focalLengthRange = [newFilters.minFocalLength || null, newFilters.maxFocalLength || null]
+    }
+    if (newFilters.minAperture !== undefined || newFilters.maxAperture !== undefined) {
+      filters.value.apertureRange = [newFilters.minAperture || null, newFilters.maxAperture || null]
+    }
+    if (newFilters.minShutterSpeed !== undefined || newFilters.maxShutterSpeed !== undefined) {
+      filters.value.shutterSpeedRange = [newFilters.minShutterSpeed || null, newFilters.maxShutterSpeed || null]
+    }
+    if (newFilters.minIso !== undefined || newFilters.maxIso !== undefined) {
+      filters.value.isoRange = [newFilters.minIso || null, newFilters.maxIso || null]
+    }
+    if (newFilters.colorCategory !== undefined) filters.value.colorCategory = newFilters.colorCategory
+    if (newFilters.minQualityScore !== undefined) filters.value.minQualityScore = newFilters.minQualityScore
+  }
+}, { immediate: true })
 
 // 确保范围值的有效性：min <= max
 const validateRange = (range: [number | null, number | null], type: string) => {

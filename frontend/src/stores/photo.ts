@@ -53,6 +53,7 @@ export interface Photo {
   viewCount: number
   likeCount: number
   isFeatured: boolean
+  dominantColor?: string
   tags?: Tag[]
   faces?: FaceFace[]
   createdAt: string

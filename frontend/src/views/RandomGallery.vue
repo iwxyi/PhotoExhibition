@@ -21,7 +21,7 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
-            <FilterPanel v-model:show="showFilter" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
+            <FilterPanel v-model:show="showFilter" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
         </div>
@@ -121,8 +121,15 @@
 <script setup lang="ts">
 defineOptions({ name: 'Random' })
 import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
+
+const route = useRoute()
+const router = useRouter()
+
+// 从URL参数解析的筛选条件
+const urlFilters = ref<any>(null)
 import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
@@ -250,6 +257,10 @@ const formatShutterSpeed = (value: number | null) => {
 const clearFilters = async () => {
   photoStore.clearLastFilters()
   selectedTags.value = [] // 重置选中的标签
+  // 清除URL参数
+  if (route.query.filters) {
+    await router.replace({ query: {} })
+  }
   await loadInitial()
   // 滚动到页面顶部
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -623,6 +634,23 @@ const loadInitial = async () => {
     currentPage.value = 0
     hasMore.value = true
     let data: any
+
+    // 检查URL中的filters参数
+    urlFilters.value = null
+    if (route.query.filters) {
+      try {
+        const parsedFilters = JSON.parse(route.query.filters as string)
+        urlFilters.value = parsedFilters
+        // 将URL筛选条件应用到photoStore
+        photoStore.lastFilters = parsedFilters
+        photoStore.lastFiltersActive.value = true
+        // 触发筛选面板显示（可选）
+        showFilter.value = true
+      } catch (e) {
+        console.warn('解析URL筛选参数失败:', e)
+      }
+    }
+
     if (photoStore.lastFilters) {
       // 筛选模式：传递已查看的图片ID列表以避免重复
       const excludeIds = Array.from(viewedPhotoIds.value)
