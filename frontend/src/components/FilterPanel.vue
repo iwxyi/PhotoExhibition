@@ -541,6 +541,7 @@ const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 const show = ref(props.show)
 const animating = ref(false)
+const isAnimating = ref(false) // 防止动画冲突
 const panelRef = ref<HTMLElement>()
 const shouldResetOnOpen = ref(false)
 
@@ -712,6 +713,7 @@ const closePanel = () => {
   animating.value = false
   setTimeout(() => {
     show.value = false
+    isAnimating.value = false
   }, 300)
 }
 
@@ -901,8 +903,14 @@ const resetFilters = () => {
 
 // 打开/关闭面板的处理，确保按需加载筛选选项（避免刷新时自动请求）
 const onTogglePanel = async () => {
+  // 如果正在动画过程中，忽略点击
+  if (isAnimating.value) {
+    return
+  }
+
   const opening = !show.value
   show.value = opening
+  isAnimating.value = true
   if (opening) {
     // 如果有重置标志，说明刚刚清除了筛选，重置UI状态
     if (shouldResetOnOpen.value) {
@@ -921,11 +929,16 @@ const onTogglePanel = async () => {
     await nextTick()
     requestAnimationFrame(() => {
       animating.value = true
+      // 动画完成后重置动画标志
+      setTimeout(() => {
+        isAnimating.value = false
+      }, 300)
     })
   } else {
     animating.value = false
     setTimeout(() => {
       show.value = false
+      isAnimating.value = false
     }, 300)
   }
 }
@@ -1756,6 +1769,19 @@ const updateAllVisible = () => {
 
 let resizeObserver: ResizeObserver | null = null
 
+// 处理键盘事件
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') {
+    // 优先关闭标签选择器
+    if (showTagSelector.value) {
+      closeTagSelector()
+    } else if (show.value) {
+      // 然后关闭主筛选面板
+      closePanel()
+    }
+  }
+}
+
 onMounted(() => {
   updateAllVisible()
   resizeObserver = new ResizeObserver(() => {
@@ -1766,12 +1792,17 @@ onMounted(() => {
   if (shutterMarksRef.value) resizeObserver.observe(shutterMarksRef.value)
   if (apertureMarksRef.value) resizeObserver.observe(apertureMarksRef.value)
   if (isoMarksRef.value) resizeObserver.observe(isoMarksRef.value)
+
+  // 添加ESC键监听
+  document.addEventListener('keydown', handleKeydown)
 })
 onBeforeUnmount(() => {
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
   }
+  // 移除ESC键监听
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 // 暴露方法给父组件调用

@@ -99,8 +99,8 @@ public class PhotoController {
             // 随机排序 - 使用 JpaSort.unsafe 处理原生 SQL 函数
             pageable = PageRequest.of(request.getPage(), request.getSize(), JpaSort.unsafe("RAND()"));
         } else {
-            // 默认排序（按ID降序）
-            pageable = PageRequest.of(request.getPage(), request.getSize(), org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id"));
+            // 使用系统配置的图墙排序方式
+            pageable = createPhotoSortedPageable(request.getPage(), request.getSize(), systemConfigService.getWallSortOrder());
         }
         Page<PhotoDTO> photos = photoService.filterPhotos(request, pageable);
         return ResponseEntity.ok(photos);

@@ -37,37 +37,20 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.qualityScore >= :minScore")
     Long countByQualityScoreGreaterThanEqual(@Param("minScore") Double minScore);
 
-    @Query(
-        value = "SELECT * FROM photo p WHERE " +
-                "(:cameraModel IS NULL OR p.camera_model = :cameraModel) AND " +
-                "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
-                "(:minAperture IS NULL OR p.aperture_value >= :minAperture) AND " +
-                "(:maxAperture IS NULL OR p.aperture_value <= :maxAperture) AND " +
-                "(:minFocalLength IS NULL OR p.focal_length_mm >= :minFocalLength) AND " +
-                "(:maxFocalLength IS NULL OR p.focal_length_mm <= :maxFocalLength) AND " +
-                "(:minShutterSpeed IS NULL OR p.shutter_speed_seconds >= :minShutterSpeed) AND " +
-                "(:maxShutterSpeed IS NULL OR p.shutter_speed_seconds <= :maxShutterSpeed) AND " +
-                "(:minIso IS NULL OR p.iso >= :minIso) AND " +
-                "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
-                "(:colorCategory IS NULL OR p.color_category = :colorCategory) AND " +
-                "(:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND " +
-                "(p.id NOT IN :excludePhotoIds)",
-        countQuery = "SELECT count(*) FROM photo p WHERE " +
-                "(:cameraModel IS NULL OR p.camera_model = :cameraModel) AND " +
-                "(:lensModel IS NULL OR p.lens_model = :lensModel) AND " +
-                "(:minAperture IS NULL OR p.aperture_value >= :minAperture) AND " +
-                "(:maxAperture IS NULL OR p.aperture_value <= :maxAperture) AND " +
-                "(:minFocalLength IS NULL OR p.focal_length_mm >= :minFocalLength) AND " +
-                "(:maxFocalLength IS NULL OR p.focal_length_mm <= :maxFocalLength) AND " +
-                "(:minShutterSpeed IS NULL OR p.shutter_speed_seconds >= :minShutterSpeed) AND " +
-                "(:maxShutterSpeed IS NULL OR p.shutter_speed_seconds <= :maxShutterSpeed) AND " +
-                "(:minIso IS NULL OR p.iso >= :minIso) AND " +
-                "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
-                "(:colorCategory IS NULL OR p.color_category = :colorCategory) AND " +
-                "(:minQualityScore IS NULL OR p.quality_score >= :minQualityScore) AND " +
-                "(p.id NOT IN :excludePhotoIds)",
-        nativeQuery = true
-    )
+    @Query("SELECT p FROM Photo p WHERE " +
+           "(:cameraModel IS NULL OR p.cameraModel = :cameraModel) AND " +
+           "(:lensModel IS NULL OR p.lensModel = :lensModel) AND " +
+           "(:minAperture IS NULL OR p.apertureValue >= :minAperture) AND " +
+           "(:maxAperture IS NULL OR p.apertureValue <= :maxAperture) AND " +
+           "(:minFocalLength IS NULL OR p.focalLengthMm >= :minFocalLength) AND " +
+           "(:maxFocalLength IS NULL OR p.focalLengthMm <= :maxFocalLength) AND " +
+           "(:minShutterSpeed IS NULL OR p.shutterSpeedSeconds >= :minShutterSpeed) AND " +
+           "(:maxShutterSpeed IS NULL OR p.shutterSpeedSeconds <= :maxShutterSpeed) AND " +
+           "(:minIso IS NULL OR p.iso >= :minIso) AND " +
+           "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
+           "(:colorCategory IS NULL OR p.colorCategory = :colorCategory) AND " +
+           "(:minQualityScore IS NULL OR p.qualityScore >= :minQualityScore) AND " +
+           "(p.id NOT IN :excludePhotoIds)")
     Page<Photo> findByExifFilters(@Param("cameraModel") String cameraModel,
                                   @Param("lensModel") String lensModel,
                                   @Param("minAperture") Double minAperture,
