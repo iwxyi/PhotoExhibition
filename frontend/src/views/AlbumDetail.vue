@@ -139,7 +139,7 @@ import PhotoViewer from '@/components/PhotoViewer.vue'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import MasonryLayout from '@/components/MasonryLayout.vue'
 import CommentSection from '@/components/CommentSection.vue'
-import { commentApi } from '@/api'
+import { commentApi, api } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -147,6 +147,23 @@ const photoStore = usePhotoStore()
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
+
+// 全局下载权限设置
+const globalDownloadAllowed = ref(false)
+
+// 检查是否允许下载（用于控制长按多选功能）
+const isDownloadAllowed = computed(() => {
+  const albumData = album.value
+  if (!albumData) return false
+
+  // 如果相册有明确的设置，使用相册设置
+  if (albumData.downloadAllowed !== null && albumData.downloadAllowed !== undefined) {
+    return albumData.downloadAllowed
+  }
+
+  // 否则使用全局设置
+  return globalDownloadAllowed.value
+})
 
 // 评论数量
 const commentCount = ref(0)
@@ -549,8 +566,8 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
   let longPressCancelled = false
 
   longPressTimer = setTimeout(() => {
-    // only trigger long press if not cancelled by movement
-    if (!longPressCancelled) {
+    // only trigger long press if not cancelled by movement and download is allowed
+    if (!longPressCancelled && isDownloadAllowed.value) {
       // long press triggered
       longPressActivated.value = true
       if (!multiSelectActive.value) {
@@ -1267,6 +1284,15 @@ const startBackTransitionAndNavigate = () => {
 }
 
 onMounted(async () => {
+  // 获取全局下载权限设置
+  try {
+    const response = await api.get('/admin/config/global-download-allowed')
+    globalDownloadAllowed.value = response.data.globalDownloadAllowed !== false
+  } catch (error) {
+    console.warn('获取全局下载权限设置失败:', error)
+    globalDownloadAllowed.value = false // 默认禁止
+  }
+
   // 确保页面从顶部开始显示
   window.scrollTo(0, 0)
 

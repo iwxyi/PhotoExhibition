@@ -311,6 +311,7 @@ public class AlbumService {
         dto.setDescription(album.getDescription());
         dto.setPhotoCount(album.getPhotoCount());
         dto.setAggregateSubAlbums(album.getAggregateSubAlbums());
+        dto.setDownloadAllowed(album.getDownloadAllowed());
         dto.setPhotoSortOrder(album.getPhotoSortOrder());
 
         // 检查是否有子文件夹（用于聚合功能）
@@ -814,6 +815,20 @@ public class AlbumService {
         }
 
         Album saved = albumRepository.save(album);
+        return convertToDTO(saved);
+    }
+
+    /**
+     * 设置相册下载权限
+     */
+    @Transactional
+    public AlbumDTO setAlbumDownloadAllowed(Long albumId, Boolean downloadAllowed) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在: " + albumId));
+
+        album.setDownloadAllowed(downloadAllowed);
+        Album saved = albumRepository.save(album);
+
         return convertToDTO(saved);
     }
 

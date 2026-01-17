@@ -272,6 +272,20 @@
                 <option value="created_at_asc">创建时间正序</option>
               </select>
             </div>
+
+            <!-- 下载权限设置 -->
+            <div class="px-4 py-2">
+              <label class="block text-xs text-gray-400 mb-1">下载权限</label>
+              <select
+                :value="showMenuForAlbum.downloadAllowed"
+                @change="setAlbumDownloadAllowed(showMenuForAlbum, ($event.target as HTMLSelectElement).value)"
+                class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">跟随全局设置</option>
+                <option :value="true">允许下载</option>
+                <option :value="false">禁止下载</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -1147,6 +1161,19 @@ const setAlbumSortOrder = async (album: any, sortOrder: string) => {
     closeAllMenus()
   } catch (e: any) {
     alert('设置排序方式失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const setAlbumDownloadAllowed = async (album: any, downloadAllowed: string) => {
+  try {
+    const value = downloadAllowed === '' ? null : (downloadAllowed === 'true')
+    await api.put(`/albums/${album.id}/download-allowed`, {
+      downloadAllowed: value
+    })
+    await load()
+    closeAllMenus()
+  } catch (e: any) {
+    alert('设置下载权限失败: ' + (e.response?.data?.error || e.message))
   }
 }
 

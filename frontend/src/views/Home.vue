@@ -88,6 +88,7 @@ import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
+import { sortCategories, loadCategorySortOrder } from '@/composables/useCategorySorting'
 
 const router = useRouter()
 const photoStore = usePhotoStore()
@@ -98,7 +99,7 @@ import CategoryTabs from '@/components/CategoryTabs.vue'
 
 const albums = computed(() => photoStore.albums)
 const loading = computed(() => photoStore.loading)
-const categories = computed(() => photoStore.categories)
+const categories = computed(() => sortCategories(photoStore.categories))
 const showFilter = ref(false)
 const currentPage = ref(0)
 const hasMore = ref(true)
@@ -590,7 +591,8 @@ onMounted(async () => {
   try {
     await Promise.all([
       photoStore.fetchCategories(),
-      loadAlbumSortOrder()
+      loadAlbumSortOrder(),
+      loadCategorySortOrder()
     ])
 
     const loadSize = getDynamicLoadSize()

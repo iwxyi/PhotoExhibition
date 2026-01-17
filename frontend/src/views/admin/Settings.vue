@@ -209,6 +209,54 @@
         </div>
       </section>
 
+      <!-- 全局下载权限设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">全局下载权限</h2>
+            <p class="text-xs text-gray-400">
+              控制是否允许用户下载相册中的图片。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              全局设置可以被单个相册的设置覆盖。
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="globalDownloadAllowed"
+                class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+              />
+              <span class="text-sm">允许下载</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 相册分类排序设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">相册分类排序</h2>
+            <p class="text-xs text-gray-400">
+              设置相册分类的显示顺序，用逗号、空格等分隔多个分类名称。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              未在排序中的分类将自动排在后面。
+            </p>
+          </div>
+          <div class="flex items-center gap-3 min-w-[300px]">
+            <input
+              v-model="albumCategorySortOrder"
+              type="text"
+              placeholder="例如：人像,风景 静物 或 人像，风景，静物"
+              class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+      </section>
+
       <!-- 用户名更改设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
@@ -423,6 +471,10 @@ const originalWallSortOrder = ref('taken_at_desc')
 const needsWallRefresh = ref(false)
 const minClusterFaceCount = ref(2)
 const originalMinClusterFaceCount = ref(2)
+const globalDownloadAllowed = ref(false)
+const originalGlobalDownloadAllowed = ref(false)
+const albumCategorySortOrder = ref('')
+const originalAlbumCategorySortOrder = ref('')
 const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
@@ -452,6 +504,10 @@ const loadSettings = async () => {
     originalWallSortOrder.value = response.data.wallSortOrder || 'taken_at_desc'
     minClusterFaceCount.value = response.data.minClusterFaceCount || 2
     originalMinClusterFaceCount.value = response.data.minClusterFaceCount || 2
+    globalDownloadAllowed.value = response.data.globalDownloadAllowed === true // 默认为false
+    originalGlobalDownloadAllowed.value = response.data.globalDownloadAllowed === true
+    albumCategorySortOrder.value = response.data.albumCategorySortOrder || ''
+    originalAlbumCategorySortOrder.value = response.data.albumCategorySortOrder || ''
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -471,6 +527,8 @@ const saveSettings = async () => {
   const albumSortChanged = albumSortOrder.value !== originalAlbumSortOrder.value
   const wallSortChanged = wallSortOrder.value !== originalWallSortOrder.value
   const clusterFaceCountChanged = minClusterFaceCount.value !== originalMinClusterFaceCount.value
+  const globalDownloadChanged = globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value
+  const albumCategorySortChanged = albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value
 
   if (albumDepthChanged || photoSortChanged || albumSortChanged || wallSortChanged || clusterFaceCountChanged) {
     let message = '⚠️ 设置已修改 ⚠️\n\n'
@@ -495,6 +553,14 @@ const saveSettings = async () => {
     }
     if (clusterFaceCountChanged) {
       message += `聚类最小人脸数量将从 ${originalMinClusterFaceCount.value} 改为 ${minClusterFaceCount.value}\n`
+    }
+    if (globalDownloadChanged) {
+      const oldStatus = originalGlobalDownloadAllowed.value ? '允许' : '禁止'
+      const newStatus = globalDownloadAllowed.value ? '允许' : '禁止'
+      message += `全局下载权限将从 "${oldStatus}" 改为 "${newStatus}"\n`
+    }
+    if (albumCategorySortChanged) {
+      message += `相册分类排序将从 "${originalAlbumCategorySortOrder.value}" 改为 "${albumCategorySortOrder.value}"\n`
     }
 
     message += '\n下次扫描时，相册结构将根据新设置重新构建。\n'
@@ -548,17 +614,35 @@ const saveSettings = async () => {
       })
     }
 
+    // 保存全局下载权限
+    if (globalDownloadChanged) {
+      await api.put('/admin/config/global-download-allowed', {
+        globalDownloadAllowed: globalDownloadAllowed.value
+      })
+    }
+
+    // 保存相册分类排序
+    if (albumCategorySortChanged) {
+      await api.put('/admin/config/album-category-sort-order', {
+        albumCategorySortOrder: albumCategorySortOrder.value
+      })
+    }
+
     // 设置保存成功，显示提示
     originalMaxAlbumDepth.value = maxAlbumDepth.value
     originalPhotoSortOrder.value = photoSortOrder.value
     originalAlbumSortOrder.value = albumSortOrder.value
     originalWallSortOrder.value = wallSortOrder.value
     originalMinClusterFaceCount.value = minClusterFaceCount.value
+    originalGlobalDownloadAllowed.value = globalDownloadAllowed.value
+    originalAlbumCategorySortOrder.value = albumCategorySortOrder.value
     settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
                            photoSortOrder.value !== originalPhotoSortOrder.value ||
                            albumSortOrder.value !== originalAlbumSortOrder.value ||
                            wallSortOrder.value !== originalWallSortOrder.value ||
-                           minClusterFaceCount.value !== originalMinClusterFaceCount.value
+                           minClusterFaceCount.value !== originalMinClusterFaceCount.value ||
+                           globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value ||
+                           albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value
 
     // 显示保存成功的提示
     if (needsWallRefresh.value) {

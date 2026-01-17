@@ -130,6 +130,7 @@ import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
+import { sortCategories, loadCategorySortOrder } from '@/composables/useCategorySorting'
 import { api } from '@/api'
 
 const photoStore = usePhotoStore()
@@ -139,7 +140,7 @@ const router = useRouter()
 
 const photos = computed(() => photoStore.photosWall)
 const loading = computed(() => photoStore.loading)
-const categories = computed(() => photoStore.categories)
+const categories = computed(() => sortCategories(photoStore.categories))
 const currentPage = ref(0)
 const hasMore = ref(true)
 const viewerVisible = ref(false)
@@ -962,7 +963,10 @@ const loadInitial = async () => {
   hasMore.value = true
 
   // 获取分类数据
-  await photoStore.fetchCategories()
+  await Promise.all([
+    photoStore.fetchCategories(),
+    loadCategorySortOrder()
+  ])
 
   if (photoStore.lastFilters) {
     await photoStore.filterPhotos(photoStore.lastFilters, 0)

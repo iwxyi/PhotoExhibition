@@ -138,6 +138,7 @@ import SettingsMenu from '@/components/SettingsMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
+import { sortCategories, loadCategorySortOrder } from '@/composables/useCategorySorting'
 import { api } from '@/api'
 
 const photoStore = usePhotoStore()
@@ -148,7 +149,7 @@ const { isHidden: navHidden } = useNavAutoHide()
 
 const photos = computed(() => photoStore.photosRandom)
 const loading = computed(() => photoStore.loading)
-const categories = computed(() => photoStore.categories)
+const categories = computed(() => sortCategories(photoStore.categories))
 const currentPage = ref(0)
 const hasMore = ref(true)
 const savedScrollTop = ref(0)
@@ -639,7 +640,10 @@ const loadInitial = async () => {
     // 初始化点赞数据
     loadLikedFromStorage()
     // 获取分类数据
-    await photoStore.fetchCategories()
+    await Promise.all([
+      photoStore.fetchCategories(),
+      loadCategorySortOrder()
+    ])
     currentPage.value = 0
     hasMore.value = true
     let data: any

@@ -29,6 +29,8 @@ public class SystemConfigController {
             resp.put("albumSortOrder", systemConfigService.getAlbumSortOrder());
             resp.put("wallSortOrder", systemConfigService.getWallSortOrder());
             resp.put("minClusterFaceCount", systemConfigService.getMinClusterFaceCount());
+            resp.put("globalDownloadAllowed", systemConfigService.isGlobalDownloadAllowed());
+            resp.put("albumCategorySortOrder", systemConfigService.getAlbumCategorySortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
@@ -235,6 +237,77 @@ public class SystemConfigController {
         } catch (IllegalArgumentException e) {
             resp.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 获取全局下载权限配置
+     */
+    @GetMapping("/global-download-allowed")
+    public ResponseEntity<Map<String, Object>> getGlobalDownloadAllowed() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("globalDownloadAllowed", systemConfigService.isGlobalDownloadAllowed());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 设置全局下载权限
+     */
+    @PutMapping("/global-download-allowed")
+    public ResponseEntity<Map<String, Object>> setGlobalDownloadAllowed(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Boolean allowed = (Boolean) request.get("globalDownloadAllowed");
+            if (allowed == null) {
+                resp.put("error", "globalDownloadAllowed 参数不能为空");
+                return ResponseEntity.badRequest().body(resp);
+            }
+
+            systemConfigService.setGlobalDownloadAllowed(allowed);
+            resp.put("message", "全局下载权限设置成功");
+            resp.put("globalDownloadAllowed", allowed);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 获取相册分类排序配置
+     */
+    @GetMapping("/album-category-sort-order")
+    public ResponseEntity<Map<String, Object>> getAlbumCategorySortOrder() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("albumCategorySortOrder", systemConfigService.getAlbumCategorySortOrder());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 设置相册分类排序
+     */
+    @PutMapping("/album-category-sort-order")
+    public ResponseEntity<Map<String, Object>> setAlbumCategorySortOrder(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String sortOrder = (String) request.get("albumCategorySortOrder");
+            systemConfigService.setAlbumCategorySortOrder(sortOrder);
+            resp.put("message", "相册分类排序设置成功");
+            resp.put("albumCategorySortOrder", sortOrder != null ? sortOrder.trim() : "");
+            return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
             return ResponseEntity.status(500).body(resp);

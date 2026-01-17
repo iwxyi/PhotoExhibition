@@ -38,6 +38,14 @@ public class SystemConfigService {
     public static final String MIN_CLUSTER_FACE_COUNT_DEFAULT = "2";
     public static final String MIN_CLUSTER_FACE_COUNT_DESCRIPTION = "聚类显示最小人脸数量（少于此数量的聚类不显示）";
 
+    public static final String GLOBAL_DOWNLOAD_ALLOWED_KEY = "global_download_allowed";
+    public static final String GLOBAL_DOWNLOAD_ALLOWED_DEFAULT = "false";
+    public static final String GLOBAL_DOWNLOAD_ALLOWED_DESCRIPTION = "全局是否允许下载图片";
+
+    public static final String ALBUM_CATEGORY_SORT_ORDER_KEY = "album_category_sort_order";
+    public static final String ALBUM_CATEGORY_SORT_ORDER_DEFAULT = "";
+    public static final String ALBUM_CATEGORY_SORT_ORDER_DESCRIPTION = "相册分类排序方式（用逗号分隔，未排序的分类排在后面）";
+
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
     public static final String SORT_BY_TAKEN_AT_ASC = "taken_at_asc";
@@ -215,6 +223,48 @@ public class SystemConfigService {
             throw new IllegalArgumentException("聚类最小人脸数量不能小于1: " + minCount);
         }
         setConfigValue(MIN_CLUSTER_FACE_COUNT_KEY, String.valueOf(minCount), MIN_CLUSTER_FACE_COUNT_DESCRIPTION);
+    }
+
+    /**
+     * 获取全局下载权限
+     */
+    public boolean isGlobalDownloadAllowed() {
+        String value = getConfigValueWithDefault(
+            GLOBAL_DOWNLOAD_ALLOWED_KEY,
+            GLOBAL_DOWNLOAD_ALLOWED_DEFAULT,
+            GLOBAL_DOWNLOAD_ALLOWED_DESCRIPTION
+        );
+        return Boolean.parseBoolean(value);
+    }
+
+    /**
+     * 设置全局下载权限
+     */
+    @Transactional
+    public void setGlobalDownloadAllowed(boolean allowed) {
+        setConfigValue(GLOBAL_DOWNLOAD_ALLOWED_KEY, String.valueOf(allowed), GLOBAL_DOWNLOAD_ALLOWED_DESCRIPTION);
+    }
+
+    /**
+     * 获取相册分类排序方式
+     */
+    public String getAlbumCategorySortOrder() {
+        return getConfigValueWithDefault(
+            ALBUM_CATEGORY_SORT_ORDER_KEY,
+            ALBUM_CATEGORY_SORT_ORDER_DEFAULT,
+            ALBUM_CATEGORY_SORT_ORDER_DESCRIPTION
+        );
+    }
+
+    /**
+     * 设置相册分类排序方式
+     */
+    @Transactional
+    public void setAlbumCategorySortOrder(String sortOrder) {
+        if (sortOrder == null) {
+            sortOrder = "";
+        }
+        setConfigValue(ALBUM_CATEGORY_SORT_ORDER_KEY, sortOrder.trim(), ALBUM_CATEGORY_SORT_ORDER_DESCRIPTION);
     }
 
     /**

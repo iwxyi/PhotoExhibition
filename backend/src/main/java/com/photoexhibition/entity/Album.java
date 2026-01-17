@@ -34,6 +34,9 @@ public class Album {
     @Column(name = "aggregate_sub_albums")
     private Boolean aggregateSubAlbums = false;
 
+    @Column(name = "download_allowed")
+    private Boolean downloadAllowed;
+
     @Column(name = "photo_sort_order")
     private String photoSortOrder;
 

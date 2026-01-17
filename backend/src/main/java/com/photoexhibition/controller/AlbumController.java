@@ -102,6 +102,21 @@ public class AlbumController {
     }
 
     /**
+     * 设置相册下载权限
+     */
+    @PutMapping("/{id}/download-allowed")
+    public ResponseEntity<AlbumDTO> setAlbumDownloadAllowed(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Boolean> request) {
+        Boolean downloadAllowed = request.get("downloadAllowed");
+        if (downloadAllowed == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        AlbumDTO album = albumService.setAlbumDownloadAllowed(id, downloadAllowed);
+        return ResponseEntity.ok(album);
+    }
+
+    /**
      * 获取相册排序设置（公开API）
      */
     @GetMapping("/sort-order")

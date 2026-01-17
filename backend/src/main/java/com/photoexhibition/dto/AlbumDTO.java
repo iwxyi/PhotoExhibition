@@ -13,6 +13,7 @@ public class AlbumDTO {
     private String description;
     private Integer photoCount;
     private Boolean aggregateSubAlbums;
+    private Boolean downloadAllowed;
     private String photoSortOrder;
     private Boolean hasSubAlbums;
     private Boolean isTopLevel;
