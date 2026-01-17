@@ -54,6 +54,7 @@ public class FaceService {
     private final PersonProfileRepository personProfileRepository;
     private final PhotoRepository photoRepository;
     private final AlbumRepository albumRepository;
+    private final AlbumService albumService;
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
     @Value("${photo.scan.base-path}")
@@ -1600,13 +1601,27 @@ public class FaceService {
         return dto;
     }
 
-    private PersonSummaryDTO toSummaryDTO(PersonProfile person) {
+    public PersonSummaryDTO toSummaryDTO(PersonProfile person) {
         PersonSummaryDTO dto = new PersonSummaryDTO();
         dto.setId(person.getId());
         dto.setName(person.getName());
         dto.setDescription(person.getDescription());
         dto.setCreatedAt(person.getCreatedAt());
         dto.setUpdatedAt(person.getUpdatedAt());
+
+        // 计算人脸数量（即照片数量）
+        long faceCount = faceRepository.findByPersonId(person.getId(), PageRequest.of(0, 1)).getTotalElements();
+        dto.setFaceCount((int) faceCount);
+
+        // 计算相册数量（从该人物的所有照片中提取唯一相册ID的数量）
+        List<Long> albumIds = faceRepository.findByPersonId(person.getId(), PageRequest.of(0, Integer.MAX_VALUE))
+            .getContent()
+            .stream()
+            .filter(face -> face.getPhoto() != null)
+            .map(face -> face.getPhoto().getAlbumId())
+            .distinct()
+            .collect(Collectors.toList());
+        dto.setAlbumCount(albumIds.size());
 
         Face sample = faceRepository.findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(person.getId());
         if (sample == null) {
@@ -1827,51 +1842,34 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        // 获取人物已确认人脸所在的相册ID
-        Set<Long> personAlbumIds = confirmedFaces.stream()
+        // 获取人物已确认人脸所在的相册ID及其人脸数量统计
+        Map<Long, Long> albumFaceCountMap = confirmedFaces.stream()
             .filter(face -> face.getPhoto() != null && face.getPhoto().getAlbumId() != null)
-            .map(face -> face.getPhoto().getAlbumId())
-            .collect(Collectors.toSet());
+            .collect(Collectors.groupingBy(
+                face -> face.getPhoto().getAlbumId(),
+                Collectors.counting()
+            ));
 
-        if (personAlbumIds.isEmpty()) {
+        if (albumFaceCountMap.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 计算人物平均特征向量
-        float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(confirmedFaces);
-        if (personAvgEmbedding == null) {
-            return new ArrayList<>();
-        }
-
-        // 为每个人物相册计算相似人脸
         List<AlbumRecommendationDTO> result = new ArrayList<>();
 
-        for (Long albumId : personAlbumIds) {
-            // 获取该相册中的所有未分配人脸
-            List<Face> albumUnassignedFaces = faceRepository.findByPersonIsNull().stream()
+        for (Map.Entry<Long, Long> entry : albumFaceCountMap.entrySet()) {
+            Long albumId = entry.getKey();
+            Long faceCount = entry.getValue();
+
+            // 再次验证该相册中是否确实包含该人物的已确认人脸
+            // 防止因为缓存或数据不一致导致显示错误的相册
+            long actualConfirmedFaces = confirmedFaces.stream()
                 .filter(face -> face.getPhoto() != null && albumId.equals(face.getPhoto().getAlbumId()))
-                .collect(Collectors.toList());
+                .count();
 
-            if (albumUnassignedFaces.isEmpty()) {
+            if (actualConfirmedFaces == 0) {
+                // 如果该相册中没有该人物的已确认人脸，跳过
                 continue;
             }
-
-            // 计算相似度
-            List<FaceSimilarity> similarFaces = new ArrayList<>();
-            for (Face face : albumUnassignedFaces) {
-                float[] embedding = parseEmbedding(face.getEmbedding());
-                if (embedding == null) continue;
-
-                double similarity = cosine(personAvgEmbedding, embedding);
-                similarFaces.add(new FaceSimilarity(face, similarity));
-            }
-
-            if (similarFaces.isEmpty()) {
-                continue;
-            }
-
-            // 按相似度降序排序
-            similarFaces.sort((a, b) -> Double.compare(b.similarity, a.similarity));
 
             // 获取相册信息
             com.photoexhibition.entity.Album album = albumRepository.findById(albumId)
@@ -1879,23 +1877,51 @@ public class FaceService {
 
             AlbumRecommendationDTO dto = new AlbumRecommendationDTO();
             dto.setAlbumId(album.getId());
-            dto.setAlbumName(album.getName() + " (" + album.getPhotoCount() + ")");
+            dto.setAlbumName(album.getName());
             dto.setAlbumPath(getAlbumDisplayPath(album.getPath()));
             dto.setPhotoCount(album.getPhotoCount());
-            dto.setSimilarFaceCount(similarFaces.size());
+            dto.setSimilarFaceCount((int) actualConfirmedFaces); // 已确认人脸数量
             dto.setTakenAt(album.getLatestPhotoTakenAt());
-            // 不设置similarFaces，让前端按需加载
+
+            // 设置相册封面图片：使用该人物在相册中的第一张已确认照片
+            String personCoverImagePath = null;
+            if (!confirmedFaces.isEmpty()) {
+                // 找到该相册中该人物的第一张已确认照片
+                Face firstFaceInAlbum = confirmedFaces.stream()
+                    .filter(face -> face.getPhoto() != null && albumId.equals(face.getPhoto().getAlbumId()))
+                    .findFirst()
+                    .orElse(null);
+
+                if (firstFaceInAlbum != null && firstFaceInAlbum.getPhoto() != null) {
+                    personCoverImagePath = convertToRelativePath(firstFaceInAlbum.getPhoto().getThumbnailPath());
+                }
+            }
+
+            // 如果没有找到该人物的照片，则使用默认相册封面
+            if (personCoverImagePath == null) {
+                var coverImages = albumService.getAlbumCoverImages(album.getId());
+                if (coverImages != null && coverImages.getLeftVertical() != null) {
+                    personCoverImagePath = convertToRelativePath(coverImages.getLeftVertical().getThumbnailPath());
+                }
+            }
+
+            dto.setCoverImagePath(personCoverImagePath);
 
             result.add(dto);
         }
 
-        // 按图片数量降序排序（相同数量时按相册名称排序）
+        // 按相册拍摄时间倒序排序（最新的相册排在前面）
         result.sort((a, b) -> {
-            int photoCompare = Integer.compare(b.getPhotoCount(), a.getPhotoCount());
-            if (photoCompare != 0) {
-                return photoCompare;
+            if (a.getTakenAt() == null && b.getTakenAt() == null) {
+                return 0;
             }
-            return a.getAlbumName().compareTo(b.getAlbumName());
+            if (a.getTakenAt() == null) {
+                return 1; // null值排在后面
+            }
+            if (b.getTakenAt() == null) {
+                return -1; // null值排在后面
+            }
+            return b.getTakenAt().compareTo(a.getTakenAt()); // 倒序排列
         });
 
         return result;

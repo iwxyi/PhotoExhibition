@@ -47,12 +47,14 @@ public class WebConfig implements WebMvcConfigurer {
         }
         
         // 配置静态资源访问
-        // /files/** 映射到图片目录
+        // /api/files/** 映射到图片目录 (相对于context-path /api)
         registry.addResourceHandler("/files/**")
             .addResourceLocations("file:" + basePath)
             .setCachePeriod(3600); // 缓存1小时
-        // 兼容 /api/files/** 访问路径
-        registry.addResourceHandler("/api/files/**")
+
+        // 支持数据库中存储的直接路径访问（如 /api/人像/**, /api/游玩/** 等）
+        // 这些路径相对于context-path /api
+        registry.addResourceHandler("/人像/**", "/游玩/**", "/风景/**", "/活动/**", "/扫街/**", "/其他/**")
             .addResourceLocations("file:" + basePath)
             .setCachePeriod(3600);
     }

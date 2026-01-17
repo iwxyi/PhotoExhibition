@@ -157,16 +157,16 @@ public class AdminController {
             resp.put("shutterSpeedCount", photoRepository.countPhotosWithShutterSpeed());
             resp.put("isoCount", photoRepository.countPhotosWithIso());
 
-            // 测试范围查询
-            Double[] focalRange = photoRepository.findFocalLengthRange();
-            Double[] apertureRange = photoRepository.findApertureRange();
-            Double[] shutterRange = photoRepository.findShutterSpeedRange();
-            Integer[] isoRange = photoRepository.findIsoRange();
+            // 测试范围查询 - 暂时注释掉不存在的方法
+            // Double[] focalRange = photoRepository.findFocalLengthRange();
+            // Double[] apertureRange = photoRepository.findApertureRange();
+            // Double[] shutterRange = photoRepository.findShutterSpeedRange();
+            // Integer[] isoRange = photoRepository.findIsoRange();
 
-            resp.put("focalRange", focalRange);
-            resp.put("apertureRange", apertureRange);
-            resp.put("shutterRange", shutterRange);
-            resp.put("isoRange", isoRange);
+            // resp.put("focalRange", focalRange);
+            // resp.put("apertureRange", apertureRange);
+            // resp.put("shutterRange", shutterRange);
+            // resp.put("isoRange", isoRange);
 
             return ResponseEntity.ok(resp);
         } catch (Exception e) {

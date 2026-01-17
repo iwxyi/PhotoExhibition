@@ -102,6 +102,17 @@
             </div>
           </template>
         </MasonryLayout>
+
+        <!-- 加载更多状态 -->
+        <div v-if="loadingMore" class="mt-8 text-center">
+          <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+          <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">正在加载更多照片...</p>
+        </div>
+
+        <!-- 已加载全部提示 -->
+        <div v-if="!hasMore && !loadingMore && photos.length > pageSize" class="mt-8 text-center">
+          <p class="text-sm text-gray-500 dark:text-gray-400">已加载全部照片</p>
+        </div>
       </div>
 
       <!-- 评论区域 - 只有当图片加载完成后才显示 -->
@@ -173,6 +184,12 @@ const imagesLoaded = ref(false)
 const totalImages = ref(0)
 const loadedImagesCount = ref(0)
 
+// 分页加载状态
+const currentPage = ref(0)
+const loadingMore = ref(false)
+const hasMore = ref(true)
+const pageSize = 30 // 每次加载30张照片
+
 const { atmosphereEnabled, previewSize } = useUiSettings()
 
 // 获取主题store
@@ -184,6 +201,48 @@ const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920
 // 监听窗口大小变化（实时响应）
 const handleResize = () => {
   windowWidth.value = window.innerWidth
+}
+
+// 加载更多照片的分页函数
+const loadMorePhotos = async () => {
+  if (loadingMore.value || !hasMore.value) return
+
+  try {
+    loadingMore.value = true
+    currentPage.value++
+
+    const result = await photoStore.fetchPhotosByAlbum(albumId, currentPage.value, pageSize)
+    hasMore.value = !result.last
+
+    // 更新总数
+    totalImages.value = photos.value.length
+  } catch (error) {
+    console.error('加载更多照片失败:', error)
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+// 滚动监听器，用于自动加载更多照片
+let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
+const SCROLL_THROTTLE_MS = 200 // 200ms节流
+const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载
+
+const handleScroll = () => {
+  if (scrollThrottleTimer) return
+
+  scrollThrottleTimer = setTimeout(() => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
+
+    // 距离底部LOAD_THRESHOLD像素时开始加载
+    if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
+      loadMorePhotos()
+    }
+
+    scrollThrottleTimer = null
+  }, SCROLL_THROTTLE_MS)
 }
 
 // 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
@@ -1337,11 +1396,16 @@ onMounted(async () => {
   // 根据相册类型决定加载策略
   const album = photoStore.currentAlbum
 
-  // 一次性加载该相册的所有照片（不分页），以便在相册详情中完整展示
-  await photoStore.fetchAllPhotosByAlbum(albumId)
+  // 初始加载第一页照片（分页加载，优化性能）
+  const initialLoadSize = 50 // 初始加载50张照片
+  const result = await photoStore.fetchPhotosByAlbum(albumId, 0, initialLoadSize)
+  hasMore.value = !result.last // 检查是否还有更多数据
 
   // 设置图片总数
   totalImages.value = photos.value.length
+
+  // 添加滚动监听器，用于分页加载
+  window.addEventListener('scroll', handleScroll, { passive: true })
 
   // 重置图片加载状态
   resetImageLoading()
@@ -1413,6 +1477,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('scroll', handleScroll)
   // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
 
   // 注意：不要在这里清理 album-cover-rects 数据，因为返回动画在 Home.vue 中执行，需要这些数据

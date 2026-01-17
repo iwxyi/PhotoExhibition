@@ -24,6 +24,14 @@
       <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">随机</span>
       <div class="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
     </router-link>
+    <router-link
+      to="/persons"
+      class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      :class="linkClass('/persons')"
+    >
+      <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">人物</span>
+      <div class="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
+    </router-link>
   </div>
 </template>
 

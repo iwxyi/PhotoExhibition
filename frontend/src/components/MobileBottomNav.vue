@@ -40,6 +40,18 @@
         <span class="text-[10px] font-medium mt-0 transition-all duration-200 group-hover:scale-105">随机</span>
         <div class="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
       </router-link>
+
+      <router-link
+        to="/persons"
+        class="flex flex-col items-center justify-center p-1.5 rounded-lg transition-all duration-200 hover:scale-105 transform-gpu group relative overflow-hidden min-w-[50px]"
+        :class="linkClass('/persons')"
+      >
+        <svg class="w-5 h-5 transition-all duration-200 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <span class="text-[10px] font-medium mt-0 transition-all duration-200 group-hover:scale-105">人物</span>
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
+      </router-link>
     </div>
   </nav>
 </template>

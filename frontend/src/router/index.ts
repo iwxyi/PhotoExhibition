@@ -30,6 +30,17 @@ const routes = [
     component: () => import('@/views/RandomGallery.vue')
   },
   {
+    path: '/persons',
+    name: 'Persons',
+    component: () => import('@/views/Persons.vue')
+  },
+  {
+    path: '/person/:id',
+    name: 'Person',
+    component: () => import('@/views/PersonDetail.vue'),
+    meta: { transitionName: 'none' } // 禁用页面过渡动画，只使用FLIP动画
+  },
+  {
     path: '/admin/login',
     name: 'AdminLogin',
     component: () => import('@/views/admin/Login.vue'),

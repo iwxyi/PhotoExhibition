@@ -13,4 +13,5 @@ public class AlbumRecommendationDTO {
     private Integer similarFaceCount;
     private List<FaceDTO> similarFaces;
     private LocalDateTime takenAt;
+    private String coverImagePath; // 相册封面图片路径
 }

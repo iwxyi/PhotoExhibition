@@ -31,6 +31,7 @@ import java.util.ArrayList;
 @Slf4j
 public class FaceController {
 
+
     private final FaceService faceService;
     private final PersonProfileRepository personProfileRepository;
     private final com.photoexhibition.repository.PhotoAssignmentRepository photoAssignmentRepository;
