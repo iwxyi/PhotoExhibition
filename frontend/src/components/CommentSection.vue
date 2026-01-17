@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
 import { commentApi, CommentDTO } from '@/api'
@@ -270,6 +270,21 @@ onMounted(() => {
   setTimeout(() => {
     commentSectionVisible.value = true
   }, 300)
+})
+
+// 监听albumId变化，当相册切换时重新加载评论
+watch(() => props.albumId, (newAlbumId, oldAlbumId) => {
+  if (newAlbumId !== oldAlbumId && newAlbumId) {
+    // 重置状态
+    comments.value = []
+    currentPage.value = 0
+    hasMore.value = true
+    hasCommentedToday.value = false
+    replyStatusMap.value = new Map()
+
+    // 重新加载评论
+    loadComments(0)
+  }
 })
 </script>
 
