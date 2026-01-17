@@ -234,25 +234,19 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     /**
      * 获取焦距范围 [最小值, 最大值]
      */
-    @Query(value = "SELECT MIN(p.focal_length_mm), MAX(p.focal_length_mm) FROM photo p WHERE p.focal_length_mm IS NOT NULL", nativeQuery = true)
-    Double[] findFocalLengthRange();
+    @Query(value = "SELECT COUNT(*) FROM photo", nativeQuery = true)
+    Long countAllPhotos();
 
-    /**
-     * 获取快门速度范围 [最小值, 最大值]
-     */
-    @Query(value = "SELECT MIN(p.shutter_speed_seconds), MAX(p.shutter_speed_seconds) FROM photo p WHERE p.shutter_speed_seconds IS NOT NULL", nativeQuery = true)
-    Double[] findShutterSpeedRange();
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE focal_length_mm IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithFocalLength();
 
-    /**
-     * 获取光圈范围 [最小值, 最大值]
-     */
-    @Query(value = "SELECT MIN(p.aperture_value), MAX(p.aperture_value) FROM photo p WHERE p.aperture_value IS NOT NULL", nativeQuery = true)
-    Double[] findApertureRange();
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE aperture_value IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithAperture();
 
-    /**
-     * 获取ISO范围 [最小值, 最大值]
-     */
-    @Query(value = "SELECT MIN(p.iso), MAX(p.iso) FROM photo p WHERE p.iso IS NOT NULL", nativeQuery = true)
-    Integer[] findIsoRange();
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE shutter_speed_seconds IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithShutterSpeed();
+
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE iso IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithIso();
 }
 

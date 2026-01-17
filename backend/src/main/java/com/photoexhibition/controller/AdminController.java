@@ -146,6 +146,35 @@ public class AdminController {
         }
     }
 
+    @GetMapping("/debug/numeric-fields")
+    public ResponseEntity<Map<String, Object>> debugNumericFields() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            // 查询数值字段统计
+            resp.put("totalPhotos", photoRepository.countAllPhotos());
+            resp.put("focalLengthCount", photoRepository.countPhotosWithFocalLength());
+            resp.put("apertureCount", photoRepository.countPhotosWithAperture());
+            resp.put("shutterSpeedCount", photoRepository.countPhotosWithShutterSpeed());
+            resp.put("isoCount", photoRepository.countPhotosWithIso());
+
+            // 测试范围查询
+            Double[] focalRange = photoRepository.findFocalLengthRange();
+            Double[] apertureRange = photoRepository.findApertureRange();
+            Double[] shutterRange = photoRepository.findShutterSpeedRange();
+            Integer[] isoRange = photoRepository.findIsoRange();
+
+            resp.put("focalRange", focalRange);
+            resp.put("apertureRange", apertureRange);
+            resp.put("shutterRange", shutterRange);
+            resp.put("isoRange", isoRange);
+
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
     @GetMapping("/debug/photo-data")
     public ResponseEntity<Map<String, Object>> debugPhotoData() {
         Map<String, Object> resp = new HashMap<>();

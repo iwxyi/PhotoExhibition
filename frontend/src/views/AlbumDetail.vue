@@ -80,6 +80,8 @@
                 :alt="photo.filename"
                 class="photo-image w-full h-full"
                 loading="lazy"
+                @load="$emit('image-loaded')"
+                @error="$emit('image-loaded')"
               />
               <!-- magnifier (shown in multiselect mode) -->
               <button
@@ -102,8 +104,9 @@
         </MasonryLayout>
       </div>
 
-      <!-- 评论区域 -->
+      <!-- 评论区域 - 只有当图片加载完成后才显示 -->
       <CommentSection
+        v-show="imagesLoaded"
         :album-id="album?.id || 0"
         :text-color="textStyle.color"
         :background-color="commentBackgroundColor"
@@ -147,6 +150,11 @@ const photos = computed(() => photoStore.photos)
 
 // 评论数量
 const commentCount = ref(0)
+
+// 图片加载状态
+const imagesLoaded = ref(false)
+const totalImages = ref(0)
+const loadedImagesCount = ref(0)
 
 const { atmosphereEnabled, previewSize } = useUiSettings()
 
@@ -1258,6 +1266,9 @@ const startBackTransitionAndNavigate = () => {
 }
 
 onMounted(async () => {
+  // 确保页面从顶部开始显示
+  window.scrollTo(0, 0)
+
   // 添加窗口大小监听（实时响应）
   window.addEventListener('resize', handleResize)
 
@@ -1293,6 +1304,7 @@ onMounted(async () => {
   // 清除可能遗留的上一相册图片，避免在加载新相册前闪现旧内容
   photoStore.photos = []
   photoStore.currentAlbum = null
+
   await photoStore.fetchAlbumById(albumId)
 
   // 根据相册类型决定加载策略
@@ -1301,8 +1313,22 @@ onMounted(async () => {
   // 一次性加载该相册的所有照片（不分页），以便在相册详情中完整展示
   await photoStore.fetchAllPhotosByAlbum(albumId)
 
+  // 设置图片总数
+  totalImages.value = photos.value.length
+
+  // 重置图片加载状态
+  resetImageLoading()
+
   // 获取评论数量
   await loadCommentCount(albumId)
+
+  // 延迟显示评论区域，即使图片还没完全加载也给用户提供功能
+  setTimeout(() => {
+    if (!imagesLoaded.value) {
+      console.log('延迟时间到，强制显示评论区域')
+      imagesLoaded.value = true
+    }
+  }, 2000) // 2秒后强制显示评论
 
   window.addEventListener('keydown', handleKeydown)
   // reference backButtonRef to satisfy linter (it's bound in template)
@@ -1345,6 +1371,16 @@ onMounted(async () => {
   if (!hasCoverTransition) {
     remainingPhotosVisible.value = true
   }
+
+  // 动画完成后清理上一个相册的动画缓存，避免切换相册时出现异常动画
+  await nextTick()
+  sessionStorage.removeItem(storageKey)
+  sessionStorage.removeItem('album-navigation-active')
+  sessionStorage.removeItem('album-animation-performed')
+  sessionStorage.removeItem('album-back-transition')
+
+  // 确保页面滚动到顶部
+  window.scrollTo(0, 0)
 })
 
 onUnmounted(() => {
@@ -1392,7 +1428,19 @@ const hexToRgb = (hex: string) => {
 // 处理图片加载完成事件
 const handleImageLoaded = () => {
   // 图片加载完成后可能需要重新计算布局
-  console.log('图片加载完成')
+  loadedImagesCount.value++
+  console.log(`图片加载完成: ${loadedImagesCount.value}/${totalImages.value}`)
+
+  // 当所有图片都加载完成时，标记图片已加载
+  if (loadedImagesCount.value >= totalImages.value && totalImages.value > 0) {
+    imagesLoaded.value = true
+  }
+}
+
+// 重置图片加载状态
+const resetImageLoading = () => {
+  loadedImagesCount.value = 0
+  imagesLoaded.value = false
 }
 
 const getBrightness = (hex: string) => {

@@ -408,7 +408,14 @@ const handleImageLoaded = () => {
       recalculate()
     }, 50)
   })
+
+  // 向父组件发出图片加载完成事件
+  emit('image-loaded')
 }
+
+const emit = defineEmits<{
+  'image-loaded': []
+}>()
 
 // 监听 props 变化
 watch(() => [props.items, props.columnCount, props.gap], recalculate, { deep: true })

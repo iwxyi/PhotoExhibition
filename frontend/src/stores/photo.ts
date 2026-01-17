@@ -43,8 +43,11 @@ export interface Photo {
   cameraModel?: string
   lensModel?: string
   focalLength?: string
+  focalLengthMm?: number
   aperture?: string
+  apertureValue?: number
   shutterSpeed?: string
+  shutterSpeedSeconds?: number
   iso?: number
   takenAt?: string
   qualityScore?: number

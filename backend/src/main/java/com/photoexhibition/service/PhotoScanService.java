@@ -1130,9 +1130,13 @@ public class PhotoScanService {
             lastScanEnd = LocalDateTime.now();
             if (activeScanCount.decrementAndGet() <= 0) {
                 isScanning.set(false);
-                // 扫描完成后更新筛选选项
+                // 扫描完成后先更新 EXIF 数值字段，再更新筛选选项
                 try {
+                    log.info("扫描完成，开始更新 EXIF 数值字段...");
+                    updateAllExifNumericFields();
+                    log.info("EXIF 数值字段更新完成，开始更新筛选选项...");
                     filterOptionService.updateAllFilterOptions();
+                    log.info("筛选选项更新完成");
                 } catch (Exception e) {
                     log.error("更新筛选选项失败", e);
                     // 不抛出异常，避免影响扫描结果
@@ -1871,13 +1875,23 @@ public class PhotoScanService {
             if (photo.getFocalLengthMm() == null) {
                 Double fl = null;
                 String s = photo.getFocalLength();
-                if (s != null) fl = parseFocalLengthToMm(s);
+                if (s != null) {
+                    fl = parseFocalLengthToMm(s);
+                    if (fl == null) {
+                        log.debug("Failed to parse focal length: {}", s);
+                    }
+                }
                 if (fl == null && photo.getExifData() != null) {
                     try {
                         Map m = new com.fasterxml.jackson.databind.ObjectMapper().readValue(photo.getExifData(), Map.class);
                         Object val = m.get("Focal Length");
                         if (val == null) val = m.get("focalLength");
-                        if (val != null) fl = parseFocalLengthToMm(String.valueOf(val));
+                        if (val != null) {
+                            fl = parseFocalLengthToMm(String.valueOf(val));
+                            if (fl == null) {
+                                log.debug("Failed to parse focal length from EXIF: {}", val);
+                            }
+                        }
                     } catch (Exception ignored) {}
                 }
                 if (fl != null) {

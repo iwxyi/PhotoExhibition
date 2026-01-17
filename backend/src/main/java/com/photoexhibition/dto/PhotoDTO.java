@@ -29,8 +29,11 @@ public class PhotoDTO {
     private String cameraModel;
     private String lensModel;
     private String focalLength;
+    private Double focalLengthMm;
     private String aperture;
+    private Double apertureValue;
     private String shutterSpeed;
+    private Double shutterSpeedSeconds;
     private Integer iso;
     private LocalDateTime takenAt;
     private Double qualityScore;

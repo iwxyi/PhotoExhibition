@@ -454,7 +454,9 @@ public class PhotoService {
         dto.setCameraModel(photo.getCameraModel());
         dto.setLensModel(photo.getLensModel());
         dto.setFocalLength(photo.getFocalLength());
+        dto.setFocalLengthMm(photo.getFocalLengthMm());
         dto.setAperture(photo.getAperture());
+        dto.setApertureValue(photo.getApertureValue());
 
         // 优先使用原始快门字符串，如果没有则从秒数转换为分数形式
         String shutterSpeedDisplay = photo.getShutterSpeed();
@@ -462,6 +464,7 @@ public class PhotoService {
             shutterSpeedDisplay = formatShutterSpeedFromSeconds(photo.getShutterSpeedSeconds());
         }
         dto.setShutterSpeed(shutterSpeedDisplay);
+        dto.setShutterSpeedSeconds(photo.getShutterSpeedSeconds());
 
         dto.setIso(photo.getIso());
         dto.setTakenAt(photo.getTakenAt());
