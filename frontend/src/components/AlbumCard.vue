@@ -136,9 +136,9 @@ const cardSizeClass = computed(() => {
 
 const coverSizeClass = computed(() => {
   const size = props.size || 'md'
-  if (size === 'sm') return 'h-40'
+  if (size === 'sm') return 'h-32'
   if (size === 'md') return 'h-48'
-  if (size === 'lg') return 'h-56'
+  if (size === 'lg') return 'h-64'
   return 'h-48'
 })
 

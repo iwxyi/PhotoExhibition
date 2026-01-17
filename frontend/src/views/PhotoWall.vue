@@ -6,9 +6,9 @@
       style="padding-top: env(safe-area-inset-top);"
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16">
+        <div class="flex justify-between items-center h-12">
           <div class="flex items-center space-x-8">
-            <router-link to="/" class="text-2xl font-light tracking-wider">摄影展</router-link>
+            <router-link to="/" class="text-xl font-light tracking-wider">摄影展</router-link>
             <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
@@ -21,14 +21,15 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
-            <FilterPanel v-model:show="showFilter" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
+            <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
         </div>
       </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
+
       <div v-if="activeTagId" class="mb-6 flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
         <span class="px-3 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200">
           标签：{{ activeTagName || ('#' + activeTagId) }}
@@ -138,6 +139,7 @@ const router = useRouter()
 
 const photos = computed(() => photoStore.photosWall)
 const loading = computed(() => photoStore.loading)
+const categories = computed(() => photoStore.categories)
 const currentPage = ref(0)
 const hasMore = ref(true)
 const viewerVisible = ref(false)
@@ -159,6 +161,7 @@ const activeTagId = ref<number | null>(null)
 const activeTagName = ref<string | null>(null)
 const activePersonId = ref<number | null>(null)
 const activePersonName = ref<string | null>(null)
+const filterPanelRef = ref()
 
 // 当前已启用的筛选（来自 store.lastFilters）
 const currentFilters = computed(() => photoStore.lastFilters || null)
@@ -202,6 +205,7 @@ const filterSummary = computed(() => {
     }
     parts.push(colorMap[f.colorCategory] || f.colorCategory)
   }
+  if (f.category) parts.push(`分类：${f.category}`)
   if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
   if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${formatShutterSpeed(f.minShutterSpeed) || '∞'}-${formatShutterSpeed(f.maxShutterSpeed) || '∞'}`)
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
@@ -230,10 +234,15 @@ const formatShutterSpeed = (value: number | null) => {
 const clearFilters = async () => {
   photoStore.clearLastFilters()
   selectedTags.value = [] // 重置选中的标签
+  // 重置筛选面板的状态
+  if (filterPanelRef.value && filterPanelRef.value.resetFilters) {
+    filterPanelRef.value.resetFilters()
+  }
   await loadInitial()
   // 滚动到页面顶部
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
+
 
 const handleFilterReset = async () => {
   selectedTags.value = [] // 重置选中的标签
@@ -261,34 +270,35 @@ const debugLikesMap = computed(() => {
   return result
 })
 
-// 根据预览尺寸计算列数
+// 根据预览尺寸计算列数（与RandomGallery和AlbumDetail保持一致）
 const columnCount = computed(() => {
   const width = windowWidth.value
-  let count = 3 // 默认值 (md)
+  let count = 3 // 默认值
 
   if (previewSize.value === 'sm') {
-    // 小: 中等列数
+    // 小: 最多列数（适合小图片）
+    if (width < 640) count = 4
+    else if (width < 1024) count = 5
+    else if (width < 1280) count = 6
+    else count = 7
+  } else if (previewSize.value === 'md') {
+    // 中: 中等列数
+    if (width < 640) count = 3
+    else if (width < 1024) count = 4
+    else if (width < 1280) count = 5
+    else count = 5
+  } else if (previewSize.value === 'lg') {
+    // 大: 最少列数（适合大图片）
     if (width < 640) count = 2
     else if (width < 1024) count = 3
     else if (width < 1280) count = 4
-    else count = 5
-  } else if (previewSize.value === 'md') {
-    // 中: 默认列数
-    if (width < 640) count = 1
-    else if (width < 1024) count = 2
-    else if (width < 1280) count = 3
     else count = 4
-  } else if (previewSize.value === 'lg') {
-    // 大: 最少列数
-    if (width < 640) count = 1
-    else if (width < 1024) count = 2
-    else count = 3
   } else {
     // 默认 md
-    if (width < 640) count = 1
-    else if (width < 1024) count = 2
-    else if (width < 1280) count = 3
-    else count = 4
+    if (width < 640) count = 3
+    else if (width < 1024) count = 4
+    else if (width < 1280) count = 5
+    else count = 5
   }
   console.log('计算列数: width=', width, 'previewSize=', previewSize.value, 'count=', count)
   return count
@@ -950,6 +960,10 @@ onActivated(() => {
 const loadInitial = async () => {
   currentPage.value = 0
   hasMore.value = true
+
+  // 获取分类数据
+  await photoStore.fetchCategories()
+
   if (photoStore.lastFilters) {
     await photoStore.filterPhotos(photoStore.lastFilters, 0)
   } else if (activePersonId.value) {
@@ -957,6 +971,7 @@ const loadInitial = async () => {
   } else if (activeTagId.value) {
     await photoStore.fetchPhotosByTag(activeTagId.value, 0)
   } else {
+    // 加载所有图片（默认）
     await photoStore.fetchPhotoWall(0)
   }
   // 滚动到页面顶部

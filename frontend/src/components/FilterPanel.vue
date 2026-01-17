@@ -375,6 +375,44 @@
                 </div>
               </div>
 
+              <!-- 分类筛选 -->
+              <div v-if="props.categories && props.categories.length > 0">
+                <label class="block text-sm font-medium mb-2">相册分类</label>
+                <div class="relative overflow-visible">
+                  <!-- 横向滚动容器 -->
+                  <div class="flex gap-3 overflow-x-auto pb-2 px-0 pt-2 scroll-smooth category-container"
+                       style="scrollbar-width: none; -ms-overflow-style: none;">
+                    <!-- 全部选项 -->
+                    <button
+                      @click="selectCategory('')"
+                      :class="[
+                        'flex-shrink-0 px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 transform-gpu text-sm font-medium whitespace-nowrap',
+                        filters.category === ''
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
+                      ]"
+                    >
+                      全部
+                    </button>
+
+                    <!-- 分类气泡 -->
+                    <button
+                      v-for="category in props.categories"
+                      :key="category"
+                      @click="selectCategory(category)"
+                      :class="[
+                        'flex-shrink-0 px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 transform-gpu text-sm font-medium whitespace-nowrap',
+                        filters.category === category
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
+                      ]"
+                    >
+                      {{ category }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <!-- 标签筛选 -->
               <div>
                 <label class="block text-sm font-medium mb-2">标签</label>
@@ -440,11 +478,6 @@
                     ></button>
                   </div>
                 </div>
-
-                <!-- 当前选中颜色显示 -->
-                <div v-if="filters.colorCategory" class="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                  已选择: {{ getCurrentColorLabel() }}
-                </div>
               </div>
 
               <!-- 质量评分 -->
@@ -467,7 +500,7 @@
           <div class="flex justify-end space-x-4 p-6 pt-4 rounded-b-2xl">
                 <button
                   type="button"
-                  @click="resetFilters"
+                  @click="resetFiltersInternal"
                   class="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                 >
                   重置
@@ -495,6 +528,7 @@ import { api } from '@/api'
 const props = defineProps<{
   show: boolean
   initialFilters?: any
+  categories?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -508,6 +542,7 @@ const themeStore = useThemeStore()
 const show = ref(props.show)
 const animating = ref(false)
 const panelRef = ref<HTMLElement>()
+const shouldResetOnOpen = ref(false)
 
 // 筛选选项数据
 const filterOptions = ref({
@@ -554,6 +589,7 @@ const filters = ref({
   apertureRange: [null, null] as [number | null, number | null],
   isoRange: [null, null] as [number | null, number | null],
   colorCategory: '',
+  category: '',
   minQualityScore: 0
 })
 
@@ -576,6 +612,7 @@ watch(() => props.initialFilters, (newFilters) => {
       filters.value.isoRange = [newFilters.minIso || null, newFilters.maxIso || null]
     }
     if (newFilters.colorCategory !== undefined) filters.value.colorCategory = newFilters.colorCategory
+    if (newFilters.category !== undefined) filters.value.category = newFilters.category
     if (newFilters.minQualityScore !== undefined) filters.value.minQualityScore = newFilters.minQualityScore
   }
 }, { immediate: true })
@@ -749,6 +786,7 @@ const confirmTagSelection = async () => {
     minIso: filters.value.isoRange[0],
     maxIso: filters.value.isoRange[1],
     colorCategory: filters.value.colorCategory || null,
+    category: filters.value.category || null,
     minQualityScore: filters.value.minQualityScore || null
   }
 
@@ -785,6 +823,7 @@ const applyFilters = async () => {
     minIso: filters.value.isoRange[0],
     maxIso: filters.value.isoRange[1],
     colorCategory: filters.value.colorCategory || null,
+    category: filters.value.category || null,
     minQualityScore: filters.value.minQualityScore || null
   }
 
@@ -817,6 +856,7 @@ const hasEffectiveFilters = (filterData: any) => {
     (filterData.cameraModel && filterData.cameraModel.trim() !== '') ||
     (filterData.lensModel && filterData.lensModel.trim() !== '') ||
     (filterData.colorCategory && filterData.colorCategory.trim() !== '') ||
+    (filterData.category && filterData.category.trim() !== '') ||
     (filterData.minQualityScore && filterData.minQualityScore > 0) ||
     (filterData.minFocalLength !== null && filterData.minFocalLength !== undefined) ||
     (filterData.maxFocalLength !== null && filterData.maxFocalLength !== undefined) ||
@@ -829,17 +869,34 @@ const hasEffectiveFilters = (filterData: any) => {
   )
 }
 
+// 内部重置方法（用于重置按钮）
+const resetFiltersInternal = () => {
+  setDefaultRanges()
+  filters.value.cameraModel = ''
+  filters.value.lensModel = ''
+  filters.value.colorCategory = ''
+  filters.value.category = ''
+  filters.value.minQualityScore = 0
+  selectedTags.value = []
+  // 清除筛选状态并刷新页面内容
+  photoStore.clearLastFilters()
+  // 设置标志，下次打开面板时重置UI状态
+  shouldResetOnOpen.value = true
+  // 触发页面刷新
+  emit('reset')
+}
+
+// 外部可调用的重置方法（只重置UI状态，不清除后端筛选）
 const resetFilters = () => {
   setDefaultRanges()
   filters.value.cameraModel = ''
   filters.value.lensModel = ''
   filters.value.colorCategory = ''
+  filters.value.category = ''
   filters.value.minQualityScore = 0
   selectedTags.value = []
-  // 清除筛选状态并刷新页面内容
-  photoStore.clearLastFilters()
-  // 触发页面刷新
-  emit('reset')
+  // 设置标志，下次打开面板时重置UI状态
+  shouldResetOnOpen.value = true
 }
 
 // 打开/关闭面板的处理，确保按需加载筛选选项（避免刷新时自动请求）
@@ -847,6 +904,17 @@ const onTogglePanel = async () => {
   const opening = !show.value
   show.value = opening
   if (opening) {
+    // 如果有重置标志，说明刚刚清除了筛选，重置UI状态
+    if (shouldResetOnOpen.value) {
+      setDefaultRanges()
+      filters.value.cameraModel = ''
+      filters.value.lensModel = ''
+      filters.value.colorCategory = ''
+      filters.value.category = ''
+      filters.value.minQualityScore = 0
+      selectedTags.value = []
+      shouldResetOnOpen.value = false
+    }
     if (!filterOptions.value || !filterOptions.value.cameraModels || filterOptions.value.cameraModels.length === 0) {
       await loadFilterOptions().catch(err => console.error('加载筛选选项失败:', err))
     }
@@ -943,6 +1011,7 @@ const selectColor = async (colorValue: string) => {
     minIso: filters.value.isoRange[0],
     maxIso: filters.value.isoRange[1],
     colorCategory: filters.value.colorCategory || null,
+    category: filters.value.category || null,
     minQualityScore: filters.value.minQualityScore || null
   }
 
@@ -958,6 +1027,42 @@ const selectColor = async (colorValue: string) => {
     closePanel()
   } catch (error) {
     console.error('颜色筛选失败:', error)
+  }
+}
+
+// 选择分类并立即应用筛选
+const selectCategory = async (categoryValue: string) => {
+  filters.value.category = categoryValue
+  // 立即应用筛选
+  const filterData = {
+    tagIds: selectedTags.value.map(t => t.id),
+    cameraModel: filters.value.cameraModel || null,
+    lensModel: filters.value.lensModel || null,
+    minFocalLength: filters.value.focalLengthRange[0],
+    maxFocalLength: filters.value.focalLengthRange[1],
+    minShutterSpeed: filters.value.shutterSpeedRange[0],
+    maxShutterSpeed: filters.value.shutterSpeedRange[1],
+    minAperture: filters.value.apertureRange[0],
+    maxAperture: filters.value.apertureRange[1],
+    minIso: filters.value.isoRange[0],
+    maxIso: filters.value.isoRange[1],
+    colorCategory: filters.value.colorCategory || null,
+    category: filters.value.category || null,
+    minQualityScore: filters.value.minQualityScore || null
+  }
+
+  try {
+    if (hasEffectiveFilters(filterData)) {
+      await photoStore.filterPhotos(filterData)
+    } else {
+      photoStore.clearLastFilters()
+    }
+    // 通知父组件筛选已应用，需要重置分页状态
+    emit('filters-applied')
+    // 自动关闭面板
+    closePanel()
+  } catch (error) {
+    console.error('分类筛选失败:', error)
   }
 }
 
@@ -1667,6 +1772,11 @@ onBeforeUnmount(() => {
     resizeObserver.disconnect()
     resizeObserver = null
   }
+})
+
+// 暴露方法给父组件调用
+defineExpose({
+  resetFilters
 })
 </script>
 

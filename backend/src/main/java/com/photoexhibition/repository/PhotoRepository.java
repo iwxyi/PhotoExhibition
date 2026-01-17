@@ -121,6 +121,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                    @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                    Pageable pageable);
 
+    @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds")
+    Page<Photo> findByAlbumIds(@Param("albumIds") List<Long> albumIds, Pageable pageable);
+
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();
 
     /**

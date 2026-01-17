@@ -2,7 +2,7 @@
   <div class="min-h-screen bg-white dark:bg-gray-900">
     <nav class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16">
+        <div class="flex justify-between items-center h-12">
           <router-link to="/" class="text-2xl font-light tracking-wider">摄影展</router-link>
           <button @click="$router.back()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             返回

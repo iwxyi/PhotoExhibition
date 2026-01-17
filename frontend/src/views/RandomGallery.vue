@@ -6,9 +6,9 @@
       style="padding-top: env(safe-area-inset-top);"
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16">
+        <div class="flex justify-between items-center h-12">
           <div class="flex items-center space-x-8">
-            <router-link to="/" class="text-2xl font-light tracking-wider">摄影展</router-link>
+            <router-link to="/" class="text-xl font-light tracking-wider">摄影展</router-link>
             <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
@@ -21,7 +21,7 @@
               </svg>
               <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
-            <FilterPanel v-model:show="showFilter" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
+            <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
         </div>
@@ -148,11 +148,13 @@ const { isHidden: navHidden } = useNavAutoHide()
 
 const photos = computed(() => photoStore.photosRandom)
 const loading = computed(() => photoStore.loading)
+const categories = computed(() => photoStore.categories)
 const currentPage = ref(0)
 const hasMore = ref(true)
 const savedScrollTop = ref(0)
 const showFilter = ref(false)
 const isLoadingMore = ref(false)
+const filterPanelRef = ref()
 
 // 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
 const likedIds = ref<Set<number>>(new Set())
@@ -178,10 +180,10 @@ const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const gridClass = computed(() => {
-  if (previewSize.value === 'sm') return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4'
-  if (previewSize.value === 'md') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-  if (previewSize.value === 'lg') return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-7'
-  return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+  if (previewSize.value === 'sm') return 'grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4'
+  if (previewSize.value === 'md') return 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-6'
+  if (previewSize.value === 'lg') return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8'
+  return 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-6'
 })
 
 // 当前已启用的筛选（来自 store.lastFilters）
@@ -229,6 +231,7 @@ const filterSummary = computed(() => {
     }
     parts.push(colorMap[f.colorCategory] || f.colorCategory)
   }
+  if (f.category) parts.push(`分类：${f.category}`)
   if (f.minFocalLength != null || f.maxFocalLength != null) parts.push(`焦距 ${f.minFocalLength || '∞'}-${f.maxFocalLength || '∞'}`)
   if (f.minShutterSpeed != null || f.maxShutterSpeed != null) parts.push(`快门 ${formatShutterSpeed(f.minShutterSpeed) || '∞'}-${formatShutterSpeed(f.maxShutterSpeed) || '∞'}`)
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
@@ -257,6 +260,10 @@ const formatShutterSpeed = (value: number | null) => {
 const clearFilters = async () => {
   photoStore.clearLastFilters()
   selectedTags.value = [] // 重置选中的标签
+  // 重置筛选面板的状态
+  if (filterPanelRef.value && filterPanelRef.value.resetFilters) {
+    filterPanelRef.value.resetFilters()
+  }
   // 清除URL参数
   if (route.query.filters) {
     await router.replace({ query: {} })
@@ -631,6 +638,8 @@ const loadInitial = async () => {
   try {
     // 初始化点赞数据
     loadLikedFromStorage()
+    // 获取分类数据
+    await photoStore.fetchCategories()
     currentPage.value = 0
     hasMore.value = true
     let data: any

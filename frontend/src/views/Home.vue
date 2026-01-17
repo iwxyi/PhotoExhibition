@@ -7,9 +7,9 @@
       style="padding-top: env(safe-area-inset-top);"
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16">
+        <div class="flex justify-between items-center h-12">
           <div class="flex items-center space-x-8">
-            <router-link to="/" class="text-2xl font-light tracking-wider text-gray-900 dark:text-white">
+            <router-link to="/" class="text-xl font-light tracking-wider text-gray-900 dark:text-white">
               摄影展
             </router-link>
             <NavLinks v-if="!isMobile" />
@@ -37,30 +37,11 @@
     <!-- 相册网格 -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint; will-change: transform;">
       <!-- 分类 Tabs -->
-      <div class="mb-6">
-        <div
-          class="flex gap-3 overflow-x-auto pb-2 px-1 py-1 scroll-smooth category-tabs-container"
-          style="scrollbar-width: none; -ms-overflow-style: none;"
-        >
-          <button
-            v-for="c in ['全部', ...categories]"
-            :key="c"
-            @click="selectCategory(c)"
-            class="flex-shrink-0 px-4 py-2 rounded-full border transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden font-medium text-sm whitespace-nowrap"
-            style="transform-origin: center; will-change: transform;"
-            :class="c === activeCategory
-              ? 'bg-gray-900 text-white border-gray-800 dark:bg-white dark:text-gray-900 dark:border-white shadow-lg ring-2 ring-gray-900/20 dark:ring-white/20 scale-102'
-              : 'bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-700'"
-          >
-            <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">{{ c }}</span>
-            <div
-              v-if="c === activeCategory"
-              class="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full transition-all duration-300 animate-pulse"
-            ></div>
-            <div class="absolute inset-0 bg-gradient-to-r from-gray-500/10 to-gray-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-full"></div>
-          </button>
-        </div>
-      </div>
+      <CategoryTabs
+        :selected-category="activeCategory"
+        :categories="categories"
+        @category-changed="selectCategory"
+      />
 
       <div v-if="loading && albums.length === 0" class="flex justify-center items-center h-96">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
@@ -113,6 +94,7 @@ const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
+import CategoryTabs from '@/components/CategoryTabs.vue'
 
 const albums = computed(() => photoStore.albums)
 const loading = computed(() => photoStore.loading)
@@ -150,15 +132,18 @@ watch(albumSortOrder, async (newSort, oldSort) => {
 })
 const coverGridClass = computed(() => {
   if (coverSize.value === 'sm') {
-    return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+    // 小尺寸：更多列数（适合小封面）
+    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'
   }
   if (coverSize.value === 'md') {
-    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+    // 中等尺寸：中等列数
+    return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6'
   }
   if (coverSize.value === 'lg') {
-    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-6'
+    // 大尺寸：较少列数（适合大封面）
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8'
   }
-  return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6'
 })
 
 // 动态计算当前网格布局的列数
@@ -167,6 +152,16 @@ const getCurrentGridColumns = () => {
   const width = window.innerWidth
 
   if (size === 'sm') {
+    // 小尺寸：更多列数
+    if (width >= 1280) return 6 // xl
+    if (width >= 1024) return 5 // lg
+    if (width >= 768) return 4 // md
+    if (width >= 640) return 3 // sm
+    return 3 // default (手机上3列)
+  }
+
+  if (size === 'md') {
+    // 中等尺寸：中等列数
     if (width >= 1280) return 5 // xl
     if (width >= 1024) return 4 // lg
     if (width >= 768) return 3 // md
@@ -174,27 +169,21 @@ const getCurrentGridColumns = () => {
     return 2 // default (手机上2列)
   }
 
-  if (size === 'md') {
-    if (width >= 1280) return 5 // xl
-    if (width >= 1024) return 4 // lg
-    if (width >= 768) return 3 // md
-    if (width >= 640) return 2 // sm
-    return 1 // default (手机上1列)
-  }
-
   if (size === 'lg') {
-    if (width >= 1024) return 4 // lg
-    if (width >= 768) return 3 // md
-    if (width >= 640) return 2 // sm
+    // 大尺寸：较少列数
+    if (width >= 1280) return 4 // xl
+    if (width >= 1024) return 3 // lg
+    if (width >= 768) return 2 // md
+    if (width >= 640) return 1 // sm
     return 1 // default (手机上1列)
   }
 
-  // size === 'md' (default)
+  // 默认 md
   if (width >= 1280) return 5 // xl
   if (width >= 1024) return 4 // lg
   if (width >= 768) return 3 // md
   if (width >= 640) return 2 // sm
-  return 1 // default
+  return 2 // default
 }
 
 // 动态计算应该加载的相册数量
@@ -203,7 +192,7 @@ const getDynamicLoadSize = () => {
   const viewportHeight = window.innerHeight
 
   // 估算每个相册卡片的高度（基于封面尺寸）
-  const cardHeight = coverSize.value === 'sm' ? 200 : coverSize.value === 'md' ? 240 : coverSize.value === 'lg' ? 320 : 240
+  const cardHeight = coverSize.value === 'sm' ? 160 : coverSize.value === 'md' ? 240 : coverSize.value === 'lg' ? 320 : 240
   const gap = 24 // gap-6 = 1.5rem = 24px
 
   // 计算一行的高度（卡片高度 + 间距）
@@ -664,10 +653,4 @@ const selectCategory = async (c: string) => {
 }
 </script>
 
-<style scoped>
-/* 隐藏分类标签容器的滚动条 */
-.category-tabs-container::-webkit-scrollbar {
-  display: none;
-}
-</style>
 

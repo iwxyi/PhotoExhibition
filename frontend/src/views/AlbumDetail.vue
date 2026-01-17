@@ -265,36 +265,37 @@ const inputBorderColor = computed(() => {
   return 'rgb(107 114 128 / 0.5)' // 深灰色
 })
 
-// 计算列数（响应式，与主页保持一致）
+// 计算列数（响应式，与其他页面保持一致）
 const columnCount = computed(() => {
   if (typeof window === 'undefined') return 3
 
   const width = windowWidth.value
-  let count = 4 // 默认值 (md)
+  let count = 3 // 默认值
 
   if (previewSize.value === 'sm') {
-    // 小: 中等列数
+    // 小: 最多列数（适合小图片）
+    if (width < 640) count = 4
+    else if (width < 1024) count = 5
+    else if (width < 1280) count = 6
+    else count = 7
+  } else if (previewSize.value === 'md') {
+    // 中: 中等列数
+    if (width < 640) count = 3
+    else if (width < 1024) count = 4
+    else if (width < 1280) count = 5
+    else count = 5
+  } else if (previewSize.value === 'lg') {
+    // 大: 最少列数（适合大图片）
     if (width < 640) count = 2
     else if (width < 1024) count = 3
     else if (width < 1280) count = 4
-    else count = 5
-  } else if (previewSize.value === 'md') {
-    // 中: 默认列数
-    if (width < 640) count = 1
-    else if (width < 1024) count = 2
-    else if (width < 1280) count = 3
     else count = 4
-  } else if (previewSize.value === 'lg') {
-    // 大: 最少列数
-    if (width < 640) count = 1
-    else if (width < 1024) count = 2
-    else count = 3
   } else {
     // 默认 md
-    if (width < 640) count = 1
-    else if (width < 1024) count = 2
-    else if (width < 1280) count = 3
-    else count = 4
+    if (width < 640) count = 3
+    else if (width < 1024) count = 4
+    else if (width < 1280) count = 5
+    else count = 5
   }
   return count
 })

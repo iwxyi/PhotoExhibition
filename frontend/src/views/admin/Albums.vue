@@ -27,7 +27,8 @@
         >
           <!-- 三合一封面预览（左竖 + 右上/右下） -->
           <div
-            class="relative h-40 md:h-44 lg:h-48 bg-gray-900 overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+            class="relative bg-gray-900 overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+            :class="coverHeightClass"
             @click="openAlbum(album.id)"
             title="点击查看相册"
           >
@@ -515,8 +516,18 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { useUiSettings } from '@/composables/useUiSettings'
 
 const router = useRouter()
+const { coverSize } = useUiSettings()
+
+// 根据全局封面尺寸设置计算封面高度
+const coverHeightClass = computed(() => {
+  if (coverSize.value === 'sm') return 'h-24 md:h-28 lg:h-32'
+  if (coverSize.value === 'md') return 'h-40 md:h-44 lg:h-48'
+  if (coverSize.value === 'lg') return 'h-56 md:h-60 lg:h-64'
+  return 'h-40 md:h-44 lg:h-48'
+})
 
 const albums = ref<any[]>([])
 const loading = ref(false)

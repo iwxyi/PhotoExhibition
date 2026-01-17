@@ -5,6 +5,7 @@ import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.dto.FaceDTO;
 import com.photoexhibition.dto.TagDTO;
+import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -191,6 +193,7 @@ public class PhotoService {
         Integer minIso = request.getMinIso();
         Integer maxIso = request.getMaxIso();
         String colorCategory = request.getColorCategory();
+        String category = request.getCategory();
         Double minQualityScore = request.getMinQualityScore();
         List<Long> excludePhotoIds = request.getExcludePhotoIds();
 
@@ -205,6 +208,51 @@ public class PhotoService {
         // 颜色筛选（独立筛选条件）
         else if (colorCategory != null && !colorCategory.trim().isEmpty()) {
             photos = photoRepository.findByColorCategory(colorCategory, minQualityScore, excludePhotoIds, pageable);
+        }
+        // 分类筛选（独立筛选条件）
+        else if (category != null && !category.trim().isEmpty()) {
+            // 获取匹配分类的所有相册ID
+            List<Album> albums = albumRepository.findAll();
+            List<Long> matchingAlbumIds = albums.stream()
+                .filter(album -> {
+                    try {
+                        String albumPath = album.getPath();
+                        if (albumPath == null || albumPath.isEmpty()) return false;
+
+                        Path basePathResolved = Paths.get(photoBasePath);
+                        if (!basePathResolved.isAbsolute()) {
+                            String projectRoot = System.getProperty("user.dir");
+                            if (projectRoot.endsWith("backend")) {
+                                projectRoot = new File(projectRoot).getParent();
+                            }
+                            String cleanPath = photoBasePath.startsWith("./")
+                                ? photoBasePath.substring(2)
+                                : photoBasePath;
+                            basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
+                        }
+                        basePathResolved = basePathResolved.normalize();
+
+                        Path albumRealPath = Paths.get(albumPath).normalize();
+                        if (!albumRealPath.startsWith(basePathResolved)) {
+                            return false;
+                        }
+                        Path relative = basePathResolved.relativize(albumRealPath);
+                        if (relative.getNameCount() > 0) {
+                            return relative.getName(0).toString().equals(category);
+                        }
+                        return false;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
+                .map(Album::getId)
+                .collect(java.util.stream.Collectors.toList());
+
+            if (!matchingAlbumIds.isEmpty()) {
+                photos = photoRepository.findByAlbumIds(matchingAlbumIds, pageable);
+            } else {
+                photos = Page.empty(pageable);
+            }
         }
         // EXIF筛选
         else if (cameraModel != null || lensModel != null ||

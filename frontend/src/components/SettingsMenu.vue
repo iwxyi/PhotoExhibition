@@ -1,6 +1,7 @@
 <template>
   <!-- 设置按钮留在原地 -->
     <button
+      ref="buttonRef"
       @click="toggleSettings"
       class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
       title="设置"
@@ -28,7 +29,8 @@
       <div
         v-if="showSettings"
         ref="menuRef"
-        class="fixed top-20 right-4 w-72 glass-panel z-[2100] p-4 space-y-4 shadow-2xl"
+        class="fixed w-72 glass-panel z-[2100] p-4 space-y-4 shadow-2xl"
+        :style="menuStyle"
         @click.stop
       >
       <!-- 管理入口 -->
@@ -167,7 +169,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useLanguageStore } from '@/stores/language'
@@ -178,6 +180,7 @@ const route = useRoute()
 const showSettings = ref(false)
 const settingsRef = ref<HTMLElement>()
 const menuRef = ref<HTMLElement>()
+const buttonRef = ref<HTMLElement>()
 
 const { coverSize, previewSize, parallaxEnabled, atmosphereEnabled, viewOriginalEnabled, setCoverSize, setPreviewSize, setParallaxEnabled, setAtmosphereEnabled, setViewOriginalEnabled } = useUiSettings()
 const { language, setLanguage } = useLanguageStore()
@@ -202,8 +205,29 @@ const inactiveBtnClass = 'border-gray-300 dark:border-gray-700 text-gray-700 dar
 
 const isDark = computed(() => themeStore.isDark)
 
+// 计算弹窗位置（相对于设置按钮）
+const menuStyle = computed(() => {
+  if (!buttonRef.value) return {}
+
+  const rect = buttonRef.value.getBoundingClientRect()
+  // 按钮下方 8px，往上偏移一点以适应用户需求
+  const top = rect.bottom + 8 - 4 // -4px 往上一点
+  const right = window.innerWidth - rect.right
+
+  return {
+    top: `${Math.max(8, top)}px`, // 最小距离顶部 8px
+    right: `${Math.max(8, right)}px` // 最小距离右边 8px
+  }
+})
+
 const toggleSettings = () => {
   showSettings.value = !showSettings.value
+  // 强制更新位置计算（如果需要的话）
+  if (showSettings.value) {
+    nextTick(() => {
+      // 确保位置计算正确
+    })
+  }
 }
 
 const closeSettings = () => {
