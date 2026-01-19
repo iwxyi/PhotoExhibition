@@ -34,6 +34,7 @@
         @click.stop
       >
       <!-- 管理入口 -->
+      <!--
       <div class="pb-3 border-b border-gray-200 dark:border-gray-700">
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium text-gray-700 dark:text-gray-200">管理入口</span>
@@ -45,6 +46,34 @@
           </button>
         </div>
       </div>
+      -->
+
+      <!-- 服务器设置 -->
+      <!--
+      <div class="pb-3 border-b border-gray-200 dark:border-gray-700">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">服务器地址</label>
+          <div class="flex gap-2">
+            <input
+              v-model="serverUrl"
+              type="text"
+              placeholder="例如: 192.168.1.100:6060"
+              class="flex-1 px-3 py-2 text-xs rounded-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+              @keyup.enter="saveServerUrl"
+            >
+            <button
+              @click="saveServerUrl"
+              class="px-3 py-2 text-xs rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition-all duration-200 hover:shadow-md transform hover:scale-105"
+            >
+              保存
+            </button>
+          </div>
+          <p class="text-xs text-amber-600 dark:text-amber-400 mt-1 leading-relaxed">
+            💡 设置后需要刷新页面才能生效
+          </p>
+        </div>
+      </div>
+      -->
 
       <!-- 显示设置 -->
       <div class="space-y-3">
@@ -80,7 +109,7 @@
       </div>
 
       <!-- 语言设置 -->
-      <div class="pt-3 border-t border-gray-200 dark:border-gray-700">
+      <!-- <div class="pt-3 border-t border-gray-200 dark:border-gray-700">
         <div>
           <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">标签语言</label>
           <div class="flex gap-1.5">
@@ -103,7 +132,7 @@
             💡 需要重启后端服务才能生效
           </p>
         </div>
-      </div>
+      </div> -->
 
       <!-- 功能开关 -->
       <div class="pt-3 border-t border-gray-200 dark:border-gray-700 space-y-3">
@@ -181,6 +210,7 @@ const showSettings = ref(false)
 const settingsRef = ref<HTMLElement>()
 const menuRef = ref<HTMLElement>()
 const buttonRef = ref<HTMLElement>()
+const serverUrl = ref('')
 
 const { coverSize, previewSize, parallaxEnabled, atmosphereEnabled, viewOriginalEnabled, setCoverSize, setPreviewSize, setParallaxEnabled, setAtmosphereEnabled, setViewOriginalEnabled } = useUiSettings()
 const { language, setLanguage } = useLanguageStore()
@@ -250,9 +280,28 @@ const goAdmin = () => {
   showSettings.value = false
 }
 
+const saveServerUrl = () => {
+  if (serverUrl.value.trim()) {
+    // 保存到localStorage
+    localStorage.setItem('server_url', `http://${serverUrl.value.trim()}`)
+    // 显示成功提示（可以后续添加）
+    console.log('服务器地址已保存:', serverUrl.value.trim())
+  }
+}
+
+// 初始化服务器URL
+const initServerUrl = () => {
+  const saved = localStorage.getItem('server_url')
+  if (saved) {
+    // 移除http://前缀显示
+    serverUrl.value = saved.replace(/^https?:\/\//, '')
+  }
+}
+
 // 生命周期钩子
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
+  initServerUrl()
 })
 
 onUnmounted(() => {

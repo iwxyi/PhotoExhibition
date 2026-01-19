@@ -65,8 +65,33 @@ export interface Tag {
   color?: string
 }
 
+// 获取服务器地址，支持多种配置方式
+function getServerUrl(): string {
+  // 1. 从URL参数获取（如 ?server=192.168.1.100:6060）
+  const urlParams = new URLSearchParams(window.location.search)
+  const serverParam = urlParams.get('server')
+  if (serverParam) {
+    return `http://${serverParam}/api`
+  }
+
+  // 2. 从localStorage获取用户设置的服务器地址
+  const savedServer = localStorage.getItem('server_url')
+  if (savedServer) {
+    return `${savedServer}/api`
+  }
+
+  // 3. 开发环境的代理会处理/api请求，所以使用相对路径
+  // 生产环境或手机访问时，默认使用当前域名的/api
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return '/api'  // 开发环境使用代理
+  } else {
+    // 生产环境使用当前域名
+    return `${window.location.protocol}//${window.location.host}/api`
+  }
+}
+
 export const api = axios.create({
-  baseURL: 'http://localhost:6061/api',
+  baseURL: getServerUrl(),
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'

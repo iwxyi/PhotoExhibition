@@ -86,17 +86,21 @@
 
       <div class="flex-1 flex overflow-hidden min-h-0 relative" @click="onBackdropClick">
         <!-- 主图区域 -->
-        <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0" :class="{ 'pr-80': !infoCollapsed }">
-          <div class="relative w-full h-full flex items-center justify-center overflow-hidden" ref="imageContainer">
+        <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0">
+          <div
+            class="relative w-full h-full flex items-center justify-center overflow-hidden"
+            ref="imageContainer"
+            @touchstart="onTouchStartZoom"
+            @touchmove="onTouchMoveZoom"
+            @touchend="onTouchEndZoom"
+            style="touch-action: none;"
+          >
             <div
               class="relative inline-block viewer-open-anim"
               ref="imageWrapper"
               :class="{ 'viewer-open-anim--active': isOpeningFromThumb }"
               :style="[getImageTransformStyle(), openAnimStyle]"
               @wheel="onWheelZoom"
-              @touchstart="onTouchStartZoom"
-              @touchmove="onTouchMoveZoom"
-              @touchend="onTouchEndZoom"
               @dblclick="onDoubleClick"
               @mousedown="onMouseDown"
             >
@@ -109,6 +113,9 @@
                 :style="getImageStyle()"
                 ref="mainImage"
                 @load="onImageLoad"
+                @touchstart="onTouchStartZoom"
+                @touchmove="onTouchMoveZoom"
+                @touchend="onTouchEndZoom"
                 draggable="false"
               />
 
@@ -173,7 +180,7 @@
         </div>
 
         <!-- 信息侧栏 -->
-        <div v-if="!infoCollapsed" class="absolute top-0 right-0 bottom-0 w-80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto transition-all duration-300"
+        <div v-if="!infoCollapsed" class="absolute top-0 right-0 bottom-0 w-80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto transition-all duration-300 z-10"
              :class="infoTransparent ? 'bg-gray-900/30' : 'bg-gray-900/80'">
           <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <span class="text-sm font-semibold">信息</span>
@@ -346,6 +353,27 @@
                 @click="copyColorToClipboard(color)"
               ></span>
             </div>
+
+            <!-- 调试信息 -->
+            <div class="mt-4 p-2 bg-black/20 rounded text-xs max-w-sm">
+              <div class="font-medium mb-1">触摸调试:</div>
+              <div>最后事件: {{ debugInfo.lastEvent }}</div>
+              <div>缩放: {{ debugInfo.scale?.toFixed(1) || '1.0' }}</div>
+              <div>拖拽状态: {{ debugInfo.isDragging }} / {{ debugInfo.isDraggingImage }}</div>
+              <div class="text-yellow-300">{{ debugInfo.touchStart }}</div>
+              <div class="text-blue-300">{{ debugInfo.touchMove }}</div>
+              <div class="text-green-300">{{ debugInfo.touchEnd }}</div>
+
+              <!-- 调试日志 -->
+              <div class="mt-2">
+                <div class="font-medium mb-1 text-purple-300">调试日志:</div>
+                <div class="max-h-32 overflow-y-auto bg-black/30 p-1 rounded text-[10px] leading-tight">
+                  <div v-for="log in debugInfo.logs" :key="log" class="text-gray-300">
+                    {{ log }}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -423,6 +451,7 @@ const infoCollapsed = ref(true)
 const infoTransparent = ref(false) // 控制信息栏透明度
 const modalRoot = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
+const touchCurrentX = ref(0)
 const thumbContainer = ref<HTMLElement | null>(null)
 const thumbItems = ref<any[]>([])
 const mainImageKey = ref(0)
@@ -482,12 +511,46 @@ const lastTouchDistance = ref(0)
 const touchCenter = ref({ x: 0, y: 0 })
 const isPinching = ref(false)
 
+// 触摸滑动相关状态
+const touchStartY = ref(0)
+const touchCurrentY = ref(0)
+const isDraggingImage = ref(false)
+const dragStartTime = ref(0)
+const dragVelocity = ref(0) // 滑动速度
+
+// 防止拖拽后意外关闭的状态
+const wasDragging = ref(false)
+
 // 图片切换动画相关状态
 const imageTransitionOffset = ref(0) // 图片切换时的水平偏移
 const isImageTransitioning = ref(false) // 是否正在进行图片切换动画
 const pendingTransitionDirection = ref<'prev' | 'next' | null>(null) // 等待执行的切换方向
 const transitioningPhoto = ref<Photo | null>(null) // 正在过渡的图片（进入的图片）
 const transitionDirection = ref<'left' | 'right' | null>(null) // 过渡方向
+
+// 调试信息
+const debugInfo = ref({
+  touchStart: '',
+  touchMove: '',
+  touchEnd: '',
+  isDragging: false,
+  isDraggingImage: false,
+  scale: 1,
+  lastEvent: '',
+  logs: [] as string[]
+})
+
+// 调试日志函数
+const addDebugLog = (message: string) => {
+  const timestamp = new Date().toLocaleTimeString()
+  const logEntry = `[${timestamp}] ${message}`
+  debugInfo.value.logs.unshift(logEntry)
+  // 只保留最近15条日志
+  if (debugInfo.value.logs.length > 15) {
+    debugInfo.value.logs = debugInfo.value.logs.slice(0, 15)
+  }
+  console.log(`[${debugInfo.value.logs.length}] ${message}`) // 同时输出到控制台，显示日志数量
+}
 
 const STORAGE_KEY = 'pe-info-transparent'
 const FOCUS_BOX_KEY = 'pe-focus-box-visible'
@@ -617,19 +680,29 @@ const currentAlbumPath = computed(() => {
 const getTransitionImageTransformStyle = () => {
   if (!transitioningPhoto.value || !transitionDirection.value) return {}
 
-  // 过渡图片从边缘移动到中间
-  // next方向：从右边(100%)移动到中间(0%)
-  // prev方向：从左边(-100%)移动到中间(0%)
   const direction = transitionDirection.value
-  const startOffset = direction === 'right' ? 100 : -100
-  const endOffset = 0
+  const container = imageContainer.value
+  if (!container) return {}
 
-  // 计算当前位置：从startOffset移动到endOffset
-  const progress = Math.abs(imageTransitionOffset.value) / 100
-  const currentOffset = startOffset + (endOffset - startOffset) * progress
+  // 1:1 跟手效果：直接使用像素偏移，不转换为百分比
+  const containerWidth = container.clientWidth
+  const pixelOffset = imageTransitionOffset.value
+
+  // 过渡图片从边缘滑入覆盖当前图片
+  // next方向（右滑到下一张）：从右边滑入 (containerWidth -> 0)
+  // prev方向（左滑到上一张）：从左边滑入 (-containerWidth -> 0)
+  let transitionOffset = 0
+
+  if (direction === 'right') {
+    // 下一张图片从右边进入，最终覆盖当前图片
+    transitionOffset = containerWidth - Math.abs(pixelOffset)
+  } else {
+    // 上一张图片从左边进入，最终覆盖当前图片
+    transitionOffset = -containerWidth + Math.abs(pixelOffset)
+  }
 
   return {
-    transform: `translateX(${currentOffset}%)`,
+    transform: `translateX(${transitionOffset}px)`,
     transition: 'none' // 动画由JavaScript控制
   }
 }
@@ -895,13 +968,9 @@ watch(
 )
 
 onMounted(() => {
-  // 确保在DOM完全渲染后设置信息栏状态
+  // 确保在DOM完全渲染后设置状态
   nextTick(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    // 默认隐藏信息栏（infoCollapsed = true），只有明确保存了展开状态才展开
-    infoCollapsed.value = saved !== '0'
-
-    // 初始化框体状态
+    // 初始化框体状态（焦点框、人脸框）
     initializeBoxStates()
   })
 
@@ -943,6 +1012,14 @@ const close = () => {
 }
 
 const onBackdropClick = (event: MouseEvent) => {
+  console.log('🎯 onBackdropClick triggered, wasDragging:', wasDragging.value, 'event.type:', event.type, 'target:', event.target)
+
+  // 如果刚刚进行过拖拽操作，不关闭PhotoViewer
+  if (wasDragging.value) {
+    console.log('🚫 Blocking close due to wasDragging flag')
+    return
+  }
+
   // Close if clicked on backdrop or main content area (but not on interactive elements)
   const target = event.target as HTMLElement
   const currentTarget = event.currentTarget as HTMLElement
@@ -953,14 +1030,14 @@ const onBackdropClick = (event: MouseEvent) => {
     return
   }
 
-  // Also close if clicked on main content area (but not on the image)
-  if (target.closest('.flex-1.flex.overflow-hidden') && !target.closest('img, button, svg')) {
+  // Also close if clicked on main content area (but not on the image or info sidebar)
+  if (target.closest('.flex-1.flex.overflow-hidden') && !target.closest('img, button, svg') && !target.closest('.absolute.right-0.w-80')) {
     close()
   }
 }
 
 const prev = () => {
-  if (!props.photos?.length || isImageTransitioning.value) return
+  if (!props.photos?.length) return
 
   // 如果正在触摸滑动中，设置等待切换方向
   if (isDragging.value && scale.value === 1) {
@@ -968,11 +1045,20 @@ const prev = () => {
     return
   }
 
+  // 如果正在动画中，强制中断并立即切换
+  if (isImageTransitioning.value) {
+    // 重置动画状态
+    isImageTransitioning.value = false
+    imageTransitionOffset.value = 0
+    transitioningPhoto.value = null
+    transitionDirection.value = null
+  }
+
   animateImageTransition('prev')
 }
 
 const next = () => {
-  if (!props.photos?.length || isImageTransitioning.value) return
+  if (!props.photos?.length) return
 
   // 如果正在触摸滑动中，设置等待切换方向
   if (isDragging.value && scale.value === 1) {
@@ -980,11 +1066,25 @@ const next = () => {
     return
   }
 
+  // 如果正在动画中，强制中断并立即切换
+  if (isImageTransitioning.value) {
+    // 重置动画状态
+    isImageTransitioning.value = false
+    imageTransitionOffset.value = 0
+    transitioningPhoto.value = null
+    transitionDirection.value = null
+  }
+
   animateImageTransition('next')
 }
 
 // 带动画的图片切换
 const animateImageTransition = (direction: 'prev' | 'next') => {
+  animateImageTransitionWithVelocity(direction, 0)
+}
+
+// 带速度的图片切换动画
+const animateImageTransitionWithVelocity = (direction: 'prev' | 'next', velocity: number = 0) => {
   if (isImageTransitioning.value) return
 
   isImageTransitioning.value = true
@@ -1001,26 +1101,31 @@ const animateImageTransition = (direction: 'prev' | 'next') => {
   transitioningPhoto.value = props.photos[nextIndex]
   transitionDirection.value = direction === 'next' ? 'right' : 'left'
 
-  const duration = 300 // 动画持续时间ms
+  // 根据滑动速度调整动画时长
+  const baseDuration = 300 // 基础动画时长
+  const velocityFactor = Math.min(Math.abs(velocity) * 200, 100) // 速度影响最大100ms
+  const duration = Math.max(180, baseDuration - velocityFactor) // 最短180ms
+
   const startTime = Date.now()
+
+  // 动画开始时的偏移（应该是从手指松开时的位置开始）
+  const startOffset = Math.abs(imageTransitionOffset.value)
 
   const animate = () => {
     const elapsed = Date.now() - startTime
     const progress = Math.min(elapsed / duration, 1)
 
-    // 使用ease-out缓动：先快后慢
+    // 使用ease-out缓动：由快到慢，更自然
     const easeProgress = 1 - Math.pow(1 - progress, 3)
 
-    // 计算移动偏移
-    // next方向：当前图片向左移(-100%)，新图片从右边移到中间(100% -> 0%)
-    // prev方向：当前图片向右移(+100%)，新图片从左边移到中间(-100% -> 0%)
-    const moveOffset = direction === 'next' ? -100 * easeProgress : 100 * easeProgress
-    imageTransitionOffset.value = moveOffset
+    // 从当前偏移位置过渡到0（完全覆盖）
+    imageTransitionOffset.value = startOffset * (1 - easeProgress)
 
     if (progress < 1) {
       requestAnimationFrame(animate)
     } else {
-      // 动画完成，实际切换图片索引
+      // 动画完成：过渡图片完全覆盖了当前图片
+      // 现在切换到新的图片索引，移除过渡图片
       currentIndex.value = nextIndex
 
       // 重置状态
@@ -1166,28 +1271,63 @@ const onWheelZoom = (e: WheelEvent) => {
 
 // 触摸缩放和拖拽
 const onTouchStartZoom = (e: TouchEvent) => {
+  const targetElement = (e.target as HTMLElement)?.tagName || 'unknown'
+  console.log('🔥 TOUCH START FIRED!', e.touches.length, 'touches, target:', targetElement)
+  addDebugLog(`Touch start: ${e.touches.length} touches (来自: ${targetElement})`)
+  e.preventDefault() // 总是阻止默认行为，确保触摸事件被处理
+
+  // 更新调试信息
+  debugInfo.value.touchStart = `开始: ${e.touches.length}个触摸点`
+  debugInfo.value.lastEvent = 'touchstart'
+
+  addDebugLog(`检查条件: e.touches.length === 1 ? ${e.touches.length === 1}`)
   if (e.touches.length === 1) {
+    addDebugLog('✅ 条件满足，进入单指触摸分支')
+    addDebugLog('准备获取触摸信息')
     // 单指：准备拖拽或图片切换
+    const touch = e.touches[0]
+    addDebugLog(`触摸坐标: (${touch.clientX}, ${touch.clientY})`)
+    touchStartX.value = touch.clientX
+    touchStartY.value = touch.clientY
+    touchCurrentX.value = touch.clientX
+    touchCurrentY.value = touch.clientY
+    dragStartTime.value = Date.now()
+    dragVelocity.value = 0
+    addDebugLog('基础变量设置完成')
+
+    addDebugLog('准备设置 isDragging = true')
     isDragging.value = true
+    wasDragging.value = false // 重置拖拽标志
+    console.log('🔄 Touch start: wasDragging reset to false')
+    addDebugLog(`✅ isDragging 设置完成: ${isDragging.value}`)
+    // 立即验证设置是否成功
+    setTimeout(() => {
+      addDebugLog(`⏰ 延迟检查 isDragging: ${isDragging.value}`)
+    }, 0)
     dragStart.value = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
+      x: touch.clientX,
+      y: touch.clientY,
       translateX: translateX.value,
       translateY: translateY.value
     }
-    touchStartX.value = e.touches[0].clientX
 
     // 如果未缩放，准备图片滑动切换
+    addDebugLog(`检查缩放条件: scale.value === 1 ? ${scale.value === 1} (当前值: ${scale.value})`)
     if (scale.value === 1) {
+      addDebugLog('✅ 缩放条件满足，准备设置 isDraggingImage = true')
+      isDraggingImage.value = true
       imageTransitionOffset.value = 0
+      transitioningPhoto.value = null
+      transitionDirection.value = null
       pendingTransitionDirection.value = null
-      // 预设两张图片，让用户能看到切换预览
-      const prevIndex = (currentIndex.value - 1 + props.photos.length) % props.photos.length
-      const nextIndex = (currentIndex.value + 1) % props.photos.length
-      // 这里暂时不设置transitioningPhoto，等待用户实际滑动再设置
+      addDebugLog(`✅ isDraggingImage 设置完成: ${isDraggingImage.value}`)
+    } else {
+      addDebugLog('❌ 缩放条件不满足，不设置图片拖拽')
+      isDraggingImage.value = false
     }
   } else if (e.touches.length === 2) {
     // 双指：准备缩放
+    isDraggingImage.value = false
     isPinching.value = true
     isDragging.value = false
     const touch1 = e.touches[0]
@@ -1201,26 +1341,58 @@ const onTouchStartZoom = (e: TouchEvent) => {
 }
 
 const onTouchMoveZoom = (e: TouchEvent) => {
-  e.preventDefault()
+  addDebugLog(`Touch move 开始: 触摸点=${e.touches.length}, 当前isDragging=${isDragging.value}, 当前isDraggingImage=${isDraggingImage.value}`)
+  e.preventDefault() // 总是阻止默认行为
+
+  // 一旦触摸移动，就标记为拖拽操作
+  wasDragging.value = true
+  console.log('👆 Touch move: wasDragging set to true')
+
+  // 更新调试信息
+  debugInfo.value.touchMove = `移动: ${e.touches.length}个触摸点, 缩放:${scale.value.toFixed(1)}, 拖拽:${isDragging.value}, 图片拖拽:${isDraggingImage.value}`
+  debugInfo.value.lastEvent = 'touchmove'
+  debugInfo.value.isDragging = isDragging.value
+  debugInfo.value.isDraggingImage = isDraggingImage.value
+  debugInfo.value.scale = scale.value
+
+  addDebugLog(`Touch move - 触摸点: ${e.touches.length}, isDragging: ${isDragging.value}, scale: ${scale.value}`)
 
   if (e.touches.length === 1 && isDragging.value) {
+    addDebugLog('进入单指拖拽分支')
+    const touch = e.touches[0]
+    touchCurrentX.value = touch.clientX
+    touchCurrentY.value = touch.clientY
+
     if (scale.value > 1) {
       // 单指拖拽（仅在缩放后）
-      const dx = e.touches[0].clientX - dragStart.value.x
-      const dy = e.touches[0].clientY - dragStart.value.y
+      const dx = touch.clientX - dragStart.value.x
+      const dy = touch.clientY - dragStart.value.y
+      addDebugLog(`缩放拖拽: dx=${dx.toFixed(1)}, dy=${dy.toFixed(1)}, translateX=${translateX.value.toFixed(1)} -> ${(dragStart.value.translateX + dx).toFixed(1)}`)
       translateX.value = dragStart.value.translateX + dx
       translateY.value = dragStart.value.translateY + dy
       constrainTranslation()
-    } else {
-      // 未缩放时，图片跟随手指滑动
-      const dx = e.touches[0].clientX - touchStartX.value
+    } else if (isDraggingImage.value) {
+      // 未缩放时，图片跟随手指滑动切换
+      const dx = touch.clientX - touchStartX.value
+      const dy = touch.clientY - touchStartY.value
+      addDebugLog(`图片切换: dx=${dx.toFixed(1)}, dy=${dy.toFixed(1)}, touchX=${touch.clientX.toFixed(1)}, startX=${touchStartX.value.toFixed(1)}`)
+
+      // 垂直滑动距离太大时，不触发水平切换
+      if (Math.abs(dy) > Math.abs(dx) * 0.5) {
+        addDebugLog(`垂直滑动过大，跳过处理: |${dy.toFixed(1)}| > |${dx.toFixed(1)}| * 0.5 = ${(Math.abs(dx) * 0.5).toFixed(1)}`)
+        return
+      }
+      addDebugLog(`通过垂直检查，继续处理`)
+
       const container = imageContainer.value
       if (container) {
         const containerWidth = container.clientWidth
-        const maxOffset = containerWidth * 0.5 // 最大滑动距离
+        addDebugLog(`容器宽度: ${containerWidth}`)
 
-        // 根据滑动方向设置过渡图片
-        if (Math.abs(dx) > 5) { // 很小的移动就开始显示过渡图片
+        // 根据滑动方向立即设置过渡图片
+        addDebugLog(`检查滑动距离: |${dx.toFixed(1)}| > 2 ? ${Math.abs(dx) > 2}`)
+        if (Math.abs(dx) > 2) { // 更小的移动就开始响应
+          addDebugLog(`滑动距离足够，开始设置过渡图片`)
           const direction = dx > 0 ? 'prev' : 'next'
           const nextIndex = direction === 'next'
             ? (currentIndex.value + 1) % props.photos.length
@@ -1233,55 +1405,98 @@ const onTouchMoveZoom = (e: TouchEvent) => {
             pendingTransitionDirection.value = direction
           }
 
-          // 计算两张图片的移动距离
-          // 手指滑动距离转换为图片移动距离，使用一定的阻尼效果
-          const moveRatio = 0.7 // 阻尼系数，让图片移动比手指慢一些
-          const moveDistance = dx * moveRatio
+          // 计算滑动速度（用于后续动画）
+          const now = Date.now()
+          const timeDelta = now - dragStartTime.value
+          if (timeDelta > 0) {
+            dragVelocity.value = dx / timeDelta
+          }
 
-          // 限制移动范围
-          imageTransitionOffset.value = Math.max(-maxOffset, Math.min(maxOffset, moveDistance))
+          // 1:1 移动，不使用阻尼效果
+          const moveDistance = dx
+          addDebugLog(`1:1移动距离: dx=${dx.toFixed(1)}, moveDistance=${moveDistance.toFixed(1)}`)
+
+          imageTransitionOffset.value = moveDistance
+          addDebugLog(`设置偏移: ${moveDistance.toFixed(1)}`)
         }
       }
     }
   } else if (e.touches.length === 2 && isPinching.value) {
     // 双指缩放
+    e.preventDefault()
     const touch1 = e.touches[0]
     const touch2 = e.touches[1]
     const distance = getTouchDistance(touch1, touch2)
     const scaleDelta = distance / lastTouchDistance.value
-    
+
     // 更新缩放中心
     touchCenter.value = {
       x: (touch1.clientX + touch2.clientX) / 2,
       y: (touch1.clientY + touch2.clientY) / 2
     }
-    
+
     zoomAtPoint(touchCenter.value.x, touchCenter.value.y, (scaleDelta - 1) * scale.value)
     lastTouchDistance.value = distance
   }
 }
 
 const onTouchEndZoom = (e: TouchEvent) => {
+  e.preventDefault() // 总是阻止默认行为
+
+  // 更新调试信息（在重置之前）
+  debugInfo.value.touchEnd = `结束: ${e.touches.length}个触摸点`
+  debugInfo.value.lastEvent = 'touchend'
+
   if (e.touches.length === 0) {
     // 所有手指抬起
-    if (isDragging.value && scale.value === 1 && transitioningPhoto.value) {
-      // 如果未缩放且有过渡图片，处理滑动切换
+    if (isDragging.value && scale.value === 1 && isDraggingImage.value) {
+      // 处理图片滑动切换
       const container = imageContainer.value
-      if (container) {
-        const threshold = container.clientWidth * 0.25 // 25%的容器宽度作为切换阈值
+      if (container && transitioningPhoto.value) {
+        const containerWidth = container.clientWidth
+        const dx = touchCurrentX.value - touchStartX.value
+        const dy = touchCurrentY.value - touchStartY.value
 
-        if (Math.abs(imageTransitionOffset.value) > threshold) {
-          // 滑动距离足够，完成切换
-          const direction = imageTransitionOffset.value > 0 ? 'prev' : 'next'
-          animateImageTransition(direction)
-        } else {
-          // 滑动距离不够，回到原位
+        // 垂直滑动太大时，不切换
+        if (Math.abs(dy) > Math.abs(dx) * 0.5) {
           animateImageReset()
+        } else {
+          // 计算是否应该切换：基于距离和速度
+          const distanceThreshold = containerWidth * 0.3 // 30%的容器宽度
+          const velocityThreshold = 0.5 // 最小滑动速度（像素/毫秒）
+
+          const shouldSwitch = Math.abs(dx) > distanceThreshold ||
+                              (Math.abs(dragVelocity.value) > velocityThreshold && Math.abs(dx) > containerWidth * 0.1)
+
+          if (shouldSwitch) {
+            // 完成切换
+            const direction = dx > 0 ? 'prev' : 'next'
+            animateImageTransitionWithVelocity(direction, dragVelocity.value)
+          } else {
+            // 回到原位
+            animateImageReset()
+          }
         }
       }
     }
+
+    // 重置状态
     isDragging.value = false
+    isDraggingImage.value = false
     isPinching.value = false
+    dragVelocity.value = 0
+
+    // 延迟重置wasDragging，给异步click事件缓冲时间
+    setTimeout(() => {
+      if (!isDragging.value) { // 确保没有新的拖拽开始
+        wasDragging.value = false
+        console.log('🔄 Touch end: wasDragging reset to false after delay')
+      }
+    }, 300)
+
+    // 更新调试信息（重置后）
+    debugInfo.value.isDragging = false
+    debugInfo.value.isDraggingImage = false
   } else if (e.touches.length === 1) {
     // 从双指变为单指
     isPinching.value = false
@@ -1299,22 +1514,23 @@ const onTouchEndZoom = (e: TouchEvent) => {
 const animateImageReset = () => {
   if (imageTransitionOffset.value === 0) return
 
-  const startOffset = imageTransitionOffset.value
-  const duration = 300 // 动画持续时间ms
+  const startOffset = Math.abs(imageTransitionOffset.value)
+  const duration = 250 // 稍微快一点的重置动画
   const startTime = Date.now()
 
   const animate = () => {
     const elapsed = Date.now() - startTime
     const progress = Math.min(elapsed / duration, 1)
 
-    // 使用弹性缓动效果
-    const easeProgress = 1 - Math.pow(1 - progress, 4)
+    // 使用ease-out缓动
+    const easeProgress = 1 - Math.pow(1 - progress, 3)
 
     imageTransitionOffset.value = startOffset * (1 - easeProgress)
 
     if (progress < 1) {
       requestAnimationFrame(animate)
     } else {
+      // 重置完成
       imageTransitionOffset.value = 0
       transitioningPhoto.value = null
       transitionDirection.value = null
@@ -1331,38 +1547,146 @@ const getTouchDistance = (touch1: Touch, touch2: Touch) => {
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-// 鼠标拖拽（仅在缩放后）
+// 鼠标拖拽（缩放后拖拽图片，或未缩放时切换图片）
 const onMouseDown = (e: MouseEvent) => {
-  if (scale.value > 1 && e.button === 0) {
+  if (e.button === 0) { // 仅处理左键
     e.preventDefault()
     isDragging.value = true
+    wasDragging.value = false // 重置拖拽标志
+    console.log('🖱️ Mouse down: wasDragging reset to false')
+    touchStartX.value = e.clientX
+    touchStartY.value = e.clientY
+    touchCurrentX.value = e.clientX
+    touchCurrentY.value = e.clientY
+    dragStartTime.value = Date.now()
+    dragVelocity.value = 0
+
     dragStart.value = {
       x: e.clientX,
       y: e.clientY,
       translateX: translateX.value,
       translateY: translateY.value
     }
+
+    // 如果未缩放，准备图片滑动切换
+    if (scale.value === 1) {
+      isDraggingImage.value = true
+      imageTransitionOffset.value = 0
+      transitioningPhoto.value = null
+      transitionDirection.value = null
+      pendingTransitionDirection.value = null
+    } else {
+      // 缩放后，准备拖拽图片
+      isDraggingImage.value = false
+    }
+
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
   }
 }
 
 const onMouseMove = (e: MouseEvent) => {
-  if (isDragging.value && scale.value > 1) {
+  if (!isDragging.value) return
+
+  touchCurrentX.value = e.clientX
+  touchCurrentY.value = e.clientY
+
+  // 一旦鼠标移动，就标记为拖拽操作
+  wasDragging.value = true
+  console.log('🐭 Mouse move: wasDragging set to true')
+
+  if (scale.value > 1) {
+    // 缩放后，鼠标拖拽图片
     const dx = e.clientX - dragStart.value.x
     const dy = e.clientY - dragStart.value.y
     translateX.value = dragStart.value.translateX + dx
     translateY.value = dragStart.value.translateY + dy
     constrainTranslation()
+  } else if (isDraggingImage.value) {
+    // 未缩放时，鼠标滑动切换图片
+    const dx = e.clientX - touchStartX.value
+    const dy = e.clientY - touchStartY.value
+
+    // 垂直滑动距离太大时，不触发水平切换
+    if (Math.abs(dy) > Math.abs(dx) * 0.5) {
+      return
+    }
+
+    const container = imageContainer.value
+    if (container && Math.abs(dx) > 2) {
+      const direction = dx > 0 ? 'prev' : 'next'
+      const nextIndex = direction === 'next'
+        ? (currentIndex.value + 1) % props.photos.length
+        : (currentIndex.value - 1 + props.photos.length) % props.photos.length
+
+      // 如果还没有设置过渡图片，设置它
+      if (!transitioningPhoto.value) {
+        transitioningPhoto.value = props.photos[nextIndex]
+        transitionDirection.value = direction === 'next' ? 'right' : 'left'
+        pendingTransitionDirection.value = direction
+      }
+
+      // 计算滑动速度（用于后续动画）
+      const now = Date.now()
+      const timeDelta = now - dragStartTime.value
+      if (timeDelta > 0) {
+        dragVelocity.value = dx / timeDelta
+      }
+
+      // 1:1 移动，不使用阻尼效果
+      imageTransitionOffset.value = dx
+    }
   }
 }
 
 const onMouseUp = () => {
-  if (isDragging.value) {
-    isDragging.value = false
-    window.removeEventListener('mousemove', onMouseMove)
-    window.removeEventListener('mouseup', onMouseUp)
+  if (!isDragging.value) return
+
+  // 如果正在图片切换中，处理切换逻辑
+  if (isDraggingImage.value && scale.value === 1 && transitioningPhoto.value) {
+    const container = imageContainer.value
+    if (container) {
+      const dx = touchCurrentX.value - touchStartX.value
+      const dy = touchCurrentY.value - touchStartY.value
+
+      // 垂直滑动太大时，不切换
+      if (Math.abs(dy) > Math.abs(dx) * 0.5) {
+        animateImageReset()
+      } else {
+        // 计算是否应该切换：基于距离和速度
+        const distanceThreshold = container.clientWidth * 0.3 // 30%的容器宽度
+        const velocityThreshold = 0.5 // 最小滑动速度（像素/毫秒）
+
+        const shouldSwitch = Math.abs(dx) > distanceThreshold ||
+                            (Math.abs(dragVelocity.value) > velocityThreshold && Math.abs(dx) > container.clientWidth * 0.1)
+
+        if (shouldSwitch) {
+          // 完成切换
+          const direction = dx > 0 ? 'prev' : 'next'
+          animateImageTransitionWithVelocity(direction, dragVelocity.value)
+        } else {
+          // 回到原位
+          animateImageReset()
+        }
+      }
+    }
   }
+
+  // 重置状态
+  isDragging.value = false
+  isDraggingImage.value = false
+  dragVelocity.value = 0
+
+  // 延迟重置wasDragging，给异步click事件缓冲时间
+  setTimeout(() => {
+    if (!isDragging.value) { // 确保没有新的拖拽开始
+      wasDragging.value = false
+      console.log('🔄 Mouse up: wasDragging reset to false after delay')
+    }
+  }, 300)
+
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
 }
 
 const formatDate = (val?: string) => {
@@ -1808,21 +2132,21 @@ const getImageStyle = (): Record<string, string> => {
 
 // 获取图片变换样式
 const getImageTransformStyle = () => {
-  const baseTransform = `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`
+  // 基础变换：缩放和平移
+  let transform = `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`
 
-  // 在图片切换动画过程中，当前图片保持不动
-  if (isImageTransitioning.value) {
-    return {
-      transform: baseTransform,
-      transformOrigin: 'center center',
-      transition: 'none' // 动画由JavaScript控制
-    }
+  // 在触摸滑动时，主图片跟随手指移动（1:1 跟手效果）
+  if (isDraggingImage.value) {
+    transform += ` translateX(${imageTransitionOffset.value}px)`
   }
 
+  // 在图片切换动画过程中，主图片保持不动（过渡图片会覆盖它）
+  // 不在这里应用偏移，而是让过渡图片负责动画
+
   return {
-    transform: baseTransform,
+    transform: transform,
     transformOrigin: 'center center',
-    transition: 'transform 0.3s ease-out'
+    transition: isImageTransitioning.value ? 'none' : 'transform 0.3s ease-out'
   }
 }
 
