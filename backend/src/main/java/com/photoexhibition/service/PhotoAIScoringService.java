@@ -25,6 +25,7 @@ import java.nio.FloatBuffer;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * AI图片评分服务
@@ -613,7 +614,7 @@ public class PhotoAIScoringService implements AutoCloseable {
         if (photo.getTags() != null && !photo.getTags().isEmpty()) {
             List<String> themes = photo.getTags().stream()
                     .map(tag -> tag.getName())
-                    .toList();
+                    .collect(Collectors.toList());
             analysis.put("themes", themes);
         }
 

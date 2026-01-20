@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -72,7 +73,7 @@ public class FilterOptionService {
                     item.put("count", option.getPhotoCount());
                     return item;
                 })
-                .toList();
+                .collect(Collectors.toList());
         options.put("cameraModels", cameraModels);
 
         // 获取镜头型号（带数量）
@@ -84,7 +85,7 @@ public class FilterOptionService {
                     item.put("count", option.getPhotoCount());
                     return item;
                 })
-                .toList();
+                .collect(Collectors.toList());
         options.put("lensModels", lensModels);
 
         // 获取颜色分类（带数量）
@@ -96,7 +97,7 @@ public class FilterOptionService {
                     item.put("count", option.getPhotoCount());
                     return item;
                 })
-                .toList();
+                .collect(Collectors.toList());
         options.put("colorCategories", colorCategories);
 
         // 获取标签（带数量）
@@ -111,7 +112,7 @@ public class FilterOptionService {
                     item.put("count", tag.getPhotoCount());
                     return item;
                 })
-                .toList();
+                .collect(Collectors.toList());
         options.put("tags", tags);
 
         // 获取范围值
@@ -141,7 +142,7 @@ public class FilterOptionService {
                     Number count = (Number) stat[1];
                     return new FilterOption(null, "camera_models", model, null, null, count.intValue(), null, null);
                 })
-                .toList();
+                .collect(Collectors.toList());
 
         filterOptionRepository.saveAll(options);
         log.info("更新了 {} 个相机型号", options.size());
@@ -158,7 +159,7 @@ public class FilterOptionService {
                     Number count = (Number) stat[1];
                     return new FilterOption(null, "lens_models", model, null, null, count.intValue(), null, null);
                 })
-                .toList();
+                .collect(Collectors.toList());
 
         filterOptionRepository.saveAll(options);
         log.info("更新了 {} 个镜头型号", options.size());
@@ -175,7 +176,7 @@ public class FilterOptionService {
                     Number count = (Number) stat[1];
                     return new FilterOption(null, "color_categories", category, null, null, count.intValue(), null, null);
                 })
-                .toList();
+                .collect(Collectors.toList());
 
         filterOptionRepository.saveAll(options);
         log.info("更新了 {} 个颜色分类", options.size());
@@ -188,7 +189,7 @@ public class FilterOptionService {
         var focalLengths = photoRepository.findAll().stream()
             .map(Photo::getFocalLengthMm)
             .filter(Objects::nonNull)
-            .toList();
+            .collect(Collectors.toList());
 
         if (!focalLengths.isEmpty()) {
             double minVal = focalLengths.stream().mapToDouble(Double::doubleValue).min().orElse(0);
@@ -211,7 +212,7 @@ public class FilterOptionService {
         var shutterSpeeds = photoRepository.findAll().stream()
             .map(Photo::getShutterSpeedSeconds)
             .filter(Objects::nonNull)
-            .toList();
+            .collect(Collectors.toList());
 
         if (!shutterSpeeds.isEmpty()) {
             double minVal = shutterSpeeds.stream().mapToDouble(Double::doubleValue).min().orElse(0);
@@ -234,7 +235,7 @@ public class FilterOptionService {
         var apertures = photoRepository.findAll().stream()
             .map(Photo::getApertureValue)
             .filter(Objects::nonNull)
-            .toList();
+            .collect(Collectors.toList());
 
         if (!apertures.isEmpty()) {
             double minVal = apertures.stream().mapToDouble(Double::doubleValue).min().orElse(0);
@@ -257,7 +258,7 @@ public class FilterOptionService {
         var isos = photoRepository.findAll().stream()
             .map(Photo::getIso)
             .filter(Objects::nonNull)
-            .toList();
+            .collect(Collectors.toList());
 
         if (!isos.isEmpty()) {
             int minVal = isos.stream().mapToInt(Integer::intValue).min().orElse(0);

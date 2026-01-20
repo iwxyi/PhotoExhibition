@@ -15,6 +15,7 @@ import java.io.File;
 import java.nio.FloatBuffer;
 import java.util.*;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 场景识别服务
@@ -257,7 +258,7 @@ public class SceneRecognitionService implements AutoCloseable {
             } else {
                 log.debug("基于规则识别到场景: {}", scenes.stream()
                     .map(s -> s.scene + "(" + String.format("%.2f", s.confidence) + ")")
-                    .toList());
+                    .collect(Collectors.toList()));
             }
 
         } catch (Exception e) {
