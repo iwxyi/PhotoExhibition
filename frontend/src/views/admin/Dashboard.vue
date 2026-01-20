@@ -173,8 +173,8 @@
               <option value="POST /admin/update-exif-data">更新 EXIF 数值字段（回填历史图片）</option>
               <option value="POST /admin/update-color-categories">更新颜色分类（为历史图片设置颜色分类）</option>
               <option value="POST /admin/recalculate-photo-colors">更新照片颜色（重新计算色调、分类、相册氛围等）</option>
-              <option value="POST /admin/ai-scoring/clear-all">清空照片AI评分</option>
-              <option value="POST /admin/ai-scoring/update-all">强制重新评分所有图片AI评分</option>
+              <option value="POST /admin/ai-analysis/clear-all">清空照片AI分析</option>
+              <option value="POST /admin/ai-analysis/update-all">更新所有照片AI分析</option>
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
@@ -507,31 +507,34 @@ const testApi = async () => {
     }
   }
 
-  // 清空AI评分需要确认
-  if (selectedApi.value === 'POST /admin/ai-scoring/clear-all') {
+  // 清空AI分析需要确认
+  if (selectedApi.value === 'POST /admin/ai-analysis/clear-all') {
     const confirmed = confirm(
-      '🗑️ 清空照片AI评分\n\n' +
+      '🗑️ 清空照片AI分析\n\n' +
       '此操作将：\n' +
-      '• 删除所有照片的AI评分记录\n' +
+      '• 删除所有照片的AI分析记录\n' +
       '• 清除技术质量评分、构图美学评分、主题吸引力评分\n' +
-      '• 清除优点分析、不足分析和改进建议\n\n' +
-      '⚠️ 此操作不可恢复！建议在重新评分之前执行此操作\n\n' +
-      '确定要清空所有AI评分记录吗？'
+      '• 清除优点分析、不足分析和改进建议\n' +
+      '• 清除场景识别和情感分析结果\n\n' +
+      '⚠️ 此操作不可恢复！建议在重新分析之前执行此操作\n\n' +
+      '确定要清空所有AI分析记录吗？'
     );
     if (!confirmed) return;
   }
 
-  // AI评分更新需要确认
-  if (selectedApi.value === 'POST /admin/ai-scoring/update-all') {
+  // AI分析更新需要确认
+  if (selectedApi.value === 'POST /admin/ai-analysis/update-all') {
     const confirmed = confirm(
-      '🤖 强制重新评分所有图片AI评分（覆盖现有评分）\n\n' +
+      '🤖 更新所有照片AI分析\n\n' +
       '此操作将：\n' +
-      '• 为所有照片生成AI评分（技术质量、构图美学、主题吸引力）\n' +
-      '• 分析每张照片的优点和不足\n' +
-      '• 提供改进建议\n' +
-      '• 生成详细的评分报告\n\n' +
+      '• 强制重新为所有照片生成AI分析（覆盖现有分析）\n' +
+      '• 重新分析每张照片的技术质量、构图美学、主题吸引力\n' +
+      '• 重新识别场景类型（婚礼、毕业典礼、旅行等）\n' +
+      '• 重新分析情感色彩（快乐、悲伤、温暖等）\n' +
+      '• 更新优点和不足分析，重新生成改进建议\n\n' +
+      '⚠️ 此操作会覆盖所有现有的AI分析结果\n' +
       '⚠️ 异步执行：任务在后台运行，处理大量照片可能需要较长时间\n' +
-      '⚠️ 如果没有ONNX Runtime，将使用基础评分算法\n\n' +
+      '⚠️ 如果没有ONNX Runtime，将使用基础分析算法\n\n' +
       '确定要继续吗？'
     )
     if (!confirmed) {

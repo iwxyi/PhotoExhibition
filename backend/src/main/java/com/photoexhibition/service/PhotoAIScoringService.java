@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.PhotoAIScoring;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
+import com.photoexhibition.repository.PhotoRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,7 +65,16 @@ public class PhotoAIScoringService implements AutoCloseable {
     private FaceService faceService;
 
     @Autowired
+    private SceneRecognitionService sceneRecognitionService;
+
+    @Autowired
+    private EmotionAnalysisService emotionAnalysisService;
+
+    @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private PhotoRepository photoRepository;
 
     private OrtEnvironment env;
     private boolean onnxAvailable = false;
@@ -173,7 +183,7 @@ public class PhotoAIScoringService implements AutoCloseable {
         }
 
         // 如果还没有初始化过，说明在@PostConstruct中初始化失败了
-        log.debug("ONNX环境未初始化，将使用基础评分模式（已在应用启动时记录了详细错误信息）");
+        log.debug("ONNX环境未初始化，将使用基础评分模式");
         return false;
     }
 
@@ -210,13 +220,8 @@ public class PhotoAIScoringService implements AutoCloseable {
             }
 
             // 检查ONNX环境可用性（支持降级评分）
-            log.debug("Checking ONNX availability for photo {}", photo.getId());
             boolean onnxReady = ensureOnnxEnvironment();
-            if (onnxReady) {
-                log.debug("ONNX is available, proceeding with enhanced AI scoring for photo {}", photo.getId());
-            } else {
-                log.debug("ONNX not available, proceeding with basic scoring for photo {}", photo.getId());
-            }
+            log.debug("Processing photo {} with {} scoring", photo.getId(), onnxReady ? "enhanced" : "basic");
 
             // 创建评分记录
             PhotoAIScoring scoring = existingScoring.orElse(new PhotoAIScoring());
@@ -239,8 +244,13 @@ public class PhotoAIScoringService implements AutoCloseable {
             // 保存最终结果
             PhotoAIScoring finalScoring = scoringRepository.save(scoring);
 
-            log.info("AI scoring completed for photo {}: overall score {}",
-                    photo.getId(), finalScoring.getOverallScore());
+            log.info("AI评分完成 - 照片ID: {}, 总体评分: {} (技术: {}, 构图: {}, 吸引力: {}, 耗时: {}ms)",
+                    photo.getId(),
+                    String.format("%.2f", finalScoring.getOverallScore()),
+                    String.format("%.2f", finalScoring.getTechnicalScore()),
+                    String.format("%.2f", finalScoring.getCompositionScore()),
+                    String.format("%.2f", finalScoring.getAppealScore()),
+                    finalScoring.getProcessingTimeMs());
 
             return finalScoring;
 
@@ -274,24 +284,89 @@ public class PhotoAIScoringService implements AutoCloseable {
         result.technicalScore = calculateTechnicalScore(photo, imageFile);
         result.technicalAnalysis = generateTechnicalAnalysis(photo, imageFile);
         result.modelsUsed.put("color_analysis", true); // Color analysis is part of technical score
+        log.debug("技术质量评分: {} (分辨率: {}x{}, ISO: {}, 光圈: {}, 快门: {})",
+                String.format("%.2f", result.technicalScore), photo.getWidth(), photo.getHeight(),
+                photo.getIso(), photo.getAperture(), photo.getShutterSpeed());
 
         // 2. 构图美学评分
         result.compositionScore = calculateCompositionScore(photo, imageFile);
         result.compositionAnalysis = generateCompositionAnalysis(photo, imageFile);
         result.modelsUsed.put("saliency", onnxAvailable); // 只有ONNX可用时才算使用了saliency模型
+        log.debug("构图美学评分: {} (焦点位置: {}%, 宽高比: {})",
+                String.format("%.2f", result.compositionScore),
+                photo.getFocusX() != null ? String.format("%.1f", photo.getFocusX()) : "N/A",
+                photo.getWidth() != null && photo.getHeight() != null ?
+                String.format("%.2f", (double) photo.getWidth() / photo.getHeight()) : "N/A");
 
         // 3. 主题吸引力评分
         result.appealScore = calculateAppealScore(photo, imageFile);
         result.appealAnalysis = generateAppealAnalysis(photo, imageFile);
         result.modelsUsed.put("classification", onnxAvailable); // 只有ONNX可用时才算使用了classification模型
         result.modelsUsed.put("face_detection", true); // 人脸检测可能不依赖ONNX
+        int faceCount = 0;
+        try {
+            var faces = faceService.getFacesByPhoto(photo.getId());
+            faceCount = faces != null ? faces.size() : 0;
+        } catch (Exception e) {
+            // 忽略人脸计数错误
+        }
+        log.debug("主题吸引力评分: {} (标签数量: {}, 人脸数量: {})",
+                String.format("%.2f", result.appealScore),
+                photo.getTags() != null ? photo.getTags().size() : 0,
+                faceCount);
 
-        // 4. 生成优点和不足
+        // 4. AI增强分析：场景识别和情感分析
+        try {
+            // 场景识别
+            var sceneResult = sceneRecognitionService.recognizeScene(imageFile);
+            result.sceneAnalysis = sceneResult;
+
+            if (sceneResult != null && !sceneResult.scenes.isEmpty()) {
+                var primaryScene = sceneResult.scenes.get(0);
+                log.debug("场景识别结果: {} (置信度: {}%, 候选: {})",
+                        primaryScene.scene,
+                        String.format("%.1f", sceneResult.confidence * 100),
+                        sceneResult.scenes.size());
+            } else {
+                log.debug("场景识别结果: 未识别到场景");
+            }
+
+            // 情感分析
+            var emotionResult = emotionAnalysisService.analyzeEmotion(imageFile, photo.getId());
+            result.emotionAnalysis = emotionResult;
+
+            if (emotionResult != null && emotionResult.primaryEmotion != null) {
+                log.debug("情感分析结果: {} (置信度: {}%, 候选: {})",
+                        emotionResult.primaryEmotion,
+                        String.format("%.1f", emotionResult.emotions.get(0).confidence * 100),
+                        emotionResult.emotions.size());
+            } else {
+                log.debug("情感分析结果: 未识别到情感");
+            }
+
+            // 更新Photo实体的AI分析字段
+            updatePhotoWithAIAnalysis(photo, sceneResult, emotionResult);
+
+            result.modelsUsed.put("scene_recognition", true);
+            result.modelsUsed.put("emotion_analysis", true);
+        } catch (Exception e) {
+            log.warn("AI增强分析失败: {}", e.getMessage());
+            result.modelsUsed.put("scene_recognition", false);
+            result.modelsUsed.put("emotion_analysis", false);
+        }
+
+        // 5. 生成优点和不足
         result.strengths = analyzeStrengths(photo, result);
         result.weaknesses = analyzeWeaknesses(photo, result);
 
         // 6. 生成改进建议
         result.improvementSuggestions = generateImprovementSuggestions(result);
+
+        // 记录分析结果汇总
+        log.debug("分析结果汇总 - 优点: {}项, 不足: {}项, 建议: {}项",
+                result.strengths.size(),
+                result.weaknesses.size(),
+                result.improvementSuggestions.size());
 
         return result;
     }
@@ -350,6 +425,33 @@ public class PhotoAIScoringService implements AutoCloseable {
         return Math.min(80.0, Math.max(20.0, score));
     }
 
+    /**
+     * 更新Photo实体中的AI分析结果
+     */
+    private void updatePhotoWithAIAnalysis(Photo photo,
+            SceneRecognitionService.SceneRecognitionResult sceneResult,
+            EmotionAnalysisService.EmotionAnalysisResult emotionResult) {
+        try {
+            // 更新场景分析
+            if (sceneResult != null && !sceneResult.scenes.isEmpty()) {
+                photo.setSceneAnalysis(objectMapper.writeValueAsString(sceneResult.scenes));
+                photo.setPrimaryScene(sceneResult.scenes.get(0).scene);
+                photo.setSceneConfidence(sceneResult.confidence);
+            }
+
+            // 更新情感分析
+            if (emotionResult != null && !emotionResult.emotions.isEmpty()) {
+                photo.setEmotionAnalysis(objectMapper.writeValueAsString(emotionResult.emotions));
+                photo.setPrimaryEmotion(emotionResult.primaryEmotion);
+                photo.setEmotionConfidence(emotionResult.emotions.get(0).confidence);
+            }
+
+            // 保存更新
+            photoRepository.save(photo);
+        } catch (Exception e) {
+            log.warn("更新Photo AI分析字段失败: {}", e.getMessage());
+        }
+    }
 
     /**
      * 计算构图美学评分 (0-100)
@@ -367,14 +469,11 @@ public class PhotoAIScoringService implements AutoCloseable {
                 if (saliencyMap != null && saliencyMap.length > 0) {
                     // 基于显著性分布计算构图平衡性
                     score += 15.0; // AI构图加分
-                    log.debug("Used AI saliency detection for photo {} composition scoring", photo.getId());
                 }
             } catch (Exception e) {
                 log.warn("Saliency detection failed for photo {}, falling back to basic scoring: {}", photo.getId(), e.getMessage());
                 // 继续使用基础评分
             }
-        } else {
-            log.debug("ONNX not available, using basic composition scoring for photo {}", photo.getId());
         }
 
         // 黄金比例检查
@@ -419,13 +518,10 @@ public class PhotoAIScoringService implements AutoCloseable {
             try {
                 classifications = classificationService.classify(imageFile);
                 score += calculateThemeAppeal(classifications);
-                log.debug("Used AI classification for photo {} appeal scoring", photo.getId());
             } catch (Exception e) {
                 log.warn("Image classification failed for photo {}, falling back to basic scoring: {}", photo.getId(), e.getMessage());
                 // 继续使用基础评分
             }
-        } else {
-            log.debug("ONNX not available, using basic appeal scoring for photo {}", photo.getId());
         }
 
         // 人脸检测
@@ -678,6 +774,8 @@ public class PhotoAIScoringService implements AutoCloseable {
         Map<String, Object> technicalAnalysis;
         Map<String, Object> compositionAnalysis;
         Map<String, Object> appealAnalysis;
+        SceneRecognitionService.SceneRecognitionResult sceneAnalysis;
+        EmotionAnalysisService.EmotionAnalysisResult emotionAnalysis;
         List<String> strengths;
         List<String> weaknesses;
         List<String> improvementSuggestions;

@@ -88,7 +88,7 @@
             @mousemove="onImageMouseMove"
             @mouseup="onImageMouseUp"
             @mouseleave="onImageMouseUp"
-          />
+              />
 
           <!-- 拖拽切换指示器 -->
           <div
@@ -130,7 +130,7 @@
       <!-- 焦点框和人脸框覆盖层 -->
       <div class="absolute inset-0 pointer-events-none">
         <!-- 焦点框 -->
-        <div
+              <div
           v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
           class="absolute pointer-events-none z-20"
                 :style="getFocusBoxStyle()"
@@ -159,7 +159,7 @@
                   {{ box.label }}
               </div>
             </div>
-        </div>
+          </div>
 
         <!-- 信息侧栏 -->
       <transition name="slide-right">
@@ -172,7 +172,7 @@
             <span class="text-sm font-semibold">信息</span>
             <div class="flex items-center gap-2">
               <!-- 人脸框切换按钮 -->
-              <button
+          <button
                 v-if="currentPhoto?.faces?.length"
                 class="p-1.5 hover:bg-white/10 rounded transition-colors"
                 :class="showFaceBoxes ? 'text-blue-400' : 'text-gray-400'"
@@ -182,10 +182,10 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
-              </button>
+          </button>
 
               <!-- 聚焦框切换按钮 -->
-              <button
+          <button
                 v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined"
                 class="p-1.5 hover:bg-white/10 rounded transition-colors"
                 :class="showFocusBox ? 'text-yellow-400' : 'text-gray-400'"
@@ -196,7 +196,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
                 </svg>
-              </button>
+          </button>
 
               <!-- 透明度切换按钮 -->
               <button class="p-1.5 hover:bg-white/10 rounded transition-colors" @click="toggleInfoTransparency" :title="infoTransparent ? '切换到不透明' : '切换到透明'">
@@ -212,8 +212,15 @@
           </div>
           <div class="flex-1 overflow-auto px-4 py-3 space-y-3 text-xs leading-relaxed">
             <!-- 基本信息 -->
-            <div>
-              <span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}
+        <div>
+              <span class="opacity-60">文件名：</span>
+              <span
+                class="cursor-pointer hover:text-blue-300 transition-colors"
+                @click="showSimilarPhotos"
+                title="点击查看相似照片"
+              >
+                {{ currentPhoto?.filename }}
+              </span>
               <span v-if="currentPhoto?.takenAt" class="opacity-60 ml-4 cursor-pointer hover:opacity-100 transition-opacity" @click="filterByTakenAt">
                 {{ formatDate(currentPhoto.takenAt) }}
               </span>
@@ -235,19 +242,19 @@
               </span>
             </div>
 
-            <!-- 相机和镜头信息 -->
-            <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
+              <!-- 相机和镜头信息 -->
+              <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
               <span class="opacity-60">相机：</span>
               <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByCamera">
                 {{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
               </span>
-            </div>
+              </div>
             <div v-if="currentPhoto?.lensModel">
               <span class="opacity-60">镜头：</span>
               <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByLens">
                 {{ currentPhoto.lensModel }}
               </span>
-            </div>
+              </div>
 
             <!-- 参数网格布局 -->
             <div class="grid grid-cols-2 gap-3">
@@ -268,8 +275,8 @@
                 <span class="opacity-60">快门：</span>
                 <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByShutterSpeed">
                   {{ currentPhoto.shutterSpeed }}
-                </span>
-              </div>
+                  </span>
+                </div>
               <div v-if="currentPhoto?.iso">
                 <span class="opacity-60">ISO：</span>
                 <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByIso">
@@ -283,64 +290,92 @@
 
 
             <!-- 标签 -->
-            <div v-if="currentPhoto?.tags?.length">
-              <span class="opacity-60">标签：</span>
+              <div v-if="currentPhoto?.tags?.length">
+                <span class="opacity-60">标签：</span>
               <span class="inline-flex flex-wrap gap-2 ml-1">
-                <span
-                  v-for="t in currentPhoto.tags.slice(0, 8)"
-                  :key="t.id"
+                  <span
+                    v-for="t in currentPhoto.tags.slice(0, 8)"
+                    :key="t.id"
                   class="px-2 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20 transition-colors"
-                  @click.stop="openTag(t)"
-                >
-                  {{ t.name }}
+                    @click.stop="openTag(t)"
+                  >
+                    {{ t.name }}
+                  </span>
                 </span>
-              </span>
-            </div>
+              </div>
 
             <!-- 人脸列表 -->
-            <div v-if="currentPhoto?.faces?.length">
-              <span class="opacity-60">人脸列表：</span>
+              <div v-if="currentPhoto?.faces?.length">
+                <span class="opacity-60">人脸列表：</span>
               <div class="mt-2 grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
-                <div
+                  <div
                   v-for="(f, idx) in visibleFaceList"
-                  :key="f.id || idx"
+                    :key="f.id || idx"
                   class="flex items-center gap-3 p-2 rounded transition-colors"
                   :class="f.isConfirmed && f.personId && f.personName ? 'cursor-pointer hover:bg-white/10' : ''"
                   @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : null"
-                >
-                  <div
+                  >
+                    <div
                     class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 border border-white/10 overflow-hidden"
-                    :style="getFaceAvatarStyle(f)"
-                    :title="getFaceTooltip(f)"
-                  ></div>
+                      :style="getFaceAvatarStyle(f)"
+                      :title="getFaceTooltip(f)"
+                    ></div>
                   <div class="text-xs flex-1 min-w-0">
                     <div class="font-semibold truncate" :class="f.isConfirmed ? 'text-green-300' : 'text-amber-200'">
-                      {{ f.personName || '未命名' }}
-                    </div>
-                    <div class="text-[11px] text-gray-400 truncate">
-                      置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
+                        {{ f.personName || '未命名' }}
+                      </div>
+                      <div class="text-[11px] text-gray-400 truncate">
+                        置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+
+            <!-- AI增强分析 -->
+            <!-- 场景分类 -->
+            <div v-if="currentPhoto?.primaryScene" class="mt-3">
+              <span class="opacity-60">场景：</span>
+              <span class="inline-flex items-center gap-2">
+                <span class="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs">
+                  {{ currentPhoto.primaryScene }}
+                </span>
+                <span v-if="currentPhoto.sceneConfidence" class="text-xs opacity-60">
+                  {{ (currentPhoto.sceneConfidence * 100).toFixed(1) }}%
+                </span>
+              </span>
+              </div>
+
+            <!-- 情感分析 -->
+            <div v-if="currentPhoto?.primaryEmotion" class="mt-3">
+              <span class="opacity-60">情感：</span>
+              <span class="inline-flex items-center gap-2">
+                <span class="px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs">
+                  {{ currentPhoto.primaryEmotion }}
+                </span>
+                <span v-if="currentPhoto.emotionConfidence" class="text-xs opacity-60">
+                  {{ (currentPhoto.emotionConfidence * 100).toFixed(1) }}%
+                </span>
+              </span>
             </div>
 
-            <!-- 调色板 -->
-            <div v-if="currentPhoto?.colorPalette?.length">
-              <span class="opacity-60">调色板：</span>
+
+              <!-- 调色板 -->
+              <div v-if="currentPhoto?.colorPalette?.length">
+                <span class="opacity-60">调色板：</span>
               <span class="inline-flex items-center gap-2 ml-1">
-                <span
+                  <span
                   v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 8)"
-                  :key="idx"
+                    :key="idx"
                   class="inline-block w-4 h-4 rounded border border-white/10 cursor-pointer hover:border-white/30 hover:scale-110 transition-all duration-150"
-                  :style="{ backgroundColor: color }"
+                    :style="{ backgroundColor: color }"
                   :title="getColorTooltip(color)"
                   @mouseenter="displayedColor = getColorHex(color)"
                   @click="copyColorToClipboard(color)"
-                ></span>
+                  ></span>
                 <span class="font-mono text-xs ml-2">{{ displayedColor }}</span>
               </span>
-            </div>
+                </div>
 
             <!-- AI评分信息（卡片容器，增加层次感） -->
             <div v-if="currentPhoto?.aiOverallScore" class="mt-4 pt-3 border-t border-white/10">
@@ -348,14 +383,14 @@
                 <div class="flex items-center justify-between mb-3">
                   <span class="text-sm font-medium text-yellow-400">🤖 AI 智能评分</span>
                   <span class="text-xl font-bold text-yellow-400">{{ currentPhoto.aiOverallScore.toFixed(1) }}</span>
-                </div>
+              </div>
 
                 <!-- 分维度评分 -->
                 <div class="grid grid-cols-3 gap-3 text-xs mb-3">
                   <div v-if="currentPhoto.aiTechnicalScore" class="text-center bg-white/5 rounded px-2 py-1">
                     <div class="opacity-70 text-[10px] uppercase tracking-wide">技术</div>
                     <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiTechnicalScore) }}</div>
-                  </div>
+            </div>
                   <div v-if="currentPhoto.aiCompositionScore" class="text-center bg-white/5 rounded px-2 py-1">
                     <div class="opacity-70 text-[10px] uppercase tracking-wide">构图</div>
                     <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiCompositionScore) }}</div>
@@ -363,8 +398,8 @@
                   <div v-if="currentPhoto.aiAppealScore" class="text-center bg-white/5 rounded px-2 py-1">
                     <div class="opacity-70 text-[10px] uppercase tracking-wide">吸引力</div>
                     <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiAppealScore) }}</div>
-                  </div>
-                </div>
+          </div>
+        </div>
 
                 <!-- 优点和不足详情 -->
                 <div v-if="(currentPhoto?.aiStrengths?.length || currentPhoto?.aiWeaknesses?.length)" class="space-y-2">
@@ -385,7 +420,7 @@
                         </span>
                       </div>
                     </div>
-                  </div>
+      </div>
 
                   <!-- 不足 -->
                   <div v-if="currentPhoto?.aiWeaknesses?.length" class="space-y-1">
@@ -466,6 +501,82 @@
         </div>
       </transition>
 
+      <!-- 相似照片模态框 -->
+        <transition name="fade">
+          <div
+            v-if="similarPhotosVisible"
+            class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            @click.self="similarPhotosVisible = false"
+          >
+            <div class="bg-gray-900/95 backdrop-blur-md rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden border border-white/10">
+              <!-- 头部 -->
+              <div class="flex items-center justify-between p-4 border-b border-white/10">
+                <h3 class="text-lg font-semibold text-white">相似照片</h3>
+                <button
+                  class="p-1 hover:bg-white/10 rounded transition-colors"
+                  @click="similarPhotosVisible = false"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <!-- 内容 -->
+              <div class="p-4 max-h-[60vh] overflow-y-auto">
+                <div v-if="similarPhotosLoading" class="flex items-center justify-center py-8">
+                  <div class="text-white/50">加载中...</div>
+                </div>
+
+                <div v-else-if="similarPhotos.length === 0" class="flex items-center justify-center py-8">
+                  <div class="text-white/50">未找到相似照片</div>
+                </div>
+
+                <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  <div
+                    v-for="item in similarPhotos"
+                    :key="item.photoId"
+                    class="group cursor-pointer"
+                    @click="jumpToPhoto(item.photoId)"
+                  >
+                    <div class="aspect-square bg-gray-800 rounded-lg overflow-hidden mb-2">
+                      <img
+                        v-if="item.photo.thumbnailPath"
+                        :src="`/api/files${item.photo.thumbnailPath}`"
+                        :alt="item.photo.filename"
+                        class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      />
+                      <div v-else class="w-full h-full bg-gray-700 flex items-center justify-center">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    <div class="text-xs text-white/80 truncate" :title="item.photo.filename">
+                      {{ item.photo.filename }}
+                    </div>
+
+                    <div class="flex items-center justify-between mt-1">
+                      <div class="text-xs text-blue-400">
+                        {{ (item.similarityScore * 100).toFixed(1) }}% 相似
+                      </div>
+                      <div v-if="item.photo.takenAt" class="text-xs text-white/50">
+                        {{ formatDate(item.photo.takenAt) }}
+                      </div>
+                    </div>
+
+                    <div v-if="item.matchReasons.length > 0" class="mt-1">
+                      <div class="text-xs text-green-400 truncate" :title="item.matchReasons.join(', ')">
+                        {{ item.matchReasons[0] }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </transition>
     </div>
   </transition>
 </template>
@@ -474,6 +585,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiSettings } from '@/composables/useUiSettings'
+import { aiApi } from '@/api'
 import type { Photo } from '@/stores/photo'
 
 const props = defineProps<{
@@ -537,6 +649,11 @@ const displayedColor = ref('')
 // 查看原图状态
 const viewingOriginal = ref(false)
 
+// 相似照片相关
+const similarPhotos = ref<any[]>([])
+const similarPhotosLoading = ref(false)
+const similarPhotosVisible = ref(false)
+
 // 防止拖拽后意外关闭的状态
 const wasDragging = ref(false)
 
@@ -574,7 +691,7 @@ const faceBoxes = computed(() => {
         },
         confirmed: face.isConfirmed,
         label: face.personName || (face.isConfirmed ? '未命名' : '未确认')
-      }
+}
     })
 })
 
@@ -697,7 +814,7 @@ const toggleFullscreen = () => {
   if (!document.fullscreenElement) {
     modalRoot.value?.requestFullscreen?.()
     isFullscreen.value = true
-  } else {
+    } else {
     document.exitFullscreen?.()
     isFullscreen.value = false
   }
@@ -765,7 +882,7 @@ const onBackdropClick = (event: MouseEvent) => {
   if (wasDragging.value) {
     wasDragging.value = false
     return
-  }
+}
 
   const target = event.target as HTMLElement
   const currentTarget = event.currentTarget as HTMLElement
@@ -777,7 +894,7 @@ const onBackdropClick = (event: MouseEvent) => {
 
   if (target.closest('.flex-1.flex.overflow-hidden') && !target.closest('img, button, svg') && !target.closest('.absolute.right-0.w-80')) {
     close()
-  }
+    }
 }
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -806,7 +923,7 @@ const onImageLoad = () => {
         url: getImageUrl(currentPhoto.value!),
         photoId: currentPhoto.value?.id
       })
-    } else {
+  } else {
       console.warn('⚠️ PhotoViewer: 图片加载不完整', {
         filename: currentPhoto.value?.filename,
         complete: img.complete,
@@ -815,10 +932,10 @@ const onImageLoad = () => {
       })
       imageLoaded.value = false
     }
-  } else {
+    } else {
     console.warn('⚠️ PhotoViewer: mainImage ref 不存在')
+    }
   }
-}
 
 const onImageError = () => {
   // 图片加载失败，设置为已加载状态避免一直显示加载中
@@ -906,7 +1023,7 @@ const onImageMouseUp = () => {
         filename: currentPhoto.value?.filename
       })
       prev()
-  } else {
+        } else {
       // 向左拖拽，切换到下一张
       console.log('👇 PhotoViewer: 拖拽切换到下一张', {
         offset: offset.toFixed(1),
@@ -1049,7 +1166,7 @@ const filterByIso = () => {
   }
   const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
-}
+  }
 
 // 颜色相关函数
 const copyColorToClipboard = async (color: string) => {
@@ -1125,6 +1242,42 @@ const getFaceTooltip = (face: any) => {
   return `比例: ${ratio}，面积: ${area}，置信度: ${conf}`
 }
 
+// 相似照片相关函数
+const showSimilarPhotos = async () => {
+  if (!currentPhoto.value?.id) return
+
+  similarPhotosLoading.value = true
+  similarPhotosVisible.value = true
+
+  try {
+    const response = await aiApi.findSimilarPhotos(currentPhoto.value.id, 12)
+    if (response.data.success) {
+      similarPhotos.value = response.data.data
+      } else {
+      console.error('获取相似照片失败:', response.data.error)
+      similarPhotos.value = []
+    }
+  } catch (error) {
+    console.error('获取相似照片出错:', error)
+    similarPhotos.value = []
+  } finally {
+    similarPhotosLoading.value = false
+  }
+}
+
+const jumpToPhoto = (photoId: number) => {
+  // 找到目标照片在当前列表中的索引
+  const targetIndex = props.photos.findIndex(p => p.id === photoId)
+  if (targetIndex >= 0) {
+    // 跳转到目标照片
+    currentIndex.value = targetIndex
+    // 关闭相似照片模态框
+    similarPhotosVisible.value = false
+  } else {
+    console.warn('目标照片不在当前列表中:', photoId)
+  }
+}
+
 const onFullscreenChange = () => {
   isFullscreen.value = !!document.fullscreenElement
 }
@@ -1137,7 +1290,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onImageLoad)
   document.addEventListener('fullscreenchange', onFullscreenChange)
-})
+      })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)

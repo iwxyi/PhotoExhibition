@@ -234,5 +234,17 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     @Query(value = "SELECT COUNT(*) FROM photo WHERE iso IS NOT NULL", nativeQuery = true)
     Long countPhotosWithIso();
+
+    /**
+     * 查找包含人脸的照片
+     */
+    @Query(
+        value = "SELECT DISTINCT p.* FROM photo p " +
+                "INNER JOIN photo_face pf ON p.id = pf.photo_id",
+        countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
+                "INNER JOIN photo_face pf ON p.id = pf.photo_id",
+        nativeQuery = true
+    )
+    Page<Photo> findPhotosWithFaces(Pageable pageable);
 }
 

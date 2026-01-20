@@ -200,6 +200,25 @@ public class Photo {
     @OneToOne(mappedBy = "photo", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private PhotoAIScoring aiScoring;
 
+    // AI增强分析字段
+    @Column(name = "scene_analysis", columnDefinition = "JSON")
+    private String sceneAnalysis; // 场景识别结果，JSON格式
+
+    @Column(name = "emotion_analysis", columnDefinition = "JSON")
+    private String emotionAnalysis; // 情感分析结果，JSON格式
+
+    @Column(name = "primary_scene", length = 100)
+    private String primaryScene; // 主要场景分类
+
+    @Column(name = "primary_emotion", length = 50)
+    private String primaryEmotion; // 主要情感
+
+    @Column(name = "scene_confidence")
+    private Float sceneConfidence; // 场景识别置信度
+
+    @Column(name = "emotion_confidence")
+    private Float emotionConfidence; // 情感分析置信度
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -218,3 +218,15 @@ ai:
     technical-weight: 0.40
     composition-weight: 0.35
     appeal-weight: 0.25
+
+  # 场景识别配置
+  scene-recognition:
+    enabled: true  # 启用场景识别功能
+    model-path: ./models/scene_recognition.onnx
+    confidence-threshold: 0.3
+
+  # 情感分析配置
+  emotion-analysis:
+    enabled: true  # 启用情感分析功能
+    model-path: ./models/emotion_analysis.onnx
+    confidence-threshold: 0.3

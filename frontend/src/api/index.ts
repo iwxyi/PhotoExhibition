@@ -63,6 +63,15 @@ export interface Photo {
   aiStrengths?: string[] // AI分析优点
   aiWeaknesses?: string[] // AI分析不足
   aiSuggestions?: string[] // AI改进建议
+
+  // AI增强分析字段
+  sceneAnalysis?: any[] // 场景识别结果
+  emotionAnalysis?: any[] // 情感分析结果
+  primaryScene?: string // 主要场景分类
+  primaryEmotion?: string // 主要情感
+  sceneConfidence?: number // 场景识别置信度
+  emotionConfidence?: number // 情感分析置信度
+
   tags?: Tag[]
   faces?: FaceFace[]
   createdAt: string
@@ -236,5 +245,28 @@ export const personApi = {
 
   // 获取人物的所有照片（人脸所在照片）
   getPersonPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/photos?page=${page}&size=${size}`)
+}
+
+// AI增强分析相关API
+export interface SimilarPhotoResult {
+  photoId: number
+  similarityScore: number
+  matchReasons: string[]
+  photo: {
+    id: number
+    filename: string
+    thumbnailPath?: string
+    takenAt?: string
+    albumId: number
+  }
+}
+
+export const aiApi = {
+  // 搜索相似照片
+  findSimilarPhotos: (photoId: number, limit = 10) => api.get<{
+    success: boolean
+    data: SimilarPhotoResult[]
+    total: number
+  }>(`/admin/photos/${photoId}/similar?limit=${limit}`)
 }
 

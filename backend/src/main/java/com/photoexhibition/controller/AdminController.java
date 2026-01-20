@@ -13,10 +13,12 @@ import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.service.FilterOptionService;
 import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.service.PhotoAIScoringService;
+import com.photoexhibition.service.SimilarPhotoSearchService;
 import com.photoexhibition.service.OnnxConfigurationException;
 import com.photoexhibition.util.ONNXDiagnosticUtil;
 import java.lang.NoClassDefFoundError;
 import java.lang.UnsatisfiedLinkError;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +58,7 @@ public class AdminController {
     private final ONNXDiagnosticUtil onnxDiagnosticUtil;
     private final PhotoAIScoringService aiScoringService;
     private final PhotoAIScoringRepository aiScoringRepository;
+    private final SimilarPhotoSearchService similarPhotoSearchService;
 
     /**
      * 全局异常处理器 - 处理各种异常
@@ -228,24 +231,45 @@ public class AdminController {
      * 异步执行批量AI重新评分任务（强制覆盖现有评分）
      */
     @Async
+    /**
+     * 检查Spring应用上下文是否仍然活跃
+     */
+    private boolean isApplicationContextActive() {
+        try {
+            // 尝试访问一个Spring管理的Bean来检查上下文状态
+            return photoRepository != null && photoRepository.count() >= 0;
+        } catch (Exception e) {
+            // 如果出现异常，说明上下文可能已经关闭
+            return false;
+        }
+    }
+
+    @Async
     public void processAllAIScoringsAsync(String taskId, List<Long> photoIds) {
         try {
             int successCount = 0;
             int failCount = 0;
             List<String> errors = new ArrayList<>();
 
-            log.info("开始强制重新评分 {} 张照片（覆盖现有评分）", photoIds.size());
+            log.info("开始更新 {} 张照片的AI评分（强制重新评分，覆盖现有评分）", photoIds.size());
 
             for (int i = 0; i < photoIds.size(); i++) {
                 Long photoId = photoIds.get(i);
 
                 try {
+                    // 检查Spring上下文是否仍然活跃
+                    if (!isApplicationContextActive()) {
+                        log.warn("Spring应用上下文已关闭，停止AI分析任务");
+                        errors.add("任务被中断：Spring应用上下文已关闭");
+                        break;
+                    }
+
                     var photo = photoRepository.findById(photoId).orElse(null);
                     if (photo != null) {
                         // 检查照片文件是否存在
                         var imageFile = new java.io.File(photo.getOriginalPath());
                         if (imageFile.exists()) {
-                            aiScoringService.rescorePhoto(photo); // 强制重新评分
+                            aiScoringService.rescorePhoto(photo); // 强制重新评分，覆盖现有评分
                             successCount++;
                         } else {
                             log.warn("照片文件不存在: {}", photo.getOriginalPath());
@@ -256,6 +280,12 @@ public class AdminController {
                         errors.add("照片 " + photoId + ": 不存在");
                     }
                 } catch (Exception e) {
+                    // 检查是否是上下文关闭相关的错误
+                    if (e.getMessage() != null && e.getMessage().contains("has been closed")) {
+                        log.warn("检测到Spring上下文关闭，停止AI分析任务");
+                        errors.add("任务被中断：Spring应用上下文已关闭");
+                        break;
+                    }
                     failCount++;
                     String errorMsg;
                     // 检查是否是ONNX配置异常
@@ -310,15 +340,15 @@ public class AdminController {
     }
 
     /**
-     * 清空所有照片的AI评分记录
+     * 清空所有照片的AI分析记录
      */
-    @PostMapping("/ai-scoring/clear-all")
-    public ResponseEntity<Map<String, Object>> clearAllAIScorings() {
+    @PostMapping("/ai-analysis/clear-all")
+    public ResponseEntity<Map<String, Object>> clearAllAIAnalyses() {
         Map<String, Object> resp = new HashMap<>();
         try {
-            log.info("开始清空所有照片的AI评分记录");
+            log.info("开始清空所有照片的AI分析记录");
 
-            // 删除所有AI评分记录
+            // 删除所有AI分析记录
             long beforeCount = aiScoringRepository.count();
             aiScoringRepository.deleteAll();
             long afterCount = aiScoringRepository.count();
@@ -340,13 +370,13 @@ public class AdminController {
     }
 
     /**
-     * 强制重新评分所有图片的AI评分（覆盖现有评分）
+     * 更新所有照片的AI分析（强制重新分析，覆盖现有分析）
      */
-    @PostMapping("/ai-scoring/update-all")
-    public ResponseEntity<Map<String, Object>> updateAllAIScorings() {
+    @PostMapping("/ai-analysis/update-all")
+    public ResponseEntity<Map<String, Object>> updateAllAIAnalyses() {
         Map<String, Object> resp = new HashMap<>();
         try {
-            log.info("开始强制重新评分所有图片（覆盖现有评分）");
+            log.info("开始更新所有照片的AI分析（强制重新分析，覆盖现有分析）");
 
             // 获取所有照片ID（分页查询，避免一次性加载所有实体）
             List<Long> photoIds = new ArrayList<>();
@@ -363,7 +393,7 @@ public class AdminController {
             } while (photoPage.hasNext());
 
             resp.put("totalPhotos", photoIds.size());
-            resp.put("message", "AI重新评分开始处理（强制覆盖现有评分）");
+            resp.put("message", "AI评分更新开始处理（强制重新评分，覆盖现有评分）");
 
             // 启动异步任务
             String taskId = UUID.randomUUID().toString();
@@ -795,19 +825,19 @@ public class AdminController {
         }
     }
 
-    // ==================== AI 评分管理接口 ====================
+    // ==================== AI 分析管理接口 ====================
 
     /**
-     * 重新评分所有图片（批量AI评分）
+     * 重新分析所有照片（批量AI分析）
      */
-    @PostMapping("/ai-scoring/rescore-all")
+    @PostMapping("/ai-analysis/rescore-all")
     public ResponseEntity<Map<String, Object>> rescoreAllPhotos() {
         Map<String, Object> resp = new HashMap<>();
         try {
-            // 启动异步任务重新评分所有图片
+            // 启动异步任务重新分析所有照片
             String taskId = UUID.randomUUID().toString();
             resp.put("taskId", taskId);
-            resp.put("message", "AI重新评分任务已启动，请通过任务状态接口查询进度");
+            resp.put("message", "AI重新分析任务已启动，请通过任务状态接口查询进度");
             resp.put("success", true);
 
             // 异步执行批量评分
@@ -1211,6 +1241,68 @@ public class AdminController {
             resp.put("success", false);
             return ResponseEntity.status(500).body(resp);
         }
+    }
+
+    /**
+     * 搜索相似照片
+     */
+    @GetMapping("/photos/{photoId}/similar")
+    public ResponseEntity<Map<String, Object>> findSimilarPhotos(
+            @PathVariable Long photoId,
+            @RequestParam(defaultValue = "10") int limit) {
+        Map<String, Object> resp = new HashMap<>();
+
+        try {
+            var similarPhotos = similarPhotoSearchService.findSimilarPhotos(photoId, limit);
+
+            List<Map<String, Object>> result = similarPhotos.stream()
+                .map(resultItem -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("photoId", resultItem.photoId);
+                    item.put("similarityScore", resultItem.similarityScore);
+                    item.put("matchReasons", resultItem.matchReasons);
+
+                    // 包含照片基本信息
+                    if (resultItem.photo != null) {
+                        Map<String, Object> photoInfo = new HashMap<>();
+                        photoInfo.put("id", resultItem.photo.getId());
+                        photoInfo.put("filename", resultItem.photo.getFilename());
+                        // 将绝对路径转换为相对路径（相对于数据目录）
+                        String thumbnailPath = resultItem.photo.getThumbnailPath();
+                        if (thumbnailPath != null && thumbnailPath.startsWith("/")) {
+                            // 移除绝对路径前缀，只保留相对于数据目录的路径
+                            String dataPhotosPath = "/data/photos";
+                            int dataIndex = thumbnailPath.indexOf(dataPhotosPath);
+                            if (dataIndex >= 0) {
+                                thumbnailPath = thumbnailPath.substring(dataIndex + dataPhotosPath.length());
+                                // 确保路径以 / 开头
+                                if (!thumbnailPath.startsWith("/")) {
+                                    thumbnailPath = "/" + thumbnailPath;
+                                }
+                            }
+                        }
+                        photoInfo.put("thumbnailPath", thumbnailPath);
+                        photoInfo.put("takenAt", resultItem.photo.getTakenAt());
+                        photoInfo.put("albumId", resultItem.photo.getAlbumId());
+                        item.put("photo", photoInfo);
+                    }
+
+                    return item;
+                })
+                .collect(Collectors.toList());
+
+            resp.put("success", true);
+            resp.put("data", result);
+            resp.put("total", result.size());
+
+        } catch (Exception e) {
+            log.error("搜索相似照片失败: {}", e.getMessage(), e);
+            resp.put("success", false);
+            resp.put("error", "搜索相似照片失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+
+        return ResponseEntity.ok(resp);
     }
 
 }
