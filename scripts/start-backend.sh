@@ -6,7 +6,7 @@ echo "========================================="
 echo "启动摄影展示平台 - 后端服务"
 echo "========================================="
 
-# 设置JAVA_HOME（macOS）
+# 设置JAVA_HOME和库路径（macOS）
 if [[ "$OSTYPE" == "darwin"* ]]; then
     if [ -z "$JAVA_HOME" ]; then
         # 尝试使用 /usr/libexec/java_home
@@ -20,7 +20,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
             elif [ -d "/opt/homebrew/opt/openjdk@11" ]; then
                 export JAVA_HOME="/opt/homebrew/opt/openjdk@11"
             elif [ -d "/opt/homebrew/opt/openjdk@17" ]; then
-                export JAVA_HOME="/opt/homebrew/opt/openjdk@17"``
+                export JAVA_HOME="/opt/homebrew/opt/openjdk@17"
             fi
         fi
     fi
@@ -40,6 +40,15 @@ if [ -n "$JAVA_HOME" ]; then
 else
     echo "⚠️  警告: JAVA_HOME未设置，Maven可能无法正常工作"
     echo "   设置方法: export JAVA_HOME=\$(/usr/libexec/java_home)"
+fi
+
+# 设置ONNX Runtime库路径（macOS）
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    if [ -d "/opt/homebrew/lib" ]; then
+        export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
+        export ORT_JAVA_NATIVE_PATH="/opt/homebrew/lib"
+        echo "✅ ONNX Runtime库路径已设置: /opt/homebrew/lib"
+    fi
 fi
 
 # 检查Maven
@@ -82,5 +91,18 @@ echo ""
 export SPRING_BOOT_WORK_DIR="$PROJECT_ROOT"
 
 # 启动SpringBoot应用
-mvn spring-boot:run
+# 添加ONNX Runtime库路径到JVM参数
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # 检查自定义ONNX库路径
+    if [ -n "$ONNX_CUSTOM_LIB_PATH" ] && [ -d "$ONNX_CUSTOM_LIB_PATH" ]; then
+        echo "✅ 使用自定义ONNX库路径: $ONNX_CUSTOM_LIB_PATH"
+        mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Djava.library.path=$ONNX_CUSTOM_LIB_PATH:/opt/homebrew/lib -Djava.awt.headless=true -Djava.io.tmpdir=/tmp -Donnx.custom.lib.path=$ONNX_CUSTOM_LIB_PATH"
+    elif [ -d "/opt/homebrew/lib" ]; then
+        mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Djava.library.path=/opt/homebrew/lib -Djava.awt.headless=true -Djava.io.tmpdir=/tmp"
+    else
+        mvn spring-boot:run
+    fi
+else
+    mvn spring-boot:run
+fi
 

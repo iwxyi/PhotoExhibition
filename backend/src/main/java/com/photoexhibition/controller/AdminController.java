@@ -3,6 +3,7 @@ package com.photoexhibition.controller;
 import com.photoexhibition.dto.AlbumDTO;
 import com.photoexhibition.dto.LoginResponse;
 import com.photoexhibition.entity.AdminUser;
+import com.photoexhibition.entity.Photo;
 import com.photoexhibition.repository.AdminUserRepository;
 import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.AuthService;
@@ -24,6 +25,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -344,10 +348,19 @@ public class AdminController {
         try {
             log.info("开始强制重新评分所有图片（覆盖现有评分）");
 
-            // 获取所有照片ID
-            List<Long> photoIds = photoRepository.findAll().stream()
-                    .map(photo -> photo.getId())
-                    .toList();
+            // 获取所有照片ID（分页查询，避免一次性加载所有实体）
+            List<Long> photoIds = new ArrayList<>();
+            int pageSize = 1000; // 每次查询1000个ID
+            int page = 0;
+            Pageable pageable;
+            Page<Photo> photoPage;
+
+            do {
+                pageable = PageRequest.of(page, pageSize);
+                photoPage = photoRepository.findAll(pageable);
+                photoPage.getContent().forEach(photo -> photoIds.add(photo.getId()));
+                page++;
+            } while (photoPage.hasNext());
 
             resp.put("totalPhotos", photoIds.size());
             resp.put("message", "AI重新评分开始处理（强制覆盖现有评分）");

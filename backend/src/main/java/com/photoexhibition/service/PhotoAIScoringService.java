@@ -71,11 +71,91 @@ public class PhotoAIScoringService implements AutoCloseable {
 
     @PostConstruct
     public void init() {
-        // 只检查配置，不初始化ONNX环境
         if (enabled) {
-            log.info("AI评分服务已启用，将在需要时初始化ONNX Runtime");
+            log.info("AI评分服务已启用，正在初始化ONNX Runtime...");
+            // 在应用启动时就尝试初始化ONNX，确保所有实例都能共享状态
+            initializeOnnxEnvironment();
         } else {
             log.info("AI评分服务已禁用");
+        }
+    }
+
+    /**
+     * 在应用启动时初始化ONNX环境，不抛出异常
+     */
+    private void initializeOnnxEnvironment() {
+        try {
+            // 尝试初始化ONNX环境一次
+            if (this.env == null) {
+                log.debug("尝试初始化ONNX Runtime环境...");
+
+                // 尝试手动提取并加载ONNX库（针对macOS ARM64）
+                tryManualLibraryLoad();
+
+                this.env = OrtEnvironment.getEnvironment();
+                this.onnxAvailable = true;
+                log.info("ONNX Runtime环境初始化成功，AI增强评分功能已启用");
+            }
+        } catch (NoClassDefFoundError e) {
+            log.error("ONNX Java类库缺失 - 无法加载ONNX Runtime类库");
+            log.error("错误详情: {}", e.getMessage());
+            log.error("解决方案: 请检查Maven依赖是否正确下载了onnxruntime JAR包");
+            this.env = null;
+            this.onnxAvailable = false;
+        } catch (UnsatisfiedLinkError e) {
+            String osArch = System.getProperty("os.arch", "unknown");
+            String osName = System.getProperty("os.name", "unknown");
+            String javaLibPath = System.getProperty("java.library.path", "unknown");
+
+            log.error("ONNX运行时库缺失 - 无法加载平台特定的二进制库");
+            log.error("错误详情: {}", e.getMessage());
+            log.error("系统信息 - OS: {}, 架构: {}", osName, osArch);
+            log.error("Java库路径: {}", javaLibPath);
+            log.error("已尝试手动加载库文件，但仍失败");
+            log.error("当前将使用基础评分模式，AI增强功能不可用");
+            this.env = null;
+            this.onnxAvailable = false;
+        } catch (Exception e) {
+            log.error("ONNX Runtime初始化异常 - 未知错误");
+            log.error("错误类型: {}", e.getClass().getSimpleName());
+            log.error("错误详情: {}", e.getMessage());
+            log.error("完整堆栈跟踪:", e);
+            log.error("当前将使用基础评分模式，AI增强功能不可用");
+            this.env = null;
+            this.onnxAvailable = false;
+        }
+    }
+
+    /**
+     * 手动尝试加载ONNX库（针对macOS ARM64的特殊处理）
+     */
+    private void tryManualLibraryLoad() {
+        try {
+            String osName = System.getProperty("os.name", "").toLowerCase();
+            String osArch = System.getProperty("os.arch", "");
+
+            if (osName.contains("mac") && "aarch64".equals(osArch)) {
+                log.debug("检测到macOS ARM64，尝试手动加载ONNX库...");
+
+                // 尝试加载系统级ONNX库（如果已编译安装）
+                String customLibPath = System.getProperty("onnx.custom.lib.path");
+                if (customLibPath != null && !customLibPath.isEmpty()) {
+                    log.debug("使用自定义ONNX库路径: {}", customLibPath);
+                    System.load(customLibPath + "/libonnxruntime.dylib");
+                    log.debug("成功加载自定义ONNX库");
+                    return;
+                }
+
+                // 尝试从JAR文件中提取库
+                String libraryName = "onnxruntime4j_jni";
+                String resourcePath = "ai/onnxruntime/native/osx-aarch64/lib" + libraryName + ".dylib";
+
+                // 使用ONNX Runtime的内置方法加载
+                System.loadLibrary(libraryName);
+                log.debug("成功加载ONNX库: {}", libraryName);
+            }
+        } catch (Exception e) {
+            log.debug("手动库加载失败，继续使用自动加载: {}", e.getMessage());
         }
     }
 
@@ -87,41 +167,14 @@ public class PhotoAIScoringService implements AutoCloseable {
         if (!enabled) {
             throw new OnnxConfigurationException("AI评分功能已禁用，请在配置文件中启用ai.scoring.enabled=true");
         }
-        if (onnxAvailable) return true;
-
-        try {
-            // 直接尝试初始化ONNX环境（像其他AI服务一样）
-            if (this.env == null) {
-                log.debug("正在初始化ONNX Runtime环境...");
-                this.env = OrtEnvironment.getEnvironment();
-                this.onnxAvailable = true;
-                log.info("ONNX Runtime环境初始化成功");
-                return true;
-            }
-        } catch (NoClassDefFoundError e) {
-            log.warn("ONNX Java类库缺失，使用降级评分模式: {}", e.getMessage());
-            this.env = null;
-            this.onnxAvailable = false;
-
-            log.info("AI评分将使用基础规则评分（无AI增强），性能和准确性会降低");
-            return false;
-        } catch (UnsatisfiedLinkError e) {
-            log.warn("ONNX运行时库缺失，使用降级评分模式: {}", e.getMessage());
-            this.env = null;
-            this.onnxAvailable = false;
-
-            log.info("AI评分将使用基础规则评分（无AI增强），性能和准确性会降低");
-            return false;
-        } catch (Exception e) {
-            log.warn("ONNX Runtime初始化失败，使用降级评分模式: {}", e.getMessage());
-            this.env = null;
-            this.onnxAvailable = false;
-
-            log.info("AI评分将使用基础规则评分（无AI增强），性能和准确性会降低");
-            return false;
+        // 如果已经初始化过，直接返回状态
+        if (this.env != null || onnxAvailable) {
+            return onnxAvailable;
         }
 
-        return onnxAvailable;
+        // 如果还没有初始化过，说明在@PostConstruct中初始化失败了
+        log.debug("ONNX环境未初始化，将使用基础评分模式（已在应用启动时记录了详细错误信息）");
+        return false;
     }
 
     @PreDestroy
