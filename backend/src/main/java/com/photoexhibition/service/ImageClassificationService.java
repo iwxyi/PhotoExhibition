@@ -135,7 +135,13 @@ public class ImageClassificationService implements AutoCloseable {
                 return;
             }
 
+            // 延迟初始化ONNX环境
+            try {
             env = OrtEnvironment.getEnvironment();
+            } catch (Exception e) {
+                log.warn("ONNX Runtime初始化失败，图像分类功能将被禁用。错误: {}", e.getMessage());
+                return;
+            }
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
             // 可以根据需要设置线程数等选项
             session = env.createSession(modelPath, opts);

@@ -42,6 +42,15 @@ public class PhotoDTO {
     private Integer viewCount;
     private Integer likeCount;
     private Boolean isFeatured;
+
+    // AI评分相关字段
+    private Double aiOverallScore; // AI综合评分
+    private Double aiTechnicalScore; // AI技术评分
+    private Double aiCompositionScore; // AI构图评分
+    private Double aiAppealScore; // AI吸引力评分
+    private List<String> aiStrengths; // AI分析优点
+    private List<String> aiWeaknesses; // AI分析不足
+    private List<String> aiSuggestions; // AI改进建议
     private List<TagDTO> tags;
     // 如果图片被指派给某个人物（非人脸关联），在此记录
     private Long assignedPersonId;

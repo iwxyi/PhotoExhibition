@@ -54,6 +54,15 @@ export interface Photo {
   likeCount: number
   isFeatured: boolean
   dominantColor?: string
+
+  // AI评分相关字段
+  aiOverallScore?: number // AI综合评分
+  aiTechnicalScore?: number // AI技术评分
+  aiCompositionScore?: number // AI构图评分
+  aiAppealScore?: number // AI吸引力评分
+  aiStrengths?: string[] // AI分析优点
+  aiWeaknesses?: string[] // AI分析不足
+  aiSuggestions?: string[] // AI改进建议
   tags?: Tag[]
   faces?: FaceFace[]
   createdAt: string

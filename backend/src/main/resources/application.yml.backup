@@ -87,8 +87,8 @@ logging:
   pattern:
     console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
   
-  # Redis配置（可选，如果没有Redis服务会自动禁用）
-  # 如果Redis不可用，应用会使用内存缓存
+  # Redis配置（如果Redis服务不可用，应用会自动使用内存缓存）
+  # 如需禁用Redis，将host设置为"disabled"
   redis:
     host: disabled  # 设置为disabled以使用内存缓存
     port: 6379
@@ -210,11 +210,10 @@ smart-tag:
       input-size: 1024  # 模型输入尺寸，RMBG-1.4使用1024x1024，U²-Net Lite使用320x320
 
 # AI图片评分配置
-# AI图片评分配置
 ai:
   scoring:
-    enabled: true  # 启用AI评分功能
-    version: 1.0
-    technical-weight: 0.40
-    composition-weight: 0.35
-    appeal-weight: 0.25
+    enabled: true  # 是否启用AI评分功能
+    version: 1.0  # 评分算法版本
+    technical-weight: 0.40  # 技术质量权重
+    composition-weight: 0.35  # 构图美学权重
+    appeal-weight: 0.25  # 主题吸引力权重

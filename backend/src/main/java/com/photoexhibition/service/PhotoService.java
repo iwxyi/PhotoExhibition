@@ -11,6 +11,7 @@ import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.FaceRepository;
+import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
@@ -45,6 +46,7 @@ public class PhotoService {
     private final PhotoRepository photoRepository;
     private final FaceRepository faceRepository;
     private final AlbumRepository albumRepository;
+    private final PhotoAIScoringRepository aiScoringRepository;
     private final FilterOptionService filterOptionService;
     private final ObjectMapper objectMapper;
     private final SystemConfigService systemConfigService;
@@ -546,6 +548,53 @@ public class PhotoService {
                 } catch (Exception e) {
                     log.warn("Failed to load person name for photo assignment: {}", e.getMessage());
                 }
+            }
+        }
+
+        // 设置AI评分信息
+        if (photo.getId() != null) {
+            try {
+                java.util.Optional<com.photoexhibition.entity.PhotoAIScoring> aiScoringOpt = aiScoringRepository.findByPhotoId(photo.getId());
+                if (aiScoringOpt.isPresent()) {
+                    com.photoexhibition.entity.PhotoAIScoring aiScoring = aiScoringOpt.get();
+                    dto.setAiOverallScore(aiScoring.getOverallScore());
+                    dto.setAiTechnicalScore(aiScoring.getTechnicalScore());
+                    dto.setAiCompositionScore(aiScoring.getCompositionScore());
+                    dto.setAiAppealScore(aiScoring.getAppealScore());
+
+                    // 解析优点和不足
+                    if (aiScoring.getStrengths() != null) {
+                        try {
+                            List<String> strengths = objectMapper.readValue(aiScoring.getStrengths(),
+                                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                            dto.setAiStrengths(strengths);
+                        } catch (Exception e) {
+                            log.warn("Failed to parse AI strengths: {}", e.getMessage());
+                        }
+                    }
+
+                    if (aiScoring.getWeaknesses() != null) {
+                        try {
+                            List<String> weaknesses = objectMapper.readValue(aiScoring.getWeaknesses(),
+                                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                            dto.setAiWeaknesses(weaknesses);
+                        } catch (Exception e) {
+                            log.warn("Failed to parse AI weaknesses: {}", e.getMessage());
+                        }
+                    }
+
+                    if (aiScoring.getImprovementSuggestions() != null) {
+                        try {
+                            List<String> suggestions = objectMapper.readValue(aiScoring.getImprovementSuggestions(),
+                                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                            dto.setAiSuggestions(suggestions);
+                        } catch (Exception e) {
+                            log.warn("Failed to parse AI suggestions: {}", e.getMessage());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to load AI scoring for photo {}: {}", photo.getId(), e.getMessage());
             }
         }
 

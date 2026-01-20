@@ -127,6 +127,7 @@ public class PhotoScanService {
     private final AtmosphereEffectsService atmosphereEffectsService;
     private final SystemConfigService systemConfigService;
     private final FilterOptionService filterOptionService;
+    private final PhotoAIScoringService aiScoringService;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -153,6 +154,7 @@ public class PhotoScanService {
                            AtmosphereEffectsService atmosphereEffectsService,
                            SystemConfigService systemConfigService,
                            FilterOptionService filterOptionService,
+                           PhotoAIScoringService aiScoringService,
                            ObjectMapper objectMapper) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
@@ -166,6 +168,7 @@ public class PhotoScanService {
         this.atmosphereEffectsService = atmosphereEffectsService;
         this.systemConfigService = systemConfigService;
         this.filterOptionService = filterOptionService;
+        this.aiScoringService = aiScoringService;
         this.objectMapper = objectMapper;
     }
     
@@ -1571,8 +1574,23 @@ public class PhotoScanService {
                 }
             }
 
-            // 步骤9: 完成处理
-            if (photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE) {
+            // 步骤9: AI评分
+            if (photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE ||
+                photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE || needsReprocessing) {
+                try {
+                    aiScoringService.scorePhoto(photo);
+                    photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE);
+                    photoRepository.save(photo);
+                } catch (Exception e) {
+                    // AI评分失败不应该阻止图片完成处理，只是记录警告
+                    log.warn("AI评分失败，但继续处理: {}", e.getMessage());
+                    photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE); // 仍标记为完成，避免重复尝试
+                    photoRepository.save(photo);
+                }
+            }
+
+            // 步骤10: 完成处理
+            if (photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE) {
                 photo.setProcessingStatus(ProcessingStatus.COMPLETED);
                 photoRepository.save(photo);
             }

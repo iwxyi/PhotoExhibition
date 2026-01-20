@@ -170,13 +170,60 @@
         >
           <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <span class="text-sm font-semibold">信息</span>
-            <button class="text-xs opacity-70 hover:opacity-100 transition-opacity" @click="toggleInfoTransparency">
-              {{ infoTransparent ? '不透明' : '透明' }}
-            </button>
+            <div class="flex items-center gap-2">
+              <!-- 人脸框切换按钮 -->
+              <button
+                v-if="currentPhoto?.faces?.length"
+                class="p-1.5 hover:bg-white/10 rounded transition-colors"
+                :class="showFaceBoxes ? 'text-blue-400' : 'text-gray-400'"
+                @click="toggleFaceBoxes"
+                :title="showFaceBoxes ? '隐藏人脸框' : '显示人脸框'"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </button>
+
+              <!-- 聚焦框切换按钮 -->
+              <button
+                v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined"
+                class="p-1.5 hover:bg-white/10 rounded transition-colors"
+                :class="showFocusBox ? 'text-yellow-400' : 'text-gray-400'"
+                @click="toggleFocusBox"
+                :title="showFocusBox ? '隐藏聚焦框' : '显示聚焦框'"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
+                </svg>
+              </button>
+
+              <!-- 透明度切换按钮 -->
+              <button class="p-1.5 hover:bg-white/10 rounded transition-colors" @click="toggleInfoTransparency" :title="infoTransparent ? '切换到不透明' : '切换到透明'">
+                <svg v-if="infoTransparent" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="flex-1 overflow-auto px-4 py-3 space-y-3 text-xs leading-relaxed">
             <!-- 基本信息 -->
-            <div><span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}</div>
+            <div>
+              <span class="opacity-60">文件名：</span>{{ currentPhoto?.filename }}
+              <span v-if="currentPhoto?.takenAt" class="opacity-60 ml-4 cursor-pointer hover:opacity-100 transition-opacity" @click="filterByTakenAt">
+                {{ formatDate(currentPhoto.takenAt) }}
+              </span>
+            </div>
+            <div v-if="(currentPhoto?.width && currentPhoto?.height) || currentPhoto?.fileSize">
+              <span class="opacity-60">文件尺寸：</span>
+              <span v-if="currentPhoto?.width && currentPhoto?.height">{{ currentPhoto.width }} × {{ currentPhoto.height }}</span>
+              <span v-if="currentPhoto?.fileSize && (currentPhoto?.width && currentPhoto?.height)" class="ml-4">{{ formatFileSize(currentPhoto.fileSize) }}</span>
+              <span v-else-if="currentPhoto?.fileSize">{{ formatFileSize(currentPhoto.fileSize) }}</span>
+            </div>
             <div v-if="currentAlbumPath">
               <span class="opacity-60">路径：</span>
               <span
@@ -185,12 +232,6 @@
                 @click="openAlbum"
               >
                 {{ currentAlbumPath }}
-              </span>
-            </div>
-            <div v-if="currentPhoto?.takenAt">
-              <span class="opacity-60">拍摄时间：</span>
-              <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByTakenAt">
-                {{ formatDate(currentPhoto.takenAt) }}
               </span>
             </div>
 
@@ -213,13 +254,13 @@
               <div v-if="currentPhoto?.focalLength">
                 <span class="opacity-60">焦距：</span>
                 <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByFocalLength">
-                  {{ currentPhoto.focalLength }}
+                  {{ currentPhoto.focalLength }}mm
                 </span>
               </div>
               <div v-if="currentPhoto?.aperture">
                 <span class="opacity-60">光圈：</span>
                 <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByAperture">
-                  {{ currentPhoto.aperture }}
+                  f/{{ currentPhoto.aperture }}
                 </span>
               </div>
 
@@ -236,50 +277,15 @@
                 </span>
               </div>
 
-              <div v-if="currentPhoto?.width && currentPhoto?.height">
-                <span class="opacity-60">尺寸：</span>{{ currentPhoto.width }} × {{ currentPhoto.height }}
-              </div>
-              <div v-if="currentPhoto?.format">
-                <span class="opacity-60">格式：</span>{{ currentPhoto.format }}
+
               </div>
 
-              <div v-if="currentPhoto?.fileSize">
-                <span class="opacity-60">文件大小：</span>{{ formatFileSize(currentPhoto.fileSize) }}
-              </div>
-              <div v-if="currentPhoto?.qualityScore">
-                <span class="opacity-60">质量评分：</span>{{ currentPhoto.qualityScore?.toFixed(1) }}
-              </div>
-              </div>
 
-            <!-- 聚焦信息 -->
-            <div v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined">
-              <span class="opacity-60">聚焦位置：</span>
-              <span class="inline-flex items-center gap-2">
-                X: {{ currentPhoto.focusX.toFixed(1) }}%, Y: {{ currentPhoto.focusY.toFixed(1) }}%
-                <button
-                  class="text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded transition-colors"
-                  @click="toggleFocusBox"
-                >
-                  {{ showFocusBox ? '隐藏框' : '显示框' }}
-                </button>
-              </span>
-            </div>
-
-            <!-- 人脸框控制 -->
-            <div v-if="currentPhoto?.faces?.length">
-              <span class="opacity-60">人脸框：</span>
-              <button
-                class="ml-2 text-xs px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded transition-colors"
-                @click="toggleFaceBoxes"
-              >
-                {{ showFaceBoxes ? '隐藏' : '显示' }}
-              </button>
-            </div>
 
             <!-- 标签 -->
             <div v-if="currentPhoto?.tags?.length">
               <span class="opacity-60">标签：</span>
-              <span class="inline-flex flex-wrap gap-2 mt-2">
+              <span class="inline-flex flex-wrap gap-2 ml-1">
                 <span
                   v-for="t in currentPhoto.tags.slice(0, 8)"
                   :key="t.id"
@@ -322,19 +328,100 @@
             <!-- 调色板 -->
             <div v-if="currentPhoto?.colorPalette?.length">
               <span class="opacity-60">调色板：</span>
-              <div class="mt-2 flex flex-wrap gap-1">
-                <span class="font-mono text-xs mr-2 self-center">{{ displayedColor }}</span>
-              <span
+              <span class="inline-flex items-center gap-2 ml-1">
+                <span
                   v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 8)"
-                :key="idx"
+                  :key="idx"
                   class="inline-block w-4 h-4 rounded border border-white/10 cursor-pointer hover:border-white/30 hover:scale-110 transition-all duration-150"
-                :style="{ backgroundColor: color }"
-                :title="getColorTooltip(color)"
-                @mouseenter="displayedColor = getColorHex(color)"
-                @click="copyColorToClipboard(color)"
-              ></span>
+                  :style="{ backgroundColor: color }"
+                  :title="getColorTooltip(color)"
+                  @mouseenter="displayedColor = getColorHex(color)"
+                  @click="copyColorToClipboard(color)"
+                ></span>
+                <span class="font-mono text-xs ml-2">{{ displayedColor }}</span>
+              </span>
             </div>
+
+            <!-- AI评分信息（卡片容器，增加层次感） -->
+            <div v-if="currentPhoto?.aiOverallScore" class="mt-4 pt-3 border-t border-white/10">
+              <div class="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-lg p-3 border border-yellow-500/20">
+                <div class="flex items-center justify-between mb-3">
+                  <span class="text-sm font-medium text-yellow-400">🤖 AI 智能评分</span>
+                  <span class="text-xl font-bold text-yellow-400">{{ currentPhoto.aiOverallScore.toFixed(1) }}</span>
+                </div>
+
+                <!-- 分维度评分 -->
+                <div class="grid grid-cols-3 gap-3 text-xs mb-3">
+                  <div v-if="currentPhoto.aiTechnicalScore" class="text-center bg-white/5 rounded px-2 py-1">
+                    <div class="opacity-70 text-[10px] uppercase tracking-wide">技术</div>
+                    <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiTechnicalScore) }}</div>
                   </div>
+                  <div v-if="currentPhoto.aiCompositionScore" class="text-center bg-white/5 rounded px-2 py-1">
+                    <div class="opacity-70 text-[10px] uppercase tracking-wide">构图</div>
+                    <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiCompositionScore) }}</div>
+                  </div>
+                  <div v-if="currentPhoto.aiAppealScore" class="text-center bg-white/5 rounded px-2 py-1">
+                    <div class="opacity-70 text-[10px] uppercase tracking-wide">吸引力</div>
+                    <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiAppealScore) }}</div>
+                  </div>
+                </div>
+
+                <!-- 优点和不足详情 -->
+                <div v-if="(currentPhoto?.aiStrengths?.length || currentPhoto?.aiWeaknesses?.length)" class="space-y-2">
+                  <!-- 优点 -->
+                  <div v-if="currentPhoto?.aiStrengths?.length" class="space-y-1">
+                    <div class="flex items-center gap-2 text-xs">
+                      <span class="text-green-400">✓</span>
+                      <span class="text-green-300 font-medium">优点</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                      <div class="flex gap-2 pb-1">
+                        <span
+                          v-for="strength in currentPhoto.aiStrengths"
+                          :key="strength"
+                          class="inline-flex items-center gap-1 text-xs px-3 py-1 bg-green-500/20 text-green-200 rounded-full whitespace-nowrap flex-shrink-0"
+                        >
+                          {{ strength }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 不足 -->
+                  <div v-if="currentPhoto?.aiWeaknesses?.length" class="space-y-1">
+                    <div class="flex items-center gap-2 text-xs">
+                      <span class="text-orange-400">⚠</span>
+                      <span class="text-orange-300 font-medium">不足</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                      <div class="flex gap-2 pb-1">
+                        <span
+                          v-for="weakness in currentPhoto.aiWeaknesses"
+                          :key="weakness"
+                          class="inline-flex items-center gap-1 text-xs px-3 py-1 bg-orange-500/20 text-orange-200 rounded-full whitespace-nowrap flex-shrink-0"
+                        >
+                          {{ weakness }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 改进建议 -->
+                  <div v-if="currentPhoto?.aiImprovementSuggestions?.length" class="mt-2 pt-2 border-t border-white/10">
+                    <div class="flex items-center gap-2 text-xs mb-1">
+                      <span class="text-blue-400">💡</span>
+                      <span class="text-blue-300 font-medium">改进建议</span>
+                    </div>
+                    <div class="text-xs text-blue-200/80 leading-relaxed">
+                      {{ currentPhoto.aiImprovementSuggestions.slice(0, 2).join('；') }}
+                      <span v-if="currentPhoto.aiImprovementSuggestions.length > 2" class="opacity-60">
+                        ... 等{{ currentPhoto.aiImprovementSuggestions.length }}条建议
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
                 </div>
               </div>
       </transition>

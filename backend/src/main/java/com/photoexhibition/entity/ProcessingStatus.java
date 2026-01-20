@@ -11,6 +11,7 @@ public enum ProcessingStatus {
     FACES_DONE("faces_done", "人脸检测完成"),
     SUBJECT_DONE("subject_done", "主体检测完成"),
     TAGS_DONE("tags_done", "标签完成"),
+    AI_SCORING_DONE("ai_scoring_done", "AI评分完成"),
     COMPLETED("completed", "完全完成"),
     FAILED("failed", "处理失败");
 
@@ -50,7 +51,8 @@ public enum ProcessingStatus {
             case ANALYSIS_DONE: return FACES_DONE;
             case FACES_DONE: return SUBJECT_DONE;
             case SUBJECT_DONE: return TAGS_DONE;
-            case TAGS_DONE: return COMPLETED;
+            case TAGS_DONE: return AI_SCORING_DONE;
+            case AI_SCORING_DONE: return COMPLETED;
             case COMPLETED: return COMPLETED;
             case FAILED: return FAILED;
             default: return PENDING;

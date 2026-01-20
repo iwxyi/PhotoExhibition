@@ -72,6 +72,14 @@
               <div v-if="photo.qualityScore" class="mt-2 flex items-center gap-2">
                 <span class="text-xs opacity-75">质量评分: {{ photo.qualityScore.toFixed(1) }}</span>
               </div>
+              <div v-if="photo.aiOverallScore" class="mt-1 flex items-center gap-2">
+                <span class="text-xs opacity-75">AI评分: {{ photo.aiOverallScore.toFixed(1) }}</span>
+                <div class="flex gap-1">
+                  <span v-if="photo.aiTechnicalScore" class="text-xs opacity-60">技{{ photo.aiTechnicalScore.toFixed(0) }}</span>
+                  <span v-if="photo.aiCompositionScore" class="text-xs opacity-60">构{{ photo.aiCompositionScore.toFixed(0) }}</span>
+                  <span v-if="photo.aiAppealScore" class="text-xs opacity-60">吸{{ photo.aiAppealScore.toFixed(0) }}</span>
+                </div>
+              </div>
             </div>
           </div>
           <!-- 点赞覆盖层 -->

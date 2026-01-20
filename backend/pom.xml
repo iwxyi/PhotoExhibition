@@ -23,6 +23,8 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- ONNX Runtime classifier for platform detection -->
+        <onnx.classifier></onnx.classifier>
     </properties>
 
     <dependencies>
@@ -113,6 +115,7 @@
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
             <version>1.8.1</version>
+            <classifier>${onnx.classifier}</classifier>
         </dependency>
 
         <!-- Jackson JSR310支持（Java 8时间类型） -->
@@ -207,7 +210,18 @@
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
-            <!-- 不需要重新定义依赖，使用默认的 -->
+            <properties>
+                <!-- ONNX Runtime 1.8.1 platform classifiers -->
+                <onnx.classifier.osx-x86_64>osx-x86_64</onnx.classifier.osx-x86_64>
+                <onnx.classifier.osx-arm64>osx-arm64</onnx.classifier.osx-arm64>
+                <onnx.classifier.linux-x86_64>linux-x86_64</onnx.classifier.linux-x86_64>
+                <onnx.classifier.linux-aarch64>linux-aarch64</onnx.classifier.linux-aarch64>
+                <onnx.classifier.windows-x86_64>win-x64</onnx.classifier.windows-x86_64>
+
+                <!-- 自动选择适合当前系统的classifier -->
+                <!-- ONNX 1.8.1可能没有osx-arm64，尝试通用版本 -->
+                <onnx.classifier></onnx.classifier>
+            </properties>
         </profile>
 
         <!-- 强制CPU版本（生产环境推荐） -->
@@ -221,6 +235,18 @@
                     <!-- <version>1.16.3</version> -->
                     <version>1.8.1</version>
                     <!-- 不指定classifier，自动选择CPU版本 -->
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <!-- 新版本（更好的性能，需测试兼容性） -->
+        <profile>
+            <id>latest</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime</artifactId>
+                    <version>1.16.3</version>
                 </dependency>
             </dependencies>
         </profile>

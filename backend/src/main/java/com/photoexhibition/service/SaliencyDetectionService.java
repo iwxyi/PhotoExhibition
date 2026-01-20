@@ -286,7 +286,13 @@ public class SaliencyDetectionService implements AutoCloseable {
                 return;
             }
 
-            env = OrtEnvironment.getEnvironment();
+            // 延迟初始化ONNX环境
+            try {
+                env = OrtEnvironment.getEnvironment();
+            } catch (Exception e) {
+                log.warn("ONNX Runtime初始化失败，显著性检测功能将被禁用。错误: {}", e.getMessage());
+                return;
+            }
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
             session = env.createSession(modelPath, opts);
 

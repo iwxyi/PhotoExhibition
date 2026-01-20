@@ -197,6 +197,9 @@ public class Photo {
     @JsonIgnore
     private List<Face> faces;
 
+    @OneToOne(mappedBy = "photo", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private PhotoAIScoring aiScoring;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
