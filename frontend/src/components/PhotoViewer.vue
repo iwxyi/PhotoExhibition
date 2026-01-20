@@ -69,26 +69,47 @@
 
       <!-- 主要图片显示区域 -->
       <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0 overflow-hidden">
-        <div class="relative max-w-full max-h-full flex items-center justify-center">
+        <div class="relative w-full h-full flex items-center justify-center">
+              <div class="relative w-full h-full flex items-center justify-center">
               <img
                 v-if="currentPhoto"
-            ref="mainImage"
+              ref="mainImage"
                 :src="getImageUrl(currentPhoto)"
                 :alt="currentPhoto.filename"
-            class="max-w-full max-h-full object-contain select-none cursor-grab active:cursor-grabbing"
-            :style="{
-              transform: `scale(${scale}) translate(${translateX}px, ${translateY}px) translateX(${imageDragOffset.value * 0.3}px)`,
-              transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
-              opacity: imageLoaded ? 1 : 0.3
-            }"
+              class="max-w-full max-h-full object-contain select-none cursor-grab active:cursor-grabbing"
+              :style="{
+                transform: `scale(${scale}) translate(${translateX}px, ${translateY}px) translateX(${imageDragOffset.value * 0.3}px)`,
+                transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
+                opacity: (imageLoaded || !isInitialLoad) ? 1 : 0.3
+              }"
                 @load="onImageLoad"
-            @error="onImageError"
-            @dblclick="onImageDoubleClick"
-            @mousedown="onImageMouseDown"
-            @mousemove="onImageMouseMove"
-            @mouseup="onImageMouseUp"
-            @mouseleave="onImageMouseUp"
-              />
+              @error="onImageError"
+              @dblclick="onImageDoubleClick"
+              @mousedown="onImageMouseDown"
+              @mousemove="onImageMouseMove"
+              @mouseup="onImageMouseUp"
+              @mouseleave="onImageMouseUp"
+                />
+
+                <!-- 人脸框 - 相对于图片定位 -->
+              <div
+                v-for="box in faceBoxes"
+                :key="box.id"
+                  class="absolute pointer-events-none z-20"
+                :style="box.style"
+              >
+                <div
+                  class="absolute inset-0 border-2 rounded-sm shadow-lg"
+                  :class="box.confirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
+                ></div>
+                <div
+                    class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
+                    :class="box.confirmed ? 'text-green-400 bg-black/80' : 'text-amber-200 bg-black/80'"
+                >
+                  {{ box.label }}
+                </div>
+              </div>
+              </div>
 
           <!-- 拖拽切换指示器 -->
           <div
@@ -141,24 +162,6 @@
                 </div>
               </div>
 
-        <!-- 人脸框 -->
-              <div
-                v-for="box in faceBoxes"
-                :key="box.id"
-          class="absolute pointer-events-none z-20"
-                :style="box.style"
-              >
-                <div
-                  class="absolute inset-0 border-2 rounded-sm shadow-lg"
-                  :class="box.confirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
-                ></div>
-                <div
-            class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
-            :class="box.confirmed ? 'bg-green-500/90 text-white' : 'bg-amber-500/90 text-white'"
-                >
-                  {{ box.label }}
-              </div>
-            </div>
           </div>
 
         <!-- 信息侧栏 -->
@@ -207,8 +210,8 @@
                 <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
                 </svg>
-              </button>
-            </div>
+            </button>
+          </div>
           </div>
           <div class="flex-1 overflow-auto px-4 py-3 space-y-3 text-xs leading-relaxed">
             <!-- 基本信息 -->
@@ -242,19 +245,19 @@
               </span>
             </div>
 
-              <!-- 相机和镜头信息 -->
-              <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
+            <!-- 相机和镜头信息 -->
+            <div v-if="currentPhoto?.cameraMake || currentPhoto?.cameraModel">
               <span class="opacity-60">相机：</span>
               <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByCamera">
                 {{ currentPhoto.cameraMake ? currentPhoto.cameraMake + ' ' : '' }}{{ currentPhoto.cameraModel }}
               </span>
-              </div>
+            </div>
             <div v-if="currentPhoto?.lensModel">
               <span class="opacity-60">镜头：</span>
               <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByLens">
                 {{ currentPhoto.lensModel }}
               </span>
-              </div>
+            </div>
 
             <!-- 参数网格布局 -->
             <div class="grid grid-cols-2 gap-3">
@@ -275,8 +278,8 @@
                 <span class="opacity-60">快门：</span>
                 <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByShutterSpeed">
                   {{ currentPhoto.shutterSpeed }}
-                  </span>
-                </div>
+                </span>
+              </div>
               <div v-if="currentPhoto?.iso">
                 <span class="opacity-60">ISO：</span>
                 <span class="cursor-pointer hover:opacity-100 transition-opacity" @click="filterByIso">
@@ -290,47 +293,47 @@
 
 
             <!-- 标签 -->
-              <div v-if="currentPhoto?.tags?.length">
-                <span class="opacity-60">标签：</span>
+            <div v-if="currentPhoto?.tags?.length">
+              <span class="opacity-60">标签：</span>
               <span class="inline-flex flex-wrap gap-2 ml-1">
-                  <span
-                    v-for="t in currentPhoto.tags.slice(0, 8)"
-                    :key="t.id"
+                <span
+                  v-for="t in currentPhoto.tags.slice(0, 8)"
+                  :key="t.id"
                   class="px-2 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20 transition-colors"
-                    @click.stop="openTag(t)"
-                  >
-                    {{ t.name }}
-                  </span>
+                  @click.stop="openTag(t)"
+                >
+                  {{ t.name }}
                 </span>
-              </div>
+              </span>
+            </div>
 
-            <!-- 人脸列表 -->
-              <div v-if="currentPhoto?.faces?.length">
-                <span class="opacity-60">人脸列表：</span>
-              <div class="mt-2 grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
-                  <div
+            <!-- 人物列表 -->
+            <div v-if="currentPhoto?.faces?.length">
+              <span class="opacity-60">人物列表：</span>
+              <div class="mt-2 flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                <div
                   v-for="(f, idx) in visibleFaceList"
-                    :key="f.id || idx"
-                  class="flex items-center gap-3 p-2 rounded transition-colors"
+                  :key="f.id || idx"
+                  class="flex items-center gap-2 p-2 rounded transition-colors min-w-0 flex-shrink-0"
                   :class="f.isConfirmed && f.personId && f.personName ? 'cursor-pointer hover:bg-white/10' : ''"
                   @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : null"
-                  >
-                    <div
+                >
+                  <div
                     class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 border border-white/10 overflow-hidden"
-                      :style="getFaceAvatarStyle(f)"
-                      :title="getFaceTooltip(f)"
-                    ></div>
+                    :style="getFaceAvatarStyle(f)"
+                    :title="getFaceTooltip(f)"
+                  ></div>
                   <div class="text-xs flex-1 min-w-0">
                     <div class="font-semibold truncate" :class="f.isConfirmed ? 'text-green-300' : 'text-amber-200'">
-                        {{ f.personName || '未命名' }}
-                      </div>
-                      <div class="text-[11px] text-gray-400 truncate">
-                        置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
-                      </div>
+                      {{ f.personName || '未命名' }}
+                    </div>
+                    <div class="text-[11px] text-gray-400 truncate">
+                      置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
             <!-- AI增强分析 -->
             <!-- 场景分类 -->
@@ -360,22 +363,22 @@
             </div>
 
 
-              <!-- 调色板 -->
-              <div v-if="currentPhoto?.colorPalette?.length">
-                <span class="opacity-60">调色板：</span>
+            <!-- 调色板 -->
+            <div v-if="currentPhoto?.colorPalette?.length">
+              <span class="opacity-60">调色板：</span>
               <span class="inline-flex items-center gap-2 ml-1">
-                  <span
+              <span
                   v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 8)"
-                    :key="idx"
+                :key="idx"
                   class="inline-block w-4 h-4 rounded border border-white/10 cursor-pointer hover:border-white/30 hover:scale-110 transition-all duration-150"
-                    :style="{ backgroundColor: color }"
-                  :title="getColorTooltip(color)"
-                  @mouseenter="displayedColor = getColorHex(color)"
-                  @click="copyColorToClipboard(color)"
-                  ></span>
+                :style="{ backgroundColor: color }"
+                :title="getColorTooltip(color)"
+                @mouseenter="displayedColor = getColorHex(color)"
+                @click="copyColorToClipboard(color)"
+              ></span>
                 <span class="font-mono text-xs ml-2">{{ displayedColor }}</span>
               </span>
-                </div>
+            </div>
 
             <!-- AI评分信息（卡片容器，增加层次感） -->
             <div v-if="currentPhoto?.aiOverallScore" class="mt-4 pt-3 border-t border-white/10">
@@ -390,16 +393,16 @@
                   <div v-if="currentPhoto.aiTechnicalScore" class="text-center bg-white/5 rounded px-2 py-1">
                     <div class="opacity-70 text-[10px] uppercase tracking-wide">技术</div>
                     <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiTechnicalScore) }}</div>
-            </div>
+                  </div>
                   <div v-if="currentPhoto.aiCompositionScore" class="text-center bg-white/5 rounded px-2 py-1">
                     <div class="opacity-70 text-[10px] uppercase tracking-wide">构图</div>
                     <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiCompositionScore) }}</div>
-                  </div>
+                </div>
                   <div v-if="currentPhoto.aiAppealScore" class="text-center bg-white/5 rounded px-2 py-1">
                     <div class="opacity-70 text-[10px] uppercase tracking-wide">吸引力</div>
                     <div class="font-semibold text-sm">{{ Math.round(currentPhoto.aiAppealScore) }}</div>
-          </div>
-        </div>
+              </div>
+            </div>
 
                 <!-- 优点和不足详情 -->
                 <div v-if="(currentPhoto?.aiStrengths?.length || currentPhoto?.aiWeaknesses?.length)" class="space-y-2">
@@ -419,8 +422,8 @@
                           {{ strength }}
                         </span>
                       </div>
-                    </div>
-      </div>
+          </div>
+        </div>
 
                   <!-- 不足 -->
                   <div v-if="currentPhoto?.aiWeaknesses?.length" class="space-y-1">
@@ -439,7 +442,7 @@
                         </span>
                       </div>
                     </div>
-                  </div>
+      </div>
 
                   <!-- 改进建议 -->
                   <div v-if="currentPhoto?.aiImprovementSuggestions?.length" class="mt-2 pt-2 border-t border-white/10">
@@ -603,7 +606,7 @@ const emit = defineEmits<{
 }>()
 
 // 核心状态
-const currentIndex = ref(0)
+const currentIndex = ref(props.startIndex ?? 0)
 const infoCollapsed = ref(true)
 const infoTransparent = ref(false)
 const modalRoot = ref<HTMLElement | null>(null)
@@ -617,6 +620,7 @@ const mainImage = ref<HTMLImageElement | null>(null)
 const imageContainer = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
+const isInitialLoad = ref(true) // 标记是否为初始加载
 const scale = ref(1)
 const translateX = ref(0)
 const translateY = ref(0)
@@ -669,31 +673,110 @@ const THUMB_KEY = 'pe-thumb-height'
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
 const thumbSize = computed(() => Math.max(24, clampThumbHeight(thumbHeight.value - 24)))
 
-// 人脸框
-const faceBoxes = computed(() => {
-  if (!showFaceBoxes.value || !currentPhoto.value?.faces?.length) return []
+// 人脸框数据
+const faceBoxesData = ref<any[]>([])
 
-  return currentPhoto.value.faces
+// 人脸框计算函数
+const calculateFaceBoxes = () => {
+  if (!showFaceBoxes.value || !currentPhoto.value?.faces?.length || !imageLoaded.value || !mainImage.value) {
+    faceBoxesData.value = []
+    return
+  }
+
+  const img = mainImage.value
+  const imgRect = img.getBoundingClientRect()
+  const containerRect = img.parentElement?.getBoundingClientRect()
+
+  if (!containerRect) {
+    faceBoxesData.value = []
+    return
+  }
+
+  // 获取图片的自然尺寸
+  const naturalWidth = img.naturalWidth
+  const naturalHeight = img.naturalHeight
+
+  // 获取容器尺寸
+  const containerWidth = containerRect.width
+  const containerHeight = containerRect.height
+
+  // 计算object-fit: contain的缩放比例
+  const scaleX = containerWidth / naturalWidth
+  const scaleY = containerHeight / naturalHeight
+  const scale = Math.min(scaleX, scaleY)
+
+  // 计算图片实际显示的尺寸
+  const displayWidth = naturalWidth * scale
+  const displayHeight = naturalHeight * scale
+
+  // 计算图片在容器中的偏移（居中）
+  const offsetX = (containerWidth - displayWidth) / 2
+  const offsetY = (containerHeight - displayHeight) / 2
+
+  // 相对于图片元素的坐标需要考虑图片在元素内的位置
+  // 图片元素的大小是 containerWidth x containerHeight
+  // 但实际图片显示区域是 offsetX, offsetY, displayWidth, displayHeight
+
+  console.log('🖼️ 人脸框计算:', {
+    natural: { width: naturalWidth, height: naturalHeight },
+    container: { width: containerWidth, height: containerHeight },
+    display: { width: displayWidth, height: displayHeight },
+    offset: { x: offsetX, y: offsetY },
+    scale,
+    photo: currentPhoto.value?.filename
+  })
+
+  const boxes = currentPhoto.value.faces
     .filter(face => face.x !== undefined && face.y !== undefined && face.width && face.height)
     .map((face, idx) => {
-      const leftPct = Math.max(0, Math.min(100, (face.x || 0) * 100))
-      const topPct = Math.max(0, Math.min(100, (face.y || 0) * 100))
-      const widthPct = Math.max(0.5, Math.min(100, (face.width || 0) * 100))
-      const heightPct = Math.max(0.5, Math.min(100, (face.height || 0) * 100))
+      // 人脸在原始图片中的像素坐标
+      const faceLeftPx = (face.x || 0) * naturalWidth
+      const faceTopPx = (face.y || 0) * naturalHeight
+      const faceWidthPx = (face.width || 0) * naturalWidth
+      const faceHeightPx = (face.height || 0) * naturalHeight
 
-      return {
+      // 转换为显示图片中的像素坐标
+      const displayLeftPx = faceLeftPx * scale
+      const displayTopPx = faceTopPx * scale
+      const displayWidthPx = faceWidthPx * scale
+      const displayHeightPx = faceHeightPx * scale
+
+      // 相对于图片元素的坐标（加上偏移）
+      const elementLeftPx = offsetX + displayLeftPx
+      const elementTopPx = offsetY + displayTopPx
+
+      // 转换为图片元素的百分比坐标
+      const leftPct = (elementLeftPx / containerWidth) * 100
+      const topPct = (elementTopPx / containerHeight) * 100
+      const widthPct = (displayWidthPx / containerWidth) * 100
+      const heightPct = (displayHeightPx / containerHeight) * 100
+
+      console.log(`👤 人脸 ${idx}:`, {
+        face: { x: face.x, y: face.y, width: face.width, height: face.height },
+        originalPx: { left: faceLeftPx, top: faceTopPx, width: faceWidthPx, height: faceHeightPx },
+        displayPx: { left: displayLeftPx, top: displayTopPx, width: displayWidthPx, height: displayHeightPx },
+        elementPx: { left: elementLeftPx, top: elementTopPx },
+        percent: { left: leftPct, top: topPct, width: widthPct, height: heightPct }
+      })
+
+  return {
         id: face.id ?? idx,
         style: {
-          left: `${leftPct}%`,
-          top: `${topPct}%`,
-          width: `${widthPct}%`,
-          height: `${heightPct}%`
+          left: `${Math.max(0, Math.min(100, leftPct))}%`,
+          top: `${Math.max(0, Math.min(100, topPct))}%`,
+          width: `${Math.max(0.5, Math.min(30, widthPct))}%`,
+          height: `${Math.max(0.5, Math.min(30, heightPct))}%`
         },
         confirmed: face.isConfirmed,
         label: face.personName || (face.isConfirmed ? '未命名' : '未确认')
-}
+      }
     })
-})
+
+  faceBoxesData.value = boxes
+}
+
+// 人脸框 computed（直接返回数据）
+const faceBoxes = computed(() => faceBoxesData.value)
 
 // 可见人脸列表
 const visibleFaceList = computed(() => {
@@ -718,10 +801,69 @@ const currentAlbumPath = computed(() => {
     } else if (pathParts.length >= 2) {
       return `未分类/${pathParts[0]}`
     }
-    return null
+      return null
   } catch (error) {
     return null
   }
+})
+
+// 监听 visible 变化，重置状态
+watch(() => props.visible, (newVisible) => {
+  if (newVisible) {
+    // 打开查看器时，根据 startIndex 设置当前索引
+    currentIndex.value = props.startIndex ?? 0
+    // 标记为初始加载
+    isInitialLoad.value = true
+    // 聚焦到PhotoViewer以接收键盘事件
+    nextTick(() => {
+      modalRoot.value?.focus()
+      // 初始化人脸框计算
+      calculateFaceBoxes()
+    })
+    console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
+      startIndex: props.startIndex,
+      currentIndex: currentIndex.value
+    })
+  } else {
+    // 关闭时清空人脸框
+    faceBoxesData.value = []
+  }
+})
+
+// 监听 startIndex 变化
+watch(() => props.startIndex, (newStartIndex) => {
+  if (props.visible && newStartIndex !== undefined) {
+    currentIndex.value = newStartIndex
+    // 标记为非初始加载，避免切换时的透明度闪烁
+    isInitialLoad.value = false
+    // 重置图片加载状态，确保人脸框重新计算
+    nextTick(() => {
+      imageLoaded.value = false
+    })
+    console.log('🔄 PhotoViewer: startIndex 变化，更新当前索引', {
+      newStartIndex,
+      currentIndex: currentIndex.value
+    })
+  }
+})
+
+// 监听图片加载状态变化，确保人脸框在图片加载完成后重新计算
+watch(() => imageLoaded.value, (newLoaded) => {
+  if (newLoaded) {
+    console.log('🔄 PhotoViewer: 图片加载完成，人脸框将重新计算')
+    // 使用 nextTick 确保 DOM 更新后再计算
+    nextTick(() => {
+      calculateFaceBoxes()
+    })
+  } else {
+    // 图片开始加载时清空人脸框
+    faceBoxesData.value = []
+  }
+})
+
+// 监听显示人脸框的开关
+watch(() => showFaceBoxes.value, () => {
+  calculateFaceBoxes()
 })
 
 // 工具函数
@@ -824,8 +966,13 @@ const prev = () => {
   if (!props.photos?.length) return
   const oldIndex = currentIndex.value
   currentIndex.value = (currentIndex.value - 1 + props.photos.length) % props.photos.length
-  // 重置图片加载状态
-  imageLoaded.value = false
+  // 标记为非初始加载，避免切换时的透明度闪烁
+  isInitialLoad.value = false
+  // 重置图片加载状态，确保人脸框重新计算
+  nextTick(() => {
+    imageLoaded.value = false
+  })
+  scrollThumbIntoView()
   console.log('⬅️ PhotoViewer: 切换到上一张', {
     from: oldIndex,
     to: currentIndex.value,
@@ -837,8 +984,13 @@ const next = () => {
   if (!props.photos?.length) return
   const oldIndex = currentIndex.value
   currentIndex.value = (currentIndex.value + 1) % props.photos.length
-  // 重置图片加载状态
-  imageLoaded.value = false
+  // 标记为非初始加载，避免切换时的透明度闪烁
+  isInitialLoad.value = false
+  // 重置图片加载状态，确保人脸框重新计算
+  nextTick(() => {
+    imageLoaded.value = false
+  })
+  scrollThumbIntoView()
   console.log('➡️ PhotoViewer: 切换到下一张', {
     from: oldIndex,
     to: currentIndex.value,
@@ -849,8 +1001,13 @@ const next = () => {
 const jump = (idx: number) => {
   const oldIndex = currentIndex.value
   currentIndex.value = idx
-  // 重置图片加载状态
-  imageLoaded.value = false
+  // 标记为非初始加载，避免切换时的透明度闪烁
+  isInitialLoad.value = false
+  // 重置图片加载状态，确保人脸框重新计算
+  nextTick(() => {
+    imageLoaded.value = false
+  })
+  scrollThumbIntoView()
   console.log('🔄 PhotoViewer: 跳转到指定图片', {
     from: oldIndex,
     to: idx,
@@ -894,7 +1051,7 @@ const onBackdropClick = (event: MouseEvent) => {
 
   if (target.closest('.flex-1.flex.overflow-hidden') && !target.closest('img, button, svg') && !target.closest('.absolute.right-0.w-80')) {
     close()
-    }
+  }
 }
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -1023,7 +1180,7 @@ const onImageMouseUp = () => {
         filename: currentPhoto.value?.filename
       })
       prev()
-        } else {
+    } else {
       // 向左拖拽，切换到下一张
       console.log('👇 PhotoViewer: 拖拽切换到下一张', {
         offset: offset.toFixed(1),
@@ -1063,8 +1220,29 @@ const scrollThumbIntoView = () => {
 }
 
 const startDrag = (e: MouseEvent) => {
-  // 简化的缩略图高度调整逻辑
-  // 这里可以实现拖拽调整缩略图高度的功能
+  const startY = e.clientY
+  const startHeight = thumbHeight.value
+
+  const handleMouseMove = (moveEvent: MouseEvent) => {
+    const deltaY = startY - moveEvent.clientY // 向上拖动增加高度
+    const newHeight = Math.max(80, Math.min(300, startHeight + deltaY))
+    thumbHeight.value = newHeight
+  }
+
+  const handleMouseUp = () => {
+    // 保存到本地存储
+    localStorage.setItem(THUMB_KEY, thumbHeight.value.toString())
+
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+  document.body.style.cursor = 'ns-resize'
+  document.body.style.userSelect = 'none'
 }
 
 // 路由跳转函数
@@ -1166,7 +1344,7 @@ const filterByIso = () => {
   }
   const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
-  }
+}
 
 // 颜色相关函数
 const copyColorToClipboard = async (color: string) => {
@@ -1287,10 +1465,9 @@ onMounted(() => {
     initializeBoxStates()
   })
 
-  window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onImageLoad)
   document.addEventListener('fullscreenchange', onFullscreenChange)
-      })
+})
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
