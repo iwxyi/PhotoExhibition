@@ -212,8 +212,9 @@ public class FaceService {
             faces.add(saved);
         }
 
-        // 设置人脸列表到photo对象
-        targetPhoto.setFaces(faces);
+        // 注意：不再直接设置photo的faces属性，避免Hibernate orphanRemoval问题
+        // 改为通过返回值让调用方决定如何处理faces集合的更新
+        // targetPhoto.setFaces(faces); // 移除这行，避免事务中的集合引用变更
         log.debug("保存人脸 {} 个，photoId={}", faces.size(), targetPhoto.getId());
         invalidateClusterCache();
         return faces;

@@ -83,11 +83,10 @@ public class PhotoAIScoringService implements AutoCloseable {
     @PostConstruct
     public void init() {
         if (enabled) {
-            log.info("AI评分服务已启用，正在初始化ONNX Runtime...");
-            // 在应用启动时就尝试初始化ONNX，确保所有实例都能共享状态
-            initializeOnnxEnvironment();
+            log.info("AI评分服务已启用，将在首次使用时初始化ONNX Runtime");
+            // 延迟初始化，避免在应用启动时立即加载ONNX库
         } else {
-            log.info("AI评分服务已禁用");
+            log.info("AI评分服务已禁用，将使用基础评分模式");
         }
     }
 
@@ -183,9 +182,13 @@ public class PhotoAIScoringService implements AutoCloseable {
             return onnxAvailable;
         }
 
-        // 如果还没有初始化过，说明在@PostConstruct中初始化失败了
-        log.debug("ONNX环境未初始化，将使用基础评分模式");
-        return false;
+        // 延迟初始化ONNX环境
+        if (enabled) {
+            log.debug("首次使用时初始化ONNX Runtime...");
+            initializeOnnxEnvironment();
+        }
+
+        return onnxAvailable;
     }
 
     @PreDestroy

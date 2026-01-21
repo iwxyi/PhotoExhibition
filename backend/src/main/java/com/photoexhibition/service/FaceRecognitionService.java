@@ -46,6 +46,10 @@ public class FaceRecognitionService {
                         .collect(java.util.stream.Collectors.toList());
                 }
                 log.debug("专业检测模型未返回结果，简单检测={}", allowSimpleFallback);
+            } catch (NoClassDefFoundError e) {
+                log.warn("ONNX Runtime类加载失败，人脸检测功能不可用: {}", e.getMessage());
+                // ONNX Runtime不可用时，直接跳过，不回退到简单检测
+                return new ArrayList<>();
             } catch (Exception e) {
                 log.debug("专业检测模型失败，回退到简单检测: {}", e.getMessage());
             }

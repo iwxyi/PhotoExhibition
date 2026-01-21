@@ -158,7 +158,7 @@ jwt:
 face:
   # 人脸检测模型配置（ONNX格式，如RetinaFace）
   detection:
-    enabled: true  # 设置为true启用专业检测模型，需要下载对应的ONNX模型文件
+    enabled: true  # 重新启用ONNX人脸检测，现在有ARM64支持了
     model-path: ./models/face_detection.onnx  # 检测模型路径
     confidence-threshold: 0.6  # 检测置信度阈值
     nms-threshold: 0.4  # 非极大值抑制阈值
@@ -193,7 +193,7 @@ face:
 smart-tag:
   # 图像分类模型配置（ONNX格式，用于场景和物体识别）
   classification:
-    enabled: true  # 设置为true启用AI图像分类，需要下载对应的ONNX模型文件
+    enabled: true  # 重新启用ONNX图像分类
     model-path: ./models/image_classification.onnx  # 分类模型路径（如ResNet、EfficientNet等）
     confidence-threshold: 0.5  # 分类置信度阈值（0-1），低于此值的标签将被过滤。建议值：0.3(宽松) 0.5(平衡) 0.7(严格)
     top-k: 5  # 返回top-k个最可能的分类结果。如果启用strict-top-k，会强制返回前k个（忽略置信度阈值）
@@ -205,7 +205,7 @@ smart-tag:
     face-weight: 2.0  # 人脸权重倍数（当检测到人脸时，人脸区域的兴趣度会乘以此值）
     # ONNX显著性检测模型配置（可选，启用后优先使用深度学习模型）
     saliency:
-      enabled: true  # 设置为true启用ONNX显著性检测模型，需要下载对应的ONNX模型文件
+      enabled: true  # 重新启用ONNX显著性检测
       model-path: ./models/saliency_detection.onnx  # 显著性检测模型路径（如U²-Net、BASNet等）
       input-size: 1024  # 模型输入尺寸，RMBG-1.4使用1024x1024，U²-Net Lite使用320x320
 

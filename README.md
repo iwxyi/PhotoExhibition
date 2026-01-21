@@ -316,6 +316,7 @@ mvn clean package -Pauto
 - 启用 Redis 缓存
 
 #### ONNX Runtime 问题
+需要本地安装 onnxruntime 库。
 ```bash
 # 运行完整的ONNX Runtime诊断
 curl -X POST http://localhost:6060/api/admin/diagnostics/onnx \
