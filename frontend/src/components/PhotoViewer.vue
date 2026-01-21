@@ -77,11 +77,7 @@
                 :src="getImageUrl(currentPhoto)"
                 :alt="currentPhoto.filename"
               class="max-w-full max-h-full object-contain select-none cursor-grab active:cursor-grabbing"
-              :style="{
-                transform: `scale(${scale}) translate(${translateX}px, ${translateY}px) translateX(${imageDragOffset.value * 0.3}px)`,
-                transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
-                opacity: (imageLoaded || !isInitialLoad) ? 1 : 0.3
-              }"
+              :style="imageTransformStyle"
                 @load="onImageLoad"
               @error="onImageError"
               @dblclick="onImageDoubleClick"
@@ -89,13 +85,17 @@
               @mousemove="onImageMouseMove"
               @mouseup="onImageMouseUp"
               @mouseleave="onImageMouseUp"
+              @touchstart="onImageTouchStart"
+              @touchmove="onImageTouchMove"
+              @touchend="onImageTouchEnd"
+              @wheel="onImageWheel"
                 />
 
                 <!-- 人脸框 - 相对于图片定位 -->
               <div
                 v-for="box in faceBoxes"
                 :key="box.id"
-                  class="absolute pointer-events-none z-20"
+                  class="absolute pointer-events-none z-5"
                 :style="box.style"
               >
                 <div
@@ -153,7 +153,7 @@
         <!-- 焦点框 -->
               <div
           v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
-          class="absolute pointer-events-none z-20"
+          class="absolute pointer-events-none z-5"
                 :style="getFocusBoxStyle()"
               >
           <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
@@ -168,8 +168,9 @@
       <transition name="slide-right">
         <div
           v-if="!infoCollapsed"
-          class="absolute top-12 right-0 bottom-0 w-80 text-white border-l border-white/10 flex flex-col max-h-full overflow-auto pointer-events-auto z-10"
+          class="absolute top-12 right-0 w-80 text-white border-l border-white/10 flex flex-col overflow-auto pointer-events-auto z-10"
           :class="infoTransparent ? 'bg-gray-900/30 backdrop-blur-sm' : 'bg-gray-900/90 backdrop-blur-md'"
+          :style="{ maxHeight: infoPanelMaxHeight }"
         >
           <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <span class="text-sm font-semibold">信息</span>
@@ -613,27 +614,15 @@ const modalRoot = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const showFocusBox = ref(false)
 const showFaceBoxes = ref(false)
-const viewerInited = ref(false)
 
 // 图片显示和交互状态
 const mainImage = ref<HTMLImageElement | null>(null)
-const imageContainer = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const isInitialLoad = ref(true) // 标记是否为初始加载
 const scale = ref(1)
 const translateX = ref(0)
 const translateY = ref(0)
-const isDragging = ref(false)
-const isDraggingImage = ref(false)
-const dragStartTime = ref(0)
-const dragVelocity = ref(0)
-const touchStartX = ref(0)
-const touchStartY = ref(0)
-const touchCurrentX = ref(0)
-const touchCurrentY = ref(0)
-const isImageTransitioning = ref(false)
-const imageTransitionOffset = ref(0)
 
 // 图片交互状态
 const imageDragStartX = ref(0)
@@ -641,6 +630,12 @@ const imageDragStartY = ref(0)
 const imageDragOffset = ref(0)
 const imageDragVelocity = ref(0)
 const isImageDragging = ref(false)
+
+// 触摸相关状态
+const touches = ref<Touch[]>([])
+const initialDistance = ref(0)
+const initialScale = ref(1)
+const isPinching = ref(false)
 
 // 缩略图相关
 const thumbContainer = ref<HTMLElement | null>(null)
@@ -672,6 +667,31 @@ const THUMB_KEY = 'pe-thumb-height'
 // 计算属性
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
 const thumbSize = computed(() => Math.max(24, clampThumbHeight(thumbHeight.value - 24)))
+const infoPanelMaxHeight = computed(() => {
+  const height = thumbHeight.value || 0
+  // 信息栏从 top-12 (48px) 开始，缩略图从底部开始，高度为 thumbHeight
+  // 所以信息栏最大高度 = 100vh - 48px - thumbHeight
+  return height > 0 ? `calc(100vh - ${48 + height}px)` : 'calc(100vh - 48px)'
+})
+
+// 图片变换样式
+const imageTransformStyle = computed(() => {
+  if (scale.value > 1) {
+    return {
+      transform: `scale(${scale.value}) translate(${translateX.value}px, ${translateY.value}px)`,
+      transformOrigin: 'center center',
+      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
+      opacity: (imageLoaded.value || !isInitialLoad.value) ? 1 : 0.3
+    }
+  } else {
+    return {
+      transform: `translateX(${imageDragOffset.value * 0.3}px)`,
+      transformOrigin: 'center center',
+      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
+      opacity: (imageLoaded.value || !isInitialLoad.value) ? 1 : 0.3
+    }
+  }
+})
 
 // 人脸框数据
 const faceBoxesData = ref<any[]>([])
@@ -684,88 +704,58 @@ const calculateFaceBoxes = () => {
   }
 
   const img = mainImage.value
-  const imgRect = img.getBoundingClientRect()
-  const containerRect = img.parentElement?.getBoundingClientRect()
-
-  if (!containerRect) {
+  const container = img.parentElement
+  if (!container) {
     faceBoxesData.value = []
     return
   }
 
-  // 获取图片的自然尺寸
-  const naturalWidth = img.naturalWidth
-  const naturalHeight = img.naturalHeight
-
-  // 获取容器尺寸
-  const containerWidth = containerRect.width
-  const containerHeight = containerRect.height
-
-  // 计算object-fit: contain的缩放比例
-  const scaleX = containerWidth / naturalWidth
-  const scaleY = containerHeight / naturalHeight
-  const scale = Math.min(scaleX, scaleY)
-
-  // 计算图片实际显示的尺寸
-  const displayWidth = naturalWidth * scale
-  const displayHeight = naturalHeight * scale
-
-  // 计算图片在容器中的偏移（居中）
-  const offsetX = (containerWidth - displayWidth) / 2
-  const offsetY = (containerHeight - displayHeight) / 2
-
-  // 相对于图片元素的坐标需要考虑图片在元素内的位置
-  // 图片元素的大小是 containerWidth x containerHeight
-  // 但实际图片显示区域是 offsetX, offsetY, displayWidth, displayHeight
-
-  console.log('🖼️ 人脸框计算:', {
-    natural: { width: naturalWidth, height: naturalHeight },
-    container: { width: containerWidth, height: containerHeight },
-    display: { width: displayWidth, height: displayHeight },
-    offset: { x: offsetX, y: offsetY },
-    scale,
-    photo: currentPhoto.value?.filename
-  })
+  // 获取图片和容器的实际渲染位置
+  const imgRect = img.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
 
   const boxes = currentPhoto.value.faces
     .filter(face => face.x !== undefined && face.y !== undefined && face.width && face.height)
     .map((face, idx) => {
-      // 人脸在原始图片中的像素坐标
-      const faceLeftPx = (face.x || 0) * naturalWidth
-      const faceTopPx = (face.y || 0) * naturalHeight
-      const faceWidthPx = (face.width || 0) * naturalWidth
-      const faceHeightPx = (face.height || 0) * naturalHeight
+      // 人脸在原始图片中的相对坐标 (0-1)
+      const faceX = face.x || 0
+      const faceY = face.y || 0
+      const faceWidth = face.width || 0
+      const faceHeight = face.height || 0
 
-      // 转换为显示图片中的像素坐标
-      const displayLeftPx = faceLeftPx * scale
-      const displayTopPx = faceTopPx * scale
-      const displayWidthPx = faceWidthPx * scale
-      const displayHeightPx = faceHeightPx * scale
+      // 直接使用图片当前的渲染尺寸来计算人脸位置
+      // 这与移动时的算法完全一致
+      const faceLeftPx = faceX * imgRect.width
+      const faceTopPx = faceY * imgRect.height
+      const faceWidthPx = faceWidth * imgRect.width
+      const faceHeightPx = faceHeight * imgRect.height
 
-      // 相对于图片元素的坐标（加上偏移）
-      const elementLeftPx = offsetX + displayLeftPx
-      const elementTopPx = offsetY + displayTopPx
+      // 计算人脸框中心点在图片上的位置
+      const faceCenterXPx = faceLeftPx + faceWidthPx / 2
+      const faceCenterYPx = faceTopPx + faceHeightPx / 2
 
-      // 转换为图片元素的百分比坐标
-      const leftPct = (elementLeftPx / containerWidth) * 100
-      const topPct = (elementTopPx / containerHeight) * 100
-      const widthPct = (displayWidthPx / containerWidth) * 100
-      const heightPct = (displayHeightPx / containerHeight) * 100
+      // 计算人脸框在容器中的绝对位置
+      const faceCenterXAbs = imgRect.left - containerRect.left + faceCenterXPx
+      const faceCenterYAbs = imgRect.top - containerRect.top + faceCenterYPx
 
-      console.log(`👤 人脸 ${idx}:`, {
-        face: { x: face.x, y: face.y, width: face.width, height: face.height },
-        originalPx: { left: faceLeftPx, top: faceTopPx, width: faceWidthPx, height: faceHeightPx },
-        displayPx: { left: displayLeftPx, top: displayTopPx, width: displayWidthPx, height: displayHeightPx },
-        elementPx: { left: elementLeftPx, top: elementTopPx },
-        percent: { left: leftPct, top: topPct, width: widthPct, height: heightPct }
-      })
+      // 计算人脸框左上角在容器中的位置
+      const finalLeftPx = faceCenterXAbs - faceWidthPx / 2
+      const finalTopPx = faceCenterYAbs - faceHeightPx / 2
 
-  return {
+      // 转换为容器的百分比坐标（允许超出边界）
+      const leftPct = (finalLeftPx / containerRect.width) * 100
+      const topPct = (finalTopPx / containerRect.height) * 100
+      const widthPct = (faceWidthPx / containerRect.width) * 100
+      const heightPct = (faceHeightPx / containerRect.height) * 100
+
+
+      return {
         id: face.id ?? idx,
         style: {
-          left: `${Math.max(0, Math.min(100, leftPct))}%`,
-          top: `${Math.max(0, Math.min(100, topPct))}%`,
-          width: `${Math.max(0.5, Math.min(30, widthPct))}%`,
-          height: `${Math.max(0.5, Math.min(30, heightPct))}%`
+          left: `${leftPct}%`,
+          top: `${topPct}%`,
+          width: `${Math.max(0.5, widthPct)}%`,
+          height: `${Math.max(0.5, heightPct)}%`
         },
         confirmed: face.isConfirmed,
         label: face.personName || (face.isConfirmed ? '未命名' : '未确认')
@@ -836,6 +826,10 @@ watch(() => props.startIndex, (newStartIndex) => {
     currentIndex.value = newStartIndex
     // 标记为非初始加载，避免切换时的透明度闪烁
     isInitialLoad.value = false
+    // 重置缩放和位置
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
     // 重置图片加载状态，确保人脸框重新计算
     nextTick(() => {
       imageLoaded.value = false
@@ -864,6 +858,16 @@ watch(() => imageLoaded.value, (newLoaded) => {
 // 监听显示人脸框的开关
 watch(() => showFaceBoxes.value, () => {
   calculateFaceBoxes()
+})
+
+// 监听缩放和位移变化，重新计算人脸框位置
+watch([() => scale.value, () => translateX.value, () => translateY.value], () => {
+  if (showFaceBoxes.value) {
+    // 使用 nextTick 确保 DOM 更新后再计算
+    nextTick(() => {
+      calculateFaceBoxes()
+    })
+  }
 })
 
 // 工具函数
@@ -900,15 +904,39 @@ const getThumbUrl = (photo: Photo) => {
 const getFocusBoxStyle = () => {
   if (!currentPhoto.value || currentPhoto.value.focusX === undefined || currentPhoto.value.focusY === undefined) return {}
 
+  const img = mainImage.value
+  const container = img?.parentElement
+  if (!img || !container) return {}
+
+  // 获取图片和容器的实际渲染位置
+  const imgRect = img.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+
+  // 聚焦点在原始图片中的相对坐标 (0-1)
   const focusX = Number(currentPhoto.value.focusX) / 100
   const focusY = Number(currentPhoto.value.focusY) / 100
-  const boxSize = 20
+
+  // 直接使用图片当前的渲染尺寸来计算聚焦点位置
+  const focusXPx = focusX * imgRect.width
+  const focusYPx = focusY * imgRect.height
+
+  // 计算聚焦点在容器中的绝对位置
+  const focusXAbs = imgRect.left - containerRect.left + focusXPx
+  const focusYAbs = imgRect.top - containerRect.top + focusYPx
+
+  // 聚焦框的大小（相对于图片大小的20%）
+  const boxSizePx = Math.max(20, imgRect.width * 0.2) // 最小20px，最大为图片宽度的20%
+  const boxSizePct = (boxSizePx / containerRect.width) * 100
+
+  // 计算聚焦框的位置（中心对齐到聚焦点，允许超出边界）
+  const leftPct = (focusXAbs / containerRect.width) * 100 - boxSizePct / 2
+  const topPct = (focusYAbs / containerRect.height) * 100 - boxSizePct / 2
 
   return {
-    left: `${Math.max(0, Math.min(100 - boxSize, focusX * 100 - boxSize / 2))}%`,
-    top: `${Math.max(0, Math.min(100 - boxSize, focusY * 100 - boxSize / 2))}%`,
-    width: `${boxSize}%`,
-    height: `${boxSize}%`
+    left: `${leftPct}%`,
+    top: `${topPct}%`,
+    width: `${boxSizePct}%`,
+    height: `${boxSizePct}%`
   }
 }
 
@@ -968,11 +996,23 @@ const prev = () => {
   currentIndex.value = (currentIndex.value - 1 + props.photos.length) % props.photos.length
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
+  // 重置缩放和位置
+  scale.value = 1
+  translateX.value = 0
+  translateY.value = 0
   // 重置图片加载状态，确保人脸框重新计算
   nextTick(() => {
     imageLoaded.value = false
   })
   scrollThumbIntoView()
+
+  // 等待新图片加载完成后重新计算人脸框
+  setTimeout(() => {
+    if (showFaceBoxes.value) {
+      calculateFaceBoxes()
+    }
+  }, 100)
+
   console.log('⬅️ PhotoViewer: 切换到上一张', {
     from: oldIndex,
     to: currentIndex.value,
@@ -986,6 +1026,10 @@ const next = () => {
   currentIndex.value = (currentIndex.value + 1) % props.photos.length
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
+  // 重置缩放和位置
+  scale.value = 1
+  translateX.value = 0
+  translateY.value = 0
   // 重置图片加载状态，确保人脸框重新计算
   nextTick(() => {
     imageLoaded.value = false
@@ -1003,6 +1047,10 @@ const jump = (idx: number) => {
   currentIndex.value = idx
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
+  // 重置缩放和位置
+  scale.value = 1
+  translateX.value = 0
+  translateY.value = 0
   // 重置图片加载状态，确保人脸框重新计算
   nextTick(() => {
     imageLoaded.value = false
@@ -1106,27 +1154,36 @@ const onImageError = () => {
 }
 
 // 图片双击放大/缩小
-const onImageDoubleClick = () => {
+const onImageDoubleClick = (e: MouseEvent) => {
   const wasZoomed = scale.value > 1
   if (wasZoomed) {
     // 缩小到适应屏幕
     scale.value = 1
     translateX.value = 0
     translateY.value = 0
-    console.log('🔍 PhotoViewer: 双击缩小图片', {
-      filename: currentPhoto.value?.filename,
-      fromScale: scale.value,
-      toScale: 1
-    })
-    } else {
-    // 放大到2倍
+  } else {
+    // 放大到2倍，中心点基于点击位置
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const centerX = rect.width / 2
+    const centerY = rect.height / 2
+    const clickX = e.clientX - rect.left
+    const clickY = e.clientY - rect.top
+
+    // 计算放大后的偏移，使点击点成为中心
+    translateX.value = centerX - clickX
+    translateY.value = centerY - clickY
     scale.value = 2
-    console.log('🔍 PhotoViewer: 双击放大图片', {
-      filename: currentPhoto.value?.filename,
-      fromScale: scale.value,
-      toScale: 2
-    })
   }
+
+  // 等待动画完成后重新计算框位置
+  setTimeout(() => {
+    if (showFaceBoxes.value) {
+      calculateFaceBoxes()
+    }
+  }, 350) // 稍微超过动画时间 0.3s
+
+  e.preventDefault()
+  e.stopPropagation()
 }
 
 // 图片拖拽处理
@@ -1136,8 +1193,16 @@ const onImageMouseDown = (e: MouseEvent) => {
   isImageDragging.value = true
   imageDragStartX.value = e.clientX
   imageDragStartY.value = e.clientY
-  imageDragOffset.value = 0
-  imageDragVelocity.value = 0
+
+  if (scale.value > 1) {
+    // 放大状态下，记录当前的translate位置
+    imageDragOffset.value = 0
+    imageDragVelocity.value = 0
+    } else {
+    // 原始大小状态下，重置切换相关状态
+    imageDragOffset.value = 0
+    imageDragVelocity.value = 0
+  }
 
   // 防止文本选择
   e.preventDefault()
@@ -1149,10 +1214,31 @@ const onImageMouseMove = (e: MouseEvent) => {
   const deltaX = e.clientX - imageDragStartX.value
   const deltaY = e.clientY - imageDragStartY.value
 
-  // 如果是水平拖拽且距离足够，准备切换图片
-  if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
-    imageDragOffset.value = deltaX
-    imageDragVelocity.value = deltaX - (imageDragOffset.value - deltaX)
+  if (scale.value > 1) {
+    // 放大状态下，移动图片
+    translateX.value += deltaX * 0.5 // 降低灵敏度
+    translateY.value += deltaY * 0.5
+
+    // 更新起始位置，用于下一次移动
+    imageDragStartX.value = e.clientX
+    imageDragStartY.value = e.clientY
+
+    // 在拖拽过程中实时更新人脸框和焦点框位置
+    if (showFaceBoxes.value) {
+      calculateFaceBoxes()
+    }
+
+    console.log('🖱️ PhotoViewer: 拖拽移动图片', {
+      deltaX, deltaY,
+      translateX: translateX.value,
+      translateY: translateY.value
+    })
+    } else {
+    // 原始大小状态下，如果是水平拖拽且距离足够，准备切换图片
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+      imageDragOffset.value = deltaX
+      imageDragVelocity.value = deltaX - (imageDragOffset.value - deltaX)
+    }
   }
 
   e.preventDefault()
@@ -1161,48 +1247,201 @@ const onImageMouseMove = (e: MouseEvent) => {
 const onImageMouseUp = () => {
   if (!isImageDragging.value) return
 
-  const offset = imageDragOffset.value
-  const velocity = imageDragVelocity.value
+  if (scale.value <= 1) {
+    // 只有在原始大小状态下才处理图片切换
+    const offset = imageDragOffset.value
+    const velocity = imageDragVelocity.value
 
-  // 判断是否应该切换图片
-  const threshold = 100 // 切换阈值
-  const velocityThreshold = 300 // 速度阈值
+    // 判断是否应该切换图片
+    const threshold = 100 // 切换阈值
+    const velocityThreshold = 300 // 速度阈值
 
-  const shouldSwitch = Math.abs(offset) > threshold || Math.abs(velocity) > velocityThreshold
+    const shouldSwitch = Math.abs(offset) > threshold || Math.abs(velocity) > velocityThreshold
 
-  if (shouldSwitch) {
-    if (offset > 0) {
-      // 向右拖拽，切换到上一张
-      console.log('👆 PhotoViewer: 拖拽切换到上一张', {
-        offset: offset.toFixed(1),
-        velocity: velocity.toFixed(1),
-        threshold,
-        filename: currentPhoto.value?.filename
-      })
-      prev()
+    if (shouldSwitch) {
+      if (offset > 0) {
+        // 向右拖拽，切换到上一张
+        console.log('👆 PhotoViewer: 拖拽切换到上一张', {
+          offset: offset.toFixed(1),
+          velocity: velocity.toFixed(1),
+          threshold,
+          filename: currentPhoto.value?.filename
+        })
+        prev()
     } else {
-      // 向左拖拽，切换到下一张
-      console.log('👇 PhotoViewer: 拖拽切换到下一张', {
+        // 向左拖拽，切换到下一张
+        console.log('👇 PhotoViewer: 拖拽切换到下一张', {
+          offset: offset.toFixed(1),
+          velocity: velocity.toFixed(1),
+          threshold,
+          filename: currentPhoto.value?.filename
+        })
+        next()
+      }
+    } else {
+      console.log('🚫 PhotoViewer: 拖拽取消，未达到切换阈值', {
         offset: offset.toFixed(1),
         velocity: velocity.toFixed(1),
         threshold,
         filename: currentPhoto.value?.filename
       })
-      next()
     }
-  } else {
-    console.log('🚫 PhotoViewer: 拖拽取消，未达到切换阈值', {
-      offset: offset.toFixed(1),
-      velocity: velocity.toFixed(1),
-      threshold,
-      filename: currentPhoto.value?.filename
-    })
   }
 
-  // 重置状态
+      // 重置状态
   isImageDragging.value = false
   imageDragOffset.value = 0
   imageDragVelocity.value = 0
+}
+
+// 触摸事件处理
+const onImageTouchStart = (e: TouchEvent) => {
+  touches.value = Array.from(e.touches)
+
+  if (e.touches.length === 2) {
+    // 双指触摸，开始捏合缩放
+    isPinching.value = true
+    initialDistance.value = getTouchDistance(e.touches[0], e.touches[1])
+    initialScale.value = scale.value
+    console.log('🤏 PhotoViewer: 开始捏合缩放', {
+      initialDistance: initialDistance.value,
+      initialScale: initialScale.value
+    })
+  } else if (e.touches.length === 1 && scale.value > 1) {
+    // 单指触摸，在放大状态下开始拖拽
+    isImageDragging.value = true
+    imageDragStartX.value = e.touches[0].clientX
+    imageDragStartY.value = e.touches[0].clientY
+    console.log('👆 PhotoViewer: 开始触摸拖拽', {
+      startX: imageDragStartX.value,
+      startY: imageDragStartY.value
+    })
+  }
+
+    e.preventDefault()
+}
+
+const onImageTouchMove = (e: TouchEvent) => {
+  if (e.touches.length === 2 && isPinching.value) {
+    // 双指捏合缩放
+    const currentDistance = getTouchDistance(e.touches[0], e.touches[1])
+    const scaleRatio = currentDistance / initialDistance.value
+    const newScale = Math.max(0.5, Math.min(5, initialScale.value * scaleRatio))
+
+    scale.value = newScale
+    console.log('🤏 PhotoViewer: 捏合缩放中', {
+      currentDistance,
+      scaleRatio,
+      newScale
+    })
+  } else if (e.touches.length === 1 && isImageDragging.value && scale.value > 1) {
+    // 单指拖拽移动（仅在放大状态下）
+    const deltaX = e.touches[0].clientX - imageDragStartX.value
+    const deltaY = e.touches[0].clientY - imageDragStartY.value
+
+    translateX.value += deltaX
+    translateY.value += deltaY
+
+    // 更新起始位置
+    imageDragStartX.value = e.touches[0].clientX
+    imageDragStartY.value = e.touches[0].clientY
+
+    // 在触摸拖拽过程中实时更新人脸框和焦点框位置
+    if (showFaceBoxes.value) {
+      calculateFaceBoxes()
+    }
+
+    console.log('👆 PhotoViewer: 触摸拖拽移动', {
+      deltaX, deltaY,
+      translateX: translateX.value,
+      translateY: translateY.value
+    })
+  }
+
+  e.preventDefault()
+}
+
+const onImageTouchEnd = (e: TouchEvent) => {
+  if (isPinching.value) {
+    isPinching.value = false
+    console.log('🤏 PhotoViewer: 结束捏合缩放', {
+      finalScale: scale.value
+    })
+  }
+
+  if (isImageDragging.value) {
+    isImageDragging.value = false
+    console.log('👆 PhotoViewer: 结束触摸拖拽')
+  }
+
+  touches.value = []
+  e.preventDefault()
+}
+
+// 滚轮事件处理（触控板双指缩放和移动）
+const onImageWheel = (e: WheelEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+
+  if (e.ctrlKey) {
+    // Ctrl + 滚轮：缩放
+    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    const newScale = Math.max(0.5, Math.min(5, scale.value * delta))
+
+    if (newScale !== scale.value) {
+      // 如果是第一次缩放，以鼠标位置为中心
+      if (scale.value === 1) {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        const mouseX = e.clientX - rect.left
+        const mouseY = e.clientY - rect.top
+        const centerX = rect.width / 2
+        const centerY = rect.height / 2
+
+        translateX.value = centerX - mouseX
+        translateY.value = centerY - mouseY
+      }
+
+      scale.value = newScale
+    }
+  } else {
+    // 普通滚轮：移动（仅在放大状态下）
+    if (scale.value > 1) {
+      const deltaX = e.deltaX * 0.5
+      const deltaY = e.deltaY * 0.5
+
+      translateX.value -= deltaX
+      translateY.value -= deltaY
+    }
+  }
+}
+
+// 键盘快捷键处理
+const onKeyDown = (e: KeyboardEvent) => {
+  // Ctrl + +/- 缩放
+  if (e.ctrlKey && (e.key === '=' || e.key === '+' || e.key === '-')) {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const delta = e.key === '-' ? 0.8 : 1.25
+    const newScale = Math.max(0.5, Math.min(5, scale.value * delta))
+
+    if (newScale !== scale.value) {
+      scale.value = newScale
+      console.log('⌨️ 键盘缩放', {
+        key: e.key,
+        scale: newScale
+      })
+    }
+  }
+
+  // ESC 键已在组件级别处理，这里不需要重复
+}
+
+// 辅助函数：计算两点间距离
+const getTouchDistance = (touch1: Touch, touch2: Touch): number => {
+  const dx = touch1.clientX - touch2.clientX
+  const dy = touch1.clientY - touch2.clientY
+  return Math.sqrt(dx * dx + dy * dy)
 }
 
 const scrollThumbIntoView = () => {
@@ -1465,12 +1704,14 @@ onMounted(() => {
     initializeBoxStates()
   })
 
+  window.addEventListener('keydown', onKeyDown)
   window.addEventListener('resize', onImageLoad)
   document.addEventListener('fullscreenchange', onFullscreenChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('resize', onImageLoad)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
