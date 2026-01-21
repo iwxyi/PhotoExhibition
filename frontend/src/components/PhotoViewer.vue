@@ -71,13 +71,14 @@
       <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0 overflow-hidden">
         <div class="relative w-full h-full flex items-center justify-center">
               <div class="relative w-full h-full flex items-center justify-center">
-              <img
-                v-if="currentPhoto"
-              ref="mainImage"
+                <!-- 图片和框的组合容器 -->
+                <div class="relative max-w-full max-h-full" :style="imageTransformStyle">
+                <img
+                  v-if="currentPhoto"
+                ref="mainImage"
                 :src="getImageUrl(currentPhoto)"
                 :alt="currentPhoto.filename"
               class="max-w-full max-h-full object-contain select-none cursor-grab active:cursor-grabbing"
-              :style="imageTransformStyle"
                 @load="onImageLoad"
               @error="onImageError"
               @dblclick="onImageDoubleClick"
@@ -91,22 +92,36 @@
               @wheel="onImageWheel"
                 />
 
-                <!-- 人脸框 - 相对于图片定位 -->
-              <div
-                v-for="box in faceBoxes"
-                :key="box.id"
-                  class="absolute pointer-events-none z-5"
-                :style="box.style"
-              >
+                <!-- 人脸框 - 绑定在图片内部 -->
                 <div
-                  class="absolute inset-0 border-2 rounded-sm shadow-lg"
-                  :class="box.confirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
-                ></div>
-                <div
-                    class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
-                    :class="box.confirmed ? 'text-green-400 bg-black/80' : 'text-amber-200 bg-black/80'"
+                  v-for="face in currentPhoto?.faces || []"
+                  :key="face.id"
+                  v-show="showFaceBoxes"
+                  class="absolute pointer-events-none"
+                  :style="getFaceBoxStyle(face)"
                 >
-                  {{ box.label }}
+                  <div
+                    class="absolute inset-0 border-2 rounded-sm shadow-lg"
+                    :class="face.isConfirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
+                  ></div>
+                  <div
+                      class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
+                      :class="face.isConfirmed ? 'text-green-400 bg-black/80' : 'text-amber-200 bg-black/80'"
+                  >
+                    {{ face.personName || (face.isConfirmed ? '未命名' : '未确认') }}
+                  </div>
+                </div>
+
+                <!-- 焦点框 - 绑定在图片内部 -->
+                <div
+                  v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
+                  class="absolute pointer-events-none"
+                  :style="getFocusBoxStyle()"
+                >
+                  <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
+                  <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/80 px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm">
+                    焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
+                  </div>
                 </div>
               </div>
               </div>
@@ -115,8 +130,8 @@
           <div
             v-if="isImageDragging && Math.abs(imageDragOffset) > 50"
             class="absolute inset-0 flex items-center justify-center pointer-events-none"
-          >
-            <div
+              >
+                <div
               class="flex items-center gap-4 bg-black/50 backdrop-blur-sm rounded-full px-6 py-3 text-white"
             >
               <svg
@@ -140,29 +155,14 @@
               >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
-            </div>
-          </div>
-
-          <!-- 加载状态 -->
-          <div v-if="!currentPhoto" class="text-white/50">加载中...</div>
-        </div>
-      </div>
-
-      <!-- 焦点框和人脸框覆盖层 -->
-      <div class="absolute inset-0 pointer-events-none">
-        <!-- 焦点框 -->
-              <div
-          v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
-          class="absolute pointer-events-none z-5"
-                :style="getFocusBoxStyle()"
-              >
-          <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
-          <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/80 px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm">
-                  焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
                 </div>
               </div>
 
+          <!-- 加载状态 -->
+          <div v-if="!currentPhoto" class="text-white/50">加载中...</div>
+            </div>
           </div>
+
 
         <!-- 信息侧栏 -->
       <transition name="slide-right">
@@ -693,80 +693,21 @@ const imageTransformStyle = computed(() => {
   }
 })
 
-// 人脸框数据
-const faceBoxesData = ref<any[]>([])
+// 人脸框样式计算函数
+const getFaceBoxStyle = (face: any) => {
+  // 人脸坐标是相对的 (0-1)，直接转换为百分比定位
+  const leftPct = (face.x || 0) * 100
+  const topPct = (face.y || 0) * 100
+  const widthPct = (face.width || 0) * 100
+  const heightPct = (face.height || 0) * 100
 
-// 人脸框计算函数
-const calculateFaceBoxes = () => {
-  if (!showFaceBoxes.value || !currentPhoto.value?.faces?.length || !imageLoaded.value || !mainImage.value) {
-    faceBoxesData.value = []
-    return
+  return {
+    left: `${leftPct}%`,
+    top: `${topPct}%`,
+    width: `${Math.max(0.5, widthPct)}%`,
+    height: `${Math.max(0.5, heightPct)}%`
   }
-
-  const img = mainImage.value
-  const container = img.parentElement
-  if (!container) {
-    faceBoxesData.value = []
-    return
-  }
-
-  // 获取图片和容器的实际渲染位置
-  const imgRect = img.getBoundingClientRect()
-  const containerRect = container.getBoundingClientRect()
-
-  const boxes = currentPhoto.value.faces
-    .filter(face => face.x !== undefined && face.y !== undefined && face.width && face.height)
-    .map((face, idx) => {
-      // 人脸在原始图片中的相对坐标 (0-1)
-      const faceX = face.x || 0
-      const faceY = face.y || 0
-      const faceWidth = face.width || 0
-      const faceHeight = face.height || 0
-
-      // 直接使用图片当前的渲染尺寸来计算人脸位置
-      // 这与移动时的算法完全一致
-      const faceLeftPx = faceX * imgRect.width
-      const faceTopPx = faceY * imgRect.height
-      const faceWidthPx = faceWidth * imgRect.width
-      const faceHeightPx = faceHeight * imgRect.height
-
-      // 计算人脸框中心点在图片上的位置
-      const faceCenterXPx = faceLeftPx + faceWidthPx / 2
-      const faceCenterYPx = faceTopPx + faceHeightPx / 2
-
-      // 计算人脸框在容器中的绝对位置
-      const faceCenterXAbs = imgRect.left - containerRect.left + faceCenterXPx
-      const faceCenterYAbs = imgRect.top - containerRect.top + faceCenterYPx
-
-      // 计算人脸框左上角在容器中的位置
-      const finalLeftPx = faceCenterXAbs - faceWidthPx / 2
-      const finalTopPx = faceCenterYAbs - faceHeightPx / 2
-
-      // 转换为容器的百分比坐标（允许超出边界）
-      const leftPct = (finalLeftPx / containerRect.width) * 100
-      const topPct = (finalTopPx / containerRect.height) * 100
-      const widthPct = (faceWidthPx / containerRect.width) * 100
-      const heightPct = (faceHeightPx / containerRect.height) * 100
-
-
-      return {
-        id: face.id ?? idx,
-        style: {
-          left: `${leftPct}%`,
-          top: `${topPct}%`,
-          width: `${Math.max(0.5, widthPct)}%`,
-          height: `${Math.max(0.5, heightPct)}%`
-        },
-        confirmed: face.isConfirmed,
-        label: face.personName || (face.isConfirmed ? '未命名' : '未确认')
-      }
-    })
-
-  faceBoxesData.value = boxes
 }
-
-// 人脸框 computed（直接返回数据）
-const faceBoxes = computed(() => faceBoxesData.value)
 
 // 可见人脸列表
 const visibleFaceList = computed(() => {
@@ -807,16 +748,14 @@ watch(() => props.visible, (newVisible) => {
     // 聚焦到PhotoViewer以接收键盘事件
     nextTick(() => {
       modalRoot.value?.focus()
-      // 初始化人脸框计算
-      calculateFaceBoxes()
+      // 人脸框现在直接绑定在图片内部，无需额外计算
     })
     console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
       startIndex: props.startIndex,
       currentIndex: currentIndex.value
     })
   } else {
-    // 关闭时清空人脸框
-    faceBoxesData.value = []
+    // 人脸框现在直接绑定在图片内部，无需清理
   }
 })
 
@@ -845,30 +784,14 @@ watch(() => props.startIndex, (newStartIndex) => {
 watch(() => imageLoaded.value, (newLoaded) => {
   if (newLoaded) {
     console.log('🔄 PhotoViewer: 图片加载完成，人脸框将重新计算')
-    // 使用 nextTick 确保 DOM 更新后再计算
-    nextTick(() => {
-      calculateFaceBoxes()
-    })
+  // 人脸框现在直接绑定在图片内部，会自动更新
   } else {
-    // 图片开始加载时清空人脸框
-    faceBoxesData.value = []
+    // 人脸框现在直接绑定在图片内部，无需清理
   }
 })
 
-// 监听显示人脸框的开关
-watch(() => showFaceBoxes.value, () => {
-  calculateFaceBoxes()
-})
-
-// 监听缩放和位移变化，重新计算人脸框位置
-watch([() => scale.value, () => translateX.value, () => translateY.value], () => {
-  if (showFaceBoxes.value) {
-    // 使用 nextTick 确保 DOM 更新后再计算
-    nextTick(() => {
-      calculateFaceBoxes()
-    })
-  }
-})
+// 人脸框和焦点框现在直接绑定在图片内部，
+// 所有变换都会自动应用，无需额外计算
 
 // 工具函数
 const formatDate = (val?: string) => val ? val.slice(0, 10) : ''
@@ -904,39 +827,22 @@ const getThumbUrl = (photo: Photo) => {
 const getFocusBoxStyle = () => {
   if (!currentPhoto.value || currentPhoto.value.focusX === undefined || currentPhoto.value.focusY === undefined) return {}
 
-  const img = mainImage.value
-  const container = img?.parentElement
-  if (!img || !container) return {}
-
-  // 获取图片和容器的实际渲染位置
-  const imgRect = img.getBoundingClientRect()
-  const containerRect = container.getBoundingClientRect()
-
   // 聚焦点在原始图片中的相对坐标 (0-1)
   const focusX = Number(currentPhoto.value.focusX) / 100
   const focusY = Number(currentPhoto.value.focusY) / 100
 
-  // 直接使用图片当前的渲染尺寸来计算聚焦点位置
-  const focusXPx = focusX * imgRect.width
-  const focusYPx = focusY * imgRect.height
-
-  // 计算聚焦点在容器中的绝对位置
-  const focusXAbs = imgRect.left - containerRect.left + focusXPx
-  const focusYAbs = imgRect.top - containerRect.top + focusYPx
-
   // 聚焦框的大小（相对于图片大小的20%）
-  const boxSizePx = Math.max(20, imgRect.width * 0.2) // 最小20px，最大为图片宽度的20%
-  const boxSizePct = (boxSizePx / containerRect.width) * 100
+  const boxSize = 20 // 固定大小，因为框是相对于图片定位的
 
-  // 计算聚焦框的位置（中心对齐到聚焦点，允许超出边界）
-  const leftPct = (focusXAbs / containerRect.width) * 100 - boxSizePct / 2
-  const topPct = (focusYAbs / containerRect.height) * 100 - boxSizePct / 2
+  // 计算聚焦框的位置（中心对齐到聚焦点）
+  const leftPct = focusX * 100 - boxSize / 2
+  const topPct = focusY * 100 - boxSize / 2
 
   return {
     left: `${leftPct}%`,
     top: `${topPct}%`,
-    width: `${boxSizePct}%`,
-    height: `${boxSizePct}%`
+    width: `${boxSize}%`,
+    height: `${boxSize}%`
   }
 }
 
@@ -1000,18 +906,13 @@ const prev = () => {
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
-  // 重置图片加载状态，确保人脸框重新计算
+  // 重置图片加载状态
   nextTick(() => {
     imageLoaded.value = false
   })
   scrollThumbIntoView()
 
-  // 等待新图片加载完成后重新计算人脸框
-  setTimeout(() => {
-    if (showFaceBoxes.value) {
-      calculateFaceBoxes()
-    }
-  }, 100)
+  // 人脸框和焦点框现在直接绑定在图片内部，会自动更新
 
   console.log('⬅️ PhotoViewer: 切换到上一张', {
     from: oldIndex,
@@ -1175,12 +1076,7 @@ const onImageDoubleClick = (e: MouseEvent) => {
     scale.value = 2
   }
 
-  // 等待动画完成后重新计算框位置
-  setTimeout(() => {
-    if (showFaceBoxes.value) {
-      calculateFaceBoxes()
-    }
-  }, 350) // 稍微超过动画时间 0.3s
+  // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
 
   e.preventDefault()
   e.stopPropagation()
@@ -1223,10 +1119,7 @@ const onImageMouseMove = (e: MouseEvent) => {
     imageDragStartX.value = e.clientX
     imageDragStartY.value = e.clientY
 
-    // 在拖拽过程中实时更新人脸框和焦点框位置
-    if (showFaceBoxes.value) {
-      calculateFaceBoxes()
-    }
+    // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随移动
 
     console.log('🖱️ PhotoViewer: 拖拽移动图片', {
       deltaX, deltaY,
@@ -1329,11 +1222,8 @@ const onImageTouchMove = (e: TouchEvent) => {
     const newScale = Math.max(0.5, Math.min(5, initialScale.value * scaleRatio))
 
     scale.value = newScale
-    console.log('🤏 PhotoViewer: 捏合缩放中', {
-      currentDistance,
-      scaleRatio,
-      newScale
-    })
+
+    // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
   } else if (e.touches.length === 1 && isImageDragging.value && scale.value > 1) {
     // 单指拖拽移动（仅在放大状态下）
     const deltaX = e.touches[0].clientX - imageDragStartX.value
@@ -1346,10 +1236,7 @@ const onImageTouchMove = (e: TouchEvent) => {
     imageDragStartX.value = e.touches[0].clientX
     imageDragStartY.value = e.touches[0].clientY
 
-    // 在触摸拖拽过程中实时更新人脸框和焦点框位置
-    if (showFaceBoxes.value) {
-      calculateFaceBoxes()
-    }
+    // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随移动
 
     console.log('👆 PhotoViewer: 触摸拖拽移动', {
       deltaX, deltaY,
@@ -1402,6 +1289,8 @@ const onImageWheel = (e: WheelEvent) => {
       }
 
       scale.value = newScale
+
+      // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
     }
   } else {
     // 普通滚轮：移动（仅在放大状态下）
