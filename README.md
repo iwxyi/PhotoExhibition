@@ -234,51 +234,73 @@ data/photos/
 
 ### ONNX Runtime 配置
 
-项目支持不同的ONNX Runtime版本，以适应不同的部署环境：
+项目支持多平台ONNX Runtime版本自动选择，以适应不同的部署环境和系统要求：
 
-#### 环境选择
+#### 平台自动检测
+项目会根据操作系统和架构自动选择最适合的ONNX Runtime版本：
+
+- **macOS ARM64** (M1/M2/M3): 自动使用1.16.3版本
+- **macOS Intel**: 使用1.8.1版本
+- **Windows Server 2012及更早**: 强制使用1.8.1版本（兼容性）
+- **现代Windows** (Win10/11): 使用1.16.3版本
+- **Linux系统**: 使用1.16.3版本
+
+#### 手动指定版本
+如果需要手动控制版本，可以使用以下方法：
+
 ```bash
-# 1. CPU版本（推荐，生产环境默认）
-./scripts/start-backend.sh  # 默认使用CPU版本
+# 1. 使用环境变量指定版本
+ONNX_VERSION=1.8.1 mvn clean package
 
-# 2. GPU版本（需要CUDA支持）
-ONNX_PROFILE=gpu ./scripts/start-backend.sh
+# 2. 使用Maven profile
+mvn clean package -Plegacy-windows  # 强制1.8.1版本
+mvn clean package -Pmacos-arm64     # 强制1.16.3版本
 
-# 3. 强制CPU版本
-ONNX_PROFILE=cpu ./scripts/start-backend.sh
-
-# 4. 自动检测平台
-ONNX_PROFILE=auto ./scripts/start-backend.sh
+# 3. 自定义版本
+mvn clean package -Pcustom-onnx -Donnx.runtime.version=1.12.0
 ```
 
 #### Windows环境
 ```cmd
-REM CPU版本（推荐）
-set ONNX_PROFILE=cpu
+REM 让系统自动选择（推荐）
 start-backend.bat
 
-REM GPU版本（需要CUDA）
-set ONNX_PROFILE=gpu
+REM 强制使用兼容版本（老服务器）
+set MAVEN_OPTS=-Plegacy-windows
+start-backend.bat
+
+REM 指定特定版本
+set ONNX_VERSION=1.8.1
 start-backend.bat
 ```
 
-#### Maven构建指定版本
+#### 版本兼容性说明
+| 平台 | 推荐版本 | 最低版本 | 说明 |
+|------|----------|----------|------|
+| macOS ARM64 | 1.16.3 | 1.16.0 | 需要新版本支持 |
+| macOS Intel | 1.8.1 | 1.8.0 | 兼容性良好 |
+| Windows 10+ | 1.16.3 | 1.8.1 | 支持新特性 |
+| Windows Server 2012 | 1.8.1 | 1.8.0 | 老系统兼容 |
+| Linux | 1.16.3 | 1.8.1 | 性能优化 |
+
+#### 实际使用示例
+
 ```bash
-# CPU版本
-mvn clean package -Pcpu
+# 在macOS ARM64上自动选择1.16.3版本
+mvn clean package  # 会自动激活macos-arm64 profile
 
-# GPU版本
+# 在Windows Server 2012上强制使用1.8.1版本
+mvn clean package -Plegacy-windows
+
+# 在任何平台上强制指定版本
+mvn clean package -Pcustom-onnx -Donnx.runtime.version=1.12.0
+
+# 查看当前激活的profile
+mvn help:active-profiles
+
+# GPU版本（如果有CUDA支持）
 mvn clean package -Pgpu
-
-# 自动检测
-mvn clean package -Pauto
 ```
-
-#### 配置说明
-- **auto** (默认): 自动检测当前平台并选择合适的ONNX Runtime版本
-- **cpu**: 强制使用CPU版本，适合服务器环境，无需GPU
-- **gpu**: 使用GPU版本，需要CUDA支持，适合有独立显卡的环境
-- **windows/linux/macos**: 平台特定的优化配置
 
 #### 系统要求
 - **CPU版本**: Java 11+, 4GB+ RAM

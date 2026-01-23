@@ -1120,11 +1120,17 @@ public class PhotoScanService {
                 }
             }
 
+            // 先处理根目录本身（如果它包含图片文件）
+            processAlbumDirectory(path, force);
+
             // 扫描所有子文件夹，跳过.thumbnails目录
             try (Stream<Path> paths = Files.walk(path)) {
+                final boolean finalForce = force; // 创建final变量用于lambda表达式
+                final Path rootPath = path; // 创建final变量用于lambda表达式
                 paths.filter(Files::isDirectory)
                     .filter(p -> !p.getFileName().toString().equals(".thumbnails"))  // 跳过.thumbnails目录
-                    .forEach(p -> processAlbumDirectory(p, force));
+                    .filter(p -> !p.equals(rootPath))  // 避免重复处理根目录
+                    .forEach(p -> processAlbumDirectory(p, finalForce));
             }
         } catch (Exception e) {
             log.error("扫描目录失败: {}", directoryPath, e);
@@ -1321,6 +1327,27 @@ public class PhotoScanService {
     }
 
     /**
+     * 根据原始路径查找照片，处理可能存在的重复记录情况
+     */
+    private Optional<Photo> findPhotoByOriginalPath(String filePath) {
+        try {
+            return photoRepository.findByOriginalPath(filePath);
+        } catch (Exception e) {
+            // 如果有多个记录，选择最新的一个（ID最大的）
+            List<Photo> photos = photoRepository.findAllByOriginalPath(filePath);
+            if (!photos.isEmpty()) {
+                Photo latestPhoto = photos.stream()
+                    .max((p1, p2) -> Long.compare(p1.getId(), p2.getId()))
+                    .orElse(photos.get(0));
+                log.warn("发现 {} 条重复记录使用相同路径 {}, 选择最新的记录 ID={}",
+                    photos.size(), filePath, latestPhoto.getId());
+                return Optional.of(latestPhoto);
+            }
+            return Optional.empty();
+        }
+    }
+
+    /**
      * 查找图片文件
      */
     private List<File> findImageFiles(File directory) {
@@ -1432,7 +1459,9 @@ public class PhotoScanService {
             // 优先按内容哈希查找（支持复制图片复用数据），再按路径哈希，最后按原路径兜底
             Optional<Photo> photoByHash = contentHash == null ? Optional.empty() : photoRepository.findByContentHash(contentHash);
             Optional<Photo> photoByPathHash = pathHash == null ? Optional.empty() : photoRepository.findByPathHash(pathHash);
-            Optional<Photo> photoByPath = photoRepository.findByOriginalPath(filePath);
+
+            // 处理可能存在重复originalPath的情况
+            Optional<Photo> photoByPath = findPhotoByOriginalPath(filePath);
 
             // 优先使用contentHash找到的照片（支持复制图片复用）
             Photo photo = photoByHash
@@ -1623,12 +1652,15 @@ public class PhotoScanService {
             if (photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE || needsReprocessing) {
                 try {
+                    // AI评分服务会重新加载完整的Photo对象，避免懒加载问题
                     aiScoringService.scorePhoto(photo);
                     photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE);
                     photoRepository.save(photo);
                 } catch (Exception e) {
                     // AI评分失败不应该阻止图片完成处理，只是记录警告
                     log.warn("AI评分失败，但继续处理: {}", e.getMessage());
+                    log.warn("AI评分失败详情 - Photo ID: {}, File: {}", photo.getId(), photo.getOriginalPath());
+                    log.warn("完整错误堆栈:", e);
                     photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE); // 仍标记为完成，避免重复尝试
                     photoRepository.save(photo);
                 }

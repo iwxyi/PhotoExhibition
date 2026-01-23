@@ -16,6 +16,9 @@ import java.util.Optional;
 public interface PhotoRepository extends JpaRepository<Photo, Long> {
     Optional<Photo> findByOriginalPath(String originalPath);
 
+    @Query("SELECT p FROM Photo p WHERE p.originalPath = :originalPath ORDER BY p.id")
+    List<Photo> findAllByOriginalPath(@Param("originalPath") String originalPath);
+
     Optional<Photo> findByContentHash(String contentHash);
 
     Optional<Photo> findByPathHash(String pathHash);

@@ -4,13 +4,14 @@
     <div
       v-if="visible"
       class="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none"
+      style="overflow: visible;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
       tabindex="0"
       ref="modalRoot"
     >
       <!-- 顶部栏 -->
-      <div class="flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto">
+      <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/50 backdrop-blur-sm">
         <div class="flex items-center gap-3">
           <button class="p-2 hover:bg-white/10 rounded transition-colors" @click="close" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -68,18 +69,17 @@
       </div>
 
       <!-- 主要图片显示区域 -->
-      <div class="flex-1 flex items-center justify-center relative px-2 sm:px-6 min-h-0 overflow-hidden">
-        <div class="relative w-full h-full flex items-center justify-center">
-              <div class="relative w-full h-full flex items-center justify-center">
-                <!-- 图片和框的组合容器 -->
-                <div class="relative max-w-full max-h-full" :style="imageTransformStyle">
-                <img
-                  v-if="currentPhoto"
-                ref="mainImage"
-                :src="getImageUrl(currentPhoto)"
-                :alt="currentPhoto.filename"
-              class="max-w-full max-h-full object-contain select-none cursor-grab active:cursor-grabbing"
-                @load="onImageLoad"
+      <div class="flex-1 relative min-h-0" :style="mainContentStyle">
+        <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
+        <div class="absolute inset-0 flex items-center justify-center" :style="imageContainerStyle">
+            <img
+              v-if="currentPhoto"
+              ref="mainImage"
+              :src="getImageUrl(currentPhoto)"
+              :alt="currentPhoto.filename"
+              class="select-none cursor-grab active:cursor-grabbing"
+              :style="{ ...imageStyle, ...imageTransformStyle }"
+              @load="onImageLoad"
               @error="onImageError"
               @dblclick="onImageDoubleClick"
               @mousedown="onImageMouseDown"
@@ -90,41 +90,40 @@
               @touchmove="onImageTouchMove"
               @touchend="onImageTouchEnd"
               @wheel="onImageWheel"
-                />
+            />
 
-                <!-- 人脸框 - 绑定在图片内部 -->
-                <div
-                  v-for="face in currentPhoto?.faces || []"
-                  :key="face.id"
-                  v-show="showFaceBoxes"
-                  class="absolute pointer-events-none"
-                  :style="getFaceBoxStyle(face)"
-                >
-                  <div
-                    class="absolute inset-0 border-2 rounded-sm shadow-lg"
-                    :class="face.isConfirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
-                  ></div>
-                  <div
-                      class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
-                      :class="face.isConfirmed ? 'text-green-400 bg-black/80' : 'text-amber-200 bg-black/80'"
-                  >
-                    {{ face.personName || (face.isConfirmed ? '未命名' : '未确认') }}
-                  </div>
-                </div>
+            <!-- 人脸框 - 绑定在图片内部 -->
+            <div
+              v-for="face in currentPhoto?.faces || []"
+              :key="face.id"
+              v-show="showFaceBoxes"
+              class="absolute pointer-events-none"
+              :style="getFaceBoxStyle(face)"
+            >
+              <div
+                class="absolute inset-0 border-2 rounded-sm shadow-lg"
+                :class="face.isConfirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
+              ></div>
+              <div
+                  class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
+                  :class="face.isConfirmed ? 'text-green-400 bg-black/80' : 'text-amber-200 bg-black/80'"
+              >
+                {{ face.personName || (face.isConfirmed ? '未命名' : '未确认') }}
+              </div>
+            </div>
 
-                <!-- 焦点框 - 绑定在图片内部 -->
-                <div
-                  v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
-                  class="absolute pointer-events-none"
-                  :style="getFocusBoxStyle()"
-                >
-                  <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
-                  <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/80 px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm">
-                    焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
-                  </div>
-                </div>
+            <!-- 焦点框 - 绑定在图片内部 -->
+            <div
+              v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
+              class="absolute pointer-events-none"
+              :style="getFocusBoxStyle()"
+            >
+              <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
+              <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/80 px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm">
+                焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
               </div>
-              </div>
+            </div>
+          </div>
 
           <!-- 拖拽切换指示器 -->
           <div
@@ -160,8 +159,7 @@
 
           <!-- 加载状态 -->
           <div v-if="!currentPhoto" class="text-white/50">加载中...</div>
-            </div>
-          </div>
+        </div>
 
 
         <!-- 信息侧栏 -->
@@ -674,21 +672,84 @@ const infoPanelMaxHeight = computed(() => {
   return height > 0 ? `calc(100vh - ${48 + height}px)` : 'calc(100vh - 48px)'
 })
 
-// 图片变换样式
+// 主内容区域样式 - 图片显示区域，不受缩略图影响
+const mainContentStyle = computed(() => {
+  // 图片区域占满除了缩略图外的所有空间
+  // 缩略图高度通过CSS计算，所以这里不需要特殊处理
+  return {
+    height: '100%' // 占满flex-1的空间
+  }
+})
+
+// 图片容器样式 - 在图片区域内居中
+const imageContainerStyle = computed(() => {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    height: '100%'
+  }
+})
+
+// 图片样式 - 根据图片尺寸和可用空间动态调整
+const imageStyle = computed(() => {
+  if (!currentPhoto.value || !imageSize.value.width || !imageSize.value.height) {
+    return {}
+  }
+
+  const imgWidth = imageSize.value.width
+  const imgHeight = imageSize.value.height
+  const imgRatio = imgWidth / imgHeight
+
+  // 图片容器现在占满整个主内容区域，所以可用空间就是容器大小
+  // 这里我们直接使用容器的尺寸来计算缩放
+  const containerWidth = window.innerWidth
+  const containerHeight = window.innerHeight * 0.85 // 假设图片区域占85%的屏幕高度（预留给缩略图的空间）
+
+  console.log('📐 PhotoViewer 空间计算:', {
+    container: `${containerWidth}x${containerHeight}`,
+    imageSize: `${imgWidth}x${imgHeight}`,
+    imageRatio: imgRatio.toFixed(3)
+  })
+
+  // 计算缩放比例，确保图片完整显示
+  const scaleX = containerWidth / imgWidth
+  const scaleY = containerHeight / imgHeight
+  const scale = Math.min(scaleX, scaleY)
+
+  const finalWidth = imgWidth * scale
+  const finalHeight = imgHeight * scale
+
+  console.log('🔍 PhotoViewer 缩放计算:', {
+    scaleX: scaleX.toFixed(3),
+    scaleY: scaleY.toFixed(3),
+    finalScale: scale.toFixed(3),
+    finalSize: `${finalWidth.toFixed(0)}x${finalHeight.toFixed(0)}`
+  })
+
+  return {
+    width: `${finalWidth}px`,
+    height: `${finalHeight}px`,
+    maxWidth: '100%',
+    maxHeight: '100%',
+    objectFit: 'contain'
+  }
+})
+
+// 图片变换样式 - 用于缩放和拖拽
 const imageTransformStyle = computed(() => {
   if (scale.value > 1) {
     return {
       transform: `scale(${scale.value}) translate(${translateX.value}px, ${translateY.value}px)`,
       transformOrigin: 'center center',
-      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
-      opacity: (imageLoaded.value || !isInitialLoad.value) ? 1 : 0.3
+      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease'
     }
   } else {
     return {
       transform: `translateX(${imageDragOffset.value * 0.3}px)`,
       transformOrigin: 'center center',
-      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease',
-      opacity: (imageLoaded.value || !isInitialLoad.value) ? 1 : 0.3
+      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease'
     }
   }
 })
@@ -1018,30 +1079,28 @@ const onImageLoad = () => {
   if (mainImage.value) {
     const img = mainImage.value
     if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      // 记录图片原始尺寸
       imageSize.value = {
-        width: img.offsetWidth,
-        height: img.offsetHeight
+        width: img.naturalWidth,
+        height: img.naturalHeight
       }
+
+      // 重置缩放和平移
+      scale.value = 1
+      translateX.value = 0
+      translateY.value = 0
+
       imageLoaded.value = true
-      console.log('✅ PhotoViewer: 图片加载成功', {
+
+      console.log('📸 PhotoViewer 图片加载完成:', {
         filename: currentPhoto.value?.filename,
-        size: `${img.naturalWidth}x${img.naturalHeight}`,
-        url: getImageUrl(currentPhoto.value!),
-        photoId: currentPhoto.value?.id
+        naturalSize: `${img.naturalWidth}x${img.naturalHeight}`,
+        windowSize: `${window.innerWidth}x${window.innerHeight}`,
+        url: getImageUrl(currentPhoto.value!)
       })
-  } else {
-      console.warn('⚠️ PhotoViewer: 图片加载不完整', {
-        filename: currentPhoto.value?.filename,
-        complete: img.complete,
-        naturalWidth: img.naturalWidth,
-        naturalHeight: img.naturalHeight
-      })
-      imageLoaded.value = false
-    }
-    } else {
-    console.warn('⚠️ PhotoViewer: mainImage ref 不存在')
     }
   }
+}
 
 const onImageError = () => {
   // 图片加载失败，设置为已加载状态避免一直显示加载中
@@ -1591,6 +1650,14 @@ const onFullscreenChange = () => {
 onMounted(() => {
   nextTick(() => {
     initializeBoxStates()
+
+    // 输出容器尺寸信息用于调试
+    console.log('🏗️ PhotoViewer 容器信息:', {
+      windowSize: `${window.innerWidth}x${window.innerHeight}`,
+      imageContainerStyle: imageContainerStyle.value,
+      visible: props.visible,
+      currentPhoto: currentPhoto.value?.filename
+    })
   })
 
   window.addEventListener('keydown', onKeyDown)

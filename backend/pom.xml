@@ -23,7 +23,8 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- ONNX Runtime classifier for platform detection -->
+        <!-- ONNX Runtime 默认配置 -->
+        <onnx.runtime.version>1.8.1</onnx.runtime.version>
         <onnx.classifier></onnx.classifier>
     </properties>
 
@@ -114,7 +115,7 @@
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
-            <version>1.16.3</version>
+            <version>${onnx.runtime.version}</version>
             <classifier>${onnx.classifier}</classifier>
         </dependency>
 
@@ -202,67 +203,114 @@
         </plugins>
     </build>
 
-    <!-- Profiles for ONNX Runtime CPU/GPU selection -->
+    <!-- Profiles for ONNX Runtime platform-specific versions -->
     <profiles>
-        <!-- 默认profile：自动检测平台（推荐） -->
+        <!-- 默认配置：兼容性优先，使用1.8.1版本 -->
         <profile>
-            <id>auto</id>
+            <id>default</id>
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
-                <!-- ONNX Runtime 1.8.1 platform classifiers -->
-                <onnx.classifier.osx-x86_64>osx-x86_64</onnx.classifier.osx-x86_64>
-                <onnx.classifier.osx-arm64>osx-arm64</onnx.classifier.osx-arm64>
-                <onnx.classifier.linux-x86_64>linux-x86_64</onnx.classifier.linux-x86_64>
-                <onnx.classifier.linux-aarch64>linux-aarch64</onnx.classifier.linux-aarch64>
-                <onnx.classifier.windows-x86_64>win-x64</onnx.classifier.windows-x86_64>
-
-                <!-- 自动选择适合当前系统的classifier -->
-                <!-- ONNX 1.8.1可能没有osx-arm64，尝试通用版本 -->
+                <onnx.runtime.version>1.8.1</onnx.runtime.version>
                 <onnx.classifier></onnx.classifier>
             </properties>
         </profile>
 
-        <!-- 强制CPU版本（生产环境推荐） -->
+        <!-- macOS ARM64：需要1.16.3版本支持 -->
         <profile>
-            <id>cpu</id>
-            <dependencies>
-                <dependency>
-                    <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime</artifactId>
-                    <!-- 1.16.3更优，1.8.1兼容旧服务器的版本 -->
-                    <!-- <version>1.16.3</version> -->
-                    <version>1.8.1</version>
-                    <!-- 不指定classifier，自动选择CPU版本 -->
-                </dependency>
-            </dependencies>
+            <id>macos-arm64</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <properties>
+                <onnx.runtime.version>1.16.3</onnx.runtime.version>
+                <onnx.classifier></onnx.classifier>
+            </properties>
         </profile>
 
-        <!-- 新版本（更好的性能，需测试兼容性） -->
+        <!-- macOS Intel：使用1.8.1版本 -->
         <profile>
-            <id>latest</id>
-            <dependencies>
-                <dependency>
-                    <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime</artifactId>
-                    <version>1.8.1</version>
-                    <classifier>osx-aarch64</classifier>
-                </dependency>
-            </dependencies>
+            <id>macos-x86</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <properties>
+                <onnx.runtime.version>1.8.1</onnx.runtime.version>
+                <onnx.classifier></onnx.classifier>
+            </properties>
         </profile>
 
-        <!-- GPU版本（需要CUDA支持，仅限有GPU的环境） -->
+        <!-- Windows Server 2012等老系统：强制使用1.8.1 -->
+        <profile>
+            <id>legacy-windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+                <property>
+                    <name>windows.version</name>
+                    <value>!10.0</value>
+                </property>
+            </activation>
+            <properties>
+                <onnx.runtime.version>1.8.1</onnx.runtime.version>
+                <onnx.classifier></onnx.classifier>
+            </properties>
+        </profile>
+
+        <!-- 现代Windows：可以使用较新版本 -->
+        <profile>
+            <id>modern-windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                    <name>Windows 10</name>
+                </os>
+            </activation>
+            <properties>
+                <onnx.runtime.version>1.16.3</onnx.runtime.version>
+                <onnx.classifier></onnx.classifier>
+            </properties>
+        </profile>
+
+        <!-- Linux系统：根据发行版选择版本 -->
+        <profile>
+            <id>linux</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <name>!mac os x</name>
+                </os>
+            </activation>
+            <properties>
+                <onnx.runtime.version>1.16.3</onnx.runtime.version>
+                <onnx.classifier></onnx.classifier>
+            </properties>
+        </profile>
+
+        <!-- 手动指定版本（通过命令行参数） -->
+        <profile>
+            <id>custom-onnx</id>
+            <properties>
+                <onnx.runtime.version>${env.ONNX_VERSION}</onnx.runtime.version>
+                <onnx.classifier>${env.ONNX_CLASSIFIER}</onnx.classifier>
+            </properties>
+        </profile>
+
+        <!-- GPU版本（需要CUDA支持） -->
         <profile>
             <id>gpu</id>
-            <dependencies>
-                <dependency>
-                    <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime</artifactId>
-                    <version>1.8.1</version>
-                    <classifier>gpu</classifier>
-                </dependency>
-            </dependencies>
+            <properties>
+                <onnx.runtime.version>1.16.3</onnx.runtime.version>
+                <onnx.classifier>gpu</onnx.classifier>
+            </properties>
         </profile>
     </profiles>
 </project>

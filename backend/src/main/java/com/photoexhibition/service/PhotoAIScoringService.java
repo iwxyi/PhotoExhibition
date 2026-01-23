@@ -3,6 +3,7 @@ package com.photoexhibition.service;
 import ai.onnxruntime.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.PhotoAIScoring;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
@@ -206,7 +207,7 @@ public class PhotoAIScoringService implements AutoCloseable {
     /**
      * 对照片进行AI评分
      */
-    @Transactional
+    // 注意：移除@Transactional注解，让它在调用方的事务中运行，避免LazyInitializationException
     public PhotoAIScoring scorePhoto(Photo photo) throws OnnxConfigurationException {
         if (!enabled) {
             log.debug("AI scoring is disabled, skipping AI scoring for photo {}", photo.getId());
@@ -275,10 +276,17 @@ public class PhotoAIScoringService implements AutoCloseable {
     /**
      * 执行AI评分的核心逻辑
      */
-    private ScoringResult performAIScoring(Photo photo) throws IOException {
-        File imageFile = new File(photo.getOriginalPath());
+    private ScoringResult performAIScoring(Photo inputPhoto) throws IOException {
+        File imageFile = new File(inputPhoto.getOriginalPath());
         if (!imageFile.exists()) {
-            throw new IOException("Image file not found: " + photo.getOriginalPath());
+            throw new IOException("Image file not found: " + inputPhoto.getOriginalPath());
+        }
+
+        // 重新查询完整的Photo对象，避免懒加载问题
+        // 这里我们需要一个能加载faces和tags的查询方法
+        Photo photo = loadCompletePhoto(inputPhoto.getId());
+        if (photo == null) {
+            throw new IOException("Photo not found in database: " + inputPhoto.getId());
         }
 
         ScoringResult result = new ScoringResult();
@@ -377,9 +385,29 @@ public class PhotoAIScoringService implements AutoCloseable {
 
 
     /**
+     * 从数据库加载完整的Photo对象（包括faces和tags），避免懒加载问题
+     */
+    @Transactional(readOnly = true)
+    private Photo loadCompletePhoto(Long photoId) {
+        // 这里我们需要一个自定义查询来加载完整的Photo对象
+        // 由于PhotoRepository没有现成的方法，我们使用findById然后强制加载
+        return photoRepository.findById(photoId).map(photo -> {
+            // 强制加载faces集合
+            if (photo.getFaces() != null) {
+                photo.getFaces().size();
+            }
+            // 强制加载tags集合（虽然它是EAGER的，但保险起见）
+            if (photo.getTags() != null) {
+                photo.getTags().size();
+            }
+            return photo;
+        }).orElse(null);
+    }
+
+    /**
      * 重新评分照片
      */
-    @Transactional
+    // 注意：移除@Transactional注解，让它在调用方的事务中运行
     public PhotoAIScoring rescorePhoto(Photo photo) {
         // 删除现有的评分记录
         scoringRepository.deleteByPhotoId(photo.getId());
@@ -613,7 +641,7 @@ public class PhotoAIScoringService implements AutoCloseable {
     private Map<String, Object> generateAppealAnalysis(Photo photo, File imageFile) {
         Map<String, Object> analysis = new HashMap<>();
 
-        // 主题类型分析
+        // 主题类型分析 - tags是EAGER加载的，应该不会出现懒加载问题
         if (photo.getTags() != null && !photo.getTags().isEmpty()) {
             List<String> themes = photo.getTags().stream()
                     .map(tag -> tag.getName())
@@ -621,9 +649,15 @@ public class PhotoAIScoringService implements AutoCloseable {
             analysis.put("themes", themes);
         }
 
-        // 人脸数量
-        if (photo.getFaces() != null) {
-            analysis.put("face_count", photo.getFaces().size());
+        // 人脸数量 - 直接查询数据库，避免懒加载问题
+        try {
+            List<Face> faces = faceService.getFacesByPhoto(photo.getId());
+            if (faces != null && !faces.isEmpty()) {
+                analysis.put("face_count", faces.size());
+            }
+        } catch (Exception e) {
+            // 忽略人脸查询错误
+            log.debug("Failed to get face count for photo {}: {}", photo.getId(), e.getMessage());
         }
 
         return analysis;
@@ -664,8 +698,15 @@ public class PhotoAIScoringService implements AutoCloseable {
             }
         }
 
-        if (photo.getFaces() != null && !photo.getFaces().isEmpty()) {
-            strengths.add("包含人物元素");
+        // 检查是否包含人物元素 - 直接查询数据库，避免懒加载问题
+        try {
+            List<Face> faces = faceService.getFacesByPhoto(photo.getId());
+            if (faces != null && !faces.isEmpty()) {
+                strengths.add("包含人物元素");
+            }
+        } catch (Exception e) {
+            // 忽略人脸查询错误
+            log.debug("Failed to check faces for photo {}: {}", photo.getId(), e.getMessage());
         }
 
         return strengths;
