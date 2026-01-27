@@ -190,10 +190,10 @@
 
       <!-- 右侧内容区域 -->
       <div class="flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col min-w-0 relative">
-        <!-- 全屏透明遮罩，阻止操作但显示loading图标 -->
+        <!-- 打开大图时的loading：只展示，不阻塞tab切换/按钮 -->
         <div
-          v-if="showLoadingOverlay"
-          class="absolute inset-0 z-30 pointer-events-auto flex items-center justify-center"
+          v-if="showViewerLoadingOverlay"
+          class="absolute inset-0 z-30 pointer-events-none flex items-center justify-center"
         >
           <div class="h-8 w-8 rounded-full border-2 border-gray-400 border-t-transparent animate-spin opacity-50"></div>
         </div>
@@ -299,7 +299,14 @@
           </div>
 
           <!-- Tab内容 -->
-          <div class="flex-1 overflow-y-auto pr-1" ref="tabScrollContainer" @scroll.passive="handleFaceScroll">
+          <div class="flex-1 overflow-y-auto pr-1 relative" ref="tabScrollContainer" @scroll.passive="handleFaceScroll">
+            <!-- 当前tab独立loading蒙版：只影响tab内容，不影响其他tab切换 -->
+            <div
+              v-if="showTabLoadingOverlay"
+              class="absolute inset-0 z-40 pointer-events-auto flex items-center justify-center bg-black/10"
+            >
+              <div class="h-7 w-7 rounded-full border-2 border-gray-400 border-t-transparent animate-spin opacity-60"></div>
+            </div>
             <!-- 已认领照片 -->
             <div v-if="tab === 'confirmed' && selectedItem.type === 'confirmed'">
               <div class="mb-2">
@@ -907,11 +914,13 @@ const loadingPersons = ref(false)
 const loadingConfirmedFaces = ref(false)
 const loadingSimilarFaces = ref(false)
 const loadingUnassignedFaces = ref(false)
-// 右侧灰色等待蒙版，优化切换人物时的闪烁问题
-const showLoadingOverlay = ref(false)
-let loadingOverlayTimer: number | null = null
-// 全局loading状态，用于控制蒙版显示
-const globalLoadingFaces = ref(false)
+
+// tab内容区loading蒙版：只遮挡当前tab内容，不影响其他tab切换
+const showTabLoadingOverlay = ref(false)
+let tabLoadingOverlayTimer: number | null = null
+
+// 打开大图时的loading：只展示，不阻塞tab切换（pointer-events-none）
+const showViewerLoadingOverlay = ref(false)
 // 取消令牌，用于取消之前的请求
 let abortController: AbortController | null = null
 const CLUSTER_THRESHOLD_KEY = 'pe-cluster-threshold'
@@ -1223,6 +1232,17 @@ const currentFaceTab = computed<FaceTab>(() => {
   return (tab.value as FaceTab) || 'confirmed'
 })
 
+const currentTabLoadingRaw = computed(() => {
+  if (!selectedItem.value) return false
+  const t = currentFaceTab.value
+  if (t === 'cluster') return loadingPersonFaces.value
+  if (t === 'confirmed') return loadingConfirmedFaces.value || loadingAssignedPhotos.value
+  if (t === 'similar') return loadingSimilarFaces.value
+  if (t === 'albums') return loadingAlbums.value
+  if (t === 'unassigned') return loadingUnassignedFaces.value
+  return false
+})
+
 const handleFaceScroll = (e: Event) => {
   const el = e.target as HTMLElement
   const t = currentFaceTab.value
@@ -1412,8 +1432,6 @@ const selectPerson = (p: PersonListItem) => {
 const loadAllFaces = async (signal?: AbortSignal) => {
   if (!selectedPersonId.value) return
 
-  globalLoadingFaces.value = true
-
   // 在开始加载前，记录当前的数据状态（用于保持显示）
   const previousData = {
     confirmedFaces: [...confirmedFaces.value],
@@ -1430,6 +1448,10 @@ const loadAllFaces = async (signal?: AbortSignal) => {
       confirmedFaces.value = previousData.confirmedFaces
       return
     }
+
+    // 已认领tab希望“立刻跟着变”：confirmed 数据一到就先刷新可见列表（预加载2页）
+    selectedConfirmed.value.clear()
+    resetFaceVisible('confirmed', 2)
 
     // 加载其他数据（不清除选择状态和可见状态）
     // 跳过自动分配数据加载，直接到已确认状态
@@ -1449,8 +1471,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
     }
 
     // 所有数据加载完成后，统一更新UI状态
-    selectedConfirmed.value.clear()
-    resetFaceVisible('confirmed')
+    // confirmed 已在前面立即刷新过，这里只需要确保其它tab刷新
     selectedSimilar.value.clear()
     resetFaceVisible('similar')
     selectedUnassigned.value.clear()
@@ -1482,9 +1503,7 @@ const loadAllFaces = async (signal?: AbortSignal) => {
       unassignedFaces.value = previousData.unassignedFaces
     }
   } finally {
-    if (!signal?.aborted) {
-      globalLoadingFaces.value = false
-    }
+    // individual loading flags are managed inside each loader
   }
 }
 
@@ -1615,6 +1634,9 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
     if (selectedAlbum.value) {
       await loadAlbumPhotos(selectedAlbum.value.albumId, signal)
     }
+
+    // 后台预取各相册的已认领数量（不加载图片），并逐个填充 claimedPhotoCount
+    prefetchAlbumClaimedCounts(albumRecommendations.value, signal)
 
     selectedAlbumFaces.value.clear()
   } catch (error) {
@@ -1767,6 +1789,51 @@ const loadAlbumSimilarFaces = async (albumId: number, signal?: AbortSignal) => {
   }
 }
 
+// 仅计算相册中属于当前人物的已认领图片数量（不加载图片数据）
+const fetchAlbumClaimedCount = async (albumId: number, signal?: AbortSignal): Promise<number | null> => {
+  if (!selectedPersonId.value) return null
+  try {
+    const res = await api.get(`/admin/persons/${selectedPersonId.value}/albums/${albumId}/similar-faces`, { signal })
+    if (signal?.aborted) return null
+    const faces = res.data || []
+    // 统计：有任意人脸属于当前人物的图片
+    const claimedPhotoIds = new Set<number>()
+    faces.forEach((f: any) => {
+      if (f.personId === selectedPersonId.value && f.photoId) {
+        claimedPhotoIds.add(f.photoId)
+      }
+    })
+    return claimedPhotoIds.size
+  } catch (error: any) {
+    if (signal?.aborted) return null
+    console.error('预取相册已认领数量失败:', { albumId, error })
+    return null
+  }
+}
+
+// 并发预取相册的已认领数量，逐个更新列表显示
+const prefetchAlbumClaimedCounts = async (albums: any[], signal?: AbortSignal) => {
+  if (!albums || albums.length === 0) return
+  const concurrency = 4
+  let index = 0
+  const workers = Array.from({ length: concurrency }).map(async () => {
+    while (index < albums.length && !(signal && signal.aborted)) {
+      const current = albums[index++]
+      const count = await fetchAlbumClaimedCount(current.albumId, signal)
+      if (count !== null) {
+        const target = albumRecommendations.value.find(a => a.albumId === current.albumId)
+        if (target) {
+          target.claimedPhotoCount = count
+        }
+        if (selectedAlbum.value && selectedAlbum.value.albumId === current.albumId) {
+          selectedAlbum.value.claimedPhotoCount = count
+        }
+      }
+    }
+  })
+  await Promise.all(workers)
+}
+
 const loadSimilarFaces = async (signal?: AbortSignal, clearData = true) => {
   if (!selectedPersonId.value) return
   loadingSimilarFaces.value = true
@@ -1822,8 +1889,7 @@ const loadSimilarFaces = async (signal?: AbortSignal, clearData = true) => {
 
 const loadClusterFaces = async (signal?: AbortSignal, clearData = true) => {
   if (selectedClusterIndex.value === null) return
-
-  globalLoadingFaces.value = true
+  loadingPersonFaces.value = true
 
   // 在开始加载前，记录当前的数据状态
   const previousData = [...personFaces.value]
@@ -1849,9 +1915,7 @@ const loadClusterFaces = async (signal?: AbortSignal, clearData = true) => {
       personFaces.value = previousData
     }
   } finally {
-    if (!signal?.aborted) {
-      globalLoadingFaces.value = false
-    }
+    loadingPersonFaces.value = false
   }
 }
 
@@ -1933,25 +1997,25 @@ const loadUnassigned = async (signal?: AbortSignal, clearData = true) => {
   }
 }
 
-// 监听全局loading状态，优化蒙版显示逻辑
-watch(globalLoadingFaces, (isLoading) => {
-    if (loadingOverlayTimer !== null) {
-      clearTimeout(loadingOverlayTimer)
-      loadingOverlayTimer = null
-    }
-    if (isLoading) {
-    // 延迟 200ms 再显示蒙版，给足够时间避免快速切换时的闪烁
-      loadingOverlayTimer = window.setTimeout(() => {
-        showLoadingOverlay.value = true
-        loadingOverlayTimer = null
+// 监听当前tab的loading状态，优化蒙版显示逻辑（只遮挡tab内容区）
+watch(currentTabLoadingRaw, (isLoading) => {
+  if (tabLoadingOverlayTimer !== null) {
+    clearTimeout(tabLoadingOverlayTimer)
+    tabLoadingOverlayTimer = null
+  }
+  if (isLoading) {
+    // 延迟 200ms 再显示蒙版，避免快速切换/瞬间请求引起闪烁
+    tabLoadingOverlayTimer = window.setTimeout(() => {
+      showTabLoadingOverlay.value = true
+      tabLoadingOverlayTimer = null
     }, 200)
-    } else {
+  } else {
     // 延迟 100ms 再隐藏蒙版，确保不会出现闪烁
-    loadingOverlayTimer = window.setTimeout(() => {
-      showLoadingOverlay.value = false
-      loadingOverlayTimer = null
+    tabLoadingOverlayTimer = window.setTimeout(() => {
+      showTabLoadingOverlay.value = false
+      tabLoadingOverlayTimer = null
     }, 100)
-    }
+  }
 })
 
 const startEditName = (p: PersonListItem) => {
@@ -2982,10 +3046,11 @@ const maybeFillFaceViewport = (tabType: FaceTab) => {
   })
 }
 
-const resetFaceVisible = (tabType: FaceTab) => {
+const resetFaceVisible = (tabType: FaceTab, pages: number = 3) => {
   recalcFacePageSize()
   const list = getCurrentFaceList(tabType)
-  const baseLimit = facePageSize.value * 3 || list.length // 预加载至少三页
+  const safePages = Math.max(1, Math.floor(pages || 3))
+  const baseLimit = facePageSize.value * safePages || list.length // 默认预加载三页
   setVisibleFaces(tabType, Math.min(list.length, baseLimit))
 }
 
@@ -3771,7 +3836,7 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
   }
 
   try {
-    showLoadingOverlay.value = true
+    showViewerLoadingOverlay.value = true
 
     // 获取所有相关的照片ID
   const list = getActiveFacesForViewer()
@@ -3895,7 +3960,7 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
     viewerIndex.value = 0
     viewerVisible.value = true
   } finally {
-    showLoadingOverlay.value = false
+    showViewerLoadingOverlay.value = false
   }
 }
 
@@ -3957,7 +4022,7 @@ const openPhoto = (photoId?: number) => {
 const openViewerForPhoto = async (photoId?: number) => {
   if (!photoId) return
   try {
-    showLoadingOverlay.value = true
+    showViewerLoadingOverlay.value = true
     const photo = await photoStore.fetchPhotoById(photoId)
     if (!photo) return
     // ensure faces array exists
@@ -3970,7 +4035,7 @@ const openViewerForPhoto = async (photoId?: number) => {
   } catch (e) {
     console.error('openViewerForPhoto error', e)
   } finally {
-    showLoadingOverlay.value = false
+    showViewerLoadingOverlay.value = false
   }
 }
 
