@@ -3,15 +3,15 @@
   <transition name="fade">
     <div
       v-if="visible"
-      class="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none"
-      style="overflow: visible;"
+      class="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
+      style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
       tabindex="0"
       ref="modalRoot"
     >
       <!-- 顶部栏 -->
-      <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/50 backdrop-blur-sm">
+      <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
         <div class="flex items-center gap-3">
           <button class="p-2 hover:bg-white/10 rounded transition-colors" @click="close" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,16 +69,26 @@
       </div>
 
       <!-- 主要图片显示区域 -->
-      <div class="flex-1 relative min-h-0" :style="mainContentStyle">
+      <div class="flex-1 relative min-h-0" :style="mainContentStyle" ref="mainContentArea">
         <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
-        <div class="absolute inset-0 flex items-center justify-center" :style="imageContainerStyle">
+        <div 
+          class="absolute flex items-center justify-center" 
+          :style="imageContainerStyle"
+          @click="onImageContainerClick"
+          ref="imageViewport"
+        >
+          <!-- 图片包装容器 - 应用变换，使人脸框和焦点框跟随图片 -->
+          <div
+            class="relative"
+            :style="imageTransformStyle"
+          >
             <img
               v-if="currentPhoto"
               ref="mainImage"
               :src="getImageUrl(currentPhoto)"
               :alt="currentPhoto.filename"
               class="select-none cursor-grab active:cursor-grabbing"
-              :style="{ ...imageStyle, ...imageTransformStyle }"
+              :style="imageStyle"
               @load="onImageLoad"
               @error="onImageError"
               @dblclick="onImageDoubleClick"
@@ -92,9 +102,9 @@
               @wheel="onImageWheel"
             />
 
-            <!-- 人脸框 - 绑定在图片内部 -->
+            <!-- 人脸框 - 作为图片的子元素，会跟随图片变换 -->
             <div
-              v-for="face in currentPhoto?.faces || []"
+              v-for="(face, idx) in currentPhoto?.faces || []"
               :key="face.id"
               v-show="showFaceBoxes"
               class="absolute pointer-events-none"
@@ -102,17 +112,17 @@
             >
               <div
                 class="absolute inset-0 border-2 rounded-sm shadow-lg"
-                :class="face.isConfirmed ? 'border-green-400 shadow-green-400/50' : 'border-amber-400 shadow-amber-400/50'"
+                :class="[getFaceColor(idx).border, getFaceColor(idx).shadow]"
               ></div>
               <div
                   class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
-                  :class="face.isConfirmed ? 'text-green-400 bg-black/80' : 'text-amber-200 bg-black/80'"
+                  :class="[getFaceColor(idx).text, 'bg-black/80']"
               >
-                {{ face.personName || (face.isConfirmed ? '未命名' : '未确认') }}
+                {{ face.personName || '未命名' }}
               </div>
             </div>
 
-            <!-- 焦点框 - 绑定在图片内部 -->
+            <!-- 焦点框 - 作为图片的子元素，会跟随图片变换 -->
             <div
               v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
               class="absolute pointer-events-none"
@@ -124,6 +134,7 @@
               </div>
             </div>
           </div>
+        </div>
 
           <!-- 拖拽切换指示器 -->
           <div
@@ -318,12 +329,13 @@
                   @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : null"
                 >
                   <div
-                    class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 border border-white/10 overflow-hidden"
+                    class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 overflow-hidden"
+                    :class="[getFaceColor(idx).border, 'border-2']"
                     :style="getFaceAvatarStyle(f)"
                     :title="getFaceTooltip(f)"
                   ></div>
                   <div class="text-xs flex-1 min-w-0">
-                    <div class="font-semibold truncate" :class="f.isConfirmed ? 'text-green-300' : 'text-amber-200'">
+                    <div class="font-semibold truncate" :class="getFaceColor(idx).text">
                       {{ f.personName || '未命名' }}
                     </div>
                     <div class="text-[11px] text-gray-400 truncate">
@@ -467,7 +479,7 @@
       <transition name="fade">
         <div
           v-if="!isFullscreen"
-          class="absolute bottom-0 left-0 right-0 bg-black/90 backdrop-blur-md border-t border-white/10 overflow-x-auto overflow-y-hidden select-none pointer-events-auto z-10"
+          class="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md border-t border-white/10 overflow-x-auto overflow-y-hidden select-none pointer-events-auto z-10"
           :style="{ height: Math.max(thumbHeight, thumbSize + 20) + 'px' }"
         >
           <div
@@ -615,12 +627,16 @@ const showFaceBoxes = ref(false)
 
 // 图片显示和交互状态
 const mainImage = ref<HTMLImageElement | null>(null)
+const mainContentArea = ref<HTMLElement | null>(null)
+const imageViewport = ref<HTMLElement | null>(null) // 图片可视区域（不受 transform 影响的参照系）
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const isInitialLoad = ref(true) // 标记是否为初始加载
 const scale = ref(1)
 const translateX = ref(0)
 const translateY = ref(0)
+// 记录鼠标/指针最近位置（用于触控板 pinch 时以“鼠标所在位置”为中心缩放）
+const lastPointerPos = ref({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
 
 // 图片交互状态
 const imageDragStartX = ref(0)
@@ -628,12 +644,19 @@ const imageDragStartY = ref(0)
 const imageDragOffset = ref(0)
 const imageDragVelocity = ref(0)
 const isImageDragging = ref(false)
+const isZooming = ref(false) // 是否正在缩放
+const isPanning = ref(false) // 是否正在平移（触控板双指移动）
 
 // 触摸相关状态
 const touches = ref<Touch[]>([])
 const initialDistance = ref(0)
 const initialScale = ref(1)
 const isPinching = ref(false)
+const touchStartTime = ref(0) // 触摸开始时间，用于区分点击和拖拽
+const touchStartDistance = ref(0) // 触摸开始时的距离，用于检测缩放意图
+const lastTouchCenter = ref({ x: 0, y: 0 }) // 上次触摸中心点，用于双指移动
+const initialTranslateX = ref(0) // 触摸开始时的 translateX
+const initialTranslateY = ref(0) // 触摸开始时的 translateY
 
 // 缩略图相关
 const thumbContainer = ref<HTMLElement | null>(null)
@@ -674,21 +697,30 @@ const infoPanelMaxHeight = computed(() => {
 
 // 主内容区域样式 - 图片显示区域，不受缩略图影响
 const mainContentStyle = computed(() => {
-  // 图片区域占满除了缩略图外的所有空间
-  // 缩略图高度通过CSS计算，所以这里不需要特殊处理
+  // 主内容区域占满flex-1的空间
   return {
     height: '100%' // 占满flex-1的空间
   }
 })
 
-// 图片容器样式 - 在图片区域内居中
+// 图片容器样式 - 在图片区域内居中，避开顶部栏和底部缩略图
+// 但图片放大时可以延伸到这些区域（通过transform）
 const imageContainerStyle = computed(() => {
+  // 顶部栏高度约 48px
+  const topBarHeight = 48
+  // 底部缩略图高度
+  const bottomThumbHeight = isFullscreen.value ? 0 : thumbHeight.value
+  
   return {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    height: '100%'
+    top: `${topBarHeight}px`,
+    bottom: `${bottomThumbHeight}px`,
+    left: '0',
+    right: '0',
+    position: 'absolute' as const
   }
 })
 
@@ -702,15 +734,31 @@ const imageStyle = computed(() => {
   const imgHeight = imageSize.value.height
   const imgRatio = imgWidth / imgHeight
 
-  // 图片容器现在占满整个主内容区域，所以可用空间就是容器大小
-  // 这里我们直接使用容器的尺寸来计算缩放
-  const containerWidth = window.innerWidth
-  const containerHeight = window.innerHeight * 0.85 // 假设图片区域占85%的屏幕高度（预留给缩略图的空间）
+  // 获取图片容器的实际可用尺寸
+  // 图片默认避开顶部栏和底部缩略图，但放大时可以延伸到这些区域
+  // 顶部栏高度约 48px
+  const topBarHeight = 48
+  // 底部缩略图高度
+  const bottomThumbHeight = isFullscreen.value ? 0 : thumbHeight.value
+  // 图片容器的可用高度 = 窗口高度 - 顶部栏 - 底部缩略图
+  let containerWidth = window.innerWidth
+  let containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
+  
+  // 如果主内容区域 ref 存在，使用其宽度（可能更准确）
+  if (mainContentArea.value) {
+    const rect = mainContentArea.value.getBoundingClientRect()
+    containerWidth = rect.width
+    // 图片容器的高度 = 窗口高度 - 顶部栏 - 底部缩略图
+    containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
+  }
 
   console.log('📐 PhotoViewer 空间计算:', {
     container: `${containerWidth}x${containerHeight}`,
     imageSize: `${imgWidth}x${imgHeight}`,
-    imageRatio: imgRatio.toFixed(3)
+    imageRatio: imgRatio.toFixed(3),
+    topBarHeight,
+    bottomThumbHeight,
+    windowHeight: window.innerHeight
   })
 
   // 计算缩放比例，确保图片完整显示
@@ -739,20 +787,50 @@ const imageStyle = computed(() => {
 
 // 图片变换样式 - 用于缩放和拖拽
 const imageTransformStyle = computed(() => {
+  // 如果正在拖拽、缩放、平移或触摸操作，禁用过渡效果
+  const isInteracting = isImageDragging.value || isZooming.value || isPanning.value || isPinching.value
+  
   if (scale.value > 1) {
     return {
-      transform: `scale(${scale.value}) translate(${translateX.value}px, ${translateY.value}px)`,
+      // transform 从右到左应用：translate(...) scale(...) 表示先 scale 后 translate
+      // 这样 translateX/Y 表示屏幕像素平移，不会被 scale 再次放大，缩放/平移更稳定
+      transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
       transformOrigin: 'center center',
-      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease'
+      transition: isInteracting ? 'none' : 'transform 0.3s ease'
     }
   } else {
     return {
       transform: `translateX(${imageDragOffset.value * 0.3}px)`,
       transformOrigin: 'center center',
-      transition: isImageDragging.value ? 'none' : 'transform 0.3s ease'
+      transition: isInteracting ? 'none' : 'transform 0.3s ease'
     }
   }
 })
+
+// 人脸颜色数组 - 为不同人脸分配不同颜色
+const FACE_COLORS = [
+  { border: 'border-blue-400', shadow: 'shadow-blue-400/50', text: 'text-blue-400', bg: 'bg-blue-400/20' },
+  { border: 'border-green-400', shadow: 'shadow-green-400/50', text: 'text-green-400', bg: 'bg-green-400/20' },
+  { border: 'border-yellow-400', shadow: 'shadow-yellow-400/50', text: 'text-yellow-400', bg: 'bg-yellow-400/20' },
+  { border: 'border-purple-400', shadow: 'shadow-purple-400/50', text: 'text-purple-400', bg: 'bg-purple-400/20' },
+  { border: 'border-pink-400', shadow: 'shadow-pink-400/50', text: 'text-pink-400', bg: 'bg-pink-400/20' },
+  { border: 'border-cyan-400', shadow: 'shadow-cyan-400/50', text: 'text-cyan-400', bg: 'bg-cyan-400/20' },
+  { border: 'border-orange-400', shadow: 'shadow-orange-400/50', text: 'text-orange-400', bg: 'bg-orange-400/20' },
+  { border: 'border-red-400', shadow: 'shadow-red-400/50', text: 'text-red-400', bg: 'bg-red-400/20' },
+  { border: 'border-indigo-400', shadow: 'shadow-indigo-400/50', text: 'text-indigo-400', bg: 'bg-indigo-400/20' },
+  { border: 'border-teal-400', shadow: 'shadow-teal-400/50', text: 'text-teal-400', bg: 'bg-teal-400/20' },
+]
+
+// 获取人脸颜色 - 根据人脸在列表中的索引
+const getFaceColor = (faceIndex: number) => {
+  return FACE_COLORS[faceIndex % FACE_COLORS.length]
+}
+
+// 获取人脸在列表中的索引
+const getFaceIndex = (face: any) => {
+  if (!currentPhoto.value?.faces) return 0
+  return currentPhoto.value.faces.findIndex(f => f.id === face.id)
+}
 
 // 人脸框样式计算函数
 const getFaceBoxStyle = (face: any) => {
@@ -1049,17 +1127,30 @@ const onBackdropClick = (event: MouseEvent) => {
   if (wasDragging.value) {
     wasDragging.value = false
     return
-}
+  }
 
   const target = event.target as HTMLElement
   const currentTarget = event.currentTarget as HTMLElement
 
+  // 点击根容器本身，直接关闭
   if (target === currentTarget) {
     close()
     return
   }
+}
 
-  if (target.closest('.flex-1.flex.overflow-hidden') && !target.closest('img, button, svg') && !target.closest('.absolute.right-0.w-80')) {
+// 处理图片容器点击事件（点击空白处关闭）
+const onImageContainerClick = (event: MouseEvent) => {
+  // 如果正在拖拽，不处理点击
+  if (wasDragging.value || isImageDragging.value) {
+    return
+  }
+
+  const target = event.target as HTMLElement
+  const currentTarget = event.currentTarget as HTMLElement
+
+  // 如果点击的是容器本身（空白处），而不是图片或其他子元素，则关闭查看器
+  if (target === currentTarget) {
     close()
   }
 }
@@ -1164,6 +1255,8 @@ const onImageMouseDown = (e: MouseEvent) => {
 }
 
 const onImageMouseMove = (e: MouseEvent) => {
+  // 记录鼠标位置（即使没拖拽），用于触控板缩放以鼠标点为中心
+  lastPointerPos.value = { x: e.clientX, y: e.clientY }
   if (!isImageDragging.value) return
 
   const deltaX = e.clientX - imageDragStartX.value
@@ -1171,8 +1264,10 @@ const onImageMouseMove = (e: MouseEvent) => {
 
   if (scale.value > 1) {
     // 放大状态下，移动图片
-    translateX.value += deltaX * 0.5 // 降低灵敏度
-    translateY.value += deltaY * 0.5
+    // 放大状态下，1:1 跟随鼠标拖拽（更跟手）
+    const dragSensitivity = 1.0
+    translateX.value += deltaX * dragSensitivity
+    translateY.value += deltaY * dragSensitivity
 
     // 更新起始位置，用于下一次移动
     imageDragStartX.value = e.clientX
@@ -1249,58 +1344,129 @@ const onImageMouseUp = () => {
 // 触摸事件处理
 const onImageTouchStart = (e: TouchEvent) => {
   touches.value = Array.from(e.touches)
+  touchStartTime.value = Date.now()
 
   if (e.touches.length === 2) {
-    // 双指触摸，开始捏合缩放
-    isPinching.value = true
-    initialDistance.value = getTouchDistance(e.touches[0], e.touches[1])
+    // 双指触摸：可能是缩放或移动
+    const distance = getTouchDistance(e.touches[0], e.touches[1])
+    touchStartDistance.value = distance
+    
+    // 计算双指中心点
+    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+    lastTouchCenter.value = { x: centerX, y: centerY }
+    
+    // 保存当前的缩放和位置状态
     initialScale.value = scale.value
-    console.log('🤏 PhotoViewer: 开始捏合缩放', {
-      initialDistance: initialDistance.value,
-      initialScale: initialScale.value
+    initialTranslateX.value = translateX.value
+    initialTranslateY.value = translateY.value
+    
+    // 先假设是缩放，如果后续移动距离变化不大则确认为缩放
+    isPinching.value = true
+    isImageDragging.value = false
+    
+    console.log('🤏 PhotoViewer: 开始双指触摸', {
+      distance: distance,
+      center: { x: centerX, y: centerY }
     })
-  } else if (e.touches.length === 1 && scale.value > 1) {
-    // 单指触摸，在放大状态下开始拖拽
-    isImageDragging.value = true
-    imageDragStartX.value = e.touches[0].clientX
-    imageDragStartY.value = e.touches[0].clientY
-    console.log('👆 PhotoViewer: 开始触摸拖拽', {
-      startX: imageDragStartX.value,
-      startY: imageDragStartY.value
-    })
+  } else if (e.touches.length === 1) {
+    // 单指触摸：在放大状态下可以拖拽
+    if (scale.value > 1) {
+      isImageDragging.value = true
+      imageDragStartX.value = e.touches[0].clientX
+      imageDragStartY.value = e.touches[0].clientY
+      initialTranslateX.value = translateX.value
+      initialTranslateY.value = translateY.value
+      
+      console.log('👆 PhotoViewer: 开始单指触摸拖拽', {
+        startX: imageDragStartX.value,
+        startY: imageDragStartY.value
+      })
+    }
+    isPinching.value = false
   }
 
-    e.preventDefault()
+  e.preventDefault()
 }
 
 const onImageTouchMove = (e: TouchEvent) => {
-  if (e.touches.length === 2 && isPinching.value) {
-    // 双指捏合缩放
+  if (e.touches.length === 2) {
+    // 双指操作：可能是缩放或移动
     const currentDistance = getTouchDistance(e.touches[0], e.touches[1])
-    const scaleRatio = currentDistance / initialDistance.value
-    const newScale = Math.max(0.5, Math.min(5, initialScale.value * scaleRatio))
+    const distanceChange = Math.abs(currentDistance - touchStartDistance.value)
+    const distanceChangeRatio = distanceChange / touchStartDistance.value
+    
+    // 计算双指中心点
+    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+    const centerDeltaX = centerX - lastTouchCenter.value.x
+    const centerDeltaY = centerY - lastTouchCenter.value.y
+    const centerMoveDistance = Math.sqrt(centerDeltaX * centerDeltaX + centerDeltaY * centerDeltaY)
+    
+    // 判断是缩放还是移动：
+    // 提高阈值，减少双指移动被误判为缩放（尤其是上下方向时的轻微距离抖动）
+    // 如果距离变化超过15%或超过30px，认为是缩放
+    // 否则如果中心点移动明显，认为是双指移动
+    if (distanceChangeRatio > 0.15 || distanceChange > 30) {
+      // 双指捏合缩放
+      isPinching.value = true
+      isImageDragging.value = false
+      
+      const scaleRatio = currentDistance / touchStartDistance.value
+      const newScale = Math.max(0.5, Math.min(5, initialScale.value * scaleRatio))
+      scale.value = newScale
+      
+      // 计算缩放中心点（双指中心点），同样用 viewport 做参照，避免使用被 transform 影响的 boundingRect
+      const viewportRect = imageViewport.value?.getBoundingClientRect()
+      if (viewportRect) {
+        const centerRefX = viewportRect.left + viewportRect.width / 2
+        const centerRefY = viewportRect.top + viewportRect.height / 2
 
-    scale.value = newScale
+        // 双指中心点相对 viewport 中心的向量（屏幕坐标）
+        const px = centerX - centerRefX
+        const py = centerY - centerRefY
 
-    // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
+        // 使用触摸开始时的 scale/translate 作为基准，避免累计误差
+        const qx = (px - initialTranslateX.value) / initialScale.value
+        const qy = (py - initialTranslateY.value) / initialScale.value
+
+        translateX.value = px - newScale * qx
+        translateY.value = py - newScale * qy
+      }
+      
+      console.log('🤏 PhotoViewer: 双指缩放', {
+        scale: newScale,
+        distanceChange: distanceChange.toFixed(1)
+      })
+    } else if (centerMoveDistance > 5 && scale.value > 1) {
+      // 双指移动（平移）
+      isPinching.value = false
+      isImageDragging.value = true
+      
+      translateX.value = initialTranslateX.value + centerDeltaX
+      translateY.value = initialTranslateY.value + centerDeltaY
+      
+      console.log('👆 PhotoViewer: 双指移动', {
+        deltaX: centerDeltaX.toFixed(1),
+        deltaY: centerDeltaY.toFixed(1)
+      })
+    }
+    
+    // 更新中心点
+    lastTouchCenter.value = { x: centerX, y: centerY }
   } else if (e.touches.length === 1 && isImageDragging.value && scale.value > 1) {
     // 单指拖拽移动（仅在放大状态下）
     const deltaX = e.touches[0].clientX - imageDragStartX.value
     const deltaY = e.touches[0].clientY - imageDragStartY.value
 
-    translateX.value += deltaX
-    translateY.value += deltaY
+    translateX.value = initialTranslateX.value + deltaX
+    translateY.value = initialTranslateY.value + deltaY
 
-    // 更新起始位置
-    imageDragStartX.value = e.touches[0].clientX
-    imageDragStartY.value = e.touches[0].clientY
-
-    // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随移动
-
-    console.log('👆 PhotoViewer: 触摸拖拽移动', {
-      deltaX, deltaY,
-      translateX: translateX.value,
-      translateY: translateY.value
+    console.log('👆 PhotoViewer: 单指拖拽移动', {
+      deltaX: deltaX.toFixed(1),
+      deltaY: deltaY.toFixed(1),
+      translateX: translateX.value.toFixed(1),
+      translateY: translateY.value.toFixed(1)
     })
   }
 
@@ -1308,19 +1474,33 @@ const onImageTouchMove = (e: TouchEvent) => {
 }
 
 const onImageTouchEnd = (e: TouchEvent) => {
-  if (isPinching.value) {
+  // 如果还有触摸点，更新状态
+  if (e.touches.length === 1) {
+    // 从双指变为单指，重置单指拖拽状态
+    if (scale.value > 1) {
+      isImageDragging.value = true
+      imageDragStartX.value = e.touches[0].clientX
+      imageDragStartY.value = e.touches[0].clientY
+      initialTranslateX.value = translateX.value
+      initialTranslateY.value = translateY.value
+    }
     isPinching.value = false
-    console.log('🤏 PhotoViewer: 结束捏合缩放', {
-      finalScale: scale.value
-    })
+  } else if (e.touches.length === 0) {
+    // 所有触摸点都离开
+    if (isPinching.value) {
+      isPinching.value = false
+      console.log('🤏 PhotoViewer: 结束捏合缩放', {
+        finalScale: scale.value
+      })
+    }
+
+    if (isImageDragging.value) {
+      isImageDragging.value = false
+      console.log('👆 PhotoViewer: 结束触摸拖拽')
+    }
   }
 
-  if (isImageDragging.value) {
-    isImageDragging.value = false
-    console.log('👆 PhotoViewer: 结束触摸拖拽')
-  }
-
-  touches.value = []
+  touches.value = Array.from(e.touches)
   e.preventDefault()
 }
 
@@ -1329,36 +1509,83 @@ const onImageWheel = (e: WheelEvent) => {
   e.preventDefault()
   e.stopPropagation()
 
-  if (e.ctrlKey) {
-    // Ctrl + 滚轮：缩放
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    const newScale = Math.max(0.5, Math.min(5, scale.value * delta))
+  // 检测是否是缩放操作：
+  // 1. Mac/Windows 触控板“捏合缩放”在浏览器中通常会带 ctrlKey（Chrome/Electron 等）
+  // 2. 为避免把双指上下/左右移动误判为缩放，这里不再用 deltaY/deltaX 比例做推断
+  const absDeltaY = Math.abs(e.deltaY)
+  const absDeltaX = Math.abs(e.deltaX)
+  
+  // 缩放判断：只认 ctrlKey/metaKey（最可靠）
+  const isZoomGesture = e.ctrlKey || e.metaKey
+
+  if (isZoomGesture) {
+    // 触控板缩放：平滑无级缩放
+    isZooming.value = true
+    isPanning.value = false // 确保不是平移状态
+    
+    // 计算缩放增量：增加灵敏度，使缩放更快
+    // deltaY 的值通常在 -100 到 100 之间，我们将其转换为缩放因子
+    // 用指数函数让缩放更“线性手感”（更像系统图片浏览）
+    const zoomK = 0.008 // 越大越快（你反馈偏慢，这里明显加速）
+    const newScale = Math.max(0.5, Math.min(5, scale.value * Math.exp(-e.deltaY * zoomK)))
 
     if (newScale !== scale.value) {
-      // 如果是第一次缩放，以鼠标位置为中心
-      if (scale.value === 1) {
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        const mouseX = e.clientX - rect.left
-        const mouseY = e.clientY - rect.top
-        const centerX = rect.width / 2
-        const centerY = rect.height / 2
+      // 用“图片可视区域（viewport）”做参照，避免使用被 transform 影响的 boundingRect 导致漂移
+      const viewportRect = imageViewport.value?.getBoundingClientRect()
+      if (viewportRect) {
+        const centerX = viewportRect.left + viewportRect.width / 2
+        const centerY = viewportRect.top + viewportRect.height / 2
 
-        translateX.value = centerX - mouseX
-        translateY.value = centerY - mouseY
+        // 触控板 pinch 时，wheel 事件的 clientX/Y 在部分环境下会不稳定，
+        // 这里优先用我们记录的“鼠标最近位置”
+        const pointerX = lastPointerPos.value.x
+        const pointerY = lastPointerPos.value.y
+
+        // 指针点相对 viewport 中心的向量（屏幕坐标）
+        const px = pointerX - centerX
+        const py = pointerY - centerY
+
+        // 当前变换：screen = center + translate + scale * q
+        // => q = (p - translate) / scale
+        const qx = (px - translateX.value) / scale.value
+        const qy = (py - translateY.value) / scale.value
+
+        // 缩放后保持该屏幕点不动：translate' = p - scale' * q
+        translateX.value = px - newScale * qx
+        translateY.value = py - newScale * qy
       }
-
+      
+      // 更新缩放（放在最后，避免 q 用到新 scale）
       scale.value = newScale
 
       // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
     }
+    
+    // 延迟重置缩放状态，允许平滑的连续缩放
+    clearTimeout((onImageWheel as any).zoomTimeout)
+    ;(onImageWheel as any).zoomTimeout = setTimeout(() => {
+      isZooming.value = false
+    }, 150)
   } else {
-    // 普通滚轮：移动（仅在放大状态下）
-    if (scale.value > 1) {
-      const deltaX = e.deltaX * 0.5
-      const deltaY = e.deltaY * 0.5
+    // 触控板双指移动：平滑平移（仅在放大状态下）
+    // 加一点阈值，过滤非常小的抖动，减少“误触”
+    if (scale.value > 1 && (absDeltaX > 2 || absDeltaY > 2)) {
+      isPanning.value = true
+      isZooming.value = false // 确保不是缩放状态
+      
+      // 使用更平滑的移动系数
+      const panSensitivity = 0.9 // 移动灵敏度（稍微加快一点，更跟手）
+      const deltaX = e.deltaX * panSensitivity
+      const deltaY = e.deltaY * panSensitivity
 
       translateX.value -= deltaX
       translateY.value -= deltaY
+      
+      // 延迟重置平移状态，避免移动结束后的过渡效果
+      clearTimeout((onImageWheel as any).panTimeout)
+      ;(onImageWheel as any).panTimeout = setTimeout(() => {
+        isPanning.value = false
+      }, 100)
     }
   }
 }
