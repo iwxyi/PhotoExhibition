@@ -215,9 +215,25 @@
                 @click="tab = 'confirmed'"
               >
                 <template v-if="selectedItem.type === 'confirmed'">
-                  已认领 ({{ confirmedFaces.length + assignedPhotos.length }})
+                  已认领
+                  <span class="ml-1 inline-flex items-center">
+                    <span
+                      v-if="loadingConfirmedFaces || loadingAssignedPhotos"
+                      class="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70"
+                    ></span>
+                    <span v-else>({{ confirmedFaces.length + assignedPhotos.length }})</span>
+                  </span>
                 </template>
-                <template v-else>聚类 ({{ personFaces.length }})</template>
+                <template v-else>
+                  聚类
+                  <span class="ml-1 inline-flex items-center">
+                    <span
+                      v-if="loadingPersonFaces"
+                      class="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70"
+                    ></span>
+                    <span v-else>({{ personFaces.length }})</span>
+                  </span>
+                </template>
               </button>
               <!-- 自动分配tab已隐藏，保留代码以备将来使用
               <button
@@ -235,7 +251,14 @@
                 :class="tab === 'similar' ? 'bg-gray-700 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:text-gray-200'"
                 @click="tab = 'similar'"
               >
-                相似推荐 ({{ similarFaces.length }})
+                相似推荐
+                <span class="ml-1 inline-flex items-center">
+                  <span
+                    v-if="loadingSimilarFaces"
+                    class="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70"
+                  ></span>
+                  <span v-else>({{ similarFaces.length }})</span>
+                </span>
               </button>
               <button
                 v-if="selectedItem.type === 'confirmed'"
@@ -243,14 +266,28 @@
                 :class="tab === 'albums' ? 'bg-gray-700 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:text-gray-200'"
                 @click="tab = 'albums'"
               >
-                套图推荐 ({{ albumRecommendations.length }})
+                套图推荐
+                <span class="ml-1 inline-flex items-center">
+                  <span
+                    v-if="loadingAlbums"
+                    class="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70"
+                  ></span>
+                  <span v-else>({{ albumRecommendations.length }})</span>
+                </span>
               </button>
               <button
                 class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
                 :class="tab === 'unassigned' ? 'bg-gray-700 text-gray-300 border-b-2 border-gray-300' : 'text-gray-400 hover:text-gray-200'"
                 @click="tab = 'unassigned'"
               >
-                未分配 ({{ unassignedFaces.length }})
+                未分配
+                <span class="ml-1 inline-flex items-center">
+                  <span
+                    v-if="loadingUnassignedFaces"
+                    class="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70"
+                  ></span>
+                  <span v-else>({{ unassignedFaces.length }})</span>
+                </span>
               </button>
             </div>
             <!-- 操作按钮区域 -->
@@ -330,13 +367,15 @@
                   :class="selectedConfirmed.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'confirmed')"
                 >
-                      <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="handleFaceDblClick(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
                       class="w-full h-full object-cover pointer-events-none"
                       :style="getFaceCropStyle(f)"
-                      loading="lazy"
+                      :loading="index < confirmedPriorityPageCount ? 'eager' : 'lazy'"
+                      :fetchpriority="index < confirmedPriorityRowCount ? 'high' : 'auto'"
+                      decoding="async"
                     />
                     <!-- 移除按钮 -->
                     <button
@@ -359,8 +398,8 @@
                     <div
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
-                      @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
+                        @click.stop="openPhoto(f.photoId)"
+                          @dblclick.stop="handleFaceDblClick(f)"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -555,7 +594,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                          @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
+                      @dblclick.stop="handleFaceDblClick(f)"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -604,7 +643,7 @@
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                     </template>
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="handleFaceDblClick(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -624,7 +663,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
+                      @dblclick.stop="handleFaceDblClick(f)"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -680,7 +719,7 @@
                       {{ ((f.confidence || 0) * 100).toFixed(0) }}%
                     </template>
                   </div>
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="handleFaceDblClick(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -701,7 +740,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
+                      @dblclick.stop="handleFaceDblClick(f)"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -747,7 +786,7 @@
                   :class="selectedClusterFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'cluster')"
                 >
-                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })">
+                  <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="handleFaceDblClick(f)">
                     <img
                       v-if="getFaceThumb(f)"
                       :src="getFaceThumb(f)"
@@ -761,7 +800,7 @@
                       class="text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
-                      @dblclick.stop="openViewer(f, { highlightedFaceId: f.id, preferredFaceId: f.id })"
+                      @dblclick.stop="handleFaceDblClick(f)"
                     >
                       {{ f.photoFilename || '-' }}
                     </div>
@@ -1009,17 +1048,7 @@ const personColumns = computed(() => {
 
 const tab = ref<'confirmed' | 'auto' | 'similar' | 'albums' | 'unassigned'>('confirmed')
 
-// 监听tab变化，当切换到albums时自动加载第一个相册的图片
-watch(tab, async (newTab, oldTab) => {
-  if (newTab === 'albums' && oldTab !== 'albums' && selectedPersonId.value) {
-    // 延迟一小段时间，确保UI更新后再加载
-    await nextTick()
-    // 如果还没有选中相册，自动选择第一个
-    if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
-      await selectAlbum(albumRecommendations.value[0])
-    }
-  }
-})
+// 说明：tab 切换的加载逻辑在下方统一处理（按需加载/避免重复请求）
 
 // 已确认照片
 const confirmedFaces = ref<FaceItem[]>([])
@@ -1453,6 +1482,12 @@ const loadAllFaces = async (signal?: AbortSignal) => {
     selectedConfirmed.value.clear()
     resetFaceVisible('confirmed', 2)
 
+    // 关键：让浏览器有机会先完成一次渲染/图片请求派发。
+    // 否则在 confirmed 很快返回、但后续几个 tab 的大响应/处理紧随其后时，
+    // 主线程可能长时间忙于解析/处理，导致用户感知为“先只出两张固定图片，等其它 tab 结束才全部出现”。
+    await nextTick()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+
     // 加载其他数据（不清除选择状态和可见状态）
     // 跳过自动分配数据加载，直接到已确认状态
     await Promise.all([
@@ -1608,9 +1643,9 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
     if (signal?.aborted) return
 
     const currentAlbumId = keepSelection ? selectedAlbum.value?.albumId : null
-    albumRecommendations.value = (res.data || []).map(album => ({
-      ...album,
-      claimedPhotoCount: 0 // 初始化已认领图片数量
+    // 后端已返回 claimedPhotoCount，这里不要再重置为 0，避免触发额外的“逐相册再统计”逻辑
+    albumRecommendations.value = (res.data || []).map((album: AlbumRecommendation) => ({
+      ...album
     }))
 
     // 如果需要保持选择，尝试找到对应的相册
@@ -1634,9 +1669,6 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
     if (selectedAlbum.value) {
       await loadAlbumPhotos(selectedAlbum.value.albumId, signal)
     }
-
-    // 后台预取各相册的已认领数量（不加载图片），并逐个填充 claimedPhotoCount
-    prefetchAlbumClaimedCounts(albumRecommendations.value, signal)
 
     selectedAlbumFaces.value.clear()
   } catch (error) {
@@ -1789,50 +1821,8 @@ const loadAlbumSimilarFaces = async (albumId: number, signal?: AbortSignal) => {
   }
 }
 
-// 仅计算相册中属于当前人物的已认领图片数量（不加载图片数据）
-const fetchAlbumClaimedCount = async (albumId: number, signal?: AbortSignal): Promise<number | null> => {
-  if (!selectedPersonId.value) return null
-  try {
-    const res = await api.get(`/admin/persons/${selectedPersonId.value}/albums/${albumId}/similar-faces`, { signal })
-    if (signal?.aborted) return null
-    const faces = res.data || []
-    // 统计：有任意人脸属于当前人物的图片
-    const claimedPhotoIds = new Set<number>()
-    faces.forEach((f: any) => {
-      if (f.personId === selectedPersonId.value && f.photoId) {
-        claimedPhotoIds.add(f.photoId)
-      }
-    })
-    return claimedPhotoIds.size
-  } catch (error: any) {
-    if (signal?.aborted) return null
-    console.error('预取相册已认领数量失败:', { albumId, error })
-    return null
-  }
-}
-
-// 并发预取相册的已认领数量，逐个更新列表显示
-const prefetchAlbumClaimedCounts = async (albums: any[], signal?: AbortSignal) => {
-  if (!albums || albums.length === 0) return
-  const concurrency = 4
-  let index = 0
-  const workers = Array.from({ length: concurrency }).map(async () => {
-    while (index < albums.length && !(signal && signal.aborted)) {
-      const current = albums[index++]
-      const count = await fetchAlbumClaimedCount(current.albumId, signal)
-      if (count !== null) {
-        const target = albumRecommendations.value.find(a => a.albumId === current.albumId)
-        if (target) {
-          target.claimedPhotoCount = count
-        }
-        if (selectedAlbum.value && selectedAlbum.value.albumId === current.albumId) {
-          selectedAlbum.value.claimedPhotoCount = count
-        }
-      }
-    }
-  })
-  await Promise.all(workers)
-}
+// 说明：claimedPhotoCount 已由后端在 album-recommendations 接口返回。
+// 过去这里会对每个相册并发再请求一次 similar-faces 来“预取统计”，会导致大量请求与卡顿；已移除。
 
 const loadSimilarFaces = async (signal?: AbortSignal, clearData = true) => {
   if (!selectedPersonId.value) return
@@ -2613,16 +2603,18 @@ const handleRemoveClick = async (photoId: number) => {
   await unassignPhoto(photoId)
 }
 
-// 防抖处理，防止双击事件
-let lastClickTime = 0
+// 防重复提交：允许快速连续点击不同图片/人脸，但避免同一个 faceId 被重复点击触发并发请求
+const assigningFaceIds = ref<Set<number>>(new Set())
 const handleAssignClick = async (faceId: number, confirmed: boolean = true) => {
-  const now = Date.now()
-  if (now - lastClickTime < 300) { // 300ms内的连续点击被忽略
-    return
+  if (assigningFaceIds.value.has(faceId)) return
+  assigningFaceIds.value = new Set(assigningFaceIds.value).add(faceId)
+  try {
+    await assignFace(faceId, confirmed)
+  } finally {
+    const next = new Set(assigningFaceIds.value)
+    next.delete(faceId)
+    assigningFaceIds.value = next
   }
-  lastClickTime = now
-
-  await assignFace(faceId, confirmed)
 }
 
 const unassignPhoto = async (photoId: number) => {
@@ -2810,9 +2802,11 @@ const markPhotoUnassignedLocally = (photoId: number) => {
 
 const updateAlbumClaimedCounts = () => {
   albumRecommendations.value.forEach((a: any) => {
-    const ap = a.albumPhotos || []
-    const claimed = ap.filter((photo: any) =>
-      photo.assignedPersonId === selectedPersonId.value || (photo.faces || []).some((f: any) => f.personId === selectedPersonId.value)
+    // 只有在该相册已加载过 albumPhotos 时才本地重算，避免把后端返回的统计覆盖成 0
+    if (!Array.isArray(a.albumPhotos)) return
+    const claimed = a.albumPhotos.filter((photo: any) =>
+      photo.assignedPersonId === selectedPersonId.value ||
+      (photo.faces || []).some((f: any) => f.personId === selectedPersonId.value)
     ).length
     a.claimedPhotoCount = claimed
     if (selectedAlbum.value && selectedAlbum.value.albumId === a.albumId) {
@@ -3034,6 +3028,36 @@ const recalcFacePageSize = () => {
   }
 }
 
+// 已认领 tab：用“真实 grid 列数 + 可视高度可容纳的行数”计算优先加载数量
+// 解决仅用 approxCardWidth 估算导致的“一页数量偏小”（例如实际 4 列但只预加载出 2.x 行）。
+const confirmedGridCols = ref(3)
+const confirmedGridRows = ref(FACE_ROWS_PER_PAGE)
+const updateConfirmedGridMetrics = () => {
+  const grid = confirmedContainer.value
+  const scroll = tabScrollContainer.value
+  if (!grid || !scroll) return
+
+  try {
+    // 列数：从 gridTemplateColumns 解析（最贴近 Tailwind 的 grid-cols-* 响应式结果）
+    const cs = window.getComputedStyle(grid)
+    const tpl = (cs.gridTemplateColumns || '').trim()
+    const cols = tpl ? tpl.split(/\s+/).length : 0
+    if (cols > 0) confirmedGridCols.value = cols
+
+    // 行数：用一个卡片的实际高度 + rowGap 推算当前可视能容纳几行（向上取整）
+    const firstCard = grid.querySelector('[data-face-id]') as HTMLElement | null
+    const rowGap = parseFloat(cs.rowGap || '0') || 0
+    const cardH = firstCard ? firstCard.getBoundingClientRect().height : 160
+    const rowH = Math.max(1, cardH + rowGap)
+    const rows = Math.max(1, Math.ceil(scroll.clientHeight / rowH))
+    confirmedGridRows.value = rows
+  } catch {
+    // ignore
+  }
+}
+const confirmedPriorityRowCount = computed(() => confirmedGridCols.value) // 一行
+const confirmedPriorityPageCount = computed(() => Math.max(confirmedGridCols.value * confirmedGridRows.value, confirmedGridCols.value)) // 一页（按可视高度）
+
 const maybeFillFaceViewport = (tabType: FaceTab) => {
   nextTick(() => {
     const container = getCurrentContainer(tabType) || tabScrollContainer.value
@@ -3164,6 +3188,12 @@ const updateSelectionFromBox = (tabType: string) => {
   selection.value = newSelection
 }
 
+// 记录最近两次点击的人脸，用于更精确地区分“双击同一张图”和“快速点到不同图”
+const lastClickFaceId = ref<number | null>(null)
+const lastClickTime = ref<number>(0)
+const prevClickFaceId = ref<number | null>(null)
+const prevClickTime = ref<number>(0)
+
 // 处理人脸点击（支持Shift/Ctrl/Ctrl+Shift）
 const handleFaceClick = (e: MouseEvent, faceId: number, tabType: string) => {
   // 如果点击的是按钮或输入框，不处理
@@ -3171,6 +3201,12 @@ const handleFaceClick = (e: MouseEvent, faceId: number, tabType: string) => {
   if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button') || target.closest('input') || target.closest('label')) {
     return
   }
+
+  // 更新最近两次点击记录（用于双击判定）
+  prevClickFaceId.value = lastClickFaceId.value
+  prevClickTime.value = lastClickTime.value
+  lastClickFaceId.value = faceId
+  lastClickTime.value = Date.now()
   
   const selection = getCurrentSelection(tabType)
   const faceList = getCurrentFaceList(tabType)
@@ -3216,6 +3252,31 @@ const handleFaceClick = (e: MouseEvent, faceId: number, tabType: string) => {
   const visibleList = getCurrentVisibleFaceList()
   const vIndex = visibleList.findIndex(f => f.id === faceId)
   activeFaceIndex.value = vIndex >= 0 ? vIndex : null
+}
+
+// 处理双击：只在“最近两次单击都落在同一张图片且间隔很短”时才真正打开大图，
+// 避免在快速点击不同图片（但位置相近、列表在刷新）时误触发双击。
+const handleFaceDblClick = (face: FaceItem) => {
+  const now = Date.now()
+
+  // 需要有两次有效的最近点击记录
+  if (lastClickFaceId.value == null || prevClickFaceId.value == null) return
+
+  // 双击整体时间窗口（最后一次点击到现在要足够近）
+  if (now - lastClickTime.value > 600) return
+
+  // 两次点击必须都是同一张图片，且两次点击之间的时间足够短
+  const sameFace =
+    lastClickFaceId.value === face.id &&
+    prevClickFaceId.value === face.id
+  const betweenClicks = lastClickTime.value - prevClickTime.value
+
+  if (!sameFace || betweenClicks <= 0 || betweenClicks > 400) {
+    // 不符合“真正双击同一张图”的条件，忽略本次双击
+    return
+  }
+
+  openViewer(face, { highlightedFaceId: face.id, preferredFaceId: face.id })
 }
 
 // 反选
@@ -4075,30 +4136,56 @@ const onViewerIndexChange = (payload: { index: number; photoId?: number; faceIds
 // viewer open options to pass to PhotoViewer
 const viewerOpenOptions = ref<any>(null)
 
+// 预取缩略图：让图片尽量按“当前列表显示顺序”加载，而不是由浏览器调度随机抢占。
+// 只做轻量预取：小并发、可取消、去重，避免影响其它请求。
+let confirmedPrefetchAbort: AbortController | null = null
+const confirmedPrefetched = new Set<string>()
+const prefetchImageQueue = async (urls: string[], opts: { signal?: AbortSignal; concurrency?: number } = {}) => {
+  const concurrency = Math.max(1, Math.min(4, opts.concurrency ?? 2))
+  const signal = opts.signal
+  let idx = 0
+  const workers = Array.from({ length: concurrency }).map(async () => {
+    while (idx < urls.length && !(signal?.aborted)) {
+      const url = urls[idx++]
+      if (!url || confirmedPrefetched.has(url)) continue
+      confirmedPrefetched.add(url)
+      await new Promise<void>((resolve) => {
+        const img = new Image()
+        img.decoding = 'async'
+        img.onload = () => resolve()
+        img.onerror = () => resolve()
+        // 某些浏览器支持 fetchPriority（非标准字段），尽量提高首屏体验；不支持也无碍
+        ;(img as any).fetchPriority = 'low'
+        img.src = url
+      })
+    }
+  })
+  await Promise.all(workers)
+}
+
 watch(tab, (v) => {
+  // 切换人物时已经触发过 loadAllFaces() 预加载；
+  // 这里改为“按需加载”（仅当数据为空/未加载时才请求），避免切 tab 反复拉取造成卡顿。
   if (v === 'similar' && selectedPersonId.value) {
-    loadSimilarFaces()
+    if (!loadingSimilarFaces.value && similarFaces.value.length === 0) loadSimilarFaces()
   } else if (v === 'unassigned') {
-    loadContextualUnassigned()
+    if (!loadingUnassignedFaces.value && unassignedFaces.value.length === 0) loadContextualUnassigned()
   } else if (v === 'auto' && selectedPersonId.value) {
-    loadAutoAssignedFaces()
+    if (!loadingAuto.value && autoAssignedFaces.value.length === 0) loadAutoAssignedFaces()
   } else if (v === 'confirmed') {
     if (selectedPersonId.value) {
-      loadConfirmedFaces()
+      if (!loadingConfirmedFaces.value && confirmedFaces.value.length === 0) loadConfirmedFaces()
     } else if (selectedClusterIndex.value !== null) {
-      loadClusterFaces()
+      if (!loadingPersonFaces.value && personFaces.value.length === 0) loadClusterFaces()
     }
   } else if (v === 'albums' && selectedPersonId.value) {
-    // 切换到套图推荐tab时，如果没有选中相册，则自动选中第一个
+    // 切换到套图推荐 tab：只在必要时加载相册列表，并在未选中相册时选中第一个
     const selectFirstAlbum = async () => {
-      if (albumRecommendations.value.length > 0) {
-        await selectAlbum(albumRecommendations.value[0])
-      } else {
-        // 如果相册推荐还没有加载，先加载它
+      if (albumRecommendations.value.length === 0) {
         await loadAlbumRecommendations()
-        if (albumRecommendations.value.length > 0) {
-          await selectAlbum(albumRecommendations.value[0])
-        }
+      }
+      if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
+        await selectAlbum(albumRecommendations.value[0])
       }
     }
     if (!selectedAlbum.value) {
@@ -4113,9 +4200,29 @@ watch(currentFaceTab, (v) => {
   }
 })
 
+// 已认领 tab：当可见列表变化时，按顺序预取缩略图，减少“先出固定两张”的概率
+watch(visibleConfirmedFaces, (list) => {
+  if (!list || list.length === 0) return
+  // 可见列表变化时同步更新一次“优先加载一页”的估算
+  nextTick(() => updateConfirmedGridMetrics())
+  // 取消上一次预取（例如快速切人/切tab）
+  if (confirmedPrefetchAbort) {
+    confirmedPrefetchAbort.abort()
+    confirmedPrefetchAbort = null
+  }
+  confirmedPrefetchAbort = new AbortController()
+  const urls = list
+    .map((f: any) => getFaceThumb(f))
+    .filter((u: string) => !!u)
+  // 跳过前面已经 eager/high 的部分，从后面开始轻量预取
+  const tail = urls.slice(confirmedPriorityPageCount.value)
+  prefetchImageQueue(tail, { signal: confirmedPrefetchAbort.signal, concurrency: 2 })
+})
+
 let resizeObserver: ResizeObserver | null = null
 let faceResizeObserver: ResizeObserver | null = null
 let albumResizeObserver: ResizeObserver | null = null
+let confirmedGridResizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   loadPersons()
@@ -4131,8 +4238,14 @@ onMounted(() => {
     if (tabScrollContainer.value && 'ResizeObserver' in window) {
       faceResizeObserver = new ResizeObserver(() => {
         recalcFacePageSize()
+        updateConfirmedGridMetrics()
       })
       faceResizeObserver.observe(tabScrollContainer.value)
+    }
+    // confirmed grid cols/rows depend on its own container; observe it as well
+    if (confirmedContainer.value && 'ResizeObserver' in window) {
+      confirmedGridResizeObserver = new ResizeObserver(() => updateConfirmedGridMetrics())
+      confirmedGridResizeObserver.observe(confirmedContainer.value)
     }
     if (albumContainer.value && 'ResizeObserver' in window) {
       albumResizeObserver = new ResizeObserver(() => {
@@ -4234,6 +4347,10 @@ onBeforeUnmount(() => {
     faceResizeObserver.unobserve(tabScrollContainer.value)
   }
   faceResizeObserver = null
+  if (confirmedGridResizeObserver && confirmedContainer.value) {
+    confirmedGridResizeObserver.unobserve(confirmedContainer.value)
+  }
+  confirmedGridResizeObserver = null
   window.removeEventListener('resize', updateContainerWidth)
   window.removeEventListener('resize', setAlbumMaxHeight)
   if (albumResizeObserver && albumContainer.value) {

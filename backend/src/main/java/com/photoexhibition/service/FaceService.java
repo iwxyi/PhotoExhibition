@@ -15,6 +15,7 @@ import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.AlbumRepository;
+import com.photoexhibition.repository.PhotoAssignmentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +55,7 @@ public class FaceService {
     private final PersonProfileRepository personProfileRepository;
     private final PhotoRepository photoRepository;
     private final AlbumRepository albumRepository;
+    private final PhotoAssignmentRepository photoAssignmentRepository;
     private final AlbumService albumService;
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
@@ -1695,6 +1697,10 @@ public class FaceService {
             face.setPerson(null);
             faceRepository.save(face);
         }
+
+        // 清理“图片直接指派”记录（photo_assignment.person_id -> person_profile.id 外键）
+        // 否则删除 person_profile 会触发外键约束失败
+        photoAssignmentRepository.deleteByPersonId(personId);
         
         // 删除人物
         personProfileRepository.delete(person);
@@ -1857,6 +1863,22 @@ public class FaceService {
 
         List<AlbumRecommendationDTO> result = new ArrayList<>();
 
+        // 批量统计“已认领图片数”（含：人脸绑定到人物 + 图片指派到人物），不加载相册图片本身
+        Map<Long, Integer> albumClaimedCountMap = new HashMap<>();
+        List<Long> albumIds = new ArrayList<>(albumFaceCountMap.keySet());
+        if (!albumIds.isEmpty()) {
+            List<Object[]> rows = photoAssignmentRepository.countClaimedPhotosByAlbumIds(personId, albumIds);
+            for (Object[] row : rows) {
+                if (row == null || row.length < 2) continue;
+                Long albumId = row[0] == null ? null : ((Number) row[0]).longValue();
+                Integer cnt = row[1] == null ? 0 : ((Number) row[1]).intValue();
+                if (albumId != null) {
+                    albumClaimedCountMap.put(albumId, cnt);
+                }
+            }
+        }
+
+
         for (Map.Entry<Long, Long> entry : albumFaceCountMap.entrySet()) {
             Long albumId = entry.getKey();
             Long faceCount = entry.getValue();
@@ -1883,6 +1905,9 @@ public class FaceService {
             dto.setPhotoCount(album.getPhotoCount());
             dto.setSimilarFaceCount((int) actualConfirmedFaces); // 已确认人脸数量
             dto.setTakenAt(album.getLatestPhotoTakenAt());
+            
+            // 设置已认领的图片数量
+            dto.setClaimedPhotoCount(albumClaimedCountMap.getOrDefault(albumId, 0));
 
             // 设置相册封面图片：使用该人物在相册中的第一张已确认照片
             String personCoverImagePath = null;
@@ -1927,6 +1952,7 @@ public class FaceService {
 
         return result;
     }
+
 
     /**
      * 获取指定相册中与人物相似的未分配人脸

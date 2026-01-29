@@ -164,6 +164,7 @@ export interface AlbumRecommendation {
   albumPath: string
   photoCount: number
   similarFaceCount: number
+  claimedPhotoCount?: number
   takenAt: string
   coverImagePath?: string
 }
