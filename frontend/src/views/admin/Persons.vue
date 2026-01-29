@@ -750,9 +750,16 @@
                     <button
                       v-if="selectedItem.type === 'confirmed'"
                       @click.stop="handleAssignClick(f.id, true)"
-                      class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="absolute bottom-1 right-1 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
+                    </button>
+                    <button
+                      v-if="selectedItem.type === 'confirmed'"
+                      @click.stop="openClaimDialogForSingleFace(f.id)"
+                      class="absolute bottom-1 right-[calc(100%+2px)] bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      认领为
                     </button>
                   </div>
                   <div class="p-1.5">
@@ -924,16 +931,23 @@
         </button>
       </div>
 
-      <!-- 搜索框 -->
-      <div class="p-4 border-b border-gray-700/50">
+      <!-- 搜索框和操作按钮 -->
+      <div class="p-4 border-b border-gray-700/50 flex items-center gap-2">
         <input
           ref="claimDialogSearchInput"
           v-model="claimDialogSearchKeyword"
           @input="filterClaimDialogPersons"
           @keyup.enter="handleClaimDialogEnter"
           placeholder="搜索人物名字..."
-          class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
+          class="flex-1 px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
         />
+        <button
+          @click="handleCreatePersonFromClaimDialog"
+          :disabled="!canCreatePersonFromClaimDialog"
+          class="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          新建人物
+        </button>
       </div>
 
       <!-- 人物列表 -->
@@ -1103,6 +1117,17 @@ const loadingClaimDialogPersons = ref(false)
 const selectedClaimPersonId = ref<number | null>(null)
 const claimDialogSearchInput = ref<HTMLInputElement | null>(null)
 const claimDialogSourceTab = ref<'cluster' | 'unassigned' | null>(null) // 记录弹窗来源tab
+
+// 是否可以使用新建人物按钮
+const canCreatePersonFromClaimDialog = computed(() => {
+  const keyword = claimDialogSearchKeyword.value.trim().toLowerCase()
+  if (!keyword) return false
+  // 检查是否有同名人物（不区分大小写）
+  const hasSameName = claimDialogPersons.value.some(
+    p => (p.name || '').toLowerCase() === keyword
+  )
+  return !hasSameName
+})
 
 // 聚类阈值输入处理
 const handleThresholdInput = (event: Event) => {
@@ -4554,6 +4579,63 @@ const closeClaimDialog = () => {
   claimDialogSourceTab.value = null
 }
 
+// 为单个人脸打开认领为弹窗
+const openClaimDialogForSingleFace = async (faceId: number) => {
+  if (!selectedPersonId.value) {
+    alert('请先选择一个已确认的人物')
+    return
+  }
+
+  claimDialogSourceTab.value = 'unassigned' // 来源设置为unassigned
+  showClaimDialog.value = true
+  claimDialogSearchKeyword.value = ''
+  selectedClaimPersonId.value = null
+  loadingClaimDialogPersons.value = true
+
+  try {
+    // 计算选中人脸与所有人物的相似度
+    const similarityRes = await api.post('/admin/faces/calculate-similarity-to-persons', {
+      faceIds: [faceId]
+    })
+
+    const similarities = similarityRes.data || []
+    const similarityMap = new Map(similarities.map((s: any) => [s.personId, s.similarity]))
+
+    // 获取人物列表
+    const personsRes = await api.get('/admin/persons/with-sample')
+    let allPersons = personsRes.data || []
+
+    // 转换为PersonListItem格式并添加相似度
+    claimDialogPersons.value = allPersons.map((person: any) => ({
+      type: 'confirmed' as const,
+      id: person.id,
+      name: person.name,
+      description: person.description,
+      faceCount: person.faceCount,
+      sampleThumbnailPath: person.sampleThumbnailPath,
+      sampleOriginalPath: person.sampleOriginalPath,
+      samplePhotoId: person.samplePhotoId,
+      sampleFaceId: person.sampleFaceId,
+      similarity: similarityMap.get(person.id)
+    }))
+
+    // 按相似度降序排序
+    claimDialogPersons.value.sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+
+    // 初始化过滤列表
+    filterClaimDialogPersons()
+
+    // 聚焦搜索框
+    await nextTick()
+    claimDialogSearchInput.value?.focus()
+  } catch (error) {
+    console.error('加载人物列表失败:', error)
+    alert('加载人物列表失败: ' + (error.response?.data?.error || error.message || '请重试'))
+  } finally {
+    loadingClaimDialogPersons.value = false
+  }
+}
+
 // 过滤认领弹窗中的人物列表
 const filterClaimDialogPersons = () => {
   const keyword = claimDialogSearchKeyword.value.trim()
@@ -4589,6 +4671,61 @@ const filterClaimDialogPersons = () => {
 const handleClaimDialogEnter = () => {
   if (selectedClaimPersonId.value !== null) {
     confirmClaimToPerson()
+  }
+}
+
+// 从认领弹窗新建人物
+const handleCreatePersonFromClaimDialog = async () => {
+  const name = (claimDialogSearchKeyword.value || '').trim()
+  if (!name) {
+    alert('请输入人物名字')
+    claimDialogSearchInput.value?.focus()
+    return
+  }
+
+  // 获取来源tab
+  const sourceTab = claimDialogSourceTab.value
+  if (!sourceTab) return
+
+  // 获取选中的人脸ID
+  let selectedFaceIds: number[] = []
+  if (sourceTab === 'cluster') {
+    if (selectedClusterFaces.value.size === 0) return
+    selectedFaceIds = Array.from(selectedClusterFaces.value)
+  } else if (sourceTab === 'unassigned') {
+    if (selectedUnassigned.value.size === 0) return
+    selectedFaceIds = Array.from(selectedUnassigned.value)
+  } else {
+    return
+  }
+
+  try {
+    // 创建新人物并直接分配人脸
+    const res = await api.post('/admin/persons/from-faces', {
+      faceIds: selectedFaceIds,
+      name
+    })
+    const newPersonId = res.data.id
+
+    // 关闭弹窗
+    closeClaimDialog()
+
+    // 刷新人物列表
+    await loadPersons()
+
+    // 选中新创建的人物
+    const found = persons.value.find(p => p.type === 'confirmed' && p.id === newPersonId)
+    if (found) {
+      selectPerson(found)
+    }
+
+    // 如果是从聚类tab来的，刷新聚类人脸列表
+    if (sourceTab === 'cluster' && selectedItem.value?.type === 'cluster' && selectedClusterIndex.value !== null) {
+      await loadClusterFaces()
+    }
+  } catch (error) {
+    console.error('创建人物失败:', error)
+    alert('创建人物失败: ' + (error.response?.data?.error || error.message || '请重试'))
   }
 }
 

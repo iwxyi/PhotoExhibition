@@ -27,6 +27,13 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     List<Face> findByPersonIsNull();
 
+    /**
+     * 获取所有未分配人脸，预加载 Photo 关联
+     * 用于相似度计算（避免懒加载问题）
+     */
+    @Query("SELECT DISTINCT f FROM Face f LEFT JOIN FETCH f.photo WHERE f.person IS NULL")
+    List<Face> findByPersonIsNullWithPhoto();
+
     long countByPersonIsNull();
 
     Page<Face> findByPersonIsNotNull(Pageable pageable);
@@ -36,6 +43,13 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     Page<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed, Pageable pageable);
 
     List<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed);
+
+    /**
+     * 批量获取所有已确认人物的人脸（用于相似度计算优化）
+     * 返回: [personId, personName, embedding]
+     */
+    @Query("SELECT DISTINCT p.id, p.name, f.embedding FROM Face f JOIN f.person p WHERE f.isConfirmed = true AND f.embedding IS NOT NULL AND f.embedding <> ''")
+    List<Object[]> findAllConfirmedPersonFacesWithEmbedding();
 
     @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person IS NULL AND p.albumId IN :albumIds")
     List<Face> findByPersonIsNullAndPhotoAlbumIdIn(@Param("albumIds") java.util.Set<Long> albumIds);

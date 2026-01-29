@@ -1721,7 +1721,7 @@ public class FaceService {
     }
 
     /**
-     * 计算聚类与已确认人物的相似度
+     * 计算聚类与已确认人物的相似度（优化版：批量加载，预计算）
      */
     @Transactional(readOnly = true)
     public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double threshold) {
@@ -1743,23 +1743,92 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        // 获取所有已确认人物
-        List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
-        List<PersonSimilarityDTO> similarities = new ArrayList<>();
+        // 预计算聚类向量的范数
+        double clusterNormSum = 0;
+        for (float v : clusterAvgEmbedding) {
+            clusterNormSum += v * v;
+        }
+        final double clusterNorm = Math.sqrt(clusterNormSum);
 
-        for (PersonProfile person : confirmedPersons) {
-            // 获取人物的所有已确认人脸
-            List<Face> personFaces = faceRepository.findByPersonIdAndIsConfirmed(person.getId(), true);
-            if (personFaces.isEmpty()) continue;
+        // 批量加载所有已确认人物的人脸（一次性查询）
+        List<Object[]> personFaceData = faceRepository.findAllConfirmedPersonFacesWithEmbedding();
+        
+        // 按人物分组，预计算每个人的平均向量
+        Map<Long, float[]> personAvgEmbeddingMap = new ConcurrentHashMap<>();
+        Map<Long, String> personNameMap = new ConcurrentHashMap<>();
+        Map<Long, Double> personNormMap = new ConcurrentHashMap<>();
 
-            // 计算人物平均特征向量
-            float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(personFaces);
+        for (Object[] row : personFaceData) {
+            Long personId = ((Number) row[0]).longValue();
+            String personName = (String) row[1];
+            String embeddingStr = (String) row[2];
 
-            if (personAvgEmbedding != null) {
-                double similarity = cosine(clusterAvgEmbedding, personAvgEmbedding);
-                similarities.add(new PersonSimilarityDTO(person.getId(), person.getName(), similarity));
+            personNameMap.putIfAbsent(personId, personName);
+
+            if (embeddingStr == null || embeddingStr.isEmpty()) continue;
+            
+            float[] embedding = parseEmbedding(embeddingStr);
+            if (embedding == null) continue;
+
+            // 累加向量
+            personAvgEmbeddingMap.compute(personId, (k, existing) -> {
+                if (existing == null) {
+                    return embedding.clone();
+                } else {
+                    for (int i = 0; i < embedding.length; i++) {
+                        existing[i] += embedding[i];
+                    }
+                    return existing;
+                }
+            });
+        }
+
+        // 计算每个人物的平均向量和范数
+        for (Map.Entry<Long, float[]> entry : personAvgEmbeddingMap.entrySet()) {
+            Long personId = entry.getKey();
+            float[] sumVec = entry.getValue();
+            
+            // 统计该人物的人脸数量来计算平均值
+            long faceCount = personFaceData.stream()
+                .filter(row -> personId.equals(((Number) row[0]).longValue()))
+                .count();
+            
+            if (faceCount > 0) {
+                for (int i = 0; i < sumVec.length; i++) {
+                    sumVec[i] /= faceCount;
+                }
+                
+                // 计算范数
+                double norm = 0;
+                for (float v : sumVec) {
+                    norm += v * v;
+                }
+                personNormMap.put(personId, Math.sqrt(norm));
             }
         }
+
+        // 并行计算相似度
+        List<PersonSimilarityDTO> similarities = personAvgEmbeddingMap.entrySet().parallelStream()
+            .map(entry -> {
+                Long personId = entry.getKey();
+                float[] personVec = entry.getValue();
+                Double personNorm = personNormMap.get(personId);
+                
+                if (personNorm == null || personNorm == 0 || clusterNorm == 0) {
+                    return null;
+                }
+                
+                // 计算余弦相似度
+                double dotProduct = 0;
+                for (int i = 0; i < personVec.length; i++) {
+                    dotProduct += personVec[i] * clusterAvgEmbedding[i];
+                }
+                double similarity = dotProduct / (personNorm * clusterNorm);
+                
+                return new PersonSimilarityDTO(personId, personNameMap.get(personId), similarity);
+            })
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
 
         // 按相似度降序排序，取前5个
         return similarities.stream()
@@ -2163,6 +2232,9 @@ public class FaceService {
                 return getCachedSimilarities(personId);
             }
 
+            long startTime = System.currentTimeMillis();
+            log.info("人物 {} 开始计算相似度...", personId);
+
             // 获取人物的所有人脸
             List<Face> personFaces = faceRepository.findByPersonId(personId, PageRequest.of(0, 1000)).getContent();
             if (personFaces.isEmpty()) {
@@ -2181,23 +2253,47 @@ public class FaceService {
                 .map(face -> face.getPhoto().getOriginalPath())
                 .collect(Collectors.toSet());
 
-            // 获取所有未分配人脸
-            List<Face> allUnassigned = faceRepository.findByPersonIsNull();
-            List<CachedFaceSimilarity> result = new ArrayList<>();
+            // 获取所有未分配人脸（使用预加载关联的方法）
+            List<Face> allUnassigned = faceRepository.findByPersonIsNullWithPhoto();
 
+            // 预加载所有人脸的照片路径到 Map（避免懒加载和空指针问题）
+            Map<Long, String> facePhotoPaths = new ConcurrentHashMap<>();
             for (Face face : allUnassigned) {
-                if (face.getEmbedding() == null || face.getEmbedding().isEmpty()) continue;
-                if (face.getPhoto() == null || face.getPhoto().getOriginalPath() == null) continue;
-
-                float[] faceEmbedding = parseEmbedding(face.getEmbedding());
-                if (faceEmbedding == null) continue;
-
-                double similarity = cosine(personAvgEmbedding, faceEmbedding);
-                boolean sameFolder = personPhotoPaths.stream()
-                    .anyMatch(personPath -> isSameFolder(personPath, face.getPhoto().getOriginalPath()));
-
-                result.add(new CachedFaceSimilarity(face.getId(), similarity, sameFolder));
+                if (face.getPhoto() != null && face.getPhoto().getOriginalPath() != null) {
+                    facePhotoPaths.put(face.getId(), face.getPhoto().getOriginalPath());
+                }
             }
+            final Map<Long, String> finalFacePhotoPaths = facePhotoPaths;
+
+            log.debug("人物 {}: 待计算 {} 个未分配人脸", personId, allUnassigned.size());
+
+            // 预计算归一化后的目标向量（避免重复计算）
+            double norm = 0;
+            for (float v : personAvgEmbedding) {
+                norm += v * v;
+            }
+            norm = Math.sqrt(norm);
+            final double targetNorm = norm;
+
+            // 并行计算相似度（使用 parallelStream）
+            List<CachedFaceSimilarity> result = allUnassigned.parallelStream()
+                .filter(face -> face.getEmbedding() != null && !face.getEmbedding().isEmpty())
+                .map(face -> {
+                    float[] faceEmbedding = parseEmbedding(face.getEmbedding());
+                    if (faceEmbedding == null) return null;
+
+                    // 使用优化后的余弦相似度计算
+                    double sim = cosineOptimized(personAvgEmbedding, faceEmbedding, targetNorm);
+                    
+                    // 使用预加载的照片路径（避免懒加载问题）
+                    String photoPath = finalFacePhotoPaths.get(face.getId());
+                    boolean sameFolder = photoPath != null && 
+                        personPhotoPaths.stream().anyMatch(pp -> isSameFolder(pp, photoPath));
+
+                    return new CachedFaceSimilarity(face.getId(), sim, sameFolder);
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
 
             // 排序（按相似度降序）
             result.sort((a, b) -> Double.compare(b.similarity, a.similarity));
@@ -2205,8 +2301,31 @@ public class FaceService {
             // 存储到缓存
             cacheSimilarities(personId, result);
 
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("人物 {} 相似度计算完成，耗时 {}ms，共 {} 条匹配", 
+                personId, duration, result.size());
+
             return result;
         }
+    }
+
+    /**
+     * 优化后的余弦相似度计算（预计算目标向量范数）
+     */
+    private double cosineOptimized(float[] a, float[] b, double normA) {
+        if (a == null || b == null || a.length != b.length) {
+            return 0;
+        }
+        double dotProduct = 0;
+        double normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dotProduct += a[i] * b[i];
+            normB += b[i] * b[i];
+        }
+        if (normA == 0 || normB == 0) {
+            return 0;
+        }
+        return dotProduct / (normA * Math.sqrt(normB));
     }
 
     /**
