@@ -81,5 +81,21 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
      * 按照片ID查找人脸记录，按创建时间倒序排列
      */
     List<Face> findByPhotoIdOrderByCreatedAtDesc(Long photoId);
+
+    /**
+     * 获取某人物在指定相册中的最佳照片（按点赞数 > 评分 > 创建时间）
+     */
+    @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person.id = :personId AND p.albumId = :albumId " +
+           "ORDER BY COALESCE(p.likeCount, 0) DESC, COALESCE(p.qualityScore, 0) DESC, p.createdAt DESC")
+    List<Face> findBestFaceByPersonAndAlbum(
+            @Param("personId") Long personId,
+            @Param("albumId") Long albumId);
+
+    /**
+     * 获取某人物所在的所有相册ID（按相册时间倒序，使用相册ID倒序近似代替）
+     */
+    @Query("SELECT DISTINCT p.albumId FROM Face f JOIN f.photo p WHERE f.person.id = :personId " +
+           "ORDER BY p.albumId DESC")
+    List<Long> findDistinctAlbumIdsByPersonId(@Param("personId") Long personId);
 }
 

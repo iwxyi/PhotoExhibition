@@ -66,11 +66,12 @@ public class PublicFaceController {
 
     /**
      * 获取人物的代表图片（用于列表显示）- 公开API
+     * 逻辑：按相册时间倒序，每个相册取一张（点赞 > 评分 > 创建时间）
      */
     @GetMapping("/persons/{personId}/sample-photos")
     public ResponseEntity<List<FaceDTO>> getPersonSamplePhotos(@PathVariable Long personId) {
-        // 获取该人物的前4张照片作为代表图片
-        Page<FaceDTO> faces = faceService.listPersonFaces(personId, PageRequest.of(0, 4, Sort.by("confidence").descending()));
-        return ResponseEntity.ok(faces.getContent());
+        // 使用新的封面逻辑
+        List<FaceDTO> faces = faceService.getPersonSamplePhotos(personId);
+        return ResponseEntity.ok(faces);
     }
 }

@@ -712,6 +712,82 @@ public class FaceService {
     }
 
     /**
+     * 获取人物代表照片（用于封面显示）
+     * 逻辑：按相册时间倒序，每个相册取一张（点赞 > 评分 > 创建时间）
+     * 如果相册不足4个，继续在剩余照片中按同样逻辑选取
+     */
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getPersonSamplePhotos(Long personId) {
+        // 获取该人物所在的所有相册ID（按相册ID倒序）
+        List<Long> albumIds = faceRepository.findDistinctAlbumIdsByPersonId(personId);
+        List<FaceDTO> result = new ArrayList<>();
+        Set<Long> usedPhotoIds = new HashSet<>();
+
+        // 每个相册取一张最优照片
+        for (Long albumId : albumIds) {
+            if (result.size() >= 4) break;
+
+            List<Face> faces = faceRepository.findBestFaceByPersonAndAlbum(personId, albumId);
+            for (Face face : faces) {
+                if (face.getPhoto() != null && !usedPhotoIds.contains(face.getPhoto().getId())) {
+                    FaceDTO dto = toDTO(face);
+                    // 确保返回完整的Photo信息（使用相对路径）
+                    if (face.getPhoto() != null) {
+                        dto.setPhotoFilename(face.getPhoto().getFilename());
+                        dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
+                        dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
+                    }
+                    result.add(dto);
+                    usedPhotoIds.add(face.getPhoto().getId());
+                    break; // 每个相册只取一张
+                }
+            }
+        }
+
+        // 如果相册不足4个，继续在剩余照片中按同样逻辑选取
+        if (result.size() < 4) {
+            // 获取该人物的所有照片，按点赞 > 评分 > 创建时间排序
+            List<Face> allFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
+            // 合并已确认和未确认的照片
+            allFaces.addAll(faceRepository.findByPersonIdAndIsConfirmed(personId, false));
+
+            // 按点赞 > 评分 > 创建时间排序
+            allFaces.sort((f1, f2) -> {
+                Photo p1 = f1.getPhoto();
+                Photo p2 = f2.getPhoto();
+                if (p1 == null || p2 == null) return 0;
+
+                int likeCompare = Integer.compare(p2.getLikeCount() != null ? p2.getLikeCount() : 0,
+                        p1.getLikeCount() != null ? p1.getLikeCount() : 0);
+                if (likeCompare != 0) return likeCompare;
+
+                double scoreCompare = Double.compare(
+                        p2.getQualityScore() != null ? p2.getQualityScore() : 0,
+                        p1.getQualityScore() != null ? p1.getQualityScore() : 0);
+                if (scoreCompare != 0) return scoreCompare > 0 ? 1 : -1;
+
+                return p2.getCreatedAt().compareTo(p1.getCreatedAt());
+            });
+
+            for (Face face : allFaces) {
+                if (result.size() >= 4) break;
+                if (face.getPhoto() != null && !usedPhotoIds.contains(face.getPhoto().getId())) {
+                    FaceDTO dto = toDTO(face);
+                    if (face.getPhoto() != null) {
+                        dto.setPhotoFilename(face.getPhoto().getFilename());
+                        dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
+                        dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
+                    }
+                    result.add(dto);
+                    usedPhotoIds.add(face.getPhoto().getId());
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
      * 获取已确认的人脸（用户手动确认的）
      */
     @Transactional(readOnly = true)

@@ -582,6 +582,14 @@
                         </span>
                         <span v-else>认领人脸</span>
                     </button>
+                    <!-- 认领为按钮 -->
+                    <button
+                        v-if="f.bestFace?.id && selectedItem.type === 'confirmed'"
+                        @click.stop="openClaimDialogForSingleFace(f.bestFace.id)"
+                        class="absolute bottom-1 right-[calc(100%+2px)] bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                        认领为
+                    </button>
                     <!-- 图片认领按钮（蓝色） -->
                     <button
                         v-if="f.photoId && f.assignedPersonId !== selectedPersonId && !(f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
@@ -672,6 +680,14 @@
                       class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
+                    </button>
+                    <!-- 认领为按钮 -->
+                    <button
+                      v-if="selectedItem.type === 'confirmed'"
+                      @click.stop="openClaimDialogForSingleFace(f.id)"
+                      class="absolute bottom-1 right-[calc(100%+2px)] bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      认领为
                     </button>
                   </div>
                   <div class="p-1.5">
@@ -859,6 +875,7 @@
     :photos="viewerPhotos"
     :start-index="viewerIndex"
     :auto-show-faces="true"
+    :force-show-faces="tab === 'similar' || tab === 'unassigned'"
     :open-options="viewerOpenOptions"
     @viewer-index-change="onViewerIndexChange"
   />
@@ -2526,21 +2543,36 @@ const assignSelectedSimilar = async () => {
   if (!selectedPersonId.value) return
   isBatchAssigning.value = true
   try {
-  const hasSelection = selectedSimilar.value.size > 0
-  const targetIds = hasSelection
-    ? Array.from(selectedSimilar.value)
-    : similarFaces.value.map(f => f.id)
+    const hasSelection = selectedSimilar.value.size > 0
+    let targetIds: number[] = []
 
-  if (targetIds.length === 0) return
+    if (hasSelection) {
+      targetIds = Array.from(selectedSimilar.value)
+    } else {
+      // 当没有选中任何项目时，从所有相似照片中收集人脸
+      // 优化：每张照片只收集相似度最高的那个人脸
+      const photoBestFace = new Map<number, any>()
+      similarFaces.value.forEach((face: any) => {
+        const photoId = face.photoId
+        if (!photoId) return
+        const currentBest = photoBestFace.get(photoId)
+        if (!currentBest || (face.similarity || 0) > (currentBest.similarity || 0)) {
+          photoBestFace.set(photoId, face)
+        }
+      })
+      targetIds = Array.from(photoBestFace.values()).map(f => f.id)
+    }
+
+    if (targetIds.length === 0) return
     await api.post('/admin/faces/batch-assign', {
       faceIds: targetIds,
       personId: selectedPersonId.value,
       confirmed: true
       })
 
-  selectedSimilar.value.clear()
-  await loadAllFaces()
-  await refreshPersonsAfterFaceChange()
+    selectedSimilar.value.clear()
+    await loadAllFaces()
+    await refreshPersonsAfterFaceChange()
   } finally {
     isBatchAssigning.value = false
   }
@@ -2561,37 +2593,58 @@ const assignSelectedAlbumFaces = async () => {
 
     // Build faceIds to assign:
     // - if user selected faces directly, include those face ids (only similarity>0)
-    // - if user selected photo tiles, include all faces in that photo with similarity>0
+    // - if user selected photo tiles, only include the highest similarity face per photo
     let faceIds: number[] = []
     if (hasSelection) {
       const sel = Array.from(selectedAlbumFaces.value)
       sel.forEach(id => {
         const face = faceMap[id]
         if (face) {
+          // 选中的是人脸，直接添加
           if ((face.similarity || 0) > 0 && face.personId !== selectedPersonId.value) {
             faceIds.push(face.id)
           }
         } else {
+          // 选中的是照片ID，只取相似度最高的那个人脸
           const photoById = albumPhotos.find((p: any) => p.id === id)
           if (photoById) {
-            (photoById.faces || []).forEach((f: any) => {
+            let bestFace: any = null
+            let bestSimilarity = -1
+            ;(photoById.faces || []).forEach((f: any) => {
               if ((f.similarity || 0) > 0 && f.personId !== selectedPersonId.value) {
-                faceIds.push(f.id)
+                if ((f.similarity || 0) > bestSimilarity) {
+                  bestSimilarity = f.similarity || 0
+                  bestFace = f
+                }
               }
             })
+            if (bestFace) {
+              faceIds.push(bestFace.id)
+            }
           }
         }
       })
     } else {
       // 当没有选中任何项目时，从所有相册照片中收集未认领的人脸
+      // 优化：每张照片只收集相似度最高的那个人脸
+      const photoBestFace = new Map<number, any>()
       albumPhotos.forEach((photo: any) => {
+        let bestFace: any = null
+        let bestSimilarity = -1
         ;(photo.faces || []).forEach((face: any) => {
-          // 只收集未分配或分配给其他人物的人脸
-          if (face.personId !== selectedPersonId.value) {
-            faceIds.push(face.id)
+          // 只收集未分配或分配给其他人物的人脸，且相似度>0
+          if (face.personId !== selectedPersonId.value && (face.similarity || 0) > 0) {
+            if ((face.similarity || 0) > bestSimilarity) {
+              bestSimilarity = face.similarity || 0
+              bestFace = face
+            }
           }
         })
+        if (bestFace) {
+          photoBestFace.set(photo.id, bestFace)
+        }
       })
+      faceIds = Array.from(photoBestFace.values()).map((f: any) => f.id)
     }
 
     // dedupe
@@ -3728,26 +3781,39 @@ const getClaimButtonState = computed(() => {
               hasUnclaimedFaces = true
             }
           } else {
-            // 选中的是图片ID，统计该图片中可认领的人脸数量，同时检测图片是否已直接指派
+            // 选中的是图片ID，只统计该照片中相似度最高的那张人脸
             const photoById = albumPhotos.find((photo: any) => photo.id === id)
             if (photoById) {
-              // count claimed/unclaimed faces inside photo
-              const claimedFacesInPhoto = (photoById.faces || []).filter((f: any) => f.personId === selectedPersonId.value).length
-              const unclaimedFacesInPhoto = (photoById.faces || []).filter((f: any) => (f.similarity || 0) > 0 && f.personId !== selectedPersonId.value).length
-              if (claimedFacesInPhoto > 0) {
-                hasClaimedFaces = true
-                removeFaceCount += claimedFacesInPhoto
-              }
-              if (unclaimedFacesInPhoto > 0) {
-                totalClaimableFaces += unclaimedFacesInPhoto
-                hasUnclaimedFaces = true
-              }
-              if (photoById.assignedPersonId === selectedPersonId.value) {
-                hasClaimedPhotos = true
-                removePhotoCount++
-              } else if (!((photoById.faces || []).some((f: any) => f.personId !== selectedPersonId.value))) {
-                // photo has no unclaimed faces and is unassigned -> counted as unclaimed photo
-                hasUnclaimedPhotos = true
+              // 检查照片是否有人脸
+              const hasFaces = (photoById.faces || []).length > 0
+
+              if (hasFaces) {
+                // 照片有人脸，只取最优的那张
+                let bestUnclaimedFace = null
+                let bestSimilarity = -1
+                ;(photoById.faces || []).forEach((f: any) => {
+                  if (f.personId === selectedPersonId.value) {
+                    hasClaimedFaces = true
+                    removeFaceCount++
+                  } else if ((f.similarity || 0) > 0 && f.personId !== selectedPersonId.value) {
+                    if ((f.similarity || 0) > bestSimilarity) {
+                      bestSimilarity = f.similarity || 0
+                      bestUnclaimedFace = f
+                    }
+                  }
+                })
+                if (bestUnclaimedFace) {
+                  totalClaimableFaces++
+                  hasUnclaimedFaces = true
+                }
+              } else {
+                // 照片没有人脸，作为图片处理
+                if (photoById.assignedPersonId === selectedPersonId.value) {
+                  hasClaimedPhotos = true
+                  removePhotoCount++
+                } else if (photoById.assignedPersonId === null || photoById.assignedPersonId === undefined) {
+                  hasUnclaimedPhotos = true
+                }
               }
             }
           }
@@ -4030,24 +4096,42 @@ const getActiveFacesForViewer = () => {
     case 'auto': return autoAssignedFaces.value
     case 'similar': return similarFaces.value
     case 'albums':
-      // 从albumPhotos中提取所有人脸
+      // 返回所有照片（包括无脸的），用于PhotoViewer浏览
       const albumPhotos = selectedAlbum.value?.albumPhotos || []
-      return albumPhotos.flatMap((photo: any) => photo.faces || [])
+      // 返回所有照片（不是只返回人脸）
+      return albumPhotos.map((photo: any) => ({
+        id: photo.id,
+        photoId: photo.id,
+        thumbnailPath: photo.thumbnailPath,
+        photoThumbnailPath: photo.thumbnailPath,
+        photoOriginalPath: photo.originalPath,
+        photoFilename: photo.filename,
+        faces: photo.faces || [],
+        assignedPersonId: photo.assignedPersonId,
+        similarity: photo.similarity || 0,
+        bestFace: photo.bestFace || null
+      }))
     case 'unassigned': return unassignedFaces.value
     default: return []
   }
 }
 
-const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number; highlightedClusterId?: number; preferredFaceId?: number } | null = null) => {
-  if (!face.photoId) {
+const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: number; highlightedClusterId?: number; preferredFaceId?: number } | null = null) => {
+  // 判断是照片对象还是人脸对象
+  // 照片对象有 id 和 thumbnailPath 等属性
+  // 人脸对象有 photoId、photoThumbnailPath 等属性
+  const isPhotoObject = faceOrPhoto.thumbnailPath !== undefined && faceOrPhoto.photoId === undefined
+  const photoId = faceOrPhoto.photoId || faceOrPhoto.id
+
+  if (!photoId) {
     // 如果没有photoId，构造一个最小的照片对象用于显示
     const fallback = {
-      id: face.id,
-      filename: face.photoFilename || '',
-      originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
-      thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
+      id: faceOrPhoto.id,
+      filename: faceOrPhoto.filename || '',
+      originalPath: faceOrPhoto.originalPath || faceOrPhoto.thumbnailPath || '',
+      thumbnailPath: faceOrPhoto.thumbnailPath || faceOrPhoto.originalPath || '',
       webpPath: undefined,
-      faces: []
+      faces: faceOrPhoto.faces || []
     }
     viewerPhotos.value = [fallback]
     viewerIndex.value = 0
@@ -4060,18 +4144,18 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
 
     // 获取所有相关的照片ID
   const list = getActiveFacesForViewer()
-  const facesForViewer = list.length ? list : [face]
-    const photoIds = [...new Set(facesForViewer.map(f => f.photoId).filter(Boolean))]
+  const facesForViewer = list.length ? list : [faceOrPhoto]
+    const photoIds = [...new Set(facesForViewer.filter((f: any) => f.photoId || f.id).map((f: any) => f.photoId || f.id).filter(Boolean))]
 
     if (photoIds.length === 0) {
       // 如果没有有效的photoId，使用fallback
       const fallback = {
-        id: face.id,
-        filename: face.photoFilename || '',
-        originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
-        thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
+        id: faceOrPhoto.id,
+        filename: faceOrPhoto.filename || faceOrPhoto.photoFilename || '',
+        originalPath: faceOrPhoto.originalPath || faceOrPhoto.photoOriginalPath || faceOrPhoto.thumbnailPath || '',
+        thumbnailPath: faceOrPhoto.thumbnailPath || faceOrPhoto.photoThumbnailPath || faceOrPhoto.originalPath || '',
         webpPath: undefined,
-        faces: []
+        faces: faceOrPhoto.faces || []
       }
       viewerPhotos.value = [fallback]
       viewerIndex.value = 0
@@ -4083,22 +4167,42 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
     const photoPromises = photoIds.map(id => photoStore.fetchPhotoById(id))
     const photos = await Promise.all(photoPromises)
 
-    // 为每张照片添加人脸信息
+    // 为每张照片添加人脸信息（只保留相似度最高的那张人脸）
     const enrichedPhotos = photos.map(photo => {
-      const photoFaces = facesForViewer
-        .filter(f => f.photoId === photo.id)
-        .map(f => ({
-      id: f.id,
-      personId: f.personId,
-      personName: f.personName,
-          personDescription: f.personDescription,
-          isConfirmed: f.isConfirmed,
-      confidence: f.confidence,
-          x: f.x,
-          y: f.y,
-          width: f.width,
-          height: f.height
-        }))
+      // 对于相册tab，faces可能已经在对象中
+      const existingFaces = faceOrPhoto.faces && photo.id === (faceOrPhoto.photoId || faceOrPhoto.id) ? faceOrPhoto.faces : []
+      let photoFaces: any[] = []
+
+      if (existingFaces.length > 0) {
+        // 相册tab：只取相似度最高的那张人脸
+        const bestFace = existingFaces.reduce((best: any, current: any) =>
+          (current.similarity || 0) > (best.similarity || 0) ? current : best
+        , existingFaces[0])
+        photoFaces = [bestFace]
+      } else {
+        // 其他tab：从facesForViewer中过滤，然后取最优的
+        const allFacesForPhoto = facesForViewer
+          .filter((f: any) => (f.photoId || f.id) === photo.id)
+          .map((f: any) => ({
+            id: f.id,
+            personId: f.personId,
+            personName: f.personName,
+            personDescription: f.personDescription,
+            isConfirmed: f.isConfirmed,
+            confidence: f.confidence,
+            x: f.x,
+            y: f.y,
+            width: f.width,
+            height: f.height
+          }))
+        // 只取置信度最高的那张人脸
+        if (allFacesForPhoto.length > 0) {
+          const bestFace = allFacesForPhoto.reduce((best: any, current: any) =>
+            (current.confidence || 0) > (best.confidence || 0) ? current : best
+          , allFacesForPhoto[0])
+          photoFaces = [bestFace]
+        }
+      }
 
       return {
         ...photo,
@@ -4107,7 +4211,7 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
     })
 
     viewerPhotos.value = enrichedPhotos
-    const targetId = face.photoId
+    const targetId = photoId
     const idx = viewerPhotos.value.findIndex(p => p.id === targetId)
     viewerIndex.value = idx >= 0 ? idx : 0
     // set highlight options for PhotoViewer — prefer explicit options.
@@ -4125,13 +4229,13 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
         return {}
       }
       // prefer using the face's personId (if assigned), then clusterId (if available), otherwise fallback to faceId
-      if ((face as any).personId) {
-        return { highlightedPersonId: (face as any).personId }
+      if (faceOrPhoto.personId) {
+        return { highlightedPersonId: faceOrPhoto.personId }
       }
-      if ((face as any).clusterId) {
-        return { highlightedClusterId: (face as any).clusterId }
+      if (faceOrPhoto.clusterId) {
+        return { highlightedClusterId: faceOrPhoto.clusterId }
       }
-      return { highlightedFaceId: face.id }
+      return { highlightedFaceId: faceOrPhoto.id }
     })()
 
     // collect all face ids from an appropriate source so PhotoViewer can highlight them across photos
@@ -4169,12 +4273,12 @@ const openViewer = async (face: FaceItem, options: { highlightedFaceId?: number;
     console.error('获取照片信息失败:', error)
     // 出错时使用fallback
     const fallback = {
-      id: face.id,
-      filename: face.photoFilename || '',
-      originalPath: face.photoOriginalPath || face.photoThumbnailPath || '',
-      thumbnailPath: face.photoThumbnailPath || face.photoOriginalPath || '',
+      id: faceOrPhoto.id,
+      filename: faceOrPhoto.filename || faceOrPhoto.photoFilename || '',
+      originalPath: faceOrPhoto.originalPath || faceOrPhoto.photoOriginalPath || faceOrPhoto.thumbnailPath || '',
+      thumbnailPath: faceOrPhoto.thumbnailPath || faceOrPhoto.photoThumbnailPath || faceOrPhoto.originalPath || '',
       webpPath: undefined,
-      faces: []
+      faces: faceOrPhoto.faces || []
     }
     viewerPhotos.value = [fallback]
     viewerIndex.value = 0

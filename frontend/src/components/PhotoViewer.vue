@@ -607,6 +607,7 @@ const props = defineProps<{
   visible: boolean
   startIndex?: number
   autoShowFaces?: boolean
+  forceShowFaces?: boolean  // 强制显示人脸框（用于人物管理页面）
   originRect?: { top: number; left: number; width: number; height: number } | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
 }>()
@@ -884,6 +885,8 @@ watch(() => props.visible, (newVisible) => {
     currentIndex.value = props.startIndex ?? 0
     // 标记为初始加载
     isInitialLoad.value = true
+    // 重新初始化框体状态（forceShowFaces需要在每次打开时生效）
+    initializeBoxStates()
     // 聚焦到PhotoViewer以接收键盘事件
     nextTick(() => {
       modalRoot.value?.focus()
@@ -891,7 +894,8 @@ watch(() => props.visible, (newVisible) => {
     })
     console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
       startIndex: props.startIndex,
-      currentIndex: currentIndex.value
+      currentIndex: currentIndex.value,
+      forceShowFaces: props.forceShowFaces
     })
   } else {
     // 人脸框现在直接绑定在图片内部，无需清理
@@ -991,7 +995,7 @@ const getFocusBoxStyle = () => {
 const userInteractedWithFocusBox = ref(false)
 const userInteractedWithFaceBoxes = ref(false)
 
-// 初始化框体状态：首次使用默认隐藏
+// 初始化框体状态：首次使用默认隐藏，但如果设置了forceShowFaces则强制显示
 const initializeBoxStates = () => {
   // 从localStorage恢复已保存的状态
   const savedFocusBox = localStorage.getItem(FOCUS_BOX_KEY)
@@ -1004,7 +1008,11 @@ const initializeBoxStates = () => {
     showFocusBox.value = false // 首次使用默认隐藏
   }
 
-  if (savedFaceBoxes !== null) {
+  // 如果设置了forceShowFaces，强制显示人脸框（但允许用户手动切换）
+  if (props.forceShowFaces) {
+    showFaceBoxes.value = true
+    // 不设置userInteractedWithFaceBoxes，让用户可以手动切换
+  } else if (savedFaceBoxes !== null) {
     showFaceBoxes.value = savedFaceBoxes === '1'
     userInteractedWithFaceBoxes.value = true
   } else {
