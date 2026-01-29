@@ -40,6 +40,19 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person IS NULL AND p.albumId IN :albumIds")
     List<Face> findByPersonIsNullAndPhotoAlbumIdIn(@Param("albumIds") java.util.Set<Long> albumIds);
 
+    /**
+     * 按相册ID获取人脸（避免 getSimilarFacesForAlbum 中的全库扫描）
+     * 注意：这里通过 JOIN photo 来限定 albumId。
+     */
+    @Query("SELECT f FROM Face f JOIN f.photo p WHERE p.albumId = :albumId")
+    List<Face> findByPhotoAlbumId(@Param("albumId") Long albumId);
+
+    /**
+     * 仅获取具有 embedding 的人脸（避免在相似度计算时拉取/解析大量空 embedding 记录）
+     */
+    @Query("SELECT f FROM Face f WHERE f.embedding IS NOT NULL AND f.embedding <> ''")
+    List<Face> findAllWithEmbedding();
+
     Face findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(Long personId);
 
     Face findTopByPersonIdOrderByCreatedAtDesc(Long personId);

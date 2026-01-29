@@ -524,6 +524,32 @@ public class FaceController {
      * 批量为照片指派人物
      * payload: { photoIds: [...], personId: 123 }
      */
+    /**
+     * 计算选中人脸与所有人物的相似度
+     * payload: { faceIds: [...] }
+     * 返回: [{ personId: 123, personName: "xxx", similarity: 0.85 }, ...]
+     */
+    @PostMapping("/faces/calculate-similarity-to-persons")
+    public ResponseEntity<List<PersonSimilarityDTO>> calculateSimilarityToPersons(@RequestBody Map<String, Object> payload) {
+        Object idsObj = payload.get("faceIds");
+        if (!(idsObj instanceof List)) {
+            return ResponseEntity.badRequest().build();
+        }
+        List<?> rawIds = (List<?>) idsObj;
+        List<Long> faceIds = new ArrayList<>();
+        for (Object o : rawIds) {
+            if (o == null) continue;
+            if (o instanceof Number) {
+                faceIds.add(((Number) o).longValue());
+            } else if (o instanceof String) {
+                faceIds.add(Long.parseLong((String) o));
+            }
+        }
+        
+        List<PersonSimilarityDTO> result = faceService.calculateSimilarityToPersons(faceIds);
+        return ResponseEntity.ok(result);
+    }
+
     @PostMapping("/photos/batch-assign")
     public ResponseEntity<Map<String, String>> batchAssignPhotos(@RequestBody Map<String, Object> payload) {
         Object idsObj = payload.get("photoIds");

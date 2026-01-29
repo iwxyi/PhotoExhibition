@@ -1495,7 +1495,8 @@ public class FaceService {
         float[] baseVec = parseEmbedding(base.getEmbedding());
         if (baseVec == null) return List.of();
 
-        List<Face> all = faceRepository.findAll();
+        // 关键优化：只遍历有 embedding 的人脸，避免全表扫描 + 大量 parseEmbedding(null/空)
+        List<Face> all = faceRepository.findAllWithEmbedding();
         List<FaceDTO> result = new ArrayList<>();
         for (Face f : all) {
             if (f.getId().equals(faceId)) continue;
@@ -1792,6 +1793,55 @@ public class FaceService {
     }
 
     /**
+     * 计算选中人脸与所有人物的相似度
+     */
+    @Transactional(readOnly = true)
+    public List<PersonSimilarityDTO> calculateSimilarityToPersons(List<Long> faceIds) {
+        if (faceIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 获取选中的人脸实体
+        List<Face> selectedFaces = faceIds.stream()
+            .map(id -> faceRepository.findById(id).orElse(null))
+            .filter(face -> face != null)
+            .collect(Collectors.toList());
+
+        if (selectedFaces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 计算选中人脸的平均特征向量
+        float[] selectedAvgEmbedding = calculateAverageEmbeddingFromEntities(selectedFaces);
+        if (selectedAvgEmbedding == null) {
+            return new ArrayList<>();
+        }
+
+        // 获取所有已确认人物
+        List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
+        List<PersonSimilarityDTO> similarities = new ArrayList<>();
+
+        for (PersonProfile person : confirmedPersons) {
+            // 获取人物的所有已确认人脸
+            List<Face> personFaces = faceRepository.findByPersonIdAndIsConfirmed(person.getId(), true);
+            if (personFaces.isEmpty()) continue;
+
+            // 计算人物平均特征向量
+            float[] personAvgEmbedding = calculateAverageEmbeddingFromEntities(personFaces);
+
+            if (personAvgEmbedding != null) {
+                double similarity = cosine(selectedAvgEmbedding, personAvgEmbedding);
+                similarities.add(new PersonSimilarityDTO(person.getId(), person.getName(), similarity));
+            }
+        }
+
+        // 按相似度降序排序
+        return similarities.stream()
+            .sorted((a, b) -> Double.compare(b.getSimilarity(), a.getSimilarity()))
+            .collect(Collectors.toList());
+    }
+
+    /**
      * 计算人脸实体列表的平均特征向量
      */
     private float[] calculateAverageEmbeddingFromEntities(List<Face> faces) {
@@ -1969,10 +2019,8 @@ public class FaceService {
         }
 
         // 获取指定相册中的所有人脸（包括已分配和未分配的）
-        List<Face> albumFaces = faceRepository.findAll().stream()
-            .filter(face -> face.getPhoto() != null && face.getPhoto().getAlbumId() != null &&
-                           Objects.equals(face.getPhoto().getAlbumId(), albumId))
-            .collect(Collectors.toList());
+        // 关键优化：不要全库扫描 findAll()，直接按 albumId 查询
+        List<Face> albumFaces = faceRepository.findByPhotoAlbumId(albumId);
 
         List<FaceSimilarity> allFaces = new ArrayList<>();
 

@@ -110,6 +110,19 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds")
     Page<Photo> findByAlbumIds(@Param("albumIds") List<Long> albumIds, Pageable pageable);
 
+    // ---- 统计/聚合：用于过滤项（避免 photoRepository.findAll().stream() 全表加载） ----
+    @Query("SELECT MIN(p.focalLengthMm), MAX(p.focalLengthMm) FROM Photo p WHERE p.focalLengthMm IS NOT NULL")
+    Object[] findFocalLengthRange();
+
+    @Query("SELECT MIN(p.shutterSpeedSeconds), MAX(p.shutterSpeedSeconds) FROM Photo p WHERE p.shutterSpeedSeconds IS NOT NULL")
+    Object[] findShutterSpeedRange();
+
+    @Query("SELECT MIN(p.apertureValue), MAX(p.apertureValue) FROM Photo p WHERE p.apertureValue IS NOT NULL")
+    Object[] findApertureRange();
+
+    @Query("SELECT MIN(p.iso), MAX(p.iso) FROM Photo p WHERE p.iso IS NOT NULL")
+    Object[] findIsoRange();
+
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();
 
     /**

@@ -185,21 +185,17 @@ public class FilterOptionService {
     private void updateFocalLengthRange() {
         filterOptionRepository.deleteByOptionType("focal_length");
 
-        // 直接从 Photo 实体中计算焦距范围
-        var focalLengths = photoRepository.findAll().stream()
-            .map(Photo::getFocalLengthMm)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
-
-        if (!focalLengths.isEmpty()) {
-            double minVal = focalLengths.stream().mapToDouble(Double::doubleValue).min().orElse(0);
-            double maxVal = focalLengths.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+        // 关键优化：用 SQL 聚合取 min/max，避免加载全表 photo
+        Object[] range = photoRepository.findFocalLengthRange();
+        if (range != null && range.length >= 2 && range[0] != null && range[1] != null) {
+            double minVal = ((Number) range[0]).doubleValue();
+            double maxVal = ((Number) range[1]).doubleValue();
 
             FilterOption minOption = new FilterOption(null, "focal_length", "min", null, minVal, null, null, null);
             FilterOption maxOption = new FilterOption(null, "focal_length", "max", null, maxVal, null, null, null);
             List<FilterOption> options = Arrays.asList(minOption, maxOption);
             filterOptionRepository.saveAll(options);
-            log.info("更新焦距范围: {} - {} mm ({} 张照片)", minVal, maxVal, focalLengths.size());
+            log.info("更新焦距范围: {} - {} mm", minVal, maxVal);
         } else {
             log.info("没有找到焦距数据，跳过更新");
         }
@@ -208,21 +204,16 @@ public class FilterOptionService {
     private void updateShutterSpeedRange() {
         filterOptionRepository.deleteByOptionType("shutter_speed");
 
-        // 直接从 Photo 实体中计算快门速度范围
-        var shutterSpeeds = photoRepository.findAll().stream()
-            .map(Photo::getShutterSpeedSeconds)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
-
-        if (!shutterSpeeds.isEmpty()) {
-            double minVal = shutterSpeeds.stream().mapToDouble(Double::doubleValue).min().orElse(0);
-            double maxVal = shutterSpeeds.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+        Object[] range = photoRepository.findShutterSpeedRange();
+        if (range != null && range.length >= 2 && range[0] != null && range[1] != null) {
+            double minVal = ((Number) range[0]).doubleValue();
+            double maxVal = ((Number) range[1]).doubleValue();
 
             FilterOption minOption = new FilterOption(null, "shutter_speed", "min", null, minVal, null, null, null);
             FilterOption maxOption = new FilterOption(null, "shutter_speed", "max", null, maxVal, null, null, null);
             List<FilterOption> options = Arrays.asList(minOption, maxOption);
             filterOptionRepository.saveAll(options);
-            log.info("更新快门速度范围: {} - {} s ({} 张照片)", minVal, maxVal, shutterSpeeds.size());
+            log.info("更新快门速度范围: {} - {} s", minVal, maxVal);
         } else {
             log.info("没有找到快门速度数据，跳过更新");
         }
@@ -231,21 +222,16 @@ public class FilterOptionService {
     private void updateApertureRange() {
         filterOptionRepository.deleteByOptionType("aperture");
 
-        // 直接从 Photo 实体中计算光圈范围
-        var apertures = photoRepository.findAll().stream()
-            .map(Photo::getApertureValue)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
-
-        if (!apertures.isEmpty()) {
-            double minVal = apertures.stream().mapToDouble(Double::doubleValue).min().orElse(0);
-            double maxVal = apertures.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+        Object[] range = photoRepository.findApertureRange();
+        if (range != null && range.length >= 2 && range[0] != null && range[1] != null) {
+            double minVal = ((Number) range[0]).doubleValue();
+            double maxVal = ((Number) range[1]).doubleValue();
 
             FilterOption minOption = new FilterOption(null, "aperture", "min", null, minVal, null, null, null);
             FilterOption maxOption = new FilterOption(null, "aperture", "max", null, maxVal, null, null, null);
             List<FilterOption> options = Arrays.asList(minOption, maxOption);
             filterOptionRepository.saveAll(options);
-            log.info("更新光圈范围: f/{} - f/{} ({} 张照片)", minVal, maxVal, apertures.size());
+            log.info("更新光圈范围: f/{} - f/{}", minVal, maxVal);
         } else {
             log.info("没有找到光圈数据，跳过更新");
         }
@@ -254,21 +240,16 @@ public class FilterOptionService {
     private void updateIsoRange() {
         filterOptionRepository.deleteByOptionType("iso");
 
-        // 直接从 Photo 实体中计算ISO范围
-        var isos = photoRepository.findAll().stream()
-            .map(Photo::getIso)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
-
-        if (!isos.isEmpty()) {
-            int minVal = isos.stream().mapToInt(Integer::intValue).min().orElse(0);
-            int maxVal = isos.stream().mapToInt(Integer::intValue).max().orElse(0);
+        Object[] range = photoRepository.findIsoRange();
+        if (range != null && range.length >= 2 && range[0] != null && range[1] != null) {
+            int minVal = ((Number) range[0]).intValue();
+            int maxVal = ((Number) range[1]).intValue();
 
             FilterOption minOption = new FilterOption(null, "iso", "min", minVal + "", null, null, null, null);
             FilterOption maxOption = new FilterOption(null, "iso", "max", maxVal + "", null, null, null, null);
             List<FilterOption> options = Arrays.asList(minOption, maxOption);
             filterOptionRepository.saveAll(options);
-            log.info("更新ISO范围: {} - {} ({} 张照片)", minVal, maxVal, isos.size());
+            log.info("更新ISO范围: {} - {}", minVal, maxVal);
         } else {
             log.info("没有找到ISO数据，跳过更新");
         }

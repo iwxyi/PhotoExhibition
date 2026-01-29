@@ -286,7 +286,7 @@
                     v-if="loadingUnassignedFaces"
                     class="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70"
                   ></span>
-                  <span v-else>({{ unassignedFaces.length }})</span>
+                  <span v-else-if="unassignedLoadedOnce">({{ unassignedFaces.length }})</span>
                 </span>
               </button>
             </div>
@@ -324,6 +324,22 @@
                 </span>
                 <span v-else>{{ getClaimButtonText }}</span>
               </button>
+              <button
+                v-if="tab === 'confirmed' && selectedItem?.type === 'cluster'"
+                    @click="openClaimDialog('cluster')"
+                    :disabled="selectedClusterFaces.size === 0"
+                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    认领为<template v-if="selectedClusterFaces.size > 0"> ({{ selectedClusterFaces.size }})</template>
+                  </button>
+              <button
+                v-if="tab === 'unassigned'"
+                    @click="openClaimDialog('unassigned')"
+                    :disabled="selectedUnassigned.size === 0"
+                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                  >
+                    认领为<template v-if="selectedUnassigned.size > 0"> ({{ selectedUnassigned.size }})</template>
+                  </button>
               <button
                 v-if="tab === 'confirmed'"
                     @click="removeSelectedConfirmed"
@@ -694,7 +710,11 @@
                 <span class="text-xs text-gray-400">所有未分配的照片</span>
                 <span v-if="loadingUnassignedFaces" class="ml-2 text-xs text-gray-400">加载中...</span>
               </div>
+              <div v-if="unassignedLoadedOnce && !loadingUnassignedFaces && unassignedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">
+                暂无未分配照片
+              </div>
               <div 
+                v-show="unassignedFaces.length > 0"
                 ref="unassignedContainer"
                 class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4 relative"
                 @mousedown="handleMouseDown($event, 'unassigned')"
@@ -879,6 +899,104 @@
     </div>
   </div>
   </div>
+
+  <!-- 认领为弹窗 -->
+  <div
+    v-if="showClaimDialog"
+    class="fixed inset-0 z-50 flex items-center justify-center"
+    @click.self="closeClaimDialog"
+  >
+    <!-- 背景蒙版：只稍微暗一点，不模糊 -->
+    <div class="absolute inset-0 bg-black/30"></div>
+    
+    <!-- 弹窗内容：毛玻璃效果 -->
+    <div class="relative bg-gray-800/80 backdrop-blur-xl rounded-lg shadow-xl w-[90vw] max-w-4xl h-[80vh] max-h-[800px] flex flex-col border border-gray-700/50">
+      <!-- 标题栏 -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-700/50">
+        <h2 class="text-lg font-medium text-gray-100">认领为</h2>
+        <button
+          @click="closeClaimDialog"
+          class="text-gray-300 hover:text-white transition-colors"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 搜索框 -->
+      <div class="p-4 border-b border-gray-700/50">
+        <input
+          ref="claimDialogSearchInput"
+          v-model="claimDialogSearchKeyword"
+          @input="filterClaimDialogPersons"
+          @keyup.enter="handleClaimDialogEnter"
+          placeholder="搜索人物名字..."
+          class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
+        />
+      </div>
+
+      <!-- 人物列表 -->
+      <div 
+        class="flex-1 overflow-y-auto p-2"
+      >
+        <div v-if="loadingClaimDialogPersons" class="flex items-center justify-center h-full">
+          <div class="h-8 w-8 rounded-full border-2 border-gray-300 border-t-transparent animate-spin"></div>
+        </div>
+        <div v-else-if="filteredClaimDialogPersons.length === 0" class="text-gray-300 text-center py-8">
+          暂无人物
+        </div>
+        <div
+          v-else
+          class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2"
+        >
+          <div
+            v-for="person in filteredClaimDialogPersons"
+            :key="person.id"
+            @click.stop="selectClaimPerson(person)"
+            class="flex flex-col items-center p-1.5 rounded bg-gray-700/30 hover:bg-gray-700/50 cursor-pointer transition-colors border-2 backdrop-blur-sm"
+            :class="selectedClaimPersonId === person.id
+              ? 'border-white bg-white/20' 
+              : 'border-gray-600/50 hover:border-gray-500/50'"
+          >
+            <div class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 relative">
+              <img
+                v-if="getPersonThumb(person)"
+                :src="getPersonThumb(person)"
+                class="w-full h-full object-cover"
+                :class="selectedClaimPersonId === person.id ? 'brightness-110' : ''"
+              />
+              <!-- 选中标记 -->
+              <div v-if="selectedClaimPersonId === person.id" class="absolute inset-0 flex items-center justify-center bg-white/20">
+                <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                </svg>
+              </div>
+            </div>
+            <div class="text-center w-full">
+              <div 
+                class="text-xs truncate leading-tight"
+                :class="selectedClaimPersonId === person.id ? 'text-white font-medium' : 'text-gray-200'"
+                :title="person.name || '未命名'"
+              >
+                {{ person.name || '未命名' }} <span :class="selectedClaimPersonId === person.id ? 'text-gray-200' : 'text-gray-400'">({{ person.faceCount || 0 }})</span>
+              </div>
+              <div v-if="person.similarity !== undefined" class="text-[10px] text-blue-300 mt-0.5">
+                {{ (person.similarity * 100).toFixed(0) }}%
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部操作栏 -->
+      <div class="p-4 border-t border-gray-700/50">
+        <div class="text-sm text-gray-300 text-center">
+          点击人物卡片即可直接认领人脸 | 按回车键确认选择
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -953,6 +1071,7 @@ const loadingPersons = ref(false)
 const loadingConfirmedFaces = ref(false)
 const loadingSimilarFaces = ref(false)
 const loadingUnassignedFaces = ref(false)
+const unassignedLoadedOnce = ref(false) // 标记是否已手动加载过未分配照片
 
 // tab内容区loading蒙版：只遮挡当前tab内容，不影响其他tab切换
 const showTabLoadingOverlay = ref(false)
@@ -974,6 +1093,16 @@ const snapPoints = computed(() => {
 })
 // 删除对话框状态
 const deleteDialogVisible = ref(false)
+
+// 认领为弹窗相关
+const showClaimDialog = ref(false)
+const claimDialogSearchKeyword = ref('')
+const claimDialogPersons = ref<PersonListItem[]>([])
+const filteredClaimDialogPersons = ref<PersonListItem[]>([])
+const loadingClaimDialogPersons = ref(false)
+const selectedClaimPersonId = ref<number | null>(null)
+const claimDialogSearchInput = ref<HTMLInputElement | null>(null)
+const claimDialogSourceTab = ref<'cluster' | 'unassigned' | null>(null) // 记录弹窗来源tab
 
 // 聚类阈值输入处理
 const handleThresholdInput = (event: Event) => {
@@ -1427,6 +1556,10 @@ const selectPerson = (p: PersonListItem) => {
   abortController = new AbortController()
 
   selectedItem.value = p
+  // 切换人物时清空未分配tab的数据，避免遗留上一个人物的数据
+  unassignedFaces.value = []
+  unassignedLoadedOnce.value = false
+  selectedUnassigned.value.clear()
   if (p.type === 'confirmed') {
     selectedPersonId.value = p.id
     selectedClusterIndex.value = null
@@ -1490,10 +1623,10 @@ const loadAllFaces = async (signal?: AbortSignal) => {
 
     // 加载其他数据（不清除选择状态和可见状态）
     // 跳过自动分配数据加载，直接到已确认状态
+    // 注意：不加载未分配数据，由用户首次切换到该tab时按需加载
     await Promise.all([
       loadAssignedPhotos(signal, false),
-      loadSimilarFaces(signal, false),
-      loadContextualUnassigned(signal)
+      loadSimilarFaces(signal, false)
     ])
 
     if (signal?.aborted) {
@@ -1964,6 +2097,7 @@ const loadContextualUnassigned = async (signal?: AbortSignal) => {
     }
   } finally {
     loadingUnassignedFaces.value = false
+    unassignedLoadedOnce.value = true // 标记已尝试加载
   }
 }
 
@@ -4169,7 +4303,13 @@ watch(tab, (v) => {
   if (v === 'similar' && selectedPersonId.value) {
     if (!loadingSimilarFaces.value && similarFaces.value.length === 0) loadSimilarFaces()
   } else if (v === 'unassigned') {
-    if (!loadingUnassignedFaces.value && unassignedFaces.value.length === 0) loadContextualUnassigned()
+    // 首次进入tab时加载数据
+    if (!unassignedLoadedOnce.value) {
+      loadContextualUnassigned()
+    } else if (unassignedFaces.value.length === 0) {
+      // 已加载过但被清空过，需要重新加载
+      loadContextualUnassigned()
+    }
   } else if (v === 'auto' && selectedPersonId.value) {
     if (!loadingAuto.value && autoAssignedFaces.value.length === 0) loadAutoAssignedFaces()
   } else if (v === 'confirmed') {
@@ -4321,8 +4461,222 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
   }
 }
 
+// 打开认领为弹窗
+const openClaimDialog = async (sourceTab: 'cluster' | 'unassigned') => {
+  // 根据来源tab获取选中的人脸ID
+  let selectedFaceIds: number[] = []
+  if (sourceTab === 'cluster') {
+    if (selectedClusterFaces.value.size === 0) return
+    selectedFaceIds = Array.from(selectedClusterFaces.value)
+  } else if (sourceTab === 'unassigned') {
+    if (selectedUnassigned.value.size === 0) return
+    selectedFaceIds = Array.from(selectedUnassigned.value)
+  } else {
+    return
+  }
+  
+  claimDialogSourceTab.value = sourceTab
+  showClaimDialog.value = true
+  claimDialogSearchKeyword.value = ''
+  selectedClaimPersonId.value = null
+  loadingClaimDialogPersons.value = true
+  
+  try {
+    // 获取所有已确认人物（使用with-sample端点获取完整信息）
+    const res = await api.get('/admin/persons/with-sample')
+    const allPersons = res.data || []
+    
+    if (selectedFaceIds.length === 0) {
+      // 如果没有选中人脸，只显示人物列表
+      claimDialogPersons.value = allPersons.map((person: any) => ({
+        type: 'confirmed' as const,
+        id: person.id,
+        name: person.name,
+        faceCount: person.faceCount,
+        sampleThumbnailPath: person.sampleThumbnailPath,
+        sampleOriginalPath: person.sampleOriginalPath,
+        samplePhotoId: person.samplePhotoId,
+        sampleFaceId: person.sampleFaceId,
+        similarity: undefined
+      }))
+      filterClaimDialogPersons()
+      // 聚焦搜索框
+      await nextTick()
+      claimDialogSearchInput.value?.focus()
+      return
+    }
+    
+    // 计算相似度：调用后端API计算选中人脸与所有人物的相似度
+    const similarityRes = await api.post('/admin/faces/calculate-similarity-to-persons', {
+      faceIds: selectedFaceIds
+    })
+    
+    const similarities = similarityRes.data || []
+    const similarityMap = new Map(similarities.map((s: any) => [s.personId, s.similarity]))
+    
+    // 合并人物信息和相似度
+    claimDialogPersons.value = allPersons.map((person: any) => ({
+      type: 'confirmed' as const,
+      id: person.id,
+      name: person.name,
+      faceCount: person.faceCount,
+      sampleThumbnailPath: person.sampleThumbnailPath,
+      sampleOriginalPath: person.sampleOriginalPath,
+      samplePhotoId: person.samplePhotoId,
+      sampleFaceId: person.sampleFaceId,
+      similarity: similarityMap.get(person.id) || 0
+    }))
+    
+    // 按相似度降序排序
+    claimDialogPersons.value.sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+    
+    // 初始化过滤列表
+    filterClaimDialogPersons()
+    
+    // 聚焦搜索框
+    await nextTick()
+    claimDialogSearchInput.value?.focus()
+  } catch (error) {
+    console.error('加载人物列表失败:', error)
+    alert('加载人物列表失败: ' + (error.response?.data?.error || error.message || '请重试'))
+  } finally {
+    loadingClaimDialogPersons.value = false
+  }
+}
+
+// 关闭认领为弹窗
+const closeClaimDialog = () => {
+  showClaimDialog.value = false
+  claimDialogSearchKeyword.value = ''
+  claimDialogPersons.value = []
+  filteredClaimDialogPersons.value = []
+  selectedClaimPersonId.value = null
+  claimDialogSourceTab.value = null
+}
+
+// 过滤认领弹窗中的人物列表
+const filterClaimDialogPersons = () => {
+  const keyword = claimDialogSearchKeyword.value.trim()
+  const keywordLower = keyword.toLowerCase()
+  
+  if (!keywordLower) {
+    filteredClaimDialogPersons.value = [...claimDialogPersons.value]
+    selectedClaimPersonId.value = null
+  } else {
+    filteredClaimDialogPersons.value = claimDialogPersons.value.filter((person) =>
+      (person.name || '').toLowerCase().includes(keywordLower)
+    )
+    
+    // 检查是否有完全匹配的人物名字（优先）
+    const exactMatches = filteredClaimDialogPersons.value.filter((person) =>
+      (person.name || '').toLowerCase() === keywordLower
+    )
+    
+    if (exactMatches.length > 0) {
+      // 如果有完全匹配的，默认选中第一个
+      selectedClaimPersonId.value = exactMatches[0].id
+    } else if (filteredClaimDialogPersons.value.length === 1) {
+      // 如果没有完全匹配的，但只有一个结果，也自动选中
+      selectedClaimPersonId.value = filteredClaimDialogPersons.value[0].id
+    } else {
+      // 如果有多个不完全匹配的结果，清空选择
+      selectedClaimPersonId.value = null
+    }
+  }
+}
+
+// 处理搜索框回车键
+const handleClaimDialogEnter = () => {
+  if (selectedClaimPersonId.value !== null) {
+    confirmClaimToPerson()
+  }
+}
+
+// 选择认领人物（单选）- 点击直接认领
+const selectClaimPerson = async (person: PersonListItem) => {
+  // 设置选中并直接确认认领
+  selectedClaimPersonId.value = person.id
+  await confirmClaimToPerson()
+}
+
+// 确认认领到选中的人物
+const confirmClaimToPerson = async () => {
+  if (!claimDialogSourceTab.value || selectedClaimPersonId.value === null) return
+  
+  // 保存来源tab，因为关闭弹窗会清空它
+  const sourceTab = claimDialogSourceTab.value
+  
+  // 根据来源tab获取选中的人脸ID
+  let selectedFaceIds: number[] = []
+  if (sourceTab === 'cluster') {
+    if (selectedClusterFaces.value.size === 0) return
+    selectedFaceIds = Array.from(selectedClusterFaces.value)
+  } else if (sourceTab === 'unassigned') {
+    if (selectedUnassigned.value.size === 0) return
+    selectedFaceIds = Array.from(selectedUnassigned.value)
+  } else {
+    return
+  }
+  
+  try {
+    const targetPersonId = selectedClaimPersonId.value
+    
+    // 批量将人脸分配到选中的人物
+    await api.post('/admin/faces/batch-assign', {
+      faceIds: selectedFaceIds,
+      personId: targetPersonId,
+      confirmed: true
+    })
+    
+    // 关闭弹窗
+    closeClaimDialog()
+    
+    // 根据来源tab处理不同的逻辑
+    if (sourceTab === 'cluster') {
+      // 聚类tab：清空选中，刷新人物列表和聚类人脸列表
+      selectedClusterFaces.value.clear()
+      
+      await loadPersons()
+      const found = persons.value.find(p => p.type === 'confirmed' && p.id === targetPersonId)
+      if (found) {
+        selectPerson(found)
+      } else {
+        selectedItem.value = null
+        selectedClusterIndex.value = null
+      }
+      
+      if (selectedItem.value?.type === 'cluster' && selectedClusterIndex.value !== null) {
+        await loadClusterFaces()
+      }
+    } else if (sourceTab === 'unassigned') {
+      // 未分配tab：只移除已认领的人脸，保持tab显示
+      // 从未分配列表中移除已认领的人脸
+      unassignedFaces.value = unassignedFaces.value.filter(face => !selectedFaceIds.includes(face.id))
+
+      // 清空选中
+      selectedUnassigned.value.clear()
+
+      // 重新计算未分配tab的可见列表，立即从界面上去掉这些图片
+      resetFaceVisible('unassigned')
+
+      // 刷新人物列表（用于更新人物数量等统计）
+      await loadPersons()
+
+      // 不切换tab，保持未分配tab显示
+    }
+  } catch (error) {
+    console.error('认领失败:', error)
+    alert('认领失败: ' + (error.response?.data?.error || error.message || '请重试'))
+  }
+}
+
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
+    // 认领弹窗打开时，关闭弹窗
+    if (showClaimDialog.value) {
+      closeClaimDialog()
+      return
+    }
     // PhotoViewer 打开时，交给 PhotoViewer 自己处理（它会自己关闭）
     if (viewerVisible.value) {
       return
