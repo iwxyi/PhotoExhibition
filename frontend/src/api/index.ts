@@ -245,7 +245,10 @@ export const personApi = {
   getPersonAssignedPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/assigned-photos?page=${page}&size=${size}`),
 
   // 获取人物的所有照片（人脸所在照片）
-  getPersonPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/photos?page=${page}&size=${size}`)
+  getPersonPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/photos?page=${page}&size=${size}`),
+
+  // 设置人物的样例照片
+  setSamplePhoto: (personId: number, faceId: number) => api.post<Person>(`/admin/persons/${personId}/set-sample`, { faceId })
 }
 
 // AI增强分析相关API

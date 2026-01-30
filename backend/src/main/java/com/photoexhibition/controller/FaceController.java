@@ -175,6 +175,27 @@ public class FaceController {
     }
 
     /**
+     * 设置人物的样例照片
+     * payload: { faceId: 123 }
+     */
+    @PostMapping("/persons/{personId}/set-sample")
+    public ResponseEntity<PersonDTO> setPersonSamplePhoto(@PathVariable Long personId, @RequestBody Map<String, Object> payload) {
+        Object faceIdObj = payload.get("faceId");
+        if (faceIdObj == null) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        Long faceId;
+        if (faceIdObj instanceof Number) {
+            faceId = ((Number) faceIdObj).longValue();
+        } else if (faceIdObj instanceof String) {
+            faceId = Long.parseLong((String) faceIdObj);
+        } else {
+            return ResponseEntity.badRequest().body(null);
+        }
+        return ResponseEntity.ok(faceService.setPersonSamplePhoto(personId, faceId));
+    }
+
+    /**
      * 简易接口：快速为人脸设置名称与说明
      */
     @PostMapping("/faces/{faceId}/label")

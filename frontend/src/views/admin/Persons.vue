@@ -393,6 +393,15 @@
                       :fetchpriority="index < confirmedPriorityRowCount ? 'high' : 'auto'"
                       decoding="async"
                     />
+                    <!-- 设为头像按钮 -->
+                    <button
+                      v-if="!f.isRemoved"
+                      @click.stop="setAsPersonAvatar(f)"
+                      class="absolute bottom-1 left-1 bg-purple-600 hover:bg-purple-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="设为头像"
+                    >
+                      头像
+                    </button>
                     <!-- 移除按钮 -->
                     <button
                       v-if="!f.isRemoved"
@@ -1033,7 +1042,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@/api'
+import { api, personApi } from '@/api'
 import { usePhotoStore } from '@/stores/photo'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
@@ -2808,6 +2817,27 @@ const restoreFace = async (faceId: number) => {
   console.info('恢复人脸认领完成', { faceId })
   // 刷新人物统计
   await refreshPersonsAfterFaceChange()
+}
+
+// 将人脸设为人物头像
+const setAsPersonAvatar = async (face: any) => {
+  if (!selectedPersonId.value) return
+  try {
+    await personApi.setSamplePhoto(selectedPersonId.value, face.id)
+    // 更新本地人物样例数据
+    if (selectedItem.value && selectedItem.value.type === 'confirmed') {
+      selectedItem.value.sampleFaceId = face.id
+      selectedItem.value.samplePhotoId = face.photoId
+      selectedItem.value.sampleThumbnailPath = face.photoThumbnailPath || face.thumbnailPath
+      selectedItem.value.sampleOriginalPath = face.photoOriginalPath || face.originalPath
+      selectedItem.value.sampleConfidence = face.confidence
+    }
+    // 刷新人物卡片
+    await loadPersons()
+  } catch (error) {
+    console.error('设置头像失败:', error)
+    alert('设置头像失败: ' + (error.response?.data?.error || error.message))
+  }
 }
 
 const handleRemoveClick = async (photoId: number) => {

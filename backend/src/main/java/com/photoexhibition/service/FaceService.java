@@ -930,17 +930,14 @@ public class FaceService {
                 .getTotalElements();
             item.setFaceCount((int) faceCount);
 
-            // 获取代表脸
-            Face sample = faceRepository.findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(person.getId());
-            if (sample == null) {
-                sample = faceRepository.findTopByPersonIdOrderByCreatedAtDesc(person.getId());
-            }
-            if (sample != null && sample.getPhoto() != null) {
-                item.setSampleFaceId(sample.getId());
-                item.setSamplePhotoId(sample.getPhoto().getId());
-                item.setSampleConfidence(sample.getConfidence());
-                item.setSampleThumbnailPath(convertToRelativePath(sample.getPhoto().getThumbnailPath()));
-                item.setSampleOriginalPath(convertToRelativePath(sample.getPhoto().getOriginalPath()));
+            // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）
+            Object[] sampleData = getPersonSamplePhoto(person.getId());
+            if (sampleData[0] != null) {
+                item.setSampleFaceId((Long) sampleData[0]);
+                item.setSamplePhotoId((Long) sampleData[1]);
+                item.setSampleThumbnailPath((String) sampleData[2]);
+                item.setSampleOriginalPath((String) sampleData[3]);
+                item.setSampleConfidence((Double) sampleData[4]);
             }
 
             items.add(item);
@@ -1654,7 +1651,84 @@ public class FaceService {
         dto.setId(person.getId());
         dto.setName(person.getName());
         dto.setDescription(person.getDescription());
+
+        // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）
+        Object[] sampleData = getPersonSamplePhoto(person.getId());
+        if (sampleData[0] != null) {
+            dto.setSampleFaceId((Long) sampleData[0]);
+            dto.setSamplePhotoId((Long) sampleData[1]);
+            dto.setSampleThumbnailPath((String) sampleData[2]);
+            dto.setSampleOriginalPath((String) sampleData[3]);
+            dto.setSampleConfidence((Double) sampleData[4]);
+        }
+
         return dto;
+    }
+
+    /**
+     * 设置人物的样例照片
+     */
+    @Transactional
+    public PersonDTO setPersonSamplePhoto(Long personId, Long faceId) {
+        PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+        Face face = faceRepository.findById(faceId)
+            .orElseThrow(() -> new RuntimeException("人脸不存在"));
+
+        person.setSamplePhotoId(face.getPhoto() != null ? face.getPhoto().getId() : null);
+        person.setSampleFaceId(faceId);
+        person.setSampleConfidence(face.getConfidence());
+        if (face.getPhoto() != null) {
+            person.setSampleThumbnailPath(face.getPhoto().getThumbnailPath());
+            person.setSampleOriginalPath(face.getPhoto().getOriginalPath());
+        }
+        personProfileRepository.save(person);
+        return toDTO(person);
+    }
+
+    /**
+     * 获取人物的样例照片（统一逻辑）
+     * 1. 优先返回已设置的样例照片
+     * 2. 如果未设置或文件不存在，返回动态计算的最高置信度人脸
+     * @return 包含 sampleFaceId, samplePhotoId, sampleThumbnailPath, sampleOriginalPath, sampleConfidence 的数组
+     */
+    private Object[] getPersonSamplePhoto(Long personId) {
+        PersonProfile person = personProfileRepository.findById(personId).orElse(null);
+        if (person == null) {
+            return new Object[]{null, null, null, null, null};
+        }
+
+        // 1. 优先使用已设置的样例照片
+        if (person.getSampleFaceId() != null && person.getSampleThumbnailPath() != null) {
+            // 检查文件是否存在（这里简单判断路径是否为空，实际项目中可以检查文件是否存在）
+            if (!person.getSampleThumbnailPath().isEmpty()) {
+                return new Object[]{
+                    person.getSampleFaceId(),
+                    person.getSamplePhotoId(),
+                    convertToRelativePath(person.getSampleThumbnailPath()),
+                    convertToRelativePath(person.getSampleOriginalPath()),
+                    person.getSampleConfidence()
+                };
+            }
+        }
+
+        // 2. 动态计算：取置信度最高的人脸
+        Face sample = faceRepository.findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(personId);
+        if (sample == null) {
+            sample = faceRepository.findTopByPersonIdOrderByCreatedAtDesc(personId);
+        }
+
+        if (sample != null && sample.getPhoto() != null) {
+            return new Object[]{
+                sample.getId(),
+                sample.getPhoto().getId(),
+                convertToRelativePath(sample.getPhoto().getThumbnailPath()),
+                convertToRelativePath(sample.getPhoto().getOriginalPath()),
+                sample.getConfidence()
+            };
+        }
+
+        return new Object[]{null, null, null, null, null};
     }
 
     public PersonSummaryDTO toSummaryDTO(PersonProfile person) {
@@ -1679,17 +1753,16 @@ public class FaceService {
             .collect(Collectors.toList());
         dto.setAlbumCount(albumIds.size());
 
-        Face sample = faceRepository.findTopByPersonIdOrderByConfidenceDescCreatedAtDesc(person.getId());
-        if (sample == null) {
-            sample = faceRepository.findTopByPersonIdOrderByCreatedAtDesc(person.getId());
+        // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）
+        Object[] sampleData = getPersonSamplePhoto(person.getId());
+        if (sampleData[0] != null) {
+            dto.setSampleFaceId((Long) sampleData[0]);
+            dto.setSamplePhotoId((Long) sampleData[1]);
+            dto.setSampleThumbnailPath((String) sampleData[2]);
+            dto.setSampleOriginalPath((String) sampleData[3]);
+            dto.setSampleConfidence((Double) sampleData[4]);
         }
-        if (sample != null && sample.getPhoto() != null) {
-            dto.setSampleFaceId(sample.getId());
-            dto.setSamplePhotoId(sample.getPhoto().getId());
-            dto.setSampleConfidence(sample.getConfidence());
-            dto.setSampleThumbnailPath(convertToRelativePath(sample.getPhoto().getThumbnailPath()));
-            dto.setSampleOriginalPath(convertToRelativePath(sample.getPhoto().getOriginalPath()));
-        }
+
         return dto;
     }
 

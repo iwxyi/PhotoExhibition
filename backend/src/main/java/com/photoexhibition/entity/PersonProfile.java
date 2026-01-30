@@ -26,6 +26,21 @@ public class PersonProfile {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "sample_photo_id")
+    private Long samplePhotoId;
+
+    @Column(name = "sample_face_id")
+    private Long sampleFaceId;
+
+    @Column(name = "sample_thumbnail_path", length = 1000)
+    private String sampleThumbnailPath;
+
+    @Column(name = "sample_original_path", length = 1000)
+    private String sampleOriginalPath;
+
+    @Column(name = "sample_confidence")
+    private Double sampleConfidence;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
