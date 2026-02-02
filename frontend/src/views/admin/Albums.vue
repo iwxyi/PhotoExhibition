@@ -25,65 +25,18 @@
           :key="album.id"
           class="glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
         >
-          <!-- 三合一封面预览（左竖 + 右上/右下） -->
+          <!-- 封面预览 -->
           <div
-            class="relative bg-gray-900 overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
-            :class="coverHeightClass"
+            class="relative overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
             @click="openAlbum(album.id)"
             title="点击查看相册"
           >
-            <template v-if="album.coverImages && (album.coverImages.leftVertical || album.coverImages.rightTop || album.coverImages.rightBottom)">
-              <div class="grid h-full w-full grid-cols-[2fr,3fr] grid-rows-2 gap-[2px]">
-                <!-- 左侧竖图（占两行） -->
-                <div class="row-span-2 bg-gray-800 overflow-hidden">
-                  <img
-                    v-if="album.coverImages.leftVertical"
-                    :src="getPhotoUrl(album.coverImages.leftVertical)"
-                    :alt="album.coverImages.leftVertical.filename"
-                    class="w-full h-full object-cover"
-                    @error="onImageError"
-                  />
-                  <div v-else class="w-full h-full bg-gray-800" />
-                </div>
-                <!-- 右上横图 -->
-                <div class="bg-gray-800 overflow-hidden">
-                  <img
-                    v-if="album.coverImages.rightTop"
-                    :src="getPhotoUrl(album.coverImages.rightTop)"
-                    :alt="album.coverImages.rightTop.filename"
-                    class="w-full h-full object-cover"
-                    @error="onImageError"
-                  />
-                  <div v-else class="w-full h-full bg-gray-800" />
-                </div>
-                <!-- 右下横图，带“共 x 张”蒙版 -->
-                <div class="relative bg-gray-800 overflow-hidden">
-                  <img
-                    v-if="album.coverImages.rightBottom"
-                    :src="getPhotoUrl(album.coverImages.rightBottom)"
-                    :alt="album.coverImages.rightBottom.filename"
-                    class="w-full h-full object-cover"
-                    @error="onImageError"
-                  />
-                  <div v-else class="w-full h-full bg-gray-800" />
-                  <div class="absolute inset-0 bg-black/45 flex items-center justify-center">
-                    <span class="text-xs text-white">共 {{ album.photoCount || 0 }} 张</span>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <div class="flex items-center justify-center h-full text-gray-500">
-                <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
-              </div>
-            </template>
+            <CoverDisplay
+              :covers="getAlbumCovers(album)"
+              :default-covers="getDefaultCovers(album)"
+              :photo-count="album.photoCount || 0"
+              size="lg"
+            />
           </div>
 
           <!-- 相册信息 -->
@@ -199,6 +152,16 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
               编辑备注
+            </button>
+            <!-- 设置封面菜单项 -->
+            <button
+              @click="openCoverDialog(showMenuForAlbum)"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              设置封面
             </button>
             <!-- 相册特效菜单项 -->
             <button
@@ -523,14 +486,131 @@
         </div>
       </div>
     </teleport>
+
+    <!-- 设置封面对话框 -->
+    <teleport to="body">
+      <div
+        v-if="coverDialogVisible"
+        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        @click.self="coverDialogVisible = false"
+      >
+        <div class="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[80vh] flex flex-col text-gray-100">
+          <!-- 头部 -->
+          <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+            <h3 class="text-lg font-medium">设置封面</h3>
+            <button
+              @click="coverDialogVisible = false"
+              class="text-gray-400 hover:text-white"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- 已选封面预览 -->
+          <div class="p-4 bg-gray-900/50 border-b border-gray-700">
+            <div class="text-sm text-gray-400 mb-2">已选封面 ({{ selectedCoverIds.length }}/4)</div>
+            <div class="flex gap-2">
+              <div
+                v-for="id in selectedCoverIds"
+                :key="id"
+                class="relative w-20 h-20 rounded overflow-hidden border-2 border-blue-500"
+              >
+                <img
+                  :src="getPhotoUrl(coverDialogPhotos.find(p => p.id === id))"
+                  class="w-full h-full object-cover"
+                />
+                <button
+                  @click="toggleCoverSelection(coverDialogPhotos.find(p => p.id === id))"
+                  class="absolute top-0 right-0 bg-red-500 text-white w-5 h-5 flex items-center justify-center text-xs"
+                >
+                  ×
+                </button>
+                <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-center text-xs py-0.5">
+                  {{ getCoverIndex(id) }}
+                </div>
+              </div>
+              <div
+                v-if="selectedCoverIds.length === 0"
+                class="text-gray-500 text-sm flex items-center"
+              >
+                未选择封面，将使用自动生成的封面
+              </div>
+            </div>
+          </div>
+
+          <!-- 照片列表 -->
+          <div class="flex-1 overflow-y-auto p-4">
+            <div v-if="coverDialogLoading" class="text-center py-8 text-gray-400">
+              加载中...
+            </div>
+            <div v-else-if="coverDialogPhotos.length === 0" class="text-center py-8 text-gray-400">
+              暂无照片
+            </div>
+            <div v-else class="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+              <div
+                v-for="photo in coverDialogPhotos"
+                :key="photo.id"
+                :class="[
+                  'relative aspect-square rounded overflow-hidden cursor-pointer transition-all',
+                  isCoverSelected(photo.id) ? 'ring-2 ring-blue-500' : 'hover:ring-2 hover:ring-gray-400'
+                ]"
+                @click="toggleCoverSelection(photo)"
+              >
+                <img
+                  :src="getPhotoUrl(photo)"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <!-- 选中标记 -->
+                <div
+                  v-if="isCoverSelected(photo.id)"
+                  class="absolute inset-0 bg-blue-500/30 flex items-center justify-center"
+                >
+                  <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center font-bold text-white">
+                    {{ getCoverIndex(photo.id) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 底部按钮 -->
+          <div class="p-4 border-t border-gray-700 flex gap-3">
+            <button
+              @click="clearCover"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              :disabled="selectedCoverIds.length === 0"
+            >
+              清除封面
+            </button>
+            <div class="flex-1"></div>
+            <button
+              @click="coverDialogVisible = false"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+            <button
+              @click="saveCover"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@/api'
+import { api, albumApi } from '@/api'
 import { useUiSettings } from '@/composables/useUiSettings'
+import CoverDisplay from '@/components/CoverDisplay.vue'
 
 const router = useRouter()
 const { coverSize } = useUiSettings()
@@ -752,6 +832,10 @@ const extractRelativePath = (fullPath: string): string => {
 }
 
 const getPhotoUrl = (photo: any): string => {
+  if (!photo) return ''
+  if (photo.smallThumbPath) {
+    return `/api/files${photo.smallThumbPath}`
+  }
   if (photo.webpPath) {
     return `/api/files${photo.webpPath}`
   }
@@ -761,9 +845,44 @@ const getPhotoUrl = (photo: any): string => {
   return `/api/files${photo.originalPath}`
 }
 
-const onImageError = (e: Event) => {
-  const img = e.target as HTMLImageElement
-  img.style.display = 'none'
+// 获取相册的自定义封面列表
+const getAlbumCovers = (album: any): any[] => {
+  if (album.coverImageIds && album.coverImageIds.length > 0) {
+    const covers: any[] = []
+    const coverMap = album.coverImages || {}
+    
+    // 从 coverImages 中查找所有封面
+    const allCovers = [
+      coverMap.cover1,
+      coverMap.cover2,
+      coverMap.cover3,
+      coverMap.cover4,
+      coverMap.leftVertical,
+      coverMap.rightTop,
+      coverMap.rightBottom
+    ]
+    
+    for (const id of album.coverImageIds) {
+      // 查找对应 ID 的封面
+      const cover = allCovers.find(c => c?.id === id)
+      if (cover) {
+        covers.push(cover)
+      }
+    }
+    
+    return covers
+  }
+  return []
+}
+
+// 获取相册的默认封面（自动生成的）
+const getDefaultCovers = (album: any): { left?: any; rightTop?: any; rightBottom?: any } => {
+  const coverMap = album.coverImages || {}
+  return {
+    left: coverMap.cover1 || coverMap.leftVertical,
+    rightTop: coverMap.cover2 || coverMap.rightTop,
+    rightBottom: coverMap.cover3 || coverMap.rightBottom
+  }
 }
 
 const formatDate = (val?: string) => {
@@ -857,6 +976,116 @@ const editDescription = async (album: any) => {
   } catch (e: any) {
     alert('修改备注失败: ' + (e.response?.data?.error || e.message))
   }
+}
+
+// 设置封面相关
+const coverDialogVisible = ref(false)
+const coverDialogAlbum = ref<any>(null)
+const coverDialogPhotos = ref<any[]>([])
+const selectedCoverIds = ref<number[]>([])
+const coverDialogLoading = ref(false)
+
+const openCoverDialog = async (album: any) => {
+  // 从列表中获取最新的相册数据，确保 coverImageIds 是最新的
+  const latestAlbum = albums.value.find(a => a.id === album.id) || album
+  coverDialogAlbum.value = latestAlbum
+  selectedCoverIds.value = latestAlbum.coverImageIds ? [...latestAlbum.coverImageIds] : []
+  coverDialogLoading.value = true
+  coverDialogVisible.value = true
+  showMenuForAlbum.value = null // 关闭菜单
+
+  try {
+    // 获取相册的所有照片
+    const res = await api.get(`/photos/album/${album.id}`, { params: { all: true } })
+    coverDialogPhotos.value = res.data.content || []
+  } catch (e: any) {
+    console.error('获取相册照片失败:', e)
+    coverDialogPhotos.value = []
+  } finally {
+    coverDialogLoading.value = false
+  }
+}
+
+const toggleCoverSelection = (photo: any) => {
+  const index = selectedCoverIds.value.indexOf(photo.id)
+  if (index >= 0) {
+    // 取消选中
+    selectedCoverIds.value.splice(index, 1)
+  } else {
+    // 选中，最多4张
+    if (selectedCoverIds.value.length < 4) {
+      selectedCoverIds.value.push(photo.id)
+    }
+  }
+}
+
+const isCoverSelected = (photoId: number) => {
+  return selectedCoverIds.value.includes(photoId)
+}
+
+const getCoverIndex = (photoId: number) => {
+  const index = selectedCoverIds.value.indexOf(photoId)
+  return index >= 0 ? index + 1 : null
+}
+
+const saveCover = async () => {
+  if (!coverDialogAlbum.value) return
+
+  const albumId = coverDialogAlbum.value.id
+  const originalAlbum = albums.value.find(a => a.id === albumId)
+  
+  // 先保存选中的封面ID和照片列表，再清空弹窗状态
+  const coverIdsToSave = [...selectedCoverIds.value]
+  // 保存当前照片列表的副本，用于后续构建封面
+  const dialogPhotos = [...coverDialogPhotos.value]
+  
+  // 关闭弹窗
+  coverDialogVisible.value = false
+  coverDialogAlbum.value = null
+  coverDialogPhotos.value = []
+  selectedCoverIds.value = []
+
+  try {
+    // 保存封面到后端
+    const response = await albumApi.setAlbumCover(albumId, coverIdsToSave)
+    const savedCoverImageIds = response.data.coverImageIds || []
+    console.log('保存封面成功:', savedCoverImageIds)
+    
+    // 直接更新本地数据，不重新获取整个相册（避免超时）
+    if (originalAlbum) {
+      // 更新 coverImageIds
+      originalAlbum.coverImageIds = savedCoverImageIds
+      
+      // 根据 coverImageIds 从照片列表中获取对应的照片来构建封面
+      const covers: any[] = []
+      for (const id of savedCoverImageIds) {
+        // 从弹窗的照片列表中查找对应的照片
+        const photo = dialogPhotos.find(p => p.id === id)
+        if (photo) {
+          covers.push(photo)
+        }
+      }
+      
+      // 重新构建 coverImages
+      originalAlbum.coverImages = {
+        cover1: covers[0] || null,
+        cover2: covers[1] || null,
+        cover3: covers[2] || null,
+        cover4: covers[3] || null,
+        leftVertical: covers[0] || null,
+        rightTop: covers[1] || null,
+        rightBottom: covers[2] || null
+      }
+      console.log('本地数据已更新, coverImageIds:', originalAlbum.coverImageIds, 'covers:', covers.length)
+    }
+  } catch (e: any) {
+    console.error('更新封面失败:', e)
+    alert('设置封面失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const clearCover = async () => {
+  selectedCoverIds.value = []
 }
 
 const editAtmosphereEffects = async (album: any) => {
@@ -1066,6 +1295,7 @@ const closeAllMenus = () => {
   showMenuForAlbum.value = null
   tagDialogVisible.value = false
   effectsDialogVisible.value = false
+  coverDialogVisible.value = false
 }
 
 const hasSubAlbums = (album: any) => {

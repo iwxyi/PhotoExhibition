@@ -11,66 +11,13 @@
     ref="cardRef"
     style="contain: layout style paint; will-change: transform;"
   >
-    <!-- 封面布局：左侧竖图 + 右侧上下两张横图 -->
-    <div class="grid grid-cols-2 gap-0.5 relative w-full" :class="coverSizeClass">
-      <!-- 左侧竖图 -->
-      <div class="row-span-2 overflow-hidden rounded-l-lg" ref="leftImageRef" :data-slot="'left'">
-        <img
-          v-if="leftImage"
-          :src="getImageUrl(leftImage)"
-          :alt="album.name"
-          class="photo-image w-full h-full"
-          :data-photo-id="leftImage.id"
-          loading="lazy"
-          decoding="async"
-          @load="handleImageLoad"
-          @error="handleImageError"
-        />
-        <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
-          <span class="text-gray-400">暂无图片</span>
-        </div>
-      </div>
-
-      <!-- 右侧上方横图 -->
-      <div class="overflow-hidden rounded-tr-lg" ref="rightTopImageRef" :data-slot="'rightTop'">
-        <img
-          v-if="rightTopImage"
-          :src="getImageUrl(rightTopImage)"
-          :alt="album.name"
-          class="photo-image w-full h-full"
-          :data-photo-id="rightTopImage.id"
-          loading="lazy"
-          decoding="async"
-          @load="handleImageLoad"
-          @error="handleImageError"
-        />
-        <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800"></div>
-      </div>
-
-      <!-- 右侧下方横图 -->
-      <div class="overflow-hidden rounded-br-lg relative" ref="rightBottomImageRef" :data-slot="'rightBottom'">
-        <img
-          v-if="rightBottomImage"
-          :src="getImageUrl(rightBottomImage)"
-          :alt="album.name"
-          class="photo-image w-full h-full"
-          :data-photo-id="rightBottomImage.id"
-          loading="lazy"
-          decoding="async"
-          @load="handleImageLoad"
-          @error="handleImageError"
-        />
-        <div v-else class="w-full h-full bg-gray-200 dark:bg-gray-800"></div>
-
-        <!-- 右下角蒙版显示总数 -->
-        <div
-          v-if="album.photoCount && album.photoCount > 0"
-          class="absolute inset-0 bg-black/35 text-white flex items-center justify-center text-base font-semibold album-cover-overlay"
-        >
-          共 {{ album.photoCount }} 张
-        </div>
-      </div>
-    </div>
+    <!-- 封面布局 -->
+    <CoverDisplay
+      :covers="customCovers"
+      :default-covers="defaultCovers"
+      :photo-count="album.photoCount || 0"
+      :size="sizeValue"
+    />
 
     <!-- 信息块（显示在封面下方） -->
     <div class="px-2 py-1 text-gray-900 dark:text-gray-100 space-y-0.5">
@@ -87,6 +34,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Album } from '@/stores/photo'
+import CoverDisplay from '@/components/CoverDisplay.vue'
 
 type Size = 'sm' | 'md' | 'lg'
 
@@ -100,26 +48,41 @@ const emit = defineEmits<{
 }>()
 
 const cardRef = ref<HTMLElement>()
-const leftImageRef = ref<HTMLElement>()
-const rightTopImageRef = ref<HTMLElement>()
-const rightBottomImageRef = ref<HTMLElement>()
 
-const leftImage = computed(() => props.album.coverImages?.leftVertical)
-const rightTopImage = computed(() => props.album.coverImages?.rightTop)
-const rightBottomImage = computed(() => props.album.coverImages?.rightBottom)
+const sizeValue = computed(() => props.size || 'md')
 
-// 图片加载优化
-const handleImageLoad = (event: Event) => {
-  const img = event.target as HTMLImageElement
-  // 添加loaded类用于可能的后续样式优化
-  img.classList.add('loaded')
-}
+// 自定义封面列表（根据 coverImageIds 排序）
+const customCovers = computed(() => {
+  if (!props.album.coverImageIds || props.album.coverImageIds.length === 0) {
+    return []
+  }
+  
+  const covers: any[] = []
+  const coverMap = props.album.coverImages || {}
+  const cover1 = coverMap.cover1 || coverMap.leftVertical
+  const cover2 = coverMap.cover2 || coverMap.rightTop
+  const cover3 = coverMap.cover3 || coverMap.rightBottom
+  const cover4 = coverMap.cover4
+  
+  for (const id of props.album.coverImageIds) {
+    if (cover1?.id === id) covers.push(cover1)
+    else if (cover2?.id === id) covers.push(cover2)
+    else if (cover3?.id === id) covers.push(cover3)
+    else if (cover4?.id === id) covers.push(cover4)
+  }
+  
+  return covers
+})
 
-const handleImageError = (event: Event) => {
-  const img = event.target as HTMLImageElement
-  // 错误处理，移除broken图片
-  img.style.display = 'none'
-}
+// 默认封面（自动生成的）
+const defaultCovers = computed(() => {
+  const coverMap = props.album.coverImages || {}
+  return {
+    left: coverMap.cover1 || coverMap.leftVertical,
+    rightTop: coverMap.cover2 || coverMap.rightTop,
+    rightBottom: coverMap.cover3 || coverMap.rightBottom
+  }
+})
 
 const takenDateText = computed(() => {
   if (!props.album.takenAt) return ''
@@ -134,47 +97,53 @@ const cardSizeClass = computed(() => {
   return 'max-w-[240px]'
 })
 
-const coverSizeClass = computed(() => {
-  const size = props.size || 'md'
-  if (size === 'sm') return 'h-32'
-  if (size === 'md') return 'h-48'
-  if (size === 'lg') return 'h-64'
-  return 'h-48'
-})
-
-const getImageUrl = (photo: any) => {
-  // 封面使用小缩略图
-  if (photo.smallThumbPath) {
-    return `/api/files${photo.smallThumbPath}`
-  }
-  // 回退到webp
-  if (photo.webpPath) {
-    return `/api/files${photo.webpPath}`
-  }
-  // 最后回退到原缩略图或原图
-  if (photo.thumbnailPath) {
-    return `/api/files${photo.thumbnailPath}`
-  }
-  return `/api/files${photo.originalPath}`
-}
-
 const handleClick = () => {
   // 记录三张封面图的位置和对应的照片ID与位置(slot)
   const coverRects: Array<{ photoId: number; slot: 'left' | 'rightTop' | 'rightBottom'; rect: DOMRect }> = []
   
-  if (leftImage.value && leftImageRef.value) {
-    const rect = leftImageRef.value.getBoundingClientRect()
-    coverRects.push({ photoId: leftImage.value.id, slot: 'left', rect })
+  // 获取实际显示的封面图片
+  const actualCovers = customCovers.value.length > 0 ? customCovers.value : []
+  const leftRef = cardRef.value?.querySelector('[data-slot="left"]') as HTMLElement
+  const rightTopRef = cardRef.value?.querySelector('[data-slot="rightTop"]') as HTMLElement
+  const rightBottomRef = cardRef.value?.querySelector('[data-slot="rightBottom"]') as HTMLElement
+  
+  // 根据布局记录封面位置
+  if (actualCovers.length >= 1 && leftRef) {
+    const rect = leftRef.getBoundingClientRect()
+    coverRects.push({ photoId: actualCovers[0].id, slot: 'left', rect })
+  }
+  if (actualCovers.length >= 2 && rightTopRef) {
+    const rect = rightTopRef.getBoundingClientRect()
+    coverRects.push({ photoId: actualCovers[1].id, slot: 'rightTop', rect })
+  }
+  if (actualCovers.length >= 3 && rightBottomRef) {
+    const rect = rightBottomRef.getBoundingClientRect()
+    coverRects.push({ photoId: actualCovers[2].id, slot: 'rightBottom', rect })
+  }
+  // 4张封面时，cover3 对应右下位置
+  if (actualCovers.length >= 4 && rightBottomRef) {
+    const rect = rightBottomRef.getBoundingClientRect()
+    coverRects.push({ photoId: actualCovers[3].id, slot: 'rightBottom', rect })
   }
   
-  if (rightTopImage.value && rightTopImageRef.value) {
-    const rect = rightTopImageRef.value.getBoundingClientRect()
-    coverRects.push({ photoId: rightTopImage.value.id, slot: 'rightTop', rect })
-  }
-  
-  if (rightBottomImage.value && rightBottomImageRef.value) {
-    const rect = rightBottomImageRef.value.getBoundingClientRect()
-    coverRects.push({ photoId: rightBottomImage.value.id, slot: 'rightBottom', rect })
+  // 如果没有自定义封面，使用默认封面
+  if (coverRects.length === 0) {
+    const leftCover = defaultCovers.value.left
+    const rightTopCover = defaultCovers.value.rightTop
+    const rightBottomCover = defaultCovers.value.rightBottom
+    
+    if (leftCover && leftRef) {
+      const rect = leftRef.getBoundingClientRect()
+      coverRects.push({ photoId: leftCover.id, slot: 'left', rect })
+    }
+    if (rightTopCover && rightTopRef) {
+      const rect = rightTopRef.getBoundingClientRect()
+      coverRects.push({ photoId: rightTopCover.id, slot: 'rightTop', rect })
+    }
+    if (rightBottomCover && rightBottomRef) {
+      const rect = rightBottomRef.getBoundingClientRect()
+      coverRects.push({ photoId: rightBottomCover.id, slot: 'rightBottom', rect })
+    }
   }
   
   // 保存到 sessionStorage，供 AlbumDetail 使用
@@ -199,4 +168,3 @@ const handleClick = () => {
   emit('click')
 }
 </script>
-

@@ -25,6 +25,13 @@ public class Album {
     @Column(name = "cover_image_id")
     private Long coverImageId;
 
+    /**
+     * 自定义封面图片ID列表（最多4张）
+     * 有自定义封面时优先使用，没有时使用自动生成的封面
+     */
+    @Column(name = "cover_image_ids", columnDefinition = "TEXT")
+    private String coverImageIds;
+
     @Column(columnDefinition = "TEXT")
     private String description;
 

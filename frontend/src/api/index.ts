@@ -274,3 +274,10 @@ export const aiApi = {
   }>(`/admin/photos/${photoId}/similar?limit=${limit}`)
 }
 
+// 相册相关API
+export const albumApi = {
+  // 设置相册自定义封面
+  setAlbumCover: (albumId: number, coverImageIds: number[]) =>
+    api.put(`/albums/${albumId}/cover`, { coverImageIds })
+}
+

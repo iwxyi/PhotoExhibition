@@ -164,8 +164,72 @@ public class AlbumService {
 
     /**
      * 获取相册封面图片组合（左侧竖图+右侧上下两张横图）
+     * 优先使用自定义封面，没有自定义封面时自动生成
      */
     public CoverImagesDTO getAlbumCoverImages(Long albumId) {
+        CoverImagesDTO cover = new CoverImagesDTO();
+        
+        // 尝试获取自定义封面
+        java.util.Optional<Album> albumOpt = albumRepository.findById(albumId);
+        if (albumOpt.isPresent()) {
+            Album album = albumOpt.get();
+            String coverImageIdsStr = album.getCoverImageIds();
+            if (coverImageIdsStr != null && !coverImageIdsStr.isEmpty()) {
+                try {
+                    java.util.List<Long> coverImageIds = objectMapper.readValue(
+                        coverImageIdsStr,
+                        objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Long.class)
+                    );
+                    
+                    // 过滤掉null和无效的ID
+                    coverImageIds = coverImageIds.stream()
+                        .filter(id -> id != null && id > 0)
+                        .collect(java.util.stream.Collectors.toList());
+                    
+                    if (!coverImageIds.isEmpty()) {
+                        // 加载自定义封面图片
+                        for (int i = 0; i < Math.min(coverImageIds.size(), 4); i++) {
+                            Long photoId = coverImageIds.get(i);
+                            java.util.Optional<Photo> photoOpt = photoRepository.findById(photoId);
+                            if (photoOpt.isPresent()) {
+                                PhotoDTO photoDTO = convertPhotoToDTO(photoOpt.get());
+                                switch (i) {
+                                    case 0:
+                                        cover.setCover1(photoDTO);
+                                        break;
+                                    case 1:
+                                        cover.setCover2(photoDTO);
+                                        break;
+                                    case 2:
+                                        cover.setCover3(photoDTO);
+                                        break;
+                                    case 3:
+                                        cover.setCover4(photoDTO);
+                                        break;
+                                }
+                            }
+                        }
+                        
+                        // 如果至少有一个自定义封面，返回自定义封面
+                        if (cover.getCover1() != null || cover.getCover2() != null || 
+                            cover.getCover3() != null || cover.getCover4() != null) {
+                            return cover;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("解析自定义封面ID列表失败: {}", e.getMessage());
+                }
+            }
+        }
+        
+        // 没有自定义封面，使用自动生成逻辑
+        return generateAutoCoverImages(albumId);
+    }
+    
+    /**
+     * 自动生成相册封面图片组合
+     */
+    private CoverImagesDTO generateAutoCoverImages(Long albumId) {
         // 检查相册是否开启了聚合
         List<Long> albumIds = getAggregatedAlbumIds(albumId);
 
@@ -277,13 +341,15 @@ public class AlbumService {
         }
         horizontalPhotos = cleanHorizontal;
 
-        // 赋值封面
-        cover.setLeftVertical(convertPhotoToDTO(verticalPhoto));
+        // 赋值封面（使用新的字段名）
+        if (verticalPhoto != null) {
+            cover.setCover1(convertPhotoToDTO(verticalPhoto));
+        }
         if (horizontalPhotos.size() > 0) {
-            cover.setRightTop(convertPhotoToDTO(horizontalPhotos.get(0)));
+            cover.setCover2(convertPhotoToDTO(horizontalPhotos.get(0)));
         }
         if (horizontalPhotos.size() > 1) {
-            cover.setRightBottom(convertPhotoToDTO(horizontalPhotos.get(1)));
+            cover.setCover3(convertPhotoToDTO(horizontalPhotos.get(1)));
         }
 
         return cover;
@@ -308,6 +374,20 @@ public class AlbumService {
         dto.setName(album.getName());
         dto.setPath(album.getPath());
         dto.setCoverImageId(album.getCoverImageId());
+        
+        // 解析自定义封面图片ID列表
+        if (album.getCoverImageIds() != null && !album.getCoverImageIds().isEmpty()) {
+            try {
+                java.util.List<Long> coverImageIds = objectMapper.readValue(
+                    album.getCoverImageIds(),
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Long.class)
+                );
+                dto.setCoverImageIds(coverImageIds);
+            } catch (Exception e) {
+                log.warn("解析封面图片ID列表失败: {}", e.getMessage());
+            }
+        }
+        
         dto.setDescription(album.getDescription());
         dto.setPhotoCount(album.getPhotoCount());
         dto.setAggregateSubAlbums(album.getAggregateSubAlbums());
@@ -830,6 +910,64 @@ public class AlbumService {
         Album saved = albumRepository.save(album);
 
         return convertToDTO(saved);
+    }
+
+    /**
+     * 设置相册自定义封面
+     * 注意：不重新生成封面，直接返回更新后的相册信息
+     */
+    @Transactional
+    public AlbumDTO setAlbumCover(Long albumId, java.util.List<Long> coverImageIds) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在: " + albumId));
+
+        log.info("设置相册封面: albumId={}, coverImageIds={}", albumId, coverImageIds);
+
+        // 将封面ID列表序列化为JSON
+        if (coverImageIds == null || coverImageIds.isEmpty()) {
+            album.setCoverImageIds(null);
+        } else {
+            try {
+                String json = objectMapper.writeValueAsString(coverImageIds);
+                album.setCoverImageIds(json);
+                log.info("封面ID序列化成功: {}", json);
+            } catch (Exception e) {
+                throw new RuntimeException("序列化封面ID失败", e);
+            }
+        }
+
+        Album saved = albumRepository.save(album);
+        log.info("相册封面保存成功: albumId={}, coverImageIds={}", albumId, saved.getCoverImageIds());
+        
+        // 直接返回，不调用 convertToDTO（避免重新生成封面导致超时）
+        AlbumDTO dto = new AlbumDTO();
+        dto.setId(saved.getId());
+        dto.setName(saved.getName());
+        dto.setPath(saved.getPath());
+        dto.setCoverImageId(saved.getCoverImageId());
+        
+        // 解析封面ID列表
+        if (saved.getCoverImageIds() != null && !saved.getCoverImageIds().isEmpty()) {
+            try {
+                java.util.List<Long> ids = objectMapper.readValue(
+                    saved.getCoverImageIds(),
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Long.class)
+                );
+                dto.setCoverImageIds(ids);
+            } catch (Exception e) {
+                log.warn("解析封面图片ID列表失败: {}", e.getMessage());
+            }
+        }
+        
+        dto.setDescription(saved.getDescription());
+        dto.setPhotoCount(saved.getPhotoCount());
+        dto.setAggregateSubAlbums(saved.getAggregateSubAlbums());
+        dto.setDownloadAllowed(saved.getDownloadAllowed());
+        dto.setPhotoSortOrder(saved.getPhotoSortOrder());
+        dto.setCreatedAt(saved.getCreatedAt());
+        dto.setUpdatedAt(saved.getUpdatedAt());
+        
+        return dto;
     }
 
     /**

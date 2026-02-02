@@ -10,6 +10,10 @@ public class AlbumDTO {
     private String name;
     private String path;
     private Long coverImageId;
+    /**
+     * 自定义封面图片ID列表（最多4张）
+     */
+    private java.util.List<Long> coverImageIds;
     private String description;
     private Integer photoCount;
     private Boolean aggregateSubAlbums;

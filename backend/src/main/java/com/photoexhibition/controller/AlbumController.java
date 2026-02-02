@@ -196,5 +196,28 @@ public class AlbumController {
         AlbumDTO album = albumService.removeTagFromAlbum(albumId, tagId);
         return ResponseEntity.ok(album);
     }
+
+    /**
+     * 设置相册自定义封面
+     * @param albumId 相册ID
+     * @param request 包含coverImageIds列表的请求体
+     */
+    @PutMapping("/{albumId}/cover")
+    public ResponseEntity<AlbumDTO> setAlbumCover(
+            @PathVariable Long albumId,
+            @RequestBody java.util.Map<String, java.util.List<Long>> request) {
+        java.util.List<Long> coverImageIds = request.get("coverImageIds");
+        if (coverImageIds == null) {
+            coverImageIds = new java.util.ArrayList<>();
+        }
+        
+        // 限制最多4个封面
+        if (coverImageIds.size() > 4) {
+            coverImageIds = coverImageIds.subList(0, 4);
+        }
+        
+        AlbumDTO album = albumService.setAlbumCover(albumId, coverImageIds);
+        return ResponseEntity.ok(album);
+    }
 }
 

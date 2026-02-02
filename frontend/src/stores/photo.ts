@@ -9,6 +9,10 @@ export interface Album {
   category?: string
   path: string
   coverImageId?: number
+  /**
+   * 自定义封面图片ID列表（最多4张）
+   */
+  coverImageIds?: number[]
   description?: string
   photoCount: number
   takenAt?: string
@@ -99,6 +103,11 @@ export interface CoverImages {
   leftVertical?: Photo
   rightTop?: Photo
   rightBottom?: Photo
+  // 新字段名（兼容旧字段名）
+  cover1?: Photo
+  cover2?: Photo
+  cover3?: Photo
+  cover4?: Photo
 }
 
 export const usePhotoStore = defineStore('photo', () => {
