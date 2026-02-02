@@ -39,7 +39,13 @@
           <div :style="{ width: downloadProgress + '%' }" class="h-1 bg-blue-600 transition-width duration-200"></div>
         </div>
       </div>
-        <div v-if="album">
+      <!-- 初始加载状态 -->
+      <div v-if="isInitialLoading" class="flex items-center justify-center min-h-[50vh]">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
+      </div>
+
+      <!-- 相册内容 -->
+      <div v-else-if="album">
           <div class="mb-12">
             <h1 class="text-4xl font-light mb-4" :style="textStyle">{{ album.name }}</h1>
             <p v-if="album.description" class="mb-4" :style="{ ...textStyle, opacity: 0.8 }">{{ album.description }}</p>
@@ -189,6 +195,7 @@ const currentPage = ref(0)
 const loadingMore = ref(false)
 const hasMore = ref(true)
 const pageSize = 30 // 每次加载30张照片
+const isInitialLoading = ref(true) // 初始加载状态，用于避免显示旧数据
 
 const { atmosphereEnabled, previewSize } = useUiSettings()
 
@@ -1216,13 +1223,15 @@ const startBackTransitionAndNavigate = () => {
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  const navigationFlag = sessionStorage.getItem('album-navigation-active')
   const animationPerformed = sessionStorage.getItem('album-animation-performed') === 'true'
+  console.log('[返回动画] 检查条件:', { albumId, storedData: !!storedData, animationPerformed })
+
   // 只有真正执行过展开动画的页面才能执行返回动画
   const shouldPerformBackTransition = animationPerformed
 
   // 如果没有动画执行记录，清理可能残留的数据并导航到主页
   if (!shouldPerformBackTransition) {
+    console.log('[返回动画] 没有展开动画记录，直接跳转')
     sessionStorage.removeItem('album-back-transition')
     sessionStorage.removeItem('album-navigation-active')
     sessionStorage.removeItem('album-animation-performed')
@@ -1268,6 +1277,15 @@ const startBackTransitionAndNavigate = () => {
 
     // scroll protection added
 
+    // 在返回前，保存 coverRects 数据到 backTransitionData（因为详情页会在动画完成后清理它）
+    const backTransitionData = {
+      albumId,
+      photoIds: [],  // 稍后填充
+      scrollTop: currentScrollTop,
+      scrollLeft: currentScrollLeft,
+      coverRects: coverRects  // 保存封面位置数据，用于 Home 页执行缩回动画
+    }
+
     // 使用 requestAnimationFrame 延迟创建克隆元素，避免影响当前页面布局
     requestAnimationFrame(() => {
       // requestAnimationFrame callback
@@ -1282,6 +1300,7 @@ const startBackTransitionAndNavigate = () => {
 
         const fromRect = photoElement.getBoundingClientRect()
 
+        // 创建图片克隆
         const clone = img.cloneNode(true) as HTMLImageElement
         clone.src = img.src
         clone.style.position = 'fixed'
@@ -1294,8 +1313,8 @@ const startBackTransitionAndNavigate = () => {
         clone.style.pointerEvents = 'none'
         clone.style.borderRadius = '8px'
         clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-        // 反向/返回克隆也使用更快且非线性的 easing，保持与打开动画一致
-        clone.style.transition = 'all 380ms cubic-bezier(0.22, 1, 0.36, 1)'
+        // 使用轻微回弹效果
+        clone.style.transition = 'all 320ms cubic-bezier(0.25, 0.8, 0.25, 1)'
         clone.style.willChange = 'transform, width, height, top, left'
         clone.classList.add('album-back-clone')
         clone.dataset.albumId = String(albumId)
@@ -1303,6 +1322,32 @@ const startBackTransitionAndNavigate = () => {
 
         document.body.appendChild(clone)
         usedPhotoIds.push(photoId)
+
+        // 查找"共x张"覆盖层并克隆
+        const overlay = photoElement.closest('.cover-display')?.querySelector('.album-cover-overlay') as HTMLElement
+        if (overlay) {
+          const overlayRect = overlay.getBoundingClientRect()
+          const overlayClone = overlay.cloneNode(true) as HTMLElement
+          overlayClone.style.position = 'fixed'
+          overlayClone.style.top = `${overlayRect.top}px`
+          overlayClone.style.left = `${overlayRect.left}px`
+          overlayClone.style.width = `${overlayRect.width}px`
+          overlayClone.style.height = `${overlayRect.height}px`
+          overlayClone.style.zIndex = '10000'
+          overlayClone.style.pointerEvents = 'none'
+          overlayClone.style.borderRadius = overlay.style.borderRadius || '4px'
+          // 初始状态：缩小并向下偏移，准备向上出现的动画
+          overlayClone.style.transform = 'scale(0.95) translateY(8px)'
+          overlayClone.style.opacity = '0'
+          // 使用 ease-out 曲线，缩回速度加快
+          overlayClone.style.transition = 'all 320ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease-out'
+          overlayClone.style.willChange = 'transform, width, height, top, left'
+          overlayClone.classList.add('album-back-overlay-clone')
+          overlayClone.dataset.albumId = String(albumId)
+          overlayClone.dataset.photoId = String(photoId)
+          
+          document.body.appendChild(overlayClone)
+        }
       }
 
       // clones created
@@ -1314,13 +1359,13 @@ const startBackTransitionAndNavigate = () => {
       }
 
       // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画
-      const backTransitionData = {
-        albumId,
-        photoIds: usedPhotoIds,
-        scrollTop: currentScrollTop,
-        scrollLeft: currentScrollLeft
-      }
+      // 包含 coverRects 数据，因为详情页会在动画完成后清理它
+      backTransitionData.photoIds = usedPhotoIds
+      backTransitionData.coverRects = coverRects
       sessionStorage.setItem('album-back-transition', JSON.stringify(backTransitionData))
+      
+      // 清理已使用的数据
+      sessionStorage.removeItem(storageKey)
 
       // session storage set
 
@@ -1368,10 +1413,10 @@ onMounted(async () => {
   const isFromNavigation = navigationTimestamp && (Date.now() - parseInt(navigationTimestamp)) < 5000 // 5秒内
 
   if (isFromNavigation) {
-    // 从正常导航来，保持或设置动画标志
+    // 从正常导航来，保持动画状态
   } else {
     // 如果不是从导航来的（比如刷新），清除之前的动画状态标志
-    sessionStorage.removeItem('album-animation-performed')
+    // 但不要在这里清除，因为返回动画还需要用到它
   }
 
   if (storedData && isFromNavigation) {
@@ -1403,6 +1448,9 @@ onMounted(async () => {
 
   // 设置图片总数
   totalImages.value = photos.value.length
+
+  // 标记初始加载完成，隐藏 loading 显示内容
+  isInitialLoading.value = false
 
   // 添加滚动监听器，用于分页加载
   window.addEventListener('scroll', handleScroll, { passive: true })
@@ -1451,11 +1499,12 @@ onMounted(async () => {
   })
 
   const hasCoverTransition = isFromNavigation ? await performCoverTransition() : false
+  console.log('[详情页] 展开动画结果:', { isFromNavigation, hasCoverTransition })
 
   // 如果成功执行了封面动画，标记动画已执行
   if (hasCoverTransition) {
-    sessionStorage.setItem('album-navigation-active', 'expanded')
     sessionStorage.setItem('album-animation-performed', 'true')
+    console.log('[详情页] 已设置 album-animation-performed')
   }
 
   // 如果没有封面动画，直接开始剩余图片动画
@@ -1463,11 +1512,9 @@ onMounted(async () => {
     remainingPhotosVisible.value = true
   }
 
-  // 动画完成后清理上一个相册的动画缓存，避免切换相册时出现异常动画
+  // 动画完成后清理上一个相册的动画缓存
+  // 注意：不要清理 storageKey（album-cover-rects），因为返回动画还需要用到它
   await nextTick()
-  sessionStorage.removeItem(storageKey)
-  sessionStorage.removeItem('album-navigation-active')
-  sessionStorage.removeItem('album-animation-performed')
   sessionStorage.removeItem('album-back-transition')
 
   // 确保页面滚动到顶部
@@ -1480,12 +1527,11 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
   // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
 
-  // 注意：不要在这里清理 album-cover-rects 数据，因为返回动画在 Home.vue 中执行，需要这些数据
-  // 这些数据会在 Home.vue 的返回动画完成后清理
+  // 注意：不要清理 album-cover-rects 和 album-animation-performed，因为返回动画需要用到这些数据
+  // 动画相关数据会在 Home.vue 的返回动画完成后清理
 
-  // 清理动画相关标志（以防页面异常退出）
+  // 只清理导航标志（如果还在的话）
   sessionStorage.removeItem('album-navigation-active')
-  sessionStorage.removeItem('album-animation-performed')
 
   // 清理可能遗留的动画定时器
   if ((window as any).__albumTransitionCleanupTimer) {

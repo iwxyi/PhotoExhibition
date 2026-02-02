@@ -36,7 +36,7 @@
               :default-covers="getDefaultCovers(album)"
               :photo-count="album.photoCount || 0"
               size="lg"
-            />
+                  />
           </div>
 
           <!-- 相册信息 -->
@@ -609,19 +609,9 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, albumApi } from '@/api'
-import { useUiSettings } from '@/composables/useUiSettings'
 import CoverDisplay from '@/components/CoverDisplay.vue'
 
 const router = useRouter()
-const { coverSize } = useUiSettings()
-
-// 根据全局封面尺寸设置计算封面高度
-const coverHeightClass = computed(() => {
-  if (coverSize.value === 'sm') return 'h-24 md:h-28 lg:h-32'
-  if (coverSize.value === 'md') return 'h-40 md:h-44 lg:h-48'
-  if (coverSize.value === 'lg') return 'h-56 md:h-60 lg:h-64'
-  return 'h-40 md:h-44 lg:h-48'
-})
 
 const albums = ref<any[]>([])
 const loading = ref(false)

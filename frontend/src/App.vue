@@ -2,14 +2,9 @@
   <div id="app" :class="{ dark: isDark }">
     <div class="app-shell">
     <router-view v-slot="{ Component, route }">
-        <Transition
-          :name="getTransitionName(route)"
-          mode="out-in"
-        >
       <KeepAlive include="Home,Wall,Random">
         <component :is="Component" :key="route.fullPath" />
       </KeepAlive>
-        </Transition>
     </router-view>
     </div>
   </div>

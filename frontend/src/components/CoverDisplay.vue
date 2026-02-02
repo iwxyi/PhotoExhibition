@@ -7,13 +7,15 @@
         <div
           v-for="(photo, index) in displayPhotos"
           :key="photo.id"
-          class="relative bg-gray-800 overflow-hidden"
+          class="relative bg-gray-800 overflow-hidden group"
           :class="getItemClass(index)"
+          :data-photo-id="photo.id"
+          :data-slot="getSlotName(photo, index)"
         >
           <img
             :src="getPhotoUrl(photo)"
             :alt="photo.filename"
-            class="w-full h-full object-cover"
+            class="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-110"
             loading="lazy"
             @error="handleError"
           />
@@ -21,10 +23,10 @@
       </div>
     </div>
 
-    <!-- 右下角显示黑色矩形 -->
+    <!-- 右下角显示毛玻璃效果 -->
     <div
       v-if="photoCount > 0"
-      class="absolute bottom-1.5 right-1.5 bg-black/60 px-2 py-0.5 rounded"
+      class="absolute bottom-1.5 right-1.5 bg-black/30 backdrop-blur-md px-2 py-0.5 rounded album-cover-overlay"
     >
       <span class="text-xs text-white">共 {{ photoCount }} 张</span>
     </div>
@@ -95,10 +97,19 @@ const getMainScore = (photo: Photo): number => {
   return area * shapeScore
 }
 
-// 智能排序：主体大的放前面（适合做主图占大位置）
+// 智能排序：竖图优先放前面（适合做 masonry-3 左侧大图），然后再按面积排序
 const sortedPhotos = computed(() => {
   const photos = [...allPhotos.value]
-  return photos.sort((a, b) => getMainScore(b) - getMainScore(a))
+  // 先按类型优先级排序（竖图 > 横图/正方形），再按面积排序
+  return photos.sort((a, b) => {
+    const typeA = getPhotoType(a)
+    const typeB = getPhotoType(b)
+    // 竖图优先
+    if (typeA === 'vertical' && typeB !== 'vertical') return -1
+    if (typeB === 'vertical' && typeA !== 'vertical') return 1
+    // 类型相同则按面积排序
+    return getMainScore(b) - getMainScore(a)
+  })
 })
 
 // 显示的照片（最多9张，太多用网格布局）
@@ -191,6 +202,38 @@ const getItemClass = (index: number) => {
   }
   
   return ''
+}
+
+// 获取槽位名称（用于FLIP动画）- 使用 photoId 确保唯一性
+const getSlotName = (photo: Photo, index: number): string => {
+  const layout = layoutInfo.value
+  const count = displayPhotos.value.length
+  
+  // 单张图片
+  if (layout.type === 'single') return `photo-${photo.id}`
+  
+  // 两张图片
+  if (count === 2) {
+    if (layout.type === 'vertical-2') {
+      return index === 0 ? `photo-${photo.id}` : `photo-${photo.id}`
+    }
+    return `photo-${photo.id}`
+  }
+  
+  // 三张图片
+  if (count === 3) {
+    if (layout.type === 'horizontal-3') {
+      return `photo-${photo.id}`
+    }
+    // masonry-3: index 0 是左边大图
+    if (layout.type === 'masonry-3' && index === 0) {
+      return `photo-${photo.id}`
+    }
+    return `photo-${photo.id}`
+  }
+  
+  // 所有情况都使用 photoId 作为 slot 名称
+  return `photo-${photo.id}`
 }
 
 const getPhotoUrl = (photo?: Photo): string => {
