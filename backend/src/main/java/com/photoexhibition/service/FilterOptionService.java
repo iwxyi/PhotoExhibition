@@ -21,6 +21,7 @@ public class FilterOptionService {
     private final FilterOptionRepository filterOptionRepository;
     private final PhotoRepository photoRepository;
     private final TagRepository tagRepository;
+    private final SystemConfigService systemConfigService;
 
     /**
      * 更新所有筛选选项
@@ -100,10 +101,12 @@ public class FilterOptionService {
                 .collect(Collectors.toList());
         options.put("colorCategories", colorCategories);
 
-        // 获取标签（带数量）
+        // 获取标签（带数量），排除忽略列表中的标签
+        Set<String> ignoredTags = systemConfigService.getTagIgnoreListSet();
         List<Map<String, Object>> tags = tagRepository.findAllWithCount()
                 .stream()
                 .filter(tag -> tag.getPhotoCount() > 0) // 只显示有照片的标签
+                .filter(tag -> !ignoredTags.contains(tag.getName())) // 排除忽略列表中的标签
                 .map(tag -> {
                     Map<String, Object> item = new HashMap<>();
                     item.put("id", tag.getId());

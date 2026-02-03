@@ -155,6 +155,7 @@ public class PhotoController {
 
     /**
      * 创建照片排序的Pageable对象
+     * 注意：使用实体属性名，Spring Data JPA 会自动映射到数据库列名
      */
     private Pageable createPhotoSortedPageable(int page, int size, String sort) {
         if (sort == null || sort.isEmpty()) {

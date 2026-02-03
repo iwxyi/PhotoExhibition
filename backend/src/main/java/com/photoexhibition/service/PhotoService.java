@@ -30,11 +30,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Objects;
 
@@ -201,15 +201,15 @@ public class PhotoService {
 
         // 按人物筛选（优先级最高）
         if (request.getPersonId() != null) {
-            photos = photoRepository.findByPersonId(request.getPersonId(), pageable);
+            photos = photoRepository.findByPersonId(request.getPersonId(), createNativePageable(pageable));
         }
         // 标签筛选
         else if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
-            photos = photoRepository.findByTagIds(request.getTagIds(), pageable);
+            photos = photoRepository.findByTagIds(request.getTagIds(), createNativePageable(pageable));
         }
         // 颜色筛选（独立筛选条件）
         else if (colorCategory != null && !colorCategory.trim().isEmpty()) {
-            photos = photoRepository.findByColorCategory(colorCategory, minQualityScore, excludePhotoIds, pageable);
+            photos = photoRepository.findByColorCategory(colorCategory, minQualityScore, excludePhotoIds, createNativePageable(pageable));
         }
         // 分类筛选（独立筛选条件）
         else if (category != null && !category.trim().isEmpty()) {
@@ -286,8 +286,8 @@ public class PhotoService {
                 .anyMatch(order -> "RAND()".equals(order.getProperty()));
 
             if (isRandomOrder) {
-                // 使用自定义的随机查询方法
-                photos = photoRepository.findAllRandom(pageable);
+                // 使用自定义的随机查询方法（原生查询）
+                photos = photoRepository.findAllRandom(createNativePageable(pageable));
             } else {
                 photos = photoRepository.findAll(pageable);
             }
@@ -525,7 +525,12 @@ public class PhotoService {
         dto.setLikeCount(photo.getLikeCount() == null ? 0 : photo.getLikeCount());
         dto.setIsFeatured(photo.getIsFeatured());
         if (photo.getTags() != null) {
-            dto.setTags(photo.getTags().stream().map(this::toTagDTO).collect(Collectors.toList()));
+            // 过滤掉忽略列表中的标签
+            Set<String> ignoredTags = systemConfigService.getTagIgnoreListSet();
+            dto.setTags(photo.getTags().stream()
+                    .filter(tag -> !ignoredTags.contains(tag.getName()))
+                    .map(this::toTagDTO)
+                    .collect(Collectors.toList()));
         }
         // faces 需要额外查询，避免懒加载问题
         List<Face> faces = photo.getId() != null
@@ -710,6 +715,7 @@ public class PhotoService {
 
     /**
      * 根据排序字符串获取Sort对象
+     * 注意：这里使用实体属性名，Spring Data JPA 会自动映射到数据库列名
      */
     private Sort getSortByOrderString(String sortOrder) {
         switch (sortOrder) {
@@ -729,6 +735,38 @@ public class PhotoService {
                 // 默认按拍摄时间倒序
                 return Sort.by(Sort.Direction.DESC, "takenAt");
         }
+    }
+
+    /**
+     * 将实体属性名转换为数据库列名（用于原生查询的排序）
+     */
+    private String propertyToColumn(String property) {
+        switch (property) {
+            case "takenAt":
+                return "taken_at";
+            case "createdAt":
+                return "created_at";
+            case "filename":
+                return "filename";
+            default:
+                return property;
+        }
+    }
+
+    /**
+     * 创建用于原生查询的Pageable（将实体属性名转换为数据库列名）
+     */
+    private Pageable createNativePageable(Pageable pageable) {
+        if (pageable.getSort().isEmpty()) {
+            return pageable;
+        }
+        List<org.springframework.data.domain.Sort.Order> nativeOrders = pageable.getSort().stream()
+                .map(order -> new org.springframework.data.domain.Sort.Order(
+                        order.getDirection(),
+                        propertyToColumn(order.getProperty())
+                ))
+                .collect(java.util.stream.Collectors.toList());
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(nativeOrders));
     }
 
     /**

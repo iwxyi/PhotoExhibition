@@ -257,6 +257,29 @@
         </div>
       </section>
 
+      <!-- 标签忽略列表设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">标签忽略列表</h2>
+            <p class="text-xs text-gray-400">
+              设置在筛选功能中隐藏的标签，用空格或逗号分隔多个标签名称。
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              被忽略的标签不会在 PhotoViewer、图墙筛选等界面中显示。
+            </p>
+          </div>
+          <div class="flex items-center gap-3 min-w-[300px]">
+            <input
+              v-model="tagIgnoreList"
+              type="text"
+              placeholder="例如：横图 竖图 全景 或 横图，竖图，全景"
+              class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+      </section>
+
       <!-- 用户名更改设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
@@ -475,6 +498,8 @@ const globalDownloadAllowed = ref(false)
 const originalGlobalDownloadAllowed = ref(false)
 const albumCategorySortOrder = ref('')
 const originalAlbumCategorySortOrder = ref('')
+const tagIgnoreList = ref('')
+const originalTagIgnoreList = ref('')
 const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
@@ -508,6 +533,8 @@ const loadSettings = async () => {
     originalGlobalDownloadAllowed.value = response.data.globalDownloadAllowed === true
     albumCategorySortOrder.value = response.data.albumCategorySortOrder || ''
     originalAlbumCategorySortOrder.value = response.data.albumCategorySortOrder || ''
+    tagIgnoreList.value = response.data.tagIgnoreList || ''
+    originalTagIgnoreList.value = response.data.tagIgnoreList || ''
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -529,6 +556,7 @@ const saveSettings = async () => {
   const clusterFaceCountChanged = minClusterFaceCount.value !== originalMinClusterFaceCount.value
   const globalDownloadChanged = globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value
   const albumCategorySortChanged = albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value
+  const tagIgnoreListChanged = tagIgnoreList.value !== originalTagIgnoreList.value
 
   if (albumDepthChanged || photoSortChanged || albumSortChanged || wallSortChanged || clusterFaceCountChanged) {
     let message = '⚠️ 设置已修改 ⚠️\n\n'
@@ -561,6 +589,9 @@ const saveSettings = async () => {
     }
     if (albumCategorySortChanged) {
       message += `相册分类排序将从 "${originalAlbumCategorySortOrder.value}" 改为 "${albumCategorySortOrder.value}"\n`
+    }
+    if (tagIgnoreListChanged) {
+      message += `标签忽略列表将从 "${originalTagIgnoreList.value}" 改为 "${tagIgnoreList.value}"\n`
     }
 
     message += '\n下次扫描时，相册结构将根据新设置重新构建。\n'
@@ -628,6 +659,13 @@ const saveSettings = async () => {
       })
     }
 
+    // 保存标签忽略列表
+    if (tagIgnoreListChanged) {
+      await api.put('/admin/config/tag-ignore-list', {
+        tagIgnoreList: tagIgnoreList.value
+      })
+    }
+
     // 设置保存成功，显示提示
     originalMaxAlbumDepth.value = maxAlbumDepth.value
     originalPhotoSortOrder.value = photoSortOrder.value
@@ -636,13 +674,15 @@ const saveSettings = async () => {
     originalMinClusterFaceCount.value = minClusterFaceCount.value
     originalGlobalDownloadAllowed.value = globalDownloadAllowed.value
     originalAlbumCategorySortOrder.value = albumCategorySortOrder.value
+    originalTagIgnoreList.value = tagIgnoreList.value
     settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
                            photoSortOrder.value !== originalPhotoSortOrder.value ||
                            albumSortOrder.value !== originalAlbumSortOrder.value ||
                            wallSortOrder.value !== originalWallSortOrder.value ||
                            minClusterFaceCount.value !== originalMinClusterFaceCount.value ||
                            globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value ||
-                           albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value
+                           albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value ||
+                           tagIgnoreList.value !== originalTagIgnoreList.value
 
     // 显示保存成功的提示
     if (needsWallRefresh.value) {

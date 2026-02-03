@@ -31,6 +31,7 @@ public class SystemConfigController {
             resp.put("minClusterFaceCount", systemConfigService.getMinClusterFaceCount());
             resp.put("globalDownloadAllowed", systemConfigService.isGlobalDownloadAllowed());
             resp.put("albumCategorySortOrder", systemConfigService.getAlbumCategorySortOrder());
+            resp.put("tagIgnoreList", systemConfigService.getTagIgnoreList());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
@@ -307,6 +308,39 @@ public class SystemConfigController {
             systemConfigService.setAlbumCategorySortOrder(sortOrder);
             resp.put("message", "相册分类排序设置成功");
             resp.put("albumCategorySortOrder", sortOrder != null ? sortOrder.trim() : "");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 获取标签忽略列表配置
+     */
+    @GetMapping("/tag-ignore-list")
+    public ResponseEntity<Map<String, Object>> getTagIgnoreList() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("tagIgnoreList", systemConfigService.getTagIgnoreList());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 设置标签忽略列表
+     */
+    @PutMapping("/tag-ignore-list")
+    public ResponseEntity<Map<String, Object>> setTagIgnoreList(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String tagIgnoreList = (String) request.get("tagIgnoreList");
+            systemConfigService.setTagIgnoreList(tagIgnoreList);
+            resp.put("message", "标签忽略列表设置成功");
+            resp.put("tagIgnoreList", tagIgnoreList != null ? tagIgnoreList.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");

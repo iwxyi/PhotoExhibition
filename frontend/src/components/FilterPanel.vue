@@ -1032,7 +1032,9 @@ const selectColor = async (colorValue: string) => {
     if (hasEffectiveFilters(filterData)) {
       await photoStore.filterPhotos(filterData)
     } else {
+      // 没有有效筛选条件时，清除筛选并刷新页面显示所有照片
       photoStore.clearLastFilters()
+      await photoStore.filterPhotos({})
     }
     // 通知父组件筛选已应用，需要重置分页状态
     emit('filters-applied')
@@ -1068,7 +1070,10 @@ const selectCategory = async (categoryValue: string) => {
     if (hasEffectiveFilters(filterData)) {
       await photoStore.filterPhotos(filterData)
     } else {
+      // 没有有效筛选条件时，清除筛选并刷新页面显示所有照片
       photoStore.clearLastFilters()
+      // 刷新图墙页面 - 使用 filterPhotos 传入空对象来获取所有照片
+      await photoStore.filterPhotos({})
     }
     // 通知父组件筛选已应用，需要重置分页状态
     emit('filters-applied')

@@ -7,8 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +45,10 @@ public class SystemConfigService {
     public static final String ALBUM_CATEGORY_SORT_ORDER_KEY = "album_category_sort_order";
     public static final String ALBUM_CATEGORY_SORT_ORDER_DEFAULT = "";
     public static final String ALBUM_CATEGORY_SORT_ORDER_DESCRIPTION = "相册分类排序方式（用逗号分隔，未排序的分类排在后面）";
+
+    public static final String TAG_IGNORE_LIST_KEY = "tag_ignore_list";
+    public static final String TAG_IGNORE_LIST_DEFAULT = "";
+    public static final String TAG_IGNORE_LIST_DESCRIPTION = "标签忽略列表（用空格或逗号分隔，这些标签在筛选功能中不显示）";
 
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
@@ -265,6 +269,43 @@ public class SystemConfigService {
             sortOrder = "";
         }
         setConfigValue(ALBUM_CATEGORY_SORT_ORDER_KEY, sortOrder.trim(), ALBUM_CATEGORY_SORT_ORDER_DESCRIPTION);
+    }
+
+    /**
+     * 获取标签忽略列表
+     */
+    public String getTagIgnoreList() {
+        return getConfigValueWithDefault(
+            TAG_IGNORE_LIST_KEY,
+            TAG_IGNORE_LIST_DEFAULT,
+            TAG_IGNORE_LIST_DESCRIPTION
+        );
+    }
+
+    /**
+     * 获取解析后的标签忽略列表（ Set）
+     */
+    public Set<String> getTagIgnoreListSet() {
+        String ignoreList = getTagIgnoreList();
+        if (ignoreList == null || ignoreList.trim().isEmpty()) {
+            return new HashSet<>();
+        }
+        // 用空格或逗号分隔
+        return Arrays.stream(ignoreList.split("[\\s,]+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * 设置标签忽略列表
+     */
+    @Transactional
+    public void setTagIgnoreList(String ignoreList) {
+        if (ignoreList == null) {
+            ignoreList = "";
+        }
+        setConfigValue(TAG_IGNORE_LIST_KEY, ignoreList.trim(), TAG_IGNORE_LIST_DESCRIPTION);
     }
 
     /**
