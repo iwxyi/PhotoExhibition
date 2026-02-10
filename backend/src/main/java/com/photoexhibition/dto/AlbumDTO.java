@@ -38,6 +38,11 @@ public class AlbumDTO {
      */
     private LocalDateTime takenAt;
 
+    /**
+     * 相对路径（去掉 base-path），便于前端显示
+     */
+    private String relativePath;
+
     // 氛围信息
     private String backgroundColor;
     private String foregroundColor;

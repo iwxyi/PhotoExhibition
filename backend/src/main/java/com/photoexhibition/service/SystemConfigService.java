@@ -86,13 +86,10 @@ public class SystemConfigService {
     public String getConfigValueWithDefault(String key, String defaultValue, String description) {
         Optional<SystemConfig> config = systemConfigRepository.findByConfigKey(key);
         if (config.isPresent()) {
-            String value = config.get().getConfigValue();
-            log.info("从数据库读取配置: key={}, value={}", key, value);
-            return value;
+            return config.get().getConfigValue();
         }
 
         // 创建默认配置
-        log.info("配置不存在，创建默认配置: key={}, defaultValue={}", key, defaultValue);
         SystemConfig newConfig = new SystemConfig();
         newConfig.setConfigKey(key);
         newConfig.setConfigValue(defaultValue);
@@ -107,7 +104,6 @@ public class SystemConfigService {
      */
     @Transactional
     public void setConfigValue(String key, String value, String description) {
-        log.info("setConfigValue 被调用: key={}, value={}", key, value);
         Optional<SystemConfig> existing = systemConfigRepository.findByConfigKey(key);
         SystemConfig config;
 

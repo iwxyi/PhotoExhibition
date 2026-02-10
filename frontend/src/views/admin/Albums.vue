@@ -127,9 +127,10 @@
         class="fixed inset-0 z-50"
         @click="closeAllMenus"
       >
+        <!-- 菜单毛玻璃背景 -->
         <div
-          class="absolute bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-10 w-48"
-          :style="{ left: menuPosition.x + 'px', top: menuPosition.y + 'px' }"
+          class="absolute glass-menu rounded-lg shadow-2xl z-10 w-56"
+          :style="menuStyle"
           @click.stop
         >
           <div class="py-1">
@@ -218,7 +219,6 @@
               聚合到上一级
             </button>
             <!-- 设置排序方式菜单项 -->
-            <div class="border-t border-gray-600 my-1"></div>
             <div class="px-4 py-2">
               <label class="block text-xs text-gray-400 mb-1">相册排序方式</label>
               <select
@@ -258,13 +258,14 @@
     <teleport to="body">
       <div
         v-if="tagDialogVisible"
-        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeAllMenus"
       >
-        <div class="bg-gray-800 rounded-lg p-6 max-w-md w-full text-gray-100">
+        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">添加标签</h3>
           <div class="mb-4">
             <input
+              ref="tagInputRef"
               v-model="tagKeyword"
               v-on:input="searchTags"
               placeholder="搜索或输入新标签名称"
@@ -316,10 +317,10 @@
     <teleport to="body">
       <div
         v-if="effectsDialogVisible"
-        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeAllMenus"
       >
-        <div class="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
+        <div class="glass-dialog rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-6 pb-4">
             <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
@@ -491,10 +492,10 @@
     <teleport to="body">
       <div
         v-if="coverDialogVisible"
-        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="coverDialogVisible = false"
       >
-        <div class="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[80vh] flex flex-col text-gray-100">
+        <div class="glass-dialog rounded-lg max-w-4xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-4 border-b border-gray-700 flex items-center justify-between">
             <h3 class="text-lg font-medium">设置封面</h3>
@@ -602,11 +603,90 @@
         </div>
       </div>
     </teleport>
+
+    <!-- 编辑备注对话框 -->
+    <teleport to="body">
+      <div
+        v-if="descriptionDialogVisible"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="descriptionDialogVisible = false"
+      >
+        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+          <h3 class="text-lg font-medium mb-4 text-gray-100">编辑备注</h3>
+          <textarea
+            ref="descriptionInputRef"
+            v-model="descriptionInput"
+            rows="4"
+            placeholder="输入相册备注"
+            class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          ></textarea>
+          <div class="flex gap-3 mt-4">
+            <button
+              @click="saveDescription"
+              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm"
+            >
+              保存
+            </button>
+            <button
+              @click="descriptionDialogVisible = false"
+              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- 重命名对话框 -->
+    <teleport to="body">
+      <div
+        v-if="renameDialogVisible"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="renameDialogVisible = false"
+      >
+        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+          <h3 class="text-lg font-medium mb-4 text-gray-100">重命名相册</h3>
+          <input
+            ref="nameInputRef"
+            v-model="nameInput"
+            placeholder="输入新名称"
+            class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            @keyup.enter="saveName"
+          />
+          <div class="flex gap-3 mt-4">
+            <button
+              @click="saveName"
+              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm"
+            >
+              保存
+            </button>
+            <button
+              @click="renameDialogVisible = false"
+              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- 加载状态提示 -->
+    <div v-if="loadingMore" class="text-center py-4 text-gray-400 text-sm">
+      加载中...
+    </div>
+    <div v-else-if="!hasMoreData && albums.length > 0" class="text-center py-4 text-gray-500 text-sm">
+      已加载全部 {{ albums.length }} 个相册
+    </div>
+    <div v-else-if="albums.length === 0 && !loading" class="text-center py-4 text-gray-500 text-sm">
+      没有找到相册
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, albumApi } from '@/api'
 import CoverDisplay from '@/components/CoverDisplay.vue'
@@ -622,6 +702,12 @@ const menuPosition = ref({ x: 0, y: 0 })
 // 相册排序设置
 const albumSortOrder = ref('name_asc')
 
+// 分页相关
+const PAGE_SIZE = 20
+let currentPage = 0
+let hasMoreData = true
+const loadingMore = ref(false)
+
 // 监听排序设置变化，重新加载相册（排除初始化时的第一次设置）
 let isInitialized = false
 watch(albumSortOrder, async (newSort, oldSort) => {
@@ -635,8 +721,21 @@ watch(albumSortOrder, async (newSort, oldSort) => {
 const allTags = ref<any[]>([])
 const tagDialogVisible = ref(false)
 const tagKeyword = ref('')
+const tagInputRef = ref<HTMLInputElement | null>(null)
 const currentAlbum = ref<any>(null)
 const selectedAlbumForTags = ref<any>(null)
+
+// 备注编辑相关
+const descriptionDialogVisible = ref(false)
+const descriptionInput = ref('')
+const descriptionInputRef = ref<HTMLTextAreaElement | null>(null)
+const currentDescriptionAlbum = ref<any>(null)
+
+// 重命名相关
+const renameDialogVisible = ref(false)
+const nameInput = ref('')
+const nameInputRef = ref<HTMLInputElement | null>(null)
+const currentNameAlbum = ref<any>(null)
 
 // 特效相关
 const effectsDialogVisible = ref(false)
@@ -701,31 +800,94 @@ const loadAlbumSortOrder = async () => {
 
 const load = async () => {
   loading.value = true
+  currentPage = 0
+  hasMoreData = true
+  albums.value = []
+  
   try {
-    // 一次性加载较多相册，前端不再做分页
-    const params: any = { page: 0, size: 1000, sort: albumSortOrder.value }
+    const params: any = { page: 0, size: PAGE_SIZE, sort: albumSortOrder.value }
     const res = await api.get('/albums', { params })
-    let content = res.data.content || res.data || []
-    
-    // 为每个相册提取相对路径（去掉 base-path）
-    for (const album of content) {
-      album.relativePath = extractRelativePath(album.path)
-    }
+    const content = res.data.content || res.data || []
     
     // 关键词过滤
     if (keyword.value.trim()) {
       const kw = keyword.value.trim().toLowerCase()
-      content = content.filter((a: any) =>
+      const filtered = (content as any[]).filter((a: any) =>
         (a.name || '').toLowerCase().includes(kw) ||
         (a.path || '').toLowerCase().includes(kw) ||
         (a.displayTitle || '').toLowerCase().includes(kw) ||
         (a.relativePath || '').toLowerCase().includes(kw)
       )
+      albums.value = filtered
+      hasMoreData = false // 过滤模式下不加载更多
+    } else {
+      albums.value = content
+      // 只有返回数量等于请求数量时，才认为还有更多数据
+      hasMoreData = content.length === PAGE_SIZE
+      currentPage = 0
     }
-    
-    albums.value = content
   } finally {
     loading.value = false
+  }
+}
+
+const loadMore = async () => {
+  if (loadingMore.value || !hasMoreData) return
+  
+  loadingMore.value = true
+  try {
+    currentPage++
+    const params: any = { page: currentPage, size: PAGE_SIZE, sort: albumSortOrder.value }
+    const res = await api.get('/albums', { params })
+    const content = res.data.content || res.data || []
+    albums.value = [...albums.value, ...content]
+    hasMoreData = content.length === PAGE_SIZE // 只有返回完整的 PAGE_SIZE 才认为还有更多
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+// 使用 scroll 事件监听滚动，实现更可靠的预加载
+let scrollTimeout: number | null = null
+
+const handleScroll = () => {
+  if (scrollTimeout) return
+  
+  scrollTimeout = window.setTimeout(() => {
+    scrollTimeout = null
+    
+    // 如果正在加载或没有更多数据，跳过
+    if (loadingMore.value || !hasMoreData || loading.value) return
+    
+    // 检查是否接近底部
+    const scrollTop = window.scrollY
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
+    
+    // 当滚动到距离底部约 800px 时开始加载
+    const distanceToBottom = documentHeight - (scrollTop + windowHeight)
+    
+    if (distanceToBottom < 850) {
+      loadMore()
+    }
+  }, 100)
+}
+
+// 初始化滚动监听
+const initScrollObserver = () => {
+  // 移除旧的监听器
+  window.removeEventListener('scroll', handleScroll)
+  
+  // 添加新的滚动监听
+  window.addEventListener('scroll', handleScroll, { passive: true })
+}
+
+// 清理滚动监听
+const cleanupScrollObserver = () => {
+  window.removeEventListener('scroll', handleScroll)
+  if (scrollTimeout) {
+    clearTimeout(scrollTimeout)
+    scrollTimeout = null
   }
 }
 
@@ -744,6 +906,14 @@ const loadAllTags = async () => {
   } catch (e) {
     console.error('加载标签失败:', e)
     allTags.value = []
+  }
+}
+
+// 更新相册数据的辅助函数（避免重新加载导致滚动丢失）
+const updateAlbumData = (albumId: number, updates: Record<string, any>) => {
+  const album = albums.value.find(a => a.id === albumId)
+  if (album) {
+    Object.assign(album, updates)
   }
 }
 
@@ -804,21 +974,12 @@ const editAlbumEffects = async (album: any) => {
 // 编辑相册标签
 const editAlbumTags = (album: any) => {
   selectedAlbumForTags.value = album
-  tagDialogVisible.value = true
   tagKeyword.value = ''
+  tagDialogVisible.value = true
   searchTags()
-}
-
-const extractRelativePath = (fullPath: string): string => {
-  if (!fullPath) return ''
-  // 尝试提取 base-path 之后的部分
-  // 假设路径格式类似 /path/to/base/相册名称
-  const parts = fullPath.split('/')
-  // 返回最后两级路径，或根据实际情况调整
-  if (parts.length > 2) {
-    return parts.slice(-2).join('/')
-  }
-  return fullPath
+  nextTick(() => {
+    tagInputRef.value?.focus()
+  })
 }
 
 const getPhotoUrl = (photo: any): string => {
@@ -923,7 +1084,7 @@ const confirmAddTag = async () => {
       tag = res.data
       console.log('创建标签成功:', tag)
       await loadAllTags()
-  } else {
+    } else {
       console.log('使用已有标签:', tag)
     }
 
@@ -932,8 +1093,15 @@ const confirmAddTag = async () => {
     await api.post(`/albums/${currentAlbum.value.id}/tags/${tag.id}`)
     console.log('添加标签成功')
 
-    // 重新加载相册数据
-    await load()
+    // 直接更新本地标签数据，避免重新加载导致滚动丢失
+    const album = albums.value.find(a => a.id === currentAlbum.value.id)
+    if (album) {
+      if (!album.tags) album.tags = []
+      // 检查标签是否已存在
+      if (!album.tags.find((t: any) => t.id === tag.id)) {
+        album.tags.push(tag)
+      }
+    }
     closeAllMenus()
   } catch (e: any) {
     console.error('添加标签失败:', e)
@@ -945,7 +1113,10 @@ const confirmAddTag = async () => {
 const removeTag = async (album: any, tagId: number) => {
   try {
     await api.delete(`/albums/${album.id}/tags/${tagId}`)
-    await load()
+    // 直接更新本地标签数据，避免重新加载导致滚动丢失
+    if (album.tags) {
+      album.tags = album.tags.filter((t: any) => t.id !== tagId)
+    }
     closeAllMenus()
   } catch (e: any) {
     alert('移除标签失败: ' + (e.response?.data?.error || e.message))
@@ -953,18 +1124,31 @@ const removeTag = async (album: any, tagId: number) => {
 }
 
 const editDescription = async (album: any) => {
-  const newDesc = window.prompt('修改备注', album.description || '')
-  if (newDesc === null) return
+  currentDescriptionAlbum.value = album
+  descriptionInput.value = album.description || ''
+  descriptionDialogVisible.value = true
+  showMenuForAlbum.value = null // 关闭菜单
+  nextTick(() => {
+    descriptionInputRef.value?.focus()
+  })
+}
 
+const saveDescription = async () => {
+  if (!currentDescriptionAlbum.value) return
+  
   try {
-    await api.put(`/albums/${album.id}`, {
-      name: album.name,
-      description: newDesc
+    await api.put(`/albums/${currentDescriptionAlbum.value.id}`, {
+      name: currentDescriptionAlbum.value.name,
+      description: descriptionInput.value
     })
-    await load()
-    closeAllMenus()
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    updateAlbumData(currentDescriptionAlbum.value.id, {
+      description: descriptionInput.value
+    })
+    descriptionDialogVisible.value = false
+    currentDescriptionAlbum.value = null
   } catch (e: any) {
-    alert('修改备注失败: ' + (e.response?.data?.error || e.message))
+    alert('保存备注失败: ' + (e.response?.data?.error || e.message))
   }
 }
 
@@ -1233,7 +1417,11 @@ const saveAtmosphereEffects = async () => {
 
     if (response.data.success) {
       effectsDialogVisible.value = false
-      await load() // 重新加载相册列表
+      // 直接更新本地数据，避免重新加载导致滚动丢失
+      // 保存为数组而不是JSON字符串，确保显示和编辑时能正确遍历
+      updateAlbumData(currentAlbum.value.id, {
+        atmosphereEffects: [...currentEffects.value]
+      })
     } else {
       alert('设置失败: ' + (response.data.error || '未知错误'))
     }
@@ -1244,16 +1432,31 @@ const saveAtmosphereEffects = async () => {
 }
 
 const editName = async (album: any) => {
-  const newName = window.prompt('修改相册名称', album.name)
-  if (newName === null || newName.trim() === '') return
+  currentNameAlbum.value = album
+  nameInput.value = album.name || ''
+  renameDialogVisible.value = true
+  showMenuForAlbum.value = null // 关闭菜单
+  nextTick(() => {
+    nameInputRef.value?.focus()
+  })
+}
 
+const saveName = async () => {
+  if (!currentNameAlbum.value || !nameInput.value.trim()) return
+  
   try {
-    await api.put(`/albums/${album.id}`, {
-      name: newName.trim(),
-      description: album.description || ''
+    const newName = nameInput.value.trim()
+    await api.put(`/albums/${currentNameAlbum.value.id}`, {
+      name: newName,
+      description: currentNameAlbum.value.description || ''
     })
-    await load()
-    closeAllMenus()
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    updateAlbumData(currentNameAlbum.value.id, {
+      name: newName,
+      displayTitle: newName // 同时更新显示标题
+    })
+    renameDialogVisible.value = false
+    currentNameAlbum.value = null
   } catch (e: any) {
     alert('修改名称失败: ' + (e.response?.data?.error || e.message))
   }
@@ -1275,17 +1478,47 @@ const deleteAlbum = async (album: any) => {
 const openMenu = (event: MouseEvent, album: any) => {
   event.stopPropagation()
   showMenuForAlbum.value = album
-  menuPosition.value = {
-    x: event.clientX,
-    y: event.clientY
+  
+  // 计算菜单位置，防止超出屏幕
+  const menuWidth = 224 // w-56 = 14rem = 224px
+  const menuHeight = 500 // 估算菜单最大高度
+  const padding = 16 // 屏幕边缘留白
+  
+  let x = event.clientX
+  let y = event.clientY
+  
+  // 如果右边空间不够，往左显示
+  if (x + menuWidth + padding > window.innerWidth) {
+    x = window.innerWidth - menuWidth - padding
   }
+  
+  // 如果底部空间不够往上显示
+  if (y + menuHeight + padding > window.innerHeight) {
+    y = window.innerHeight - menuHeight - padding
+  }
+  
+  // 确保不超出顶部和左边
+  x = Math.max(padding, x)
+  y = Math.max(padding, y)
+  
+  menuPosition.value = { x, y }
 }
+
+// 计算菜单位置的样式
+const menuStyle = computed(() => {
+  return {
+    left: menuPosition.value.x + 'px',
+    top: menuPosition.value.y + 'px'
+  }
+})
 
 const closeAllMenus = () => {
   showMenuForAlbum.value = null
   tagDialogVisible.value = false
   effectsDialogVisible.value = false
   coverDialogVisible.value = false
+  descriptionDialogVisible.value = false
+  renameDialogVisible.value = false
 }
 
 const hasSubAlbums = (album: any) => {
@@ -1310,9 +1543,11 @@ const toggleAggregateSubAlbums = async (album: any) => {
     await api.put(`/albums/${album.id}/aggregate-sub-albums`, {
       aggregateSubAlbums: newValue
     })
-    await load()
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    updateAlbumData(album.id, {
+      aggregateSubAlbums: newValue
+    })
     closeAllMenus()
-    alert(`${actionText}成功`)
   } catch (e: any) {
     alert(`${actionText}失败: ` + (e.response?.data?.error || e.message))
   }
@@ -1364,9 +1599,14 @@ const aggregateToParent = async (album: any) => {
     await api.put(`/albums/${parentAlbum.id}/aggregate-sub-albums`, {
       aggregateSubAlbums: true
     })
-    await load()
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    // 1. 从列表中移除被聚合的相册
+    albums.value = albums.value.filter(a => a.id !== album.id)
+    // 2. 更新父相册状态
+    updateAlbumData(parentAlbum.id, {
+      aggregateSubAlbums: true
+    })
     closeAllMenus()
-    alert('聚合到上一级成功')
   } catch (e: any) {
     alert('聚合到上一级失败: ' + (e.response?.data?.error || e.message))
   }
@@ -1377,7 +1617,10 @@ const setAlbumSortOrder = async (album: any, sortOrder: string) => {
     await api.put(`/albums/${album.id}/photo-sort-order`, {
       photoSortOrder: sortOrder
     })
-    await load()
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    updateAlbumData(album.id, {
+      photoSortOrder: sortOrder
+    })
     closeAllMenus()
   } catch (e: any) {
     alert('设置排序方式失败: ' + (e.response?.data?.error || e.message))
@@ -1390,7 +1633,10 @@ const setAlbumDownloadAllowed = async (album: any, downloadAllowed: string) => {
     await api.put(`/albums/${album.id}/download-allowed`, {
       downloadAllowed: value
     })
-    await load()
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    updateAlbumData(album.id, {
+      downloadAllowed: value
+    })
     closeAllMenus()
   } catch (e: any) {
     alert('设置下载权限失败: ' + (e.response?.data?.error || e.message))
@@ -1462,12 +1708,32 @@ const forceScanAndRebuild = async () => {
 
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
-    // 如果标签弹窗打开，先关闭弹窗
+    // 优先关闭所有弹窗（按优先级从高到低）
+    if (renameDialogVisible.value) {
+      renameDialogVisible.value = false
+      return
+    }
+    if (descriptionDialogVisible.value) {
+      descriptionDialogVisible.value = false
+      return
+    }
     if (tagDialogVisible.value) {
       tagDialogVisible.value = false
       return
     }
-    // 否则返回首页
+    if (effectsDialogVisible.value) {
+      effectsDialogVisible.value = false
+      return
+    }
+    if (coverDialogVisible.value) {
+      coverDialogVisible.value = false
+      return
+    }
+    if (showMenuForAlbum.value) {
+      showMenuForAlbum.value = null
+      return
+    }
+    // 所有弹窗都关闭后，返回首页
     router.push('/admin')
   }
 }
@@ -1482,10 +1748,12 @@ onMounted(async () => {
   isInitialized = true // 标记初始化完成，后续的排序设置变化才会触发重新加载
   console.log('相册管理页面加载完成，相册数:', albums.value.length, '标签数:', allTags.value.length)
   window.addEventListener('keydown', handleGlobalKeydown)
+  initScrollObserver()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  cleanupScrollObserver()
 })
 </script>
 
@@ -1528,5 +1796,23 @@ onBeforeUnmount(() => {
   background: #374151;
   border-radius: 2px;
   border: none;
+}
+
+/* 毛玻璃菜单样式 */
+.glass-menu {
+  background: rgba(31, 41, 55, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(75, 85, 99, 0.4);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* 毛玻璃弹窗样式 */
+.glass-dialog {
+  background: rgba(31, 41, 55, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(75, 85, 99, 0.4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 </style>

@@ -78,26 +78,48 @@ public class AlbumService {
      */
     @Transactional(readOnly = true)
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort) {
-        // 根据排序参数创建带有排序的Pageable
-        Pageable sortedPageable = createSortedPageable(pageable, sort);
+        log.debug("获取相册列表 - 排序: {}, 分类: {}", sort, category);
+
+        // 先查询足够多的数据（500条足够容纳所有相册），然后在内存中过滤和分页
+        int fetchSize = 500;
+        Pageable fetchPageable = PageRequest.of(0, fetchSize, pageable.getSort());
 
         Page<Album> albums;
         if (category != null && !category.isEmpty()) {
             String prefix = buildCategoryPrefix(category);
-            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, sortedPageable);
+            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, fetchPageable);
         } else {
             // 查询有照片的相册或开启了聚合功能的相册
-            albums = albumRepository.findAlbumsWithPhotosOrAggregation(sortedPageable);
+            albums = albumRepository.findAlbumsWithPhotosOrAggregation(fetchPageable);
         }
 
-        // 过滤掉被聚合的相册
+        // 过滤掉被聚合的相册，并按排序重新排序
         List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
+        filteredAlbums = sortAlbums(filteredAlbums, sort);
 
-        // 使用专门的计数方法获取总数
+        // 获取总数
         long totalElements = getAlbumsCount(category);
 
+        // 计算实际的分页范围
+        int page = pageable.getPageNumber();
+        int pageSize = pageable.getPageSize();
+        int start = page * pageSize;
+        int end = Math.min(start + pageSize, filteredAlbums.size());
+
+        // 如果开始位置超出范围，返回空页
+        if (start >= filteredAlbums.size()) {
+            return new org.springframework.data.domain.PageImpl<>(
+                java.util.Collections.emptyList(),
+                pageable,
+                totalElements
+            );
+        }
+
+        // 提取当前页的数据
+        List<Album> pageContent = filteredAlbums.subList(start, end);
+
         return new org.springframework.data.domain.PageImpl<>(
-            filteredAlbums.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
+            pageContent.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
             pageable,
             totalElements
         );
@@ -108,22 +130,46 @@ public class AlbumService {
      */
     @Transactional(readOnly = true)
     public Page<AlbumDTO> filterAlbums(com.photoexhibition.dto.FilterRequest request, Pageable pageable) {
+        // 先查询足够多的数据
+        int fetchSize = 500;
+        Pageable fetchPageable = PageRequest.of(0, fetchSize, pageable.getSort());
+
         Page<Album> albums;
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
             // 查询有照片且带标签的相册，或开启了聚合功能的相册
-            albums = albumRepository.findByTagIdsWithPhotosOrAggregation(request.getTagIds(), pageable);
+            albums = albumRepository.findByTagIdsWithPhotosOrAggregation(request.getTagIds(), fetchPageable);
         } else {
-            albums = albumRepository.findAlbumsWithPhotosOrAggregation(pageable);
+            albums = albumRepository.findAlbumsWithPhotosOrAggregation(fetchPageable);
         }
 
         // 过滤掉被聚合的相册
         List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
 
-        // 重新创建Page对象
+        // 获取总数
+        long totalElements = filteredAlbums.size();
+
+        // 计算实际的分页范围
+        int page = pageable.getPageNumber();
+        int pageSize = pageable.getPageSize();
+        int start = page * pageSize;
+        int end = Math.min(start + pageSize, filteredAlbums.size());
+
+        // 如果开始位置超出范围，返回空页
+        if (start >= filteredAlbums.size()) {
+            return new org.springframework.data.domain.PageImpl<>(
+                java.util.Collections.emptyList(),
+                pageable,
+                totalElements
+            );
+        }
+
+        // 提取当前页的数据
+        List<Album> pageContent = filteredAlbums.subList(start, end);
+
         return new org.springframework.data.domain.PageImpl<>(
-            filteredAlbums.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
+            pageContent.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList()),
             pageable,
-            filteredAlbums.size()
+            totalElements
         );
     }
 
@@ -377,7 +423,10 @@ public class AlbumService {
         dto.setName(album.getName());
         dto.setPath(album.getPath());
         dto.setCoverImageId(album.getCoverImageId());
-        
+
+        // 计算相对路径（去掉 base-path）
+        dto.setRelativePath(calculateRelativePath(album.getPath()));
+
         // 解析自定义封面图片ID列表
         if (album.getCoverImageIds() != null && !album.getCoverImageIds().isEmpty()) {
             try {
@@ -438,6 +487,8 @@ public class AlbumService {
             String basePathStr = basePathResolved.toString();
             if (albumPathStr.startsWith(basePathStr)) {
                 String relative = albumPathStr.substring(basePathStr.length());
+                // 处理路径分隔符：同时支持 / 和 \
+                relative = relative.replace("\\", "/");
                 if (relative.startsWith("/")) {
                     relative = relative.substring(1);
                 }
@@ -816,6 +867,37 @@ public class AlbumService {
             basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
         }
         return basePathResolved.normalize();
+    }
+
+    /**
+     * 计算相册的相对路径（去掉 base-path）
+     */
+    private String calculateRelativePath(String albumPath) {
+        if (albumPath == null || albumPath.isEmpty()) {
+            return "";
+        }
+
+        try {
+            Path basePathResolved = resolveBasePath();
+            Path albumRealPath = Paths.get(albumPath).normalize();
+
+            // 如果相册路径不在 base-path 下，直接返回原路径
+            if (!albumRealPath.startsWith(basePathResolved)) {
+                // 尝试去掉常见的绝对路径前缀（如 D:\wwwroot\...）
+                String normalizedPath = albumPath.replace("\\", "/");
+                String windowsMatch = normalizedPath.replaceFirst("^[A-Za-z]:[/\\\\]", "");
+                return windowsMatch;
+            }
+
+            // 计算相对路径
+            Path relative = basePathResolved.relativize(albumRealPath);
+            String relativePath = relative.toString().replace("\\", "/");
+
+            return relativePath;
+        } catch (Exception e) {
+            log.debug("计算相对路径失败: {} - {}", albumPath, e.getMessage());
+            return albumPath;
+        }
     }
 
     /**
