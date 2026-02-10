@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -16,6 +18,9 @@ import java.util.stream.Collectors;
 public class SystemConfigService {
 
     private final SystemConfigRepository systemConfigRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     // 常量定义
     public static final String MAX_ALBUM_DEPTH_KEY = "max_album_depth";
@@ -68,6 +73,8 @@ public class SystemConfigService {
      * 获取配置值，如果不存在则返回默认值
      */
     public String getConfigValue(String key, String defaultValue) {
+        // 清除一级缓存，确保读取最新数据
+        entityManager.clear();
         Optional<SystemConfig> config = systemConfigRepository.findByConfigKey(key);
         return config.map(SystemConfig::getConfigValue).orElse(defaultValue);
     }
@@ -79,10 +86,13 @@ public class SystemConfigService {
     public String getConfigValueWithDefault(String key, String defaultValue, String description) {
         Optional<SystemConfig> config = systemConfigRepository.findByConfigKey(key);
         if (config.isPresent()) {
-            return config.get().getConfigValue();
+            String value = config.get().getConfigValue();
+            log.info("从数据库读取配置: key={}, value={}", key, value);
+            return value;
         }
 
         // 创建默认配置
+        log.info("配置不存在，创建默认配置: key={}, defaultValue={}", key, defaultValue);
         SystemConfig newConfig = new SystemConfig();
         newConfig.setConfigKey(key);
         newConfig.setConfigValue(defaultValue);
@@ -97,21 +107,23 @@ public class SystemConfigService {
      */
     @Transactional
     public void setConfigValue(String key, String value, String description) {
+        log.info("setConfigValue 被调用: key={}, value={}", key, value);
         Optional<SystemConfig> existing = systemConfigRepository.findByConfigKey(key);
         SystemConfig config;
 
         if (existing.isPresent()) {
             config = existing.get();
+            log.info("找到现有配置: key={}, currentValue={}", key, config.getConfigValue());
         } else {
             config = new SystemConfig();
             config.setConfigKey(key);
+            log.info("创建新配置: key={}", key);
         }
 
         config.setConfigValue(value);
         config.setDescription(description);
         systemConfigRepository.save(config);
-
-        log.info("配置已更新: {} = {}", key, value);
+        log.info("配置已保存: key={}, value={}", key, value);
     }
 
     /**

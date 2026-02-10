@@ -3,6 +3,7 @@ package com.photoexhibition.repository;
 import com.photoexhibition.entity.Album;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -23,12 +24,14 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     /**
      * 查询有照片的相册（photoCount > 0）
      */
+    @EntityGraph(attributePaths = "tags")
     @Query("SELECT a FROM Album a WHERE a.photoCount > 0")
     Page<Album> findAlbumsWithPhotos(Pageable pageable);
 
     /**
      * 查询有照片的相册或开启了聚合功能的相册
      */
+    @EntityGraph(attributePaths = "tags")
     @Query("SELECT a FROM Album a WHERE a.photoCount > 0 OR a.aggregateSubAlbums = true")
     Page<Album> findAlbumsWithPhotosOrAggregation(Pageable pageable);
     
@@ -57,6 +60,7 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     /**
      * 路径前缀 + 有照片 的分页查询
      */
+    @EntityGraph(attributePaths = "tags")
     Page<Album> findByPathStartingWithAndPhotoCountGreaterThan(String pathPrefix, Integer minPhotoCount, Pageable pageable);
 
     /**
@@ -76,6 +80,7 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     /**
      * 查找所有开启了聚合下级相册功能的相册
      */
+    @EntityGraph(attributePaths = "tags")
     @Query("SELECT a FROM Album a WHERE a.aggregateSubAlbums = true")
     List<Album> findAlbumsWithAggregationEnabled();
 }

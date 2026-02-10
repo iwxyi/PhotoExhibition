@@ -114,10 +114,11 @@ const { isHidden: navHidden } = useNavAutoHide()
 // 预加载缓冲区状态
 const preloadBuffer = ref<any[]>([])
 const isPreloading = ref(false)
+const isInitialized = ref(false)  // 标记是否已初始化完成
 
-// 监听排序设置变化，重新获取数据
+// 监听排序设置变化，重新获取数据（只处理用户手动更改，不处理初始化）
 watch(albumSortOrder, async (newSort, oldSort) => {
-  if (newSort !== oldSort) {
+  if (isInitialized.value && newSort !== oldSort) {
     // 重新获取相册数据
     currentPage.value = 0
     hasMore.value = true
@@ -370,11 +371,11 @@ const performAlbumBackTransitionIfNeeded = async () => {
         clone.style.borderRadius = '8px'
       }
 
-      requestAnimationFrame(() => {
-        clone.style.top = `${targetRect.top}px`
-        clone.style.left = `${targetRect.left}px`
-        clone.style.width = `${targetRect.width}px`
-        clone.style.height = `${targetRect.height}px`
+        requestAnimationFrame(() => {
+          clone.style.top = `${targetRect.top}px`
+          clone.style.left = `${targetRect.left}px`
+          clone.style.width = `${targetRect.width}px`
+          clone.style.height = `${targetRect.height}px`
       })
     })
 
@@ -383,7 +384,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
     setTimeout(() => {
       // 同时淡入 overlay 克隆并恢复原 overlay，让用户感觉是连续的
       overlayClones.forEach((ov) => {
-        ov.style.opacity = '1'
+          ov.style.opacity = '1'
         ov.style.transform = 'scale(1) translateY(0)'
       })
 
@@ -393,28 +394,28 @@ const performAlbumBackTransitionIfNeeded = async () => {
         const restoredOverlays = albumCard.querySelectorAll<HTMLElement>('.album-cover-overlay')
         restoredOverlays.forEach(o => {
           o.style.pointerEvents = ''
-          o.style.opacity = '1'
+            o.style.opacity = '1'
           // 移除任何残留的 transform，让 overlay 立即就位
           o.style.transform = ''
-        })
+          })
 
-        const imgs = Array.from(albumCard.querySelectorAll<HTMLImageElement>('img'))
-        imgs.forEach(img => {
-          // 恢复原先内联 transform/transition（如果我们保存过）
-          const pid = Number(img.dataset.photoId || '0')
-          const saved = originalTransforms.get(pid)
-          if (saved) {
-            img.style.transform = saved.transform
-            img.style.transition = saved.transition
-          } else {
-            img.style.transform = ''
-            img.style.transition = ''
-          }
+          const imgs = Array.from(albumCard.querySelectorAll<HTMLImageElement>('img'))
+          imgs.forEach(img => {
+            // 恢复原先内联 transform/transition（如果我们保存过）
+            const pid = Number(img.dataset.photoId || '0')
+            const saved = originalTransforms.get(pid)
+            if (saved) {
+              img.style.transform = saved.transform
+              img.style.transition = saved.transition
+            } else {
+              img.style.transform = ''
+              img.style.transition = ''
+            }
 
-          img.style.visibility = ''
-          img.style.pointerEvents = ''
-        })
-      }
+            img.style.visibility = ''
+            img.style.pointerEvents = ''
+          })
+        }
 
       // 短暂延迟后移除克隆元素（不需要等待淡入完成）
       requestAnimationFrame(() => {
@@ -589,13 +590,14 @@ onMounted(async () => {
     const loadSize = getDynamicLoadSize()
     const data = await photoStore.fetchAlbums(0, loadSize, undefined, albumSortOrder.value)
     hasMore.value = !data.last
+    isInitialized.value = true  // 标记初始化完成，之后 watch 才会生效
     window.addEventListener('scroll', handleScroll, { passive: true })
 
     // 首次挂载时也尝试执行一次返回动画（例如刷新后从浏览器返回）
     // 使用 requestAnimationFrame 确保在渲染完成后执行
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        performAlbumBackTransitionIfNeeded()
+      performAlbumBackTransitionIfNeeded()
       })
     })
   } catch (error) {
@@ -611,13 +613,13 @@ onUnmounted(() => {
 
 onActivated(() => {
   // 恢复用户离开时的滚动位置（在动画之前执行）
-  window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
+    window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
 
   // 每次从 Album 返回激活 Home 时，检查并执行封面缩回动画
   // 使用 requestAnimationFrame 确保在下一帧执行，此时 DOM 已更新
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      performAlbumBackTransitionIfNeeded()
+    performAlbumBackTransitionIfNeeded()
     })
   })
 })

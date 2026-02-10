@@ -56,6 +56,7 @@ public class AlbumService {
     /**
      * 获取相册总数（有照片的相册或开启了聚合的相册，已过滤被聚合的相册）
      */
+    @Transactional(readOnly = true)
     public long getAlbumsCount(String category) {
         List<Album> allAlbums;
         if (category != null && !category.isEmpty()) {
@@ -75,6 +76,7 @@ public class AlbumService {
      * 获取所有相册并生成封面（只返回有照片的相册或开启了聚合的相册）
      * 注意：Page对象不缓存，因为反序列化会有问题
      */
+    @Transactional(readOnly = true)
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort) {
         // 根据排序参数创建带有排序的Pageable
         Pageable sortedPageable = createSortedPageable(pageable, sort);
@@ -104,6 +106,7 @@ public class AlbumService {
     /**
      * 筛选相册（只返回有照片的相册或开启了聚合的相册）
      */
+    @Transactional(readOnly = true)
     public Page<AlbumDTO> filterAlbums(com.photoexhibition.dto.FilterRequest request, Pageable pageable) {
         Page<Album> albums;
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
@@ -1018,6 +1021,7 @@ public class AlbumService {
      * 过滤掉被聚合的相册
      * 如果一个相册被其父相册聚合了，就不在列表中显示
      */
+    @Transactional(readOnly = true)
     private List<Album> filterAggregatedAlbums(List<Album> albums) {
         // 获取所有开启了聚合功能的相册
         List<Album> aggregatingAlbums = albumRepository.findAlbumsWithAggregationEnabled();

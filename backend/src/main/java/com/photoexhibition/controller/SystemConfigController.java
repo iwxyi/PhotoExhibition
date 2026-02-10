@@ -2,6 +2,7 @@ package com.photoexhibition.controller;
 
 import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,6 +12,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/admin/config")
 @RequiredArgsConstructor
+@Slf4j
 @CrossOrigin(origins = "*")
 public class SystemConfigController {
 
@@ -144,19 +146,23 @@ public class SystemConfigController {
         Map<String, Object> resp = new HashMap<>();
         try {
             String sortOrder = (String) request.get("albumSortOrder");
+            log.info("收到相册排序设置请求: albumSortOrder = {}", sortOrder);
             if (sortOrder == null || sortOrder.trim().isEmpty()) {
                 resp.put("error", "albumSortOrder 参数不能为空");
                 return ResponseEntity.badRequest().body(resp);
             }
 
             systemConfigService.setAlbumSortOrder(sortOrder.trim());
+            log.info("相册排序方式已更新: {}", sortOrder.trim());
             resp.put("message", "相册排序方式设置成功");
             resp.put("albumSortOrder", sortOrder.trim());
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
+            log.warn("相册排序设置参数错误: {}", e.getMessage());
             resp.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
+            log.error("相册排序设置失败: {}", e.getMessage(), e);
             resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
             return ResponseEntity.status(500).body(resp);
         }

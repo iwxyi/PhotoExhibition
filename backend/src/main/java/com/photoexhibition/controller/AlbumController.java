@@ -6,6 +6,8 @@ import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -21,6 +23,8 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class AlbumController {
 
+    private static final Logger log = LoggerFactory.getLogger(AlbumController.class);
+
     private final AlbumService albumService;
     private final SystemConfigService systemConfigService;
 
@@ -33,8 +37,10 @@ public class AlbumController {
             @RequestParam(defaultValue = "12") int size,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String sort) {
+        log.info("获取相册列表 - 页码: {}, 数量: {}, 分类: {}, 排序: {}", page, size, category, sort);
         Pageable pageable = PageRequest.of(page, size);
         Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort);
+        log.info("返回 {} 个相册, 总数: {}", albums.getNumberOfElements(), albums.getTotalElements());
         return ResponseEntity.ok(albums);
     }
 
