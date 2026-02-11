@@ -1,6 +1,6 @@
 <template>
   <div
-    class="photo-card cursor-pointer group space-y-1 w-full mx-auto transform-gpu"
+    class="photo-card cursor-pointer group space-y-1 w-full mx-auto transform-gpu bg-white dark:bg-gray-800"
     :class="cardSizeClass"
     :data-album-id="album.id"
     role="button"
@@ -157,3 +157,14 @@ const handleClick = () => {
   emit('click')
 }
 </script>
+
+<style scoped>
+/* 默认无阴影，悬浮时显示阴影 */
+.photo-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.photo-card:hover {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+</style>

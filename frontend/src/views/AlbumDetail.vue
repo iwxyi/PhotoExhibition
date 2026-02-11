@@ -57,7 +57,7 @@
         <MasonryLayout
           :items="masonryItems"
           :column-count="columnCount"
-          :gap="20"
+          :gap="8"
           :show-like-button="!multiSelectActive"
           @image-loaded="handleImageLoaded"
         >
@@ -357,26 +357,26 @@ const columnCount = computed(() => {
 
   if (previewSize.value === 'sm') {
     // 小: 最多列数（适合小图片）
-    if (width < 640) count = 4
-    else if (width < 1024) count = 5
-    else if (width < 1280) count = 6
-    else count = 7
-  } else if (previewSize.value === 'md') {
-    // 中: 中等列数
     if (width < 640) count = 3
     else if (width < 1024) count = 4
     else if (width < 1280) count = 5
-    else count = 5
-  } else if (previewSize.value === 'lg') {
-    // 大: 最少列数（适合大图片）
+    else count = 6
+  } else if (previewSize.value === 'md') {
+    // 中: 中等列数
     if (width < 640) count = 2
     else if (width < 1024) count = 3
     else if (width < 1280) count = 4
     else count = 4
+  } else if (previewSize.value === 'lg') {
+    // 大: 最少列数（适合大图片）
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else if (width < 1280) count = 3
+    else count = 3
   } else {
     // 默认 md
-    if (width < 640) count = 3
-    else if (width < 1024) count = 4
+    if (width < 640) count = 2
+    else if (width < 1024) count = 3
     else if (width < 1280) count = 5
     else count = 5
   }

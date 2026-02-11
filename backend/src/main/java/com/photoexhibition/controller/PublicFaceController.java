@@ -30,8 +30,10 @@ public class PublicFaceController {
      * 获取人物列表（含代表头像）- 公开API
      */
     @GetMapping("/persons/with-sample")
-    public ResponseEntity<List<PersonSummaryDTO>> getPersonsWithSample() {
-        return ResponseEntity.ok(faceService.listPersonsWithSample());
+    public ResponseEntity<Page<PersonSummaryDTO>> getPersonsWithSample(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(faceService.listPersonsWithSample(PageRequest.of(page, size)));
     }
 
     /**

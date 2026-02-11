@@ -7,20 +7,18 @@
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
-          <div class="flex items-center space-x-8">
+          <div class="flex items-center space-x-3">
+            <!-- 拍摄图标（深色背景、浅色图标） -->
+            <div class="w-8 h-8 rounded-lg bg-gray-900 dark:bg-white flex items-center justify-center shadow-md">
+              <svg class="w-5 h-5 text-white dark:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
             <router-link to="/" class="text-xl font-light tracking-wider">摄影展</router-link>
             <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
-            <button @click="themeStore.toggleTheme" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden">
-              <svg v-if="!themeStore.isDark" class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-              <svg v-else class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
-            </button>
             <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
@@ -150,6 +148,8 @@ const viewerOriginRect = ref<{ top: number; left: number; width: number; height:
 const savedScrollTop = ref(0)
 const masonryContainer = ref<HTMLElement | null>(null)
 const isLoadingMore = ref(false)
+// 标记组件是否已激活（用于区分首次加载和从其他页面返回）
+const isActivatedFlag = ref(false)
 const { previewSize, parallaxEnabled } = useUiSettings()
 const { isMobile } = useMobileNav()
 const { isHidden: navHidden } = useNavAutoHide()
@@ -278,28 +278,28 @@ const columnCount = computed(() => {
 
   if (previewSize.value === 'sm') {
     // 小: 最多列数（适合小图片）
-    if (width < 640) count = 4
-    else if (width < 1024) count = 5
-    else if (width < 1280) count = 6
-    else count = 7
-  } else if (previewSize.value === 'md') {
-    // 中: 中等列数
     if (width < 640) count = 3
     else if (width < 1024) count = 4
     else if (width < 1280) count = 5
-    else count = 5
-  } else if (previewSize.value === 'lg') {
-    // 大: 最少列数（适合大图片）
+    else count = 6
+  } else if (previewSize.value === 'md') {
+    // 中: 中等列数
     if (width < 640) count = 2
     else if (width < 1024) count = 3
     else if (width < 1280) count = 4
     else count = 4
+  } else if (previewSize.value === 'lg') {
+    // 大: 最少列数（适合大图片）
+    if (width < 640) count = 1
+    else if (width < 1024) count = 2
+    else if (width < 1280) count = 3
+    else count = 3
   } else {
     // 默认 md
-    if (width < 640) count = 3
-    else if (width < 1024) count = 4
-    else if (width < 1280) count = 5
-    else count = 5
+    if (width < 640) count = 2
+    else if (width < 1024) count = 3
+    else if (width < 1280) count = 4
+    else count = 4
   }
   console.log('计算列数: width=', width, 'previewSize=', previewSize.value, 'count=', count)
   return count
@@ -309,7 +309,7 @@ const columnCount = computed(() => {
 const columnWidth = computed(() => {
   if (!masonryContainer.value) return 0
   const containerWidth = masonryContainer.value.clientWidth
-  const gap = 20
+  const gap = 8  // 减小间距，与其他页面一致
   const cols = columnCount.value
   if (cols <= 0) return 0
   const totalGapWidth = (cols - 1) * gap
@@ -330,7 +330,7 @@ const getItemStyle = (idx: number) => {
   if (!pos) return { visibility: 'hidden' }
 
   const cols = columnCount.value
-  const gap = 20
+  const gap = 8  // 减小间距，与其他页面一致
   const containerWidth = masonryContainer.value?.clientWidth || window.innerWidth
   const totalGapWidth = (cols - 1) * gap
   const availableWidth = containerWidth - totalGapWidth
@@ -684,7 +684,7 @@ const layoutItems = () => {
   const cols = columnCount.value
   if (cols <= 0) return
 
-  const gap = 20
+  const gap = 8  // 减小间距，与其他页面一致
   const container = masonryContainer.value
   const containerWidth = container.clientWidth
 
@@ -804,6 +804,8 @@ const loadMore = async () => {
     } else if (activeTagId.value) {
       data = await photoStore.fetchPhotosByTag(activeTagId.value, currentPage.value)
     } else {
+      // 确保 currentView 设置为 'wall'，防止 store 检查返回空数据
+      photoStore.setCurrentView('wall')
       data = await photoStore.fetchPhotoWall(currentPage.value)
     }
 
@@ -814,6 +816,7 @@ const loadMore = async () => {
       return
     }
 
+    console.log('[PhotoWall] 后端返回数据:', { last: data.last, contentLength: data.content?.length, totalPages: data.totalPages, currentPage: currentPage.value })
     hasMore.value = !data.last
 
     // 等待新图片加载后重新布局并恢复滚动位置
@@ -891,15 +894,18 @@ let scrollTimer: ReturnType<typeof setTimeout> | null = null
 const handleScroll = () => {
   // 更新视差效果
   updateParallax()
-  
+
   if (scrollTimer) clearTimeout(scrollTimer)
   scrollTimer = setTimeout(() => {
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
-    
+
+    console.log('[PhotoWall] scroll 检查 - scrollTop:', scrollTop, 'windowHeight:', windowHeight, 'documentHeight:', documentHeight, 'hasMore:', hasMore.value, 'loading:', loading.value, 'isLoadingMore:', isLoadingMore.value)
+
     // 距离底部 800px 时开始加载
     if (scrollTop + windowHeight >= documentHeight - 800) {
+      console.log('[PhotoWall] 触发加载条件，准备调用 loadMore')
       loadMore()
     }
   }, 100)
@@ -915,6 +921,8 @@ onMounted(async () => {
     // 声明当前活跃视图为 wall（避免其他视图触发 wall API）
     photoStore.setCurrentView && photoStore.setCurrentView('wall')
     await loadInitial()
+    // 标记组件已激活，后续 onActivated 不再重新加载
+    isActivatedFlag.value = true
     window.addEventListener('scroll', handleScroll, { passive: true })
     window.addEventListener('resize', handleResize)
     // 等待图片加载后布局
@@ -939,23 +947,42 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
+  console.log('[PhotoWall] onActivated 触发')
+  // 重置加载状态，确保可以继续加载更多
+  hasMore.value = true
+  isLoadingMore.value = false
+  console.log('[PhotoWall] hasMore 重置为:', hasMore.value)
+
   // 更新窗口宽度
   windowWidth.value = window.innerWidth
-  
-  nextTick(() => {
+
+  // 恢复滚动位置并添加事件监听器
+  // 使用 setTimeout 确保 DOM 已更新，避免 nextTick 在某些情况下不触发的问题
+  setTimeout(() => {
+    console.log('[PhotoWall] setTimeout 触发，savedScrollTop:', savedScrollTop.value)
+    // 先恢复滚动位置
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+
+    // 再次确保滚动位置正确（有时一次可能不够）
+    requestAnimationFrame(() => {
+      console.log('[PhotoWall] requestAnimationFrame 触发，当前滚动位置:', window.scrollY)
+      window.scrollTo({ top: savedScrollTop.value })
+    })
+
+    // 添加事件监听器
     window.addEventListener('scroll', handleScroll, { passive: true })
+    console.log('[PhotoWall] scroll listener 已添加')
     window.addEventListener('resize', handleResize)
-    
+
     // 重新布局，确保容器尺寸和位置正确
     if (photos.value.length > 0 && masonryContainer.value) {
-      // 等待 DOM 更新完成
+      console.log('[PhotoWall] 重新布局，photos:', photos.value.length)
       setTimeout(() => {
         layoutItems()
         updateParallax()
       }, 50)
     }
-  })
+  }, 10)
 })
 
 const loadInitial = async () => {
@@ -1007,13 +1034,16 @@ const clearTag = async () => {
 watch(
   () => [route.query.tagId, route.query.personId],
   async () => {
-    hydrateFromRoute()
-    await loadInitial()
-    nextTick(() => {
-      setTimeout(() => {
-        layoutItems()
-      }, 50)
-    })
+    // 仅当组件已激活过且数据已加载时才重新加载
+    if (isActivatedFlag.value) {
+      hydrateFromRoute()
+      await loadInitial()
+      nextTick(() => {
+        setTimeout(() => {
+          layoutItems()
+        }, 50)
+      })
+    }
   }
 )
 
@@ -1023,6 +1053,8 @@ onDeactivated(() => {
   window.removeEventListener('resize', handleResize)
   // 清除当前视图标识，防止切换时残留触发请求
   photoStore.setCurrentView && photoStore.setCurrentView(null)
+  // 标记组件已停用，下次激活时需要恢复状态
+  isActivatedFlag.value = false
 })
 </script>
 
@@ -1033,7 +1065,7 @@ onDeactivated(() => {
 }
 
 .masonry-item {
-  margin-bottom: 1.25rem;
+  /* 绝对定位布局，margin-bottom 无效，由布局计算控制间距 */
   transition: transform 0.1s ease-out;
   will-change: transform;
 }
@@ -1042,9 +1074,6 @@ onDeactivated(() => {
   width: 100%;
   overflow: hidden;
   position: relative;
-  /* 不设置固定高度，让图片自然高度决定容器高度 */
-  /* 添加小量 padding 来隐藏可能的白边 */
-  padding: 2px 0;
 }
 
 .masonry-photo-image {

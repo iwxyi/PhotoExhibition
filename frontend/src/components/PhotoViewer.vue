@@ -3,7 +3,7 @@
   <transition name="fade">
     <div
       v-if="visible"
-      class="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
+      class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
       style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
@@ -659,6 +659,15 @@ const lastTouchCenter = ref({ x: 0, y: 0 }) // 上次触摸中心点，用于双
 const initialTranslateX = ref(0) // 触摸开始时的 translateX
 const initialTranslateY = ref(0) // 触摸开始时的 translateY
 
+// 单指滑动切换照片相关
+const touchSwipeStartX = ref(0)
+const touchSwipeOffset = ref(0)
+
+// 双击放大相关
+const lastTapTime = ref(0)
+const lastTapX = ref(0)
+const lastTapY = ref(0)
+
 // 缩略图相关
 const thumbContainer = ref<HTMLElement | null>(null)
 const thumbItems = ref<any[]>([])
@@ -1240,6 +1249,26 @@ const onImageDoubleClick = (e: MouseEvent) => {
   e.stopPropagation()
 }
 
+// 切换放大/缩小（用于双击）
+const toggleZoom = () => {
+  if (scale.value > 1) {
+    // 缩小到适应屏幕
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+  } else {
+    // 放大到2倍，中心点基于屏幕中心
+    const viewportRect = imageViewport.value?.getBoundingClientRect()
+    if (viewportRect) {
+      const centerX = viewportRect.width / 2
+      const centerY = viewportRect.height / 2
+      translateX.value = 0
+      translateY.value = 0
+      scale.value = 2
+    }
+  }
+}
+
 // 图片拖拽处理
 const onImageMouseDown = (e: MouseEvent) => {
   if (e.button !== 0) return // 只处理左键
@@ -1378,6 +1407,9 @@ const onImageTouchStart = (e: TouchEvent) => {
       center: { x: centerX, y: centerY }
     })
   } else if (e.touches.length === 1) {
+    // 记录滑动开始的X坐标
+    touchSwipeStartX.value = e.touches[0].clientX
+
     // 单指触摸：在放大状态下可以拖拽
     if (scale.value > 1) {
       isImageDragging.value = true
@@ -1385,7 +1417,7 @@ const onImageTouchStart = (e: TouchEvent) => {
       imageDragStartY.value = e.touches[0].clientY
       initialTranslateX.value = translateX.value
       initialTranslateY.value = translateY.value
-      
+
       console.log('👆 PhotoViewer: 开始单指触摸拖拽', {
         startX: imageDragStartX.value,
         startY: imageDragStartY.value
@@ -1476,12 +1508,70 @@ const onImageTouchMove = (e: TouchEvent) => {
       translateX: translateX.value.toFixed(1),
       translateY: translateY.value.toFixed(1)
     })
+  } else if (e.touches.length === 1 && scale.value <= 1) {
+    // 单指水平滑动（仅在未放大状态下，用于切换照片）
+    const currentX = e.touches[0].clientX
+    const offset = currentX - touchSwipeStartX.value
+    touchSwipeOffset.value = offset
+
+    // 提供视觉反馈：图片跟随稍微移动（限制最大移动距离）
+    const maxOffset = 100 // 最大移动距离
+    const visualOffset = Math.max(-maxOffset, Math.min(maxOffset, offset))
+    translateX.value = visualOffset
+    // 稍微改变透明度提供切换提示
+    translateY.value = 0
+
+    console.log('👆 PhotoViewer: 单指滑动', {
+      offset: offset.toFixed(1),
+      visualOffset: visualOffset.toFixed(1)
+    })
   }
 
   e.preventDefault()
 }
 
 const onImageTouchEnd = (e: TouchEvent) => {
+  // 单指触摸结束时的处理
+  if (e.touches.length === 0) {
+    const swipeOffset = touchSwipeOffset.value
+    const didSwitch = Math.abs(swipeOffset) > 50
+
+    // 如果达到切换阈值，切换图片
+    if (didSwitch) {
+      if (swipeOffset > 0) {
+        // 向右滑动：上一张
+        prev()
+      } else {
+        // 向左滑动：下一张
+        next()
+      }
+    } else {
+      // 未达到切换阈值，弹回原位
+      translateX.value = 0
+    }
+
+    // 弹回原位后重置偏移量
+    touchSwipeOffset.value = 0
+
+    // 检查是否是双击（两次点击间隔小于300ms，且距离小于30px）
+    const now = Date.now()
+    const tapTimeDiff = now - lastTapTime.value
+    const tapDistance = Math.sqrt(
+      Math.pow((e.changedTouches[0]?.clientX || 0) - lastTapX.value, 2) +
+      Math.pow((e.changedTouches[0]?.clientY || 0) - lastTapY.value, 2)
+    )
+
+    if (tapTimeDiff < 300 && tapDistance < 30) {
+      // 双击：切换放大/缩小
+      toggleZoom()
+    }
+
+    // 记录这次点击的位置和时间
+    lastTapTime.value = now
+    lastTapX.value = e.changedTouches[0]?.clientX || 0
+    lastTapY.value = e.changedTouches[0]?.clientY || 0
+  }
+
   // 如果还有触摸点，更新状态
   if (e.touches.length === 1) {
     // 从双指变为单指，重置单指拖拽状态

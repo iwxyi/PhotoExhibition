@@ -736,6 +736,8 @@ public class FaceService {
                         dto.setPhotoFilename(face.getPhoto().getFilename());
                         dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
                         dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
+                        dto.setPhotoWidth(face.getPhoto().getWidth());
+                        dto.setPhotoHeight(face.getPhoto().getHeight());
                     }
                     result.add(dto);
                     usedPhotoIds.add(face.getPhoto().getId());
@@ -777,6 +779,8 @@ public class FaceService {
                         dto.setPhotoFilename(face.getPhoto().getFilename());
                         dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
                         dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
+                        dto.setPhotoWidth(face.getPhoto().getWidth());
+                        dto.setPhotoHeight(face.getPhoto().getHeight());
                     }
                     result.add(dto);
                     usedPhotoIds.add(face.getPhoto().getId());
@@ -899,12 +903,16 @@ public class FaceService {
     }
 
     @Transactional(readOnly = true)
-    public List<PersonSummaryDTO> listPersonsWithSample() {
-        return personProfileRepository.findAll().stream()
+    public Page<PersonSummaryDTO> listPersonsWithSample(Pageable pageable) {
+        // 使用自定义分页查询，按 faceCount 倒序排序
+        Page<PersonProfile> personPage = personProfileRepository.findAllOrderByFaceCountDesc(pageable);
+
+        // 转换为 DTO
+        List<PersonSummaryDTO> persons = personPage.getContent().stream()
             .map(this::toSummaryDTO)
-            .sorted((a, b) -> Integer.compare(b.getFaceCount() != null ? b.getFaceCount() : 0,
-                a.getFaceCount() != null ? a.getFaceCount() : 0))
             .collect(Collectors.toList());
+
+        return new PageImpl<>(persons, pageable, personPage.getTotalElements());
     }
 
     /**

@@ -17,6 +17,8 @@ public class FaceDTO {
     private String photoFilename;
     private String photoThumbnailPath;
     private String photoOriginalPath;
+    private Integer photoWidth;   // 照片宽度
+    private Integer photoHeight;  // 照片高度
     private Double similarity; // 相似度（可选）
     private Boolean isConfirmed; // 是否已确认
 }

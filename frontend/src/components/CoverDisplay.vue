@@ -18,6 +18,7 @@
             class="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-110"
             loading="lazy"
             @error="handleError"
+            @load="onImageLoad($event, photo)"
           />
         </div>
       </div>
@@ -34,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 interface Photo {
   id: number
@@ -65,6 +66,20 @@ const props = withDefaults(defineProps<Props>(), {
   size: 'md'
 })
 
+// 存储图片的实际尺寸（用于布局判断）
+const imageDimensions = ref<Map<number, { width: number; height: number }>>(new Map())
+
+// 图片加载完成后获取实际尺寸
+const onImageLoad = (event: Event, photo: Photo) => {
+  const img = event.target as HTMLImageElement
+  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+    imageDimensions.value.set(photo.id, {
+      width: img.naturalWidth,
+      height: img.naturalHeight
+    })
+  }
+}
+
 // 获取所有照片（自定义封面优先，否则使用默认封面）
 const allPhotos = computed(() => {
   if (props.covers && props.covers.length > 0) {
@@ -80,19 +95,45 @@ const allPhotos = computed(() => {
 
 // 判断图片类型：竖图、横图、正方形
 const getPhotoType = (photo: Photo): 'vertical' | 'horizontal' | 'square' => {
-  if (!photo.width || !photo.height) return 'horizontal' // 未知尺寸按横图处理
-  const ratio = photo.width / photo.height
-  if (ratio > 1.15) return 'horizontal' // 宽 > 高 × 1.15 → 横图
-  if (ratio < 0.85) return 'vertical'   // 高 > 宽 × 1.15 → 竖图
-  return 'square' // 接近1:1 → 正方形
+  // 优先使用预设尺寸
+  if (photo.width && photo.height) {
+    const ratio = photo.width / photo.height
+    if (ratio > 1.15) return 'horizontal' // 宽 > 高 × 1.15 → 横图
+    if (ratio < 0.85) return 'vertical'   // 高 > 宽 × 1.15 → 竖图
+    return 'square' // 接近1:1 → 正方形
+  }
+  
+  // 使用动态加载的图片尺寸
+  const dims = imageDimensions.value.get(photo.id)
+  if (dims && dims.width > 0 && dims.height > 0) {
+    const ratio = dims.width / dims.height
+    if (ratio > 1.15) return 'horizontal'
+    if (ratio < 0.85) return 'vertical'
+    return 'square'
+  }
+  
+  return 'horizontal' // 未知尺寸按横图处理
 }
 
 // 计算图片"主体占比"（主体越大越适合做主图）
 const getMainScore = (photo: Photo): number => {
-  if (!photo.width || !photo.height) return 0
+  // 优先使用预设尺寸
+  let width = photo.width
+  let height = photo.height
+  
+  // 使用动态加载的图片尺寸
+  if ((!width || !height) && imageDimensions.value.has(photo.id)) {
+    const dims = imageDimensions.value.get(photo.id)
+    if (dims) {
+      width = dims.width
+      height = dims.height
+    }
+  }
+  
+  if (!width || !height) return 0
   // 面积越大、越接近正方形，分数越高
-  const area = photo.width * photo.height
-  const ratio = photo.width / photo.height
+  const area = width * height
+  const ratio = width / height
   const shapeScore = ratio >= 1 ? ratio : 1 / ratio // 越接近1（正方形）分数越高
   return area * shapeScore
 }
@@ -138,11 +179,13 @@ const getTwoColumnLayout = () => {
   const [p1, p2] = displayPhotos.value
   const type1 = getPhotoType(p1)
   const type2 = getPhotoType(p2)
-  
-  // 两张都是竖图 → 左右布局
-  if (type1 === 'vertical' && type2 === 'vertical') {
+
+  // 如果有一张竖图，或者两张都是方的，进行左右布局
+  // 这样可以更好地展示人物，避免裁切
+  if (type1 === 'vertical' || type2 === 'vertical' || (type1 === 'square' && type2 === 'square')) {
     return { type: 'horizontal-2', rows: 1, cols: 2 }
   }
+
   // 其他情况（至少有一张是横图）→ 上下布局（让横图更完整显示）
   return { type: 'vertical-2', rows: 2, cols: 1 }
 }

@@ -16,6 +16,8 @@ export interface FaceFace {
   photoFilename?: string
   photoThumbnailPath?: string
   photoOriginalPath?: string
+  photoWidth?: number  // 照片宽度
+  photoHeight?: number // 照片高度
   similarity?: number
 }
 
@@ -232,8 +234,9 @@ export const commentApi = {
 
 // 人物相关API
 export const personApi = {
-  // 获取人物列表（含代表头像）
-  getPersonsWithSample: () => api.get<PersonSummary[]>('/public/persons/with-sample'),
+  // 获取人物列表（含代表头像，分页）
+  getPersonsWithSample: (page = 0, size = 20) =>
+    api.get<PageResponse<PersonSummary>>(`/public/persons/with-sample?page=${page}&size=${size}`),
 
   // 获取单个人物信息
   getPerson: (personId: number) => api.get<PersonSummary>(`/public/persons/${personId}`),

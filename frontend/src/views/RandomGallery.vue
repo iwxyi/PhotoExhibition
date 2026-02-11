@@ -7,20 +7,18 @@
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
-          <div class="flex items-center space-x-8">
+          <div class="flex items-center space-x-3">
+            <!-- 拍摄图标（深色背景、浅色图标） -->
+            <div class="w-8 h-8 rounded-lg bg-gray-900 dark:bg-white flex items-center justify-center shadow-md">
+              <svg class="w-5 h-5 text-white dark:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
             <router-link to="/" class="text-xl font-light tracking-wider">摄影展</router-link>
             <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
-            <button @click="themeStore.toggleTheme" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden">
-              <svg v-if="!themeStore.isDark" class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-              <svg v-else class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
-            </button>
             <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
@@ -163,6 +161,8 @@ const hasMore = ref(true)
 const savedScrollTop = ref(0)
 const showFilter = ref(false)
 const isLoadingMore = ref(false)
+// 标记组件是否已激活（用于区分首次加载和从其他页面返回）
+const isActivatedFlag = ref(false)
 const filterPanelRef = ref()
 
 // 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
@@ -189,10 +189,10 @@ const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const gridClass = computed(() => {
-  if (previewSize.value === 'sm') return 'grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4'
-  if (previewSize.value === 'md') return 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-6'
-  if (previewSize.value === 'lg') return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8'
-  return 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-6'
+  if (previewSize.value === 'sm') return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
+  if (previewSize.value === 'md') return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
+  if (previewSize.value === 'lg') return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6'
+  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
 })
 
 // 当前已启用的筛选（来自 store.lastFilters）
@@ -590,6 +590,8 @@ const loadMore = async () => {
       }
       data = await photoStore.filterPhotos(filtersWithExclusion, currentPage.value, 20)
     } else {
+      // 确保 currentView 设置为 'random'，防止 store 检查返回空数据
+      photoStore.setCurrentView('random')
       data = await photoStore.fetchRandomPhotos(currentPage.value, 20, 70)
     }
 
@@ -705,6 +707,8 @@ onMounted(async () => {
   // 声明当前活跃视图为 random（避免其他视图触发 random API）
   photoStore.setCurrentView && photoStore.setCurrentView('random')
   await loadInitial()
+  // 标记组件已激活，后续 onActivated 不再重新加载
+  isActivatedFlag.value = true
 })
 
 onUnmounted(() => {
@@ -716,10 +720,26 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
-  nextTick(() => {
+  console.log('[RandomGallery] onActivated 触发')
+  // 重置加载状态，确保可以继续加载更多
+  hasMore.value = true
+  isLoadingMore.value = false
+
+  // 使用 setTimeout 确保 DOM 已更新，避免 nextTick 在某些情况下不触发的问题
+  setTimeout(() => {
+    // 恢复滚动位置
+    console.log('[RandomGallery] setTimeout, savedScrollTop:', savedScrollTop.value)
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+
+    // 再次确保滚动位置正确
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: savedScrollTop.value })
+    })
+
+    // 添加事件监听器
+    console.log('[RandomGallery] scroll listener 已添加')
     window.addEventListener('scroll', handleScroll, { passive: true })
-  })
+  }, 10)
 })
 
 onDeactivated(() => {
@@ -727,6 +747,8 @@ onDeactivated(() => {
   window.removeEventListener('scroll', handleScroll)
   // 清除当前视图标识，防止切换时残留触发请求
   photoStore.setCurrentView && photoStore.setCurrentView(null)
+  // 标记组件已停用，下次激活时需要恢复状态
+  isActivatedFlag.value = false
 })
 </script>
 
@@ -840,6 +862,11 @@ onDeactivated(() => {
   30% { transform: scale(1.28); }
   60% { transform: scale(0.98); }
   100% { transform: scale(1); }
+}
+
+/* 减少图片间距，与其他页面保持一致 */
+.photo-card {
+  margin-bottom: 0.15rem !important;
 }
 </style>
 

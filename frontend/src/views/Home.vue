@@ -8,25 +8,20 @@
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
-          <div class="flex items-center space-x-8">
+          <div class="flex items-center space-x-3">
+            <!-- 拍摄图标（深色背景、浅色图标） -->
+            <div class="w-8 h-8 rounded-lg bg-gray-900 dark:bg-white flex items-center justify-center shadow-md">
+              <svg class="w-5 h-5 text-white dark:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
             <router-link to="/" class="text-xl font-light tracking-wider text-gray-900 dark:text-white">
               摄影展
             </router-link>
             <NavLinks v-if="!isMobile" />
           </div>
           <div class="flex items-center space-x-4">
-            <button
-              @click="themeStore.toggleTheme"
-              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
-            >
-              <svg v-if="!themeStore.isDark" class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-              <svg v-else class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
-            </button>
             <SettingsMenu />
           </div>
         </div>
@@ -135,17 +130,17 @@ watch(albumSortOrder, async (newSort, oldSort) => {
 const coverGridClass = computed(() => {
   if (coverSize.value === 'sm') {
     // 小尺寸：更多列数（适合小封面）
-    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'
+    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
   }
   if (coverSize.value === 'md') {
     // 中等尺寸：中等列数
-    return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6'
+    return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
   }
   if (coverSize.value === 'lg') {
     // 大尺寸：较少列数（适合大封面）
-    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8'
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6'
   }
-  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6'
+  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
 })
 
 // 动态计算当前网格布局的列数
@@ -612,14 +607,17 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
-  // 恢复用户离开时的滚动位置（在动画之前执行）
-    window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
+  // 恢复滚动位置（在动画之前执行）
+  window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
+
+  // 重新添加滚动事件监听器（从 AlbumDetail 返回后需要重新添加）
+  window.addEventListener('scroll', handleScroll, { passive: true })
 
   // 每次从 Album 返回激活 Home 时，检查并执行封面缩回动画
   // 使用 requestAnimationFrame 确保在下一帧执行，此时 DOM 已更新
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-    performAlbumBackTransitionIfNeeded()
+      performAlbumBackTransitionIfNeeded()
     })
   })
 })
