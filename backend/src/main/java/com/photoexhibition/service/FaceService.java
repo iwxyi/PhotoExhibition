@@ -2153,29 +2153,46 @@ public class FaceService {
             // 设置已认领的图片数量
             dto.setClaimedPhotoCount(albumClaimedCountMap.getOrDefault(albumId, 0));
 
-            // 设置相册封面图片：使用该人物在相册中的第一张已确认照片
-            String personCoverImagePath = null;
-            if (!confirmedFaces.isEmpty()) {
-                // 找到该相册中该人物的第一张已确认照片
-                Face firstFaceInAlbum = confirmedFaces.stream()
+            // 设置相册封面图片：使用该人物在相册中的最多3张已确认照片
+            List<Face> facesInAlbum = confirmedFaces.stream()
                     .filter(face -> face.getPhoto() != null && albumId.equals(face.getPhoto().getAlbumId()))
-                    .findFirst()
-                    .orElse(null);
+                    .collect(Collectors.toList());
 
-                if (firstFaceInAlbum != null && firstFaceInAlbum.getPhoto() != null) {
-                    personCoverImagePath = convertToRelativePath(firstFaceInAlbum.getPhoto().getThumbnailPath());
+            String coverImagePath1 = null;
+            String coverImagePath2 = null;
+            String coverImagePath3 = null;
+
+            if (!facesInAlbum.isEmpty()) {
+                // 取前3张已确认照片作为封面
+                for (int i = 0; i < Math.min(facesInAlbum.size(), 3); i++) {
+                    Face face = facesInAlbum.get(i);
+                    if (face.getPhoto() != null) {
+                        String path = convertToRelativePath(face.getPhoto().getThumbnailPath());
+                        if (i == 0) coverImagePath1 = path;
+                        else if (i == 1) coverImagePath2 = path;
+                        else if (i == 2) coverImagePath3 = path;
+                    }
                 }
-            }
-
-            // 如果没有找到该人物的照片，则使用默认相册封面
-            if (personCoverImagePath == null) {
+                // 兼容旧版本：第一张图作为 coverImagePath
+                dto.setCoverImagePath(coverImagePath1);
+            } else {
+                // 如果没有找到该人物的照片，则使用默认相册封面
                 var coverImages = albumService.getAlbumCoverImages(album.getId());
                 if (coverImages != null && coverImages.getLeftVertical() != null) {
-                    personCoverImagePath = convertToRelativePath(coverImages.getLeftVertical().getThumbnailPath());
+                    coverImagePath1 = convertToRelativePath(coverImages.getLeftVertical().getThumbnailPath());
+                    dto.setCoverImagePath(coverImagePath1);
+                }
+                if (coverImages != null && coverImages.getRightTop() != null) {
+                    coverImagePath2 = convertToRelativePath(coverImages.getRightTop().getThumbnailPath());
+                }
+                if (coverImages != null && coverImages.getRightBottom() != null) {
+                    coverImagePath3 = convertToRelativePath(coverImages.getRightBottom().getThumbnailPath());
                 }
             }
 
-            dto.setCoverImagePath(personCoverImagePath);
+            dto.setCoverImagePath1(coverImagePath1);
+            dto.setCoverImagePath2(coverImagePath2);
+            dto.setCoverImagePath3(coverImagePath3);
 
             result.add(dto);
         }

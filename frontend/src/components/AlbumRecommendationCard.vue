@@ -5,16 +5,14 @@
   >
     <!-- 相册封面 -->
     <div class="relative aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 overflow-hidden">
-      <!-- 相册封面图片 -->
-      <img
-        v-if="recommendation.coverImagePath"
-        :src="convertImagePath(recommendation.coverImagePath)"
-        :alt="recommendation.albumName"
-        class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-        loading="lazy"
+      <!-- 使用 CoverDisplay 组件展示最多3张图片 -->
+      <CoverDisplay
+        :covers="coverPhotos"
+        :photo-count="recommendation.photoCount || 0"
+        size="lg"
       />
-      <!-- 占位符 -->
-      <div v-else class="absolute inset-0 flex items-center justify-center">
+      <!-- 占位符（当没有封面图时显示） -->
+      <div v-if="!hasAnyCover" class="absolute inset-0 flex items-center justify-center">
         <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
@@ -31,10 +29,15 @@
         {{ recommendation.albumName }}
       </h3>
 
-      <!-- 进度条 -->
-      <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-2">
+      <!-- 进度条 - 使用渐变色 -->
+      <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 mb-2 overflow-hidden">
         <div
-          class="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+          class="h-full rounded-full transition-all duration-500 ease-out"
+          :class="[
+            matchPercentage >= 80 ? 'bg-gradient-to-r from-green-400 to-emerald-500' :
+            matchPercentage >= 50 ? 'bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500' :
+            'bg-gradient-to-r from-blue-400 to-purple-500'
+          ]"
           :style="{ width: `${matchPercentage}%` }"
         ></div>
       </div>
@@ -51,6 +54,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { AlbumRecommendation } from '@/api'
+import CoverDisplay from '@/components/CoverDisplay.vue'
 
 const props = defineProps<{
   recommendation: AlbumRecommendation
@@ -60,6 +64,44 @@ defineEmits<{
   click: []
 }>()
 
+// 构建封面照片数组（用于 CoverDisplay）
+interface Photo {
+  id: number
+  filename: string
+  thumbnailPath?: string
+  smallThumbPath?: string
+  width?: number
+  height?: number
+}
+
+const coverPhotos = computed<Photo[]>(() => {
+  const photos: Photo[] = []
+  const paths = [
+    props.recommendation.coverImagePath1,
+    props.recommendation.coverImagePath2,
+    props.recommendation.coverImagePath3
+  ]
+
+  paths.forEach((path, index) => {
+    if (path) {
+      photos.push({
+        id: index + 1,
+        filename: `cover_${index + 1}`,
+        thumbnailPath: path
+      })
+    }
+  })
+
+  return photos
+})
+
+// 是否有任何封面图
+const hasAnyCover = computed(() => {
+  return !!props.recommendation.coverImagePath1 ||
+         !!props.recommendation.coverImagePath2 ||
+         !!props.recommendation.coverImagePath3
+})
+
 // 计算已确认人脸占比百分比
 const matchPercentage = computed(() => {
   const count = props.recommendation.photoCount || 0
@@ -67,15 +109,5 @@ const matchPercentage = computed(() => {
   const confirmedFaces = props.recommendation.similarFaceCount || 0
   return Math.round((confirmedFaces / count) * 100)
 })
-
-// 转换图片路径，将数据库中的绝对路径转换为可访问的API路径
-const convertImagePath = (path: string) => {
-  if (!path) return path
-  // 如果路径以/开头，去掉开头的/，然后加上/api/files/前缀
-  if (path.startsWith('/')) {
-    return `/api/files${path}`
-  }
-  return path
-}
 
 </script>

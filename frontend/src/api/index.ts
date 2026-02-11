@@ -167,6 +167,9 @@ export interface AlbumRecommendation {
   claimedPhotoCount?: number
   takenAt: string
   coverImagePath?: string
+  coverImagePath1?: string
+  coverImagePath2?: string
+  coverImagePath3?: string
 }
 
 // 评论相关API

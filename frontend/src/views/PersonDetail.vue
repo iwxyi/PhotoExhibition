@@ -1,199 +1,338 @@
 <template>
-  <div class="min-h-screen bg-white dark:bg-gray-900">
-    <!-- 导航栏 -->
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <!-- 吸顶紧凑导航栏 (滚动时显示) -->
     <nav
-      class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
-      :class="{ '-translate-y-full': isMobile && navHidden }"
-      style="padding-top: env(safe-area-inset-top);"
+      class="fixed top-0 left-0 right-0 z-50 transition-all duration-500 ease-out transform-gpu"
+      :class="[
+        scrolled > 50 ? 'translate-y-0 py-3' : '-translate-y-full py-4',
+        'bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50'
+      ]"
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-12">
-          <div class="flex items-center space-x-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-4">
             <button
               @click="goBack"
-              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-100 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
+              class="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 active:scale-95"
             >
-              <svg class="w-5 h-5 transition-all duration-300 group-hover:-translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
-              <div class="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
             </button>
-            <router-link to="/" class="text-xl font-light tracking-wider text-gray-900 dark:text-white">
-              摄影展
-            </router-link>
+            <!-- 吸顶时的头像 -->
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl overflow-hidden shadow-md ring-2 ring-white/50 dark:ring-gray-700/50">
+                <img
+                  v-if="person?.sampleThumbnailPath"
+                  :src="convertImagePath(person.sampleThumbnailPath)"
+                  :alt="person.name"
+                  class="w-full h-full object-cover"
+                />
+                <div v-else class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
+                  <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              </div>
+              <span class="text-lg font-medium text-gray-900 dark:text-white tracking-wide">
+                {{ person?.name || '加载中...' }}
+              </span>
+            </div>
           </div>
-          <div class="flex items-center space-x-4">
-            <button
-              @click="themeStore.toggleTheme"
-              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-100 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
-            >
-              <svg v-if="!themeStore.isDark" class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-              <svg v-else class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
-            </button>
-            <SettingsMenu />
-          </div>
+          <button
+            @click="themeStore.toggleTheme"
+            class="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 active:scale-95"
+          >
+            <svg v-if="!themeStore.isDark" class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+            <svg v-else class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          </button>
         </div>
       </div>
     </nav>
 
-    <!-- 人物信息头部 -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-      <div class="flex flex-col lg:flex-row gap-6 mb-8">
-        <!-- 人物头像 -->
-        <div class="flex-shrink-0">
-          <div class="w-32 h-32 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 overflow-hidden border-4 border-white dark:border-gray-800 shadow-lg">
-            <img
-              v-if="person?.sampleThumbnailPath"
-              :src="convertImagePath(person.sampleThumbnailPath)"
-              :alt="person.name"
-              class="w-full h-full object-cover"
-            />
-            <div v-else class="w-full h-full flex items-center justify-center">
-              <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    <!-- 原始导航栏 (滚动后隐藏) -->
+    <nav
+      class="fixed top-0 left-0 right-0 z-40 transition-all duration-500 ease-out transform-gpu"
+      :class="scrolled > 50 ? 'translate-y-[-100%]' : 'translate-y-0'"
+      style="padding-top: env(safe-area-inset-top);"
+    >
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-14">
+          <div class="flex items-center gap-3">
+            <button
+              @click="goBack"
+              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-100 transition-all duration-200 hover:scale-105 active:scale-95"
+            >
+              <svg class="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
+            </button>
+            <router-link to="/" class="text-xl font-light tracking-widest text-gray-800 dark:text-gray-100">
+              摄影展
+            </router-link>
+          </div>
+          <button
+            @click="themeStore.toggleTheme"
+            class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 active:scale-95"
+          >
+            <svg v-if="!themeStore.isDark" class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+            <svg v-else class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 人物信息头部 (视差效果) -->
+    <div
+      class="relative overflow-hidden transition-all duration-700 ease-out"
+      :style="{
+        paddingTop: 'calc(env(safe-area-inset-top) + 4rem)',
+        paddingBottom: `${Math.max(1, 3 - scrolled / 100)}rem`,
+        marginBottom: `${Math.max(0, 1.5 - scrolled / 300)}rem`,
+        opacity: Math.max(0, 1 - scrolled / 400),
+        transform: `scale(${Math.max(0.95, 1 - scrolled / 2000)}) translateY(${scrolled * 0.1}px)`
+      }"
+    >
+      <!-- 背景装饰 -->
+      <div class="absolute inset-0 bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900"></div>
+      <div class="absolute inset-0 opacity-30">
+        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
+        <div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-pink-400/20 to-orange-400/20 rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2"></div>
+      </div>
+
+      <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex flex-col lg:flex-row gap-8 lg:gap-12">
+          <!-- 人物头像 - 带视差效果 -->
+          <div
+            class="flex-shrink-0 self-center lg:self-start transition-transform duration-300"
+            :style="{
+              transform: `translateY(${scrolled * 0.15}px) scale(${Math.max(0.7, 1 - scrolled / 500)})`
+            }"
+          >
+            <div class="relative">
+              <!-- 头像光晕效果 -->
+              <div class="absolute -inset-1 bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 rounded-full blur-xl opacity-60 animate-pulse duration-3000"></div>
+              <div class="relative w-36 h-36 md:w-44 md:h-44 lg:w-52 lg:h-52 rounded-2xl bg-gradient-to-br from-white to-gray-100 dark:from-gray-800 dark:to-gray-900 shadow-2xl overflow-hidden ring-4 ring-white/50 dark:ring-gray-800/50">
+                <img
+                  v-if="person?.sampleThumbnailPath"
+                  :src="convertImagePath(person.sampleThumbnailPath)"
+                  :alt="person.name"
+                  class="w-full h-full object-cover"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
+                  <svg class="w-20 h-20 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- 人物信息 -->
-        <div class="flex-1 min-w-0">
-          <h1 class="text-3xl font-light tracking-wide text-gray-900 dark:text-white mb-2">
-            {{ person?.name }}
-          </h1>
-          <p v-if="person?.description" class="text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
-            {{ person.description }}
-          </p>
+          <!-- 人物信息 -->
+          <div class="flex-1 min-w-0 py-2">
+            <h1
+              class="text-3xl md:text-4xl lg:text-5xl font-light tracking-tight text-gray-900 dark:text-white mb-4 transition-all duration-500"
+              :class="{ 'lg:mt-4': scrolled < 50 }"
+            >
+              <span class="bg-gradient-to-r from-gray-900 via-gray-700 to-gray-900 dark:from-white dark:via-gray-300 dark:to-gray-500 bg-clip-text text-transparent">
+                {{ person?.name }}
+              </span>
+            </h1>
 
-          <!-- 统计信息 -->
-          <div class="flex flex-wrap gap-6 text-sm">
-            <div class="flex items-center text-gray-500 dark:text-gray-400">
-              <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              <span>{{ person?.faceCount || 0 }} 张人脸照片</span>
-            </div>
-            <div v-if="person?.photoCount && person.photoCount > 0" class="flex items-center text-gray-500 dark:text-gray-400">
-              <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span>{{ person.photoCount }} 张照片</span>
-            </div>
-            <div v-if="person?.albumCount && person.albumCount > 0" class="flex items-center text-gray-500 dark:text-gray-400">
-              <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-              <span>{{ person.albumCount }} 个相册</span>
+            <p v-if="person?.description" class="text-gray-600 dark:text-gray-400 mb-6 leading-relaxed text-lg max-w-2xl">
+              {{ person.description }}
+            </p>
+
+            <!-- 统计信息 - 简洁卡片风格 -->
+            <div class="flex flex-wrap gap-3">
+              <div class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+                <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+                  <svg class="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person?.faceCount || 0 }} 图片</span>
+              </div>
+
+              <div v-if="person?.photoCount && person.photoCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+                <div class="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
+                  <svg class="w-4 h-4 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person.photoCount }} 照片</span>
+              </div>
+
+              <div v-if="person?.albumCount && person.albumCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-50 to-orange-50 dark:from-pink-900/30 dark:to-orange-900/30 flex items-center justify-center">
+                  <svg class="w-4 h-4 text-gradient-to-r from-pink-500 to-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person.albumCount }} 相册</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Tab 切换 -->
-      <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
-        <nav class="-mb-px flex space-x-8">
-          <button
-            @click="activeTab = 'albums'"
-            class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
-            :class="activeTab === 'albums'
-              ? 'border-gray-900 text-gray-900 dark:border-white dark:text-white'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:border-gray-600'"
-          >
-            相册 ({{ albumRecommendations.length }})
-          </button>
-          <button
-            @click="activeTab = 'photos'"
-            class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
-            :class="activeTab === 'photos'
-              ? 'border-gray-900 text-gray-900 dark:border-white dark:text-white'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:border-gray-600'"
-          >
-            图片 ({{ person?.faceCount || 0 }})
-          </button>
-        </nav>
+    <!-- Tab 切换 - 带有背景装饰 -->
+    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="relative">
+        <div class="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 rounded-2xl blur-xl -z-10"></div>
+        <div class="border-b border-gray-200/50 dark:border-gray-800/50 backdrop-blur-sm">
+          <nav class="flex gap-8 overflow-x-auto scrollbar-hide">
+            <button
+              @click="activeTab = 'albums'"
+              class="relative whitespace-nowrap py-4 px-2 text-sm font-medium transition-all duration-300"
+              :class="activeTab === 'albums'
+                ? 'text-gray-900 dark:text-white'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'"
+            >
+              <span class="relative z-10 flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                相册
+                <span class="px-1.5 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800">
+                  {{ albumRecommendations.length }}
+                </span>
+              </span>
+              <!-- 选中指示器 -->
+              <span
+                v-if="activeTab === 'albums'"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full"
+              ></span>
+            </button>
+            <button
+              @click="activeTab = 'photos'"
+              class="relative whitespace-nowrap py-4 px-2 text-sm font-medium transition-all duration-300"
+              :class="activeTab === 'photos'
+                ? 'text-gray-900 dark:text-white'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'"
+            >
+              <span class="relative z-10 flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                图片
+                <span class="px-1.5 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800">
+                  {{ person?.faceCount || 0 }}
+                </span>
+              </span>
+              <!-- 选中指示器 -->
+              <span
+                v-if="activeTab === 'photos'"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full"
+              ></span>
+            </button>
+          </nav>
+        </div>
       </div>
     </div>
 
     <!-- 内容区域 -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
       <!-- 相册 Tab -->
-      <div v-if="activeTab === 'albums'">
-        <div v-if="loadingAlbums" class="flex justify-center items-center h-64">
-          <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
-        </div>
+      <div :class="['tab-content', { 'tab-enter-active': activeTab === 'albums' }]">
+        <div v-if="activeTab === 'albums'">
+          <div v-if="loadingAlbums" class="flex justify-center items-center h-64">
+            <div class="relative">
+              <div class="w-16 h-16 border-4 border-gray-200 dark:border-gray-700 rounded-full"></div>
+              <div class="absolute top-0 left-0 w-16 h-16 border-4 border-transparent border-t-blue-500 border-r-purple-500 rounded-full animate-spin"></div>
+            </div>
+          </div>
 
-        <div
-          v-else-if="albumRecommendations.length > 0"
-          class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
-        >
-          <AlbumRecommendationCard
-            v-for="recommendation in albumRecommendations"
-            :key="recommendation.albumId"
-            :recommendation="recommendation"
-            @click="goToAlbum(recommendation.albumId)"
-          />
-        </div>
+          <div
+            v-else-if="albumRecommendations.length > 0"
+            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5"
+          >
+            <AlbumRecommendationCard
+              v-for="recommendation in albumRecommendations"
+              :key="recommendation.albumId"
+              :recommendation="recommendation"
+              @click="goToAlbum(recommendation.albumId)"
+            />
+          </div>
 
-        <div v-else class="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
-          <svg class="w-16 h-16 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <h3 class="text-lg font-medium mb-2">暂无推荐相册</h3>
-          <p class="text-sm text-center">该人物暂无可推荐的相册</p>
+          <div v-else class="flex flex-col items-center justify-center h-80 text-gray-500 dark:text-gray-400">
+            <div class="w-20 h-20 mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+              <svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-medium mb-1">暂无推荐相册</h3>
+            <p class="text-sm opacity-60">该人物暂无可推荐的相册</p>
+          </div>
         </div>
       </div>
 
-      <!-- 随机图片 Tab -->
-      <div v-if="activeTab === 'photos'">
-        <div v-if="loadingPhotos" class="flex justify-center items-center h-64">
-          <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
-        </div>
-
-        <div
-          v-else-if="personPhotos.length > 0"
-          class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-        >
-          <div
-            v-for="face in personPhotos"
-            :key="face.id"
-            class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-lg"
-            @click="goToPhoto(face.photoId!)"
-          >
-            <img
-              :src="convertImagePath(face.photoThumbnailPath)"
-              :alt="face.photoFilename"
-              class="w-full h-full object-cover"
-              loading="lazy"
-            />
-            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200"></div>
+      <!-- 图片 Tab -->
+      <div :class="['tab-content', { 'tab-enter-active': activeTab === 'photos' }]">
+        <div v-if="activeTab === 'photos'">
+          <div v-if="loadingPhotos" class="flex justify-center items-center h-64">
+            <div class="relative">
+              <div class="w-16 h-16 border-4 border-gray-200 dark:border-gray-700 rounded-full"></div>
+              <div class="absolute top-0 left-0 w-16 h-16 border-4 border-transparent border-t-blue-500 border-r-purple-500 rounded-full animate-spin"></div>
+            </div>
           </div>
-        </div>
 
-        <!-- 加载更多状态 -->
-        <div v-if="loadingMorePhotos" class="mt-8 text-center">
-          <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
-          <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">正在加载更多照片...</p>
-        </div>
+          <div
+            v-else-if="personPhotos.length > 0"
+            class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"
+          >
+            <div
+              v-for="face in personPhotos"
+              :key="face.id"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+              @click="goToPhoto(face.photoId!)"
+            >
+              <img
+                :src="convertImagePath(face.photoThumbnailPath)"
+                :alt="face.photoFilename"
+                class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                loading="lazy"
+              />
+              <!-- 悬停遮罩 -->
+              <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            </div>
+          </div>
 
-        <!-- 已加载全部提示 -->
-        <div v-if="!hasMorePhotos && !loadingMorePhotos && personPhotos.length > 0" class="mt-8 text-center">
-          <p class="text-sm text-gray-500 dark:text-gray-400">
-            已加载全部 {{ personPhotos.length }} 张照片，共 {{ totalPhotoCount }} 张
-          </p>
-        </div>
+          <!-- 加载更多状态 -->
+          <div v-if="loadingMorePhotos" class="mt-8 text-center">
+            <div class="relative w-10 h-10 mx-auto">
+              <div class="absolute inset-0 border-2 border-gray-200 dark:border-gray-700 rounded-full"></div>
+              <div class="absolute inset-0 border-2 border-transparent border-t-blue-500 border-r-purple-500 rounded-full animate-spin"></div>
+            </div>
+            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">正在加载更多...</p>
+          </div>
 
-        <div v-else class="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
-          <svg class="w-16 h-16 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          <h3 class="text-lg font-medium mb-2">暂无照片</h3>
-          <p class="text-sm text-center">该人物暂无可显示的照片</p>
+          <!-- 已加载全部提示 -->
+          <div v-if="!hasMorePhotos && !loadingMorePhotos && personPhotos.length > 0" class="mt-8 text-center">
+            <p class="text-sm text-gray-400 dark:text-gray-500">
+              已加载全部 {{ personPhotos.length }} 张
+            </p>
+          </div>
+
+          <div v-else class="flex flex-col items-center justify-center h-80 text-gray-500 dark:text-gray-400">
+            <div class="w-20 h-20 mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+              <svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-medium mb-1">暂无照片</h3>
+            <p class="text-sm opacity-60">该人物暂无可显示的照片</p>
+          </div>
         </div>
       </div>
     </main>
@@ -207,10 +346,8 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
-import { personApi, PersonSummary, AlbumRecommendation, Photo, FaceFace } from '@/api'
-import NavLinks from '@/components/NavLinks.vue'
+import { personApi, PersonSummary, AlbumRecommendation, FaceFace } from '@/api'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
-import SettingsMenu from '@/components/SettingsMenu.vue'
 import AlbumRecommendationCard from '@/components/AlbumRecommendationCard.vue'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
@@ -220,6 +357,13 @@ const router = useRouter()
 const themeStore = useThemeStore()
 const { isMobile } = useMobileNav()
 const { isHidden: navHidden } = useNavAutoHide()
+
+// 滚动位置
+const scrolled = ref(0)
+
+const handleScroll = () => {
+  scrolled.value = window.scrollY
+}
 
 const personId = ref<number>(parseInt(route.params.id as string))
 const person = ref<PersonSummary | null>(null)
@@ -233,8 +377,8 @@ const loadingPhotos = ref(false)
 const currentPhotoPage = ref(0)
 const loadingMorePhotos = ref(false)
 const hasMorePhotos = ref(true)
-const photoPageSize = 30 // 每次加载30张照片
-const totalPhotoCount = ref(0) // 该人物的总照片数量
+const photoPageSize = 30
+const totalPhotoCount = ref(0)
 
 // 滚动加载更多照片
 let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
@@ -269,10 +413,8 @@ const goToPhoto = (photoId: number) => {
   window.open(`/photo/${photoId}`, '_blank')
 }
 
-// 转换图片路径，将数据库中的绝对路径转换为可访问的API路径
 const convertImagePath = (path: string) => {
   if (!path) return path
-  // 如果路径以/开头，去掉开头的/，然后加上/api/files/前缀
   if (path.startsWith('/')) {
     return `/api/files${path}`
   }
@@ -281,7 +423,6 @@ const convertImagePath = (path: string) => {
 
 const loadPerson = async () => {
   try {
-    // 直接获取单个人物信息
     const response = await personApi.getPerson(personId.value)
     person.value = response.data
   } catch (error) {
@@ -310,8 +451,6 @@ const loadPersonPhotos = async () => {
     const photos = response.data.content || []
     totalPhotoCount.value = person.value?.faceCount || response.data.totalElements || 0
     hasMorePhotos.value = !response.data.last
-
-    // 随机排序当前页的照片
     personPhotos.value = photos.sort(() => Math.random() - 0.5)
   } catch (error) {
     console.error('加载人物照片失败:', error)
@@ -322,7 +461,6 @@ const loadPersonPhotos = async () => {
   }
 }
 
-// 加载更多照片
 const loadMorePersonPhotos = async () => {
   if (loadingMorePhotos.value || !hasMorePhotos.value) return
 
@@ -334,7 +472,6 @@ const loadMorePersonPhotos = async () => {
     const newPhotos = response.data.content || []
     hasMorePhotos.value = !response.data.last
 
-    // 随机排序新照片并添加到现有照片中
     const shuffledNewPhotos = newPhotos.sort(() => Math.random() - 0.5)
     personPhotos.value = [...personPhotos.value, ...shuffledNewPhotos]
   } catch (error) {
@@ -359,11 +496,45 @@ watch(activeTab, () => {
 onMounted(() => {
   loadPerson()
   loadTabContent()
-  // 添加滚动监听器，用于图片Tab的分页加载
+  window.addEventListener('scroll', handleScroll, { passive: true })
   window.addEventListener('scroll', handlePhotoScroll, { passive: true })
 })
 
 onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('scroll', handlePhotoScroll)
 })
 </script>
+
+<style scoped>
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Tab切换动画 - 使用CSS类控制 */
+.tab-content {
+  animation-duration: 0.3s;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+.tab-enter-active {
+  animation-name: slideInRight;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+</style>
