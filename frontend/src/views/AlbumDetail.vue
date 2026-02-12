@@ -1,8 +1,30 @@
 <template>
   <div class="min-h-screen transition-colors duration-1000" :style="backgroundStyle">
-    <nav class="fixed top-4 right-4 z-50">
-      <!-- multi-select toolbar (placed before X so X stays at far right) -->
-      <div v-if="multiSelectActive" class="inline-flex items-center gap-2 mr-3">
+    <nav class="fixed top-4 left-4 z-50">
+      <!-- scroll-aware back button with glassmorphism -->
+      <div
+        ref="backButtonRef"
+        class="back-button-container"
+        :class="{ 'is-collapsed': isBackButtonCollapsed }"
+        @click="handleBack"
+        @mousemove="onBackButtonMouseMove"
+        @mouseleave="onBackButtonMouseLeave"
+        @mousedown="onBackButtonMouseDown"
+        aria-label="返回"
+        title="返回"
+      >
+        <div class="back-button-glass">
+          <!-- icon (always visible) -->
+          <svg class="back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          <!-- text (visible when expanded) -->
+          <span class="back-text">BACK</span>
+        </div>
+      </div>
+
+      <!-- multi-select toolbar (placed after back button) -->
+      <div v-if="multiSelectActive" class="inline-flex items-center gap-2 ml-3">
         <button class="btn-primary px-3 py-1 text-sm" @click="selectAll">全选</button>
         <button class="btn-primary px-3 py-1 text-sm ml-1" @click="invertSelection">反选</button>
         <button class="btn-primary px-3 py-1 text-sm ml-1 flex items-center gap-1" @click="downloadSelected" title="下载选中">
@@ -14,22 +36,6 @@
           <span>打包</span>
         </button>
       </div>
-
-      <button
-        @click="handleBack"
-        @mousemove="onBackButtonMouseMove"
-        @mouseleave="onBackButtonMouseLeave"
-        @mousedown="onBackButtonMouseDown"
-        class="btn-back"
-        ref="backButtonRef"
-        aria-label="关闭"
-        title="关闭"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -39,20 +45,24 @@
           <div :style="{ width: downloadProgress + '%' }" class="h-1 bg-blue-600 transition-width duration-200"></div>
         </div>
       </div>
+
       <!-- 初始加载状态 -->
       <div v-if="isInitialLoading" class="flex items-center justify-center min-h-[50vh]">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
 
       <!-- 相册内容 -->
-      <div v-else-if="album">
-          <div class="mb-12">
-            <h1 class="text-4xl font-light mb-4" :style="textStyle">{{ album.name }}</h1>
-            <p v-if="album.description" class="mb-4" :style="{ ...textStyle, opacity: 0.8 }">{{ album.description }}</p>
-            <p class="text-sm" :style="{ ...textStyle, opacity: 0.6 }">
-              {{ album.photoCount }} 张照片{{ commentCount > 0 ? `，${commentCount} 条评论` : '' }}
-            </p>
-          </div>
+      <div v-if="album" class="album-content-wrapper">
+        <!-- 相册信息 - 居中显示 -->
+        <div class="album-header-center">
+          <h1 class="album-title" :style="textStyle">{{ album.name }}</h1>
+          <p v-if="album.description" class="album-description">{{ album.description }}</p>
+          <!-- 分割线：位于备注和照片数量之间 -->
+          <div class="album-header-divider"></div>
+          <p class="album-meta" :style="{ ...textStyle, opacity: 0.6 }">
+            {{ album.photoCount }} 张照片{{ commentCount > 0 ? ` · ${commentCount} 条评论` : '' }}
+          </p>
+        </div>
 
         <MasonryLayout
           :items="masonryItems"
@@ -232,16 +242,36 @@ const loadMorePhotos = async () => {
 
 // 滚动监听器，用于自动加载更多照片
 let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
-const SCROLL_THROTTLE_MS = 200 // 200ms节流
+const SCROLL_THROTTLE_MS = 100 // 100ms节流
 const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载
+
+// 返回按钮折叠状态
+const isBackButtonCollapsed = ref(false)
+let lastScrollTop = 0
+const SCROLL_HYSTERESIS = 20 // 滚动滞后，避免频繁切换
 
 const handleScroll = () => {
   if (scrollThrottleTimer) return
 
   scrollThrottleTimer = setTimeout(() => {
+    // 加载更多照片逻辑
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
+
+    // 返回按钮折叠逻辑：向上滚动时展开，向下滚动时折叠
+    const scrollDelta = scrollTop - lastScrollTop
+    if (Math.abs(scrollDelta) > SCROLL_HYSTERESIS) {
+      // 向下滚动超过阈值，折叠按钮
+      if (scrollDelta > 5) {
+        isBackButtonCollapsed.value = true
+      }
+      // 向上滚动超过阈值，展开按钮
+      else if (scrollDelta < -5) {
+        isBackButtonCollapsed.value = false
+      }
+      lastScrollTop = scrollTop
+    }
 
     // 距离底部LOAD_THRESHOLD像素时开始加载
     if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {

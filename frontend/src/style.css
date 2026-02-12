@@ -373,6 +373,171 @@
   outline: none;
 }
 
+/* 返回按钮容器 - 胶囊形状 */
+.back-button-container {
+  position: relative;
+  cursor: pointer;
+  /* 非线性回弹动画 */
+  transition: transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
+}
+
+.back-button-container:active {
+  transform: scale(0.95);
+}
+
+/* 毛玻璃胶囊按钮 */
+.back-button-glass {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  /* 毛玻璃效果 */
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.03),
+    0 1px 3px rgba(0, 0, 0, 0.02);
+  color: #64748b;
+  /* 非线性回弹动画 */
+  transition: all 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: hidden;
+}
+
+/* 夜间模式覆盖 */
+.dark .back-button-glass {
+  background: rgba(15, 23, 42, 0.55);
+  border-color: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* 悬停效果 - 轻微上浮，不使用重阴影 */
+.back-button-container:hover .back-button-glass {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.05),
+    0 2px 4px rgba(0, 0, 0, 0.03);
+  transform: translateY(-1px);
+}
+
+/* 夜间模式悬停 */
+.dark .back-button-container:hover .back-button-glass {
+  background: rgba(30, 41, 59, 0.6);
+  color: #cbd5e1;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.25),
+    0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* 返回图标 */
+.back-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  transition: transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.back-button-container:hover .back-icon {
+  transform: translateX(-2px);
+}
+
+/* 返回文字 */
+.back-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  transition: all 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 折叠状态 - 只显示图标 */
+.back-button-container.is-collapsed .back-button-glass {
+  padding: 8px 8px;
+}
+
+.back-button-container.is-collapsed .back-text {
+  width: 0;
+  opacity: 0;
+  transform: translateX(-8px);
+  overflow: hidden;
+}
+
+/* 折叠时悬停：展开回胶囊形状 */
+.back-button-container.is-collapsed:hover .back-button-glass {
+  padding: 8px 16px;
+}
+
+.back-button-container.is-collapsed:hover .back-text {
+  width: auto;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* 相册标题区域居中样式 */
+.album-header-center {
+  text-align: center;
+  margin-bottom: 3rem;
+  margin-top: 1rem;
+}
+
+.album-title {
+  font-size: 1.5rem;
+  font-weight: 300;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.02em;
+}
+
+.album-description {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+  font-weight: 400;
+}
+
+/* 分割线：位于备注和照片数量之间 */
+.album-header-divider {
+  width: 24px;
+  height: 1px;
+  border-radius: 1px;
+  background-color: rgba(148, 163, 184, 0.35);
+  margin: 0.75rem auto;
+}
+
+.album-meta {
+  font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 响应式调整 */
+@media (max-width: 640px) {
+  .album-title {
+    font-size: 1.5rem;
+  }
+
+  .back-text {
+    font-size: 12px;
+  }
+
+  .back-button-glass {
+    padding: 6px 12px;
+    gap: 4px;
+  }
+
+  .back-icon {
+    width: 16px;
+    height: 16px;
+  }
+}
+
 .btn-back svg {
   z-index: 2;
   pointer-events: none;

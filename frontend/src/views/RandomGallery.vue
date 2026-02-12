@@ -121,7 +121,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Random' })
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
@@ -540,10 +540,7 @@ watch(() => photos.value, (photos) => {
 const loadMore = async () => {
   // 防止重复加载
   if (loading.value || isLoadingMore.value || !hasMore.value) return
-  
-  // 保存当前滚动位置
-  const scrollTop = window.scrollY || document.documentElement.scrollTop
-  
+
   try {
     isLoadingMore.value = true
     // 如果筛选请求正在进行，先不触发加载更多（避免竞态）
@@ -605,20 +602,11 @@ const loadMore = async () => {
         viewedPhotoIds.value.add(photo.id)
       })
     }
-
-    // 恢复滚动位置
-    nextTick(() => {
-      window.scrollTo({ top: scrollTop, behavior: 'instant' })
-    })
   } catch (error) {
     console.error('加载更多失败:', error)
     // 加载失败时回退页码
     currentPage.value--
     hasMore.value = false
-    // 恢复滚动位置
-    nextTick(() => {
-      window.scrollTo({ top: scrollTop, behavior: 'instant' })
-    })
   } finally {
     isLoadingMore.value = false
   }
@@ -627,16 +615,20 @@ const loadMore = async () => {
 // 防抖滚动处理
 let scrollTimer: ReturnType<typeof setTimeout> | null = null
 const handleScroll = () => {
-  if (scrollTimer) clearTimeout(scrollTimer)
+  // 节流：100ms 内只执行一次
+  if (scrollTimer) return
+
   scrollTimer = setTimeout(() => {
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
-    
+
     // 距离底部 800px 时开始加载
     if (scrollTop + windowHeight >= documentHeight - 800) {
       loadMore()
     }
+
+    scrollTimer = null
   }, 100)
 }
 
@@ -720,21 +712,15 @@ onActivated(() => {
   hasMore.value = true
   isLoadingMore.value = false
 
-  // 使用 setTimeout 确保 DOM 已更新，避免 nextTick 在某些情况下不触发的问题
-  setTimeout(() => {
-    // 恢复滚动位置
-    console.log('[RandomGallery] setTimeout, savedScrollTop:', savedScrollTop.value)
-    window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
-
-    // 再次确保滚动位置正确
+  // 恢复滚动位置
+  if (savedScrollTop.value > 0) {
     requestAnimationFrame(() => {
       window.scrollTo({ top: savedScrollTop.value })
     })
+  }
 
-    // 添加事件监听器
-    console.log('[RandomGallery] scroll listener 已添加')
-    window.addEventListener('scroll', handleScroll, { passive: true })
-  }, 10)
+  // 添加事件监听器
+  window.addEventListener('scroll', handleScroll, { passive: true })
 })
 
 onDeactivated(() => {
