@@ -1,6 +1,6 @@
 <template>
   <div
-    class="photo-card cursor-pointer group space-y-1 w-full mx-auto transform-gpu bg-white dark:bg-gray-800"
+    class="photo-card cursor-pointer group w-full mx-auto transform-gpu bg-white dark:bg-gray-800 rounded-xl overflow-hidden"
     :class="cardSizeClass"
     :data-album-id="album.id"
     role="button"
@@ -12,19 +12,21 @@
     style="contain: layout style paint; will-change: transform;"
   >
     <!-- 封面布局 -->
-    <CoverDisplay
-      :covers="customCovers"
-      :default-covers="defaultCovers"
-      :photo-count="album.photoCount || 0"
-      :size="sizeValue"
-    />
+    <div class="overflow-hidden rounded-t-xl">
+      <CoverDisplay
+        :covers="customCovers"
+        :default-covers="defaultCovers"
+        :photo-count="album.photoCount || 0"
+        :size="sizeValue"
+      />
+    </div>
 
     <!-- 信息块（显示在封面下方） -->
-    <div class="px-2 py-1 text-gray-900 dark:text-gray-100 space-y-0.5">
+    <div class="px-3 py-2 text-gray-900 dark:text-gray-100">
       <div class="flex items-center">
-        <h3 class="text-sm font-semibold truncate">{{ album.displayTitle || album.name }}</h3>
+        <h3 class="text-sm font-medium truncate">{{ album.displayTitle || album.name }}</h3>
       </div>
-      <div v-if="takenDateText" class="text-xs text-gray-500 dark:text-gray-400">
+      <div v-if="takenDateText" class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
         {{ takenDateText }}
       </div>
     </div>
@@ -159,12 +161,21 @@ const handleClick = () => {
 </script>
 
 <style scoped>
-/* 默认无阴影，悬浮时显示阴影 */
+/* 默认状态：微妙边框，无阴影 */
 .photo-card {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
+/* 悬浮状态：轻微上浮 + 阴影 + 边框变深 */
 .photo-card:hover {
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* 封面图片悬浮放大 */
+.photo-card:hover :deep(.cover-image) {
+  transform: scale(1.04);
 }
 </style>

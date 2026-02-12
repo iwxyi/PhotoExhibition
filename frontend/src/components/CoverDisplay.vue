@@ -3,7 +3,7 @@
     <!-- 封面内容 -->
     <div class="w-full h-full">
       <!-- 使用自适应布局 -->
-      <div :class="layoutClass" class="w-full h-full gap-[2px]">
+      <div :class="layoutClass" class="w-full h-full gap-[1px]">
         <div
           v-for="(photo, index) in displayPhotos"
           :key="photo.id"
@@ -201,8 +201,8 @@ const getThreeColumnLayout = () => {
     return { type: 'horizontal-3', rows: 1, cols: 3 }
   }
   
-  // 其他情况（混合或有横图）→ masonry 布局
-  // 左边第一张（最大的）占两行，右边上下两张
+  // 其他情况（混合或有横图）→ 2x2 网格布局，左上是主图
+  // 左边一张，右边上下两张方块
   return { type: 'masonry-3', rows: 2, cols: 2, mainFirst: true }
 }
 
@@ -217,7 +217,7 @@ const layoutClass = computed(() => {
     case 'horizontal-2':
       return 'grid grid-rows-1 grid-cols-2'
     case 'masonry-3':
-      return 'grid grid-cols-[2fr,3fr] grid-rows-2'
+      return 'grid grid-cols-2 grid-rows-2'
     case 'horizontal-3':
       return 'grid grid-rows-1 grid-cols-3'
     case 'grid-2x2':
@@ -238,9 +238,11 @@ const getItemClass = (index: number) => {
   const layout = layoutInfo.value
   const count = displayPhotos.value.length
   
-  // masonry-3 布局：左上是主图（占两行），右上和左下是其他图
+  // masonry-3 布局：左列占两行（第一张图），右列上下各一张
   if (layout.type === 'masonry-3' && count >= 3) {
     if (index === 0) return 'row-span-2' // 左上占两行
+    if (index === 1) return '' // 右上
+    if (index === 2) return '' // 左下
     return ''
   }
   
@@ -294,9 +296,9 @@ const handleError = (event: Event) => {
 
 const sizeClass = computed(() => {
   switch (props.size) {
-    case 'sm': return 'h-24 md:h-28 lg:h-32'
-    case 'lg': return 'h-56 md:h-60 lg:h-64'
-    default: return 'h-40 md:h-44 lg:h-48'
+    case 'sm': return 'h-32 md:h-36 lg:h-40'
+    case 'lg': return 'h-48 md:h-56 lg:h-64'
+    default: return 'h-40 md:h-48 lg:h-56'
   }
 })
 </script>

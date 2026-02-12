@@ -54,29 +54,23 @@
           :data-photo-id="photo.id"
           @click="openViewer(idx, $event)"
         >
-          <div class="aspect-square overflow-hidden rounded-lg">
+          <div class="aspect-square overflow-hidden rounded-lg relative">
             <img
               :src="getImageUrl(photo)"
               :alt="photo.filename"
-              class="photo-image w-full h-full"
+              class="photo-image w-full h-full transition-transform duration-400"
               :style="getImageStyle(photo)"
               loading="lazy"
               @error="onImageError"
             />
-          </div>
-          <div class="gradient-overlay">
-            <div class="absolute bottom-0 left-0 right-0 p-6 text-white">
-              <p class="text-sm font-light">{{ photo.filename }}</p>
-              <div v-if="photo.qualityScore" class="mt-2 flex items-center gap-2">
-                <span class="text-xs opacity-75">质量评分: {{ photo.qualityScore.toFixed(1) }}</span>
-              </div>
-              <div v-if="photo.aiOverallScore" class="mt-1 flex items-center gap-2">
-                <span class="text-xs opacity-75">AI评分: {{ photo.aiOverallScore.toFixed(1) }}</span>
-                <div class="flex gap-1">
-                  <span v-if="photo.aiTechnicalScore" class="text-xs opacity-60">技{{ photo.aiTechnicalScore.toFixed(0) }}</span>
-                  <span v-if="photo.aiCompositionScore" class="text-xs opacity-60">构{{ photo.aiCompositionScore.toFixed(0) }}</span>
-                  <span v-if="photo.aiAppealScore" class="text-xs opacity-60">吸{{ photo.aiAppealScore.toFixed(0) }}</span>
-                </div>
+            <!-- 曝光参数悬浮层 -->
+            <div v-if="photo.focalLength || photo.aperture || photo.iso || photo.shutterSpeed || photo.cameraModel" class="photo-info-overlay">
+              <div class="params-row">
+                <span v-if="photo.focalLength" class="param">{{ photo.focalLength }}mm</span>
+                <span v-if="photo.aperture" class="param">f/{{ photo.aperture }}</span>
+                <span v-if="photo.shutterSpeed" class="param">{{ photo.shutterSpeed }}</span>
+                <span v-if="photo.iso" class="param">ISO {{ photo.iso }}</span>
+                <span v-if="photo.cameraModel" class="param camera-param">{{ photo.cameraModel }}</span>
               </div>
             </div>
           </div>
@@ -104,11 +98,12 @@
         </div>
       </div>
 
-      <div v-if="loading && photos.length > 0" class="text-center mt-12">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+      <!-- 加载状态 -->
+      <div v-if="isLoadingMore && photos.length > 0" class="mt-12 text-center">
+        <div class="inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-900 dark:border-gray-600 dark:border-t-white rounded-full animate-spin"></div>
       </div>
-      <div v-if="!hasMore && photos.length > 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
-        <p>已加载全部图片</p>
+      <div v-if="!hasMore && photos.length > 0" class="mt-12 text-center">
+        <p class="text-xs text-gray-400 tracking-widest">— 已加载全部 —</p>
       </div>
     </main>
     <PhotoViewer
@@ -867,6 +862,69 @@ onDeactivated(() => {
 /* 减少图片间距，与其他页面保持一致 */
 .photo-card {
   margin-bottom: 0.15rem !important;
+  transition: transform 0.3s ease;
+}
+
+.photo-card:hover {
+  transform: translateY(-2px);
+}
+
+.photo-card:hover .photo-image {
+  transform: scale(1.03);
+}
+
+.photo-image {
+  transition: transform 0.4s ease;
+}
+
+/* 曝光参数悬浮层 */
+.photo-info-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  transform: translateY(5px);
+  /* 模糊背景层 - 始终保持渲染 */
+  background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.3) 100%);
+}
+
+.group:hover .photo-info-overlay {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.params-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.3px;
+}
+
+.param {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.camera-info {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 4px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.camera-param {
+  margin-left: auto;
 }
 </style>
 

@@ -86,8 +86,10 @@ public class FaceController {
      * 人物列表（含代表头像）
      */
     @GetMapping("/persons/with-sample")
-    public ResponseEntity<List<com.photoexhibition.dto.PersonSummaryDTO>> listPersonsWithSample() {
-        return ResponseEntity.ok(faceService.listPersonsWithSample());
+    public ResponseEntity<Page<com.photoexhibition.dto.PersonSummaryDTO>> listPersonsWithSample(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(faceService.listPersonsWithSample(PageRequest.of(page, size)));
     }
 
     /**

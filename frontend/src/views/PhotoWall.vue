@@ -50,7 +50,7 @@
           :data-photo-id="photo.id"
           @click="openViewer(idx, $event)"
         >
-          <div class="masonry-image-wrapper">
+          <div class="masonry-image-wrapper rounded-lg overflow-hidden relative">
             <img
               :src="getImageUrl(photo)"
               :alt="photo.filename"
@@ -61,10 +61,14 @@
               @error="onImageError"
             />
           </div>
-          <div class="gradient-overlay">
-            <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
-              <p class="text-sm font-light">{{ photo.filename }}</p>
-              <p v-if="photo.cameraModel" class="text-xs opacity-75 mt-1">{{ photo.cameraModel }}</p>
+          <!-- 曝光参数悬浮层 -->
+          <div v-if="photo.focalLength || photo.aperture || photo.iso || photo.shutterSpeed || photo.cameraModel" class="photo-info-overlay">
+            <div class="params-row">
+              <span v-if="photo.focalLength" class="param">{{ photo.focalLength }}mm</span>
+              <span v-if="photo.aperture" class="param">f/{{ photo.aperture }}</span>
+              <span v-if="photo.shutterSpeed" class="param">{{ photo.shutterSpeed }}</span>
+              <span v-if="photo.iso" class="param">ISO {{ photo.iso }}</span>
+              <span v-if="photo.cameraModel" class="param camera-param">{{ photo.cameraModel }}</span>
             </div>
           </div>
           <!-- 点赞覆盖层 -->
@@ -91,14 +95,15 @@
         </div>
       </div>
 
-      <div v-if="loading && photos.length > 0" class="text-center mt-12">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+      <!-- 加载状态 -->
+      <div v-if="isLoadingMore && photos.length > 0" class="mt-12 text-center">
+        <div class="inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-900 dark:border-gray-600 dark:border-t-white rounded-full animate-spin"></div>
       </div>
-      <div v-if="!loading && photos.length === 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
-        <p>暂无图片</p>
+      <div v-if="!loading && photos.length === 0" class="mt-24 text-center">
+        <p class="text-sm text-gray-400">暂无图片</p>
       </div>
-      <div v-if="!hasMore && photos.length > 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
-        <p>已加载全部图片</p>
+      <div v-if="!hasMore && photos.length > 0" class="mt-12 text-center">
+        <p class="text-xs text-gray-400 tracking-widest">— 已加载全部 —</p>
       </div>
     </main>
     <PhotoViewer
@@ -309,7 +314,7 @@ const columnCount = computed(() => {
 const columnWidth = computed(() => {
   if (!masonryContainer.value) return 0
   const containerWidth = masonryContainer.value.clientWidth
-  const gap = 8  // 减小间距，与其他页面一致
+  const gap = 10  // 减小间距，与其他页面一致
   const cols = columnCount.value
   if (cols <= 0) return 0
   const totalGapWidth = (cols - 1) * gap
@@ -330,7 +335,7 @@ const getItemStyle = (idx: number) => {
   if (!pos) return { visibility: 'hidden' }
 
   const cols = columnCount.value
-  const gap = 8  // 减小间距，与其他页面一致
+  const gap = 10  // 减小间距，与其他页面一致
   const containerWidth = masonryContainer.value?.clientWidth || window.innerWidth
   const totalGapWidth = (cols - 1) * gap
   const availableWidth = containerWidth - totalGapWidth
@@ -364,18 +369,19 @@ const getItemStyle = (idx: number) => {
 // 获取图片样式（包含视差偏移和放大）
 const getImageStyle = (idx: number) => {
   const parallaxOffset = parallaxEnabled.value ? (parallaxOffsets.value[idx] || 0) : 0
-  // 放大图片以填充容器并允许视差滚动显示不同部分
-  // 增加基础放大比例以消除白边
-  const baseScale = 1.2
-  
-  // 根据图片位置和视差偏移动态调整放大比例
-  // 如果图片向上偏移（parallaxOffset < 0），需要更大的放大比例来填充下方
-  // 如果图片向下偏移（parallaxOffset > 0），需要更大的放大比例来填充上方
-  const offsetScale = parallaxEnabled.value && Math.abs(parallaxOffset) > 0 ? 0.05 : 0
-  const scale = baseScale + offsetScale
-  
+
+  // 基础放大比例：填充容器
+  const baseScale = 1.15
+
+  // 额外缩放：补偿视差偏移造成的白边
+  // 最大偏移约为图片高度的 20%，需要额外的缩放来填充
+  const compensationScale = parallaxEnabled.value ? 0.08 : 0
+
+  const scale = baseScale + compensationScale
+
   return {
-    transform: `translateY(${parallaxOffset}px) scale(${scale})`,
+    // offset 为正时，translateY 为负，图片向上移动，显示顶部内容
+    transform: `translateY(${-parallaxOffset}px) scale(${scale})`,
     transformOrigin: 'center center'
   }
 }
@@ -684,7 +690,7 @@ const layoutItems = () => {
   const cols = columnCount.value
   if (cols <= 0) return
 
-  const gap = 8  // 减小间距，与其他页面一致
+  const gap = 10  // 减小间距，与其他页面一致
   const container = masonryContainer.value
   const containerWidth = container.clientWidth
 
@@ -847,44 +853,45 @@ const updateParallax = () => {
     parallaxOffsets.value = new Array(itemPositions.value.length).fill(0)
     return
   }
-  
+
   const scrollTop = window.scrollY || document.documentElement.scrollTop
   const windowHeight = window.innerHeight
   const containerRect = masonryContainer.value.getBoundingClientRect()
   const containerTop = containerRect.top + scrollTop
   const viewportTop = scrollTop
   const viewportBottom = scrollTop + windowHeight
-  const viewportCenterY = scrollTop + windowHeight / 2
-  
-  // 视差强度（可调整，值越大偏移越明显）
-  // 减小视差强度，避免图片偏移过大导致白边
-  const parallaxStrength = 0.12
-  
+
+  // 视差强度：图片在视口内滑动时，总偏移量约为图片高度的25%
+  const maxOffsetRatio = 0.25
+
   parallaxOffsets.value = itemPositions.value.map((pos, idx) => {
     if (!itemRefs.value[idx]) return 0
-    
-    // 计算图片中心点相对于容器的位置
+
+    // 计算图片相对于容器的位置
     const itemHeight = itemRefs.value[idx]?.offsetHeight || 200
     const itemTop = containerTop + pos.top
-    const itemBottom = itemTop + itemHeight
-    const itemCenterY = itemTop + itemHeight / 2
-    
-    // 检查图片是否在视口范围内（包括部分可见）
-    const isVisible = itemBottom > viewportTop && itemTop < viewportBottom
-    
-    if (!isVisible) {
-      // 如果图片完全不在视口内，不应用视差
-      return 0
-    }
-    
-    // 计算图片中心点相对于视口中心的距离
-    const distanceFromCenter = itemCenterY - viewportCenterY
-    
-    // 计算偏移量：距离中心越远，偏移越大；在中心时为0
-    // 减小最大偏移量，避免白边
-    const maxOffset = itemHeight * 0.08 // 最大偏移为图片高度的8%
-    const offset = Math.max(-maxOffset, Math.min(maxOffset, distanceFromCenter * parallaxStrength))
-    
+
+    // 视差范围：从 itemTop = viewportBottom + extraRange 到 itemTop = viewportTop - extraRange
+    // 这样图片在整个视差范围内，translateY 从 +maxOffset 过渡到 -maxOffset
+    // 效果：从底部进入时显示顶部，从顶部离开时显示底部
+    const extraRange = itemHeight * 1.5
+    const parallaxStart = viewportBottom + extraRange  // 视差开始：图片顶部在视口下方
+    const parallaxEnd = viewportTop - extraRange  // 视差结束：图片顶部在视口上方
+    const totalRange = parallaxEnd - parallaxStart  // 视差总范围
+
+    // 计算进度：基于 itemTop 相对于视差范围的位置
+    // progress = 0: itemTop = parallaxStart（图片在视口下方）
+    // progress = 0.5: itemTop = viewportBottom（图片中间）
+    // progress = 1: itemTop = parallaxEnd（图片在视口上方）
+    const progress = Math.min(1, Math.max(0, (itemTop - parallaxStart) / totalRange))
+
+    // 线性视差：从 +maxOffset 过渡到 -maxOffset
+    // progress=0: offset = +maxOffset（translateY = -maxOffset，显示顶部）
+    // progress=0.5: offset = 0（translateY = 0，正常）
+    // progress=1: offset = -maxOffset（translateY = +maxOffset，显示底部）
+    const maxOffset = itemHeight * maxOffsetRatio
+    const offset = maxOffset * (1 - 2 * progress)
+
     return offset
   })
 }
@@ -1065,9 +1072,12 @@ onDeactivated(() => {
 }
 
 .masonry-item {
-  /* 绝对定位布局，margin-bottom 无效，由布局计算控制间距 */
-  transition: transform 0.1s ease-out;
+  transition: transform 0.3s ease;
   will-change: transform;
+}
+
+.masonry-item:hover {
+  transform: translateY(-2px);
 }
 
 .masonry-image-wrapper {
@@ -1076,17 +1086,57 @@ onDeactivated(() => {
   position: relative;
 }
 
+/* 曝光参数悬浮层 */
+.photo-info-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  transform: translateY(5px);
+  /* 模糊背景层 - 始终保持渲染 */
+  background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.3) 100%);
+}
+
+.masonry-item:hover .photo-info-overlay {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.params-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.3px;
+}
+
+.param {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.camera-param {
+  margin-left: auto;
+}
+
 .masonry-photo-image {
   width: 100%;
   height: auto;
   display: block;
   object-fit: cover;
-  transition: transform 0.1s ease-out;
-  will-change: transform;
 }
 
-.masonry-photo-image:hover {
-  transform: scale(1.2) !important;
+.masonry-item:hover .masonry-photo-image {
+  transform: scale(1.05);
 }
 
 /* like overlay */

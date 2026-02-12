@@ -101,12 +101,7 @@
         transform: `scale(${Math.max(0.95, 1 - scrolled / 2000)}) translateY(${scrolled * 0.1}px)`
       }"
     >
-      <!-- 背景装饰 -->
-      <div class="absolute inset-0 bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900"></div>
-      <div class="absolute inset-0 opacity-30">
-        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
-        <div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-pink-400/20 to-orange-400/20 rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2"></div>
-      </div>
+      <!-- 微弱装饰 - 保持透明背景 -->
 
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex flex-col lg:flex-row gap-8 lg:gap-12">
@@ -118,8 +113,8 @@
             }"
           >
             <div class="relative">
-              <!-- 头像光晕效果 -->
-              <div class="absolute -inset-1 bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 rounded-full blur-xl opacity-60 animate-pulse duration-3000"></div>
+              <!-- 头像光晕效果 - 带脉动动画 -->
+              <div class="absolute -inset-1 bg-gradient-to-r from-blue-500/40 via-purple-500/40 to-pink-500/40 rounded-full blur-xl opacity-60 animate-pulse-slow"></div>
               <div class="relative w-36 h-36 md:w-44 md:h-44 lg:w-52 lg:h-52 rounded-2xl bg-gradient-to-br from-white to-gray-100 dark:from-gray-800 dark:to-gray-900 shadow-2xl overflow-hidden ring-4 ring-white/50 dark:ring-gray-800/50">
                 <img
                   v-if="person?.sampleThumbnailPath"
@@ -153,7 +148,7 @@
 
             <!-- 统计信息 - 简洁卡片风格 -->
             <div class="flex flex-wrap gap-3">
-              <div class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+              <div class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md hover:bg-white/80 dark:hover:bg-gray-800/80 transition-all duration-300">
                 <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
                   <svg class="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -163,7 +158,7 @@
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person?.faceCount || 0 }} 图片</span>
               </div>
 
-              <div v-if="person?.photoCount && person.photoCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+              <div v-if="person?.photoCount && person.photoCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md hover:bg-white/80 dark:hover:bg-gray-800/80 transition-all duration-300">
                 <div class="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
                   <svg class="w-4 h-4 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -172,7 +167,7 @@
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person.photoCount }} 照片</span>
               </div>
 
-              <div v-if="person?.albumCount && person.albumCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+              <div v-if="person?.albumCount && person.albumCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md hover:bg-white/80 dark:hover:bg-gray-800/80 transition-all duration-300">
                 <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-50 to-orange-50 dark:from-pink-900/30 dark:to-orange-900/30 flex items-center justify-center">
                   <svg class="w-4 h-4 text-gradient-to-r from-pink-500 to-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -187,7 +182,7 @@
     </div>
 
     <!-- Tab 切换 - 带有背景装饰 -->
-    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-2">
       <div class="relative">
         <div class="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 rounded-2xl blur-xl -z-10"></div>
         <div class="border-b border-gray-200/50 dark:border-gray-800/50 backdrop-blur-sm">
@@ -208,10 +203,15 @@
                   {{ albumRecommendations.length }}
                 </span>
               </span>
-              <!-- 选中指示器 -->
+              <!-- 选中指示器 - 带发光效果 -->
               <span
                 v-if="activeTab === 'albums'"
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full shadow-lg shadow-purple-500/50"
+              ></span>
+              <!-- 悬停效果 -->
+              <span
+                v-else
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full opacity-0 transition-opacity duration-300 hover:opacity-100"
               ></span>
             </button>
             <button
@@ -230,10 +230,15 @@
                   {{ person?.faceCount || 0 }}
                 </span>
               </span>
-              <!-- 选中指示器 -->
+              <!-- 选中指示器 - 带发光效果 -->
               <span
                 v-if="activeTab === 'photos'"
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full shadow-lg shadow-purple-500/50"
+              ></span>
+              <!-- 悬停效果 -->
+              <span
+                v-else
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full opacity-0 transition-opacity duration-300 hover:opacity-100"
               ></span>
             </button>
           </nav>
@@ -242,7 +247,7 @@
     </div>
 
     <!-- 内容区域 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
       <!-- 相册 Tab -->
       <div :class="['tab-content', { 'tab-enter-active': activeTab === 'albums' }]">
         <div v-if="activeTab === 'albums'">
@@ -266,10 +271,13 @@
           </div>
 
           <div v-else class="flex flex-col items-center justify-center h-80 text-gray-500 dark:text-gray-400">
-            <div class="w-20 h-20 mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-              <svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
+            <div class="relative mb-4">
+              <div class="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                <svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <div class="absolute -inset-2 bg-gradient-to-r from-blue-400/20 to-purple-400/20 rounded-2xl blur-lg"></div>
             </div>
             <h3 class="text-lg font-medium mb-1">暂无推荐相册</h3>
             <p class="text-sm opacity-60">该人物暂无可推荐的相册</p>
@@ -294,7 +302,7 @@
             <div
               v-for="face in personPhotos"
               :key="face.id"
-              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
               @click="goToPhoto(face.photoId!)"
             >
               <img
@@ -303,8 +311,17 @@
                 class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                 loading="lazy"
               />
-              <!-- 悬停遮罩 -->
-              <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <!-- 悬停遮罩 - 带渐变 -->
+              <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300"></div>
+              <!-- 悬停时的图片数量指示器 -->
+              <div class="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0">
+                <div class="flex items-center gap-1 px-2 py-1 bg-black/50 backdrop-blur-sm rounded-lg">
+                  <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -325,10 +342,13 @@
           </div>
 
           <div v-else class="flex flex-col items-center justify-center h-80 text-gray-500 dark:text-gray-400">
-            <div class="w-20 h-20 mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-              <svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+            <div class="relative mb-4">
+              <div class="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                <svg class="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div class="absolute -inset-2 bg-gradient-to-r from-pink-400/20 to-orange-400/20 rounded-2xl blur-lg"></div>
             </div>
             <h3 class="text-lg font-medium mb-1">暂无照片</h3>
             <p class="text-sm opacity-60">该人物暂无可显示的照片</p>
@@ -525,6 +545,22 @@ onUnmounted(() => {
 
 .tab-enter-active {
   animation-name: slideInRight;
+}
+
+/* 头像光晕慢速脉动动画 */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
 }
 
 @keyframes slideInRight {
