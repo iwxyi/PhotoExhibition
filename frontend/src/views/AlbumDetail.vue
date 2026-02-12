@@ -46,9 +46,9 @@
         </div>
       </div>
 
-      <!-- 初始加载状态 -->
-      <div v-if="isInitialLoading" class="flex items-center justify-center min-h-[50vh]">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
+      <!-- 初始加载状态 - 固定定位，不影响布局 -->
+      <div v-if="isInitialLoading" class="fixed left-1/2 top-[200px] -translate-x-1/2 z-40">
+        <div class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-gray-400 dark:border-gray-500"></div>
       </div>
 
       <!-- 相册内容 -->
@@ -981,11 +981,13 @@ const handleBack = async () => {
     delete (window as any).__albumTransitionRemoveTimer
   }
 
-  // 清理临时克隆元素
+  // 清理临时克隆元素（详情页展开动画使用的克隆）
   transitionClones.forEach(clone => {
     clone.remove()
   })
   transitionClones = []
+
+  // 注意：不要清理 .album-back-clone 元素，它们会被传递到 Home 页用于返回动画
 
   // 恢复所有照片的显示状态
   photoRefs.value.forEach((photoElement) => {
@@ -1253,33 +1255,16 @@ const startBackTransitionAndNavigate = () => {
   const albumId = parseInt(route.params.id as string)
   const storageKey = `album-cover-rects-${albumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  const animationPerformed = sessionStorage.getItem('album-animation-performed') === 'true'
-  console.log('[返回动画] 检查条件:', { albumId, storedData: !!storedData, animationPerformed })
+  const isFromDirectUrl = sessionStorage.getItem('album-navigation-active') !== 'true'
 
-  // 只有真正执行过展开动画的页面才能执行返回动画
-  const shouldPerformBackTransition = animationPerformed
-
-  // 如果没有动画执行记录，清理可能残留的数据并导航到主页
-  if (!shouldPerformBackTransition) {
-    console.log('[返回动画] 没有展开动画记录，直接跳转')
-    sessionStorage.removeItem('album-back-transition')
-    sessionStorage.removeItem('album-navigation-active')
-    sessionStorage.removeItem('album-animation-performed')
-    // 直接导航到主页，而不是使用router.back()（因为可能没有有效的历史记录）
-    router.push('/')
-    return
-  }
+  console.log('[返回动画] 启动，返回方式:', isFromDirectUrl ? '直接URL进入' : '正常导航')
 
   // 如果没有封面位置信息，直接跳转
   if (!storedData || photos.value.length === 0) {
-    // no stored data — navigate to home
-    router.push('/')
-    return
-  }
-
-  // 如果不是从正常导航来的，直接跳转
-  if (!shouldPerformBackTransition) {
-    // not from navigation — navigate to home
+    console.log('[返回动画] 无封面数据，直接跳转')
+    sessionStorage.removeItem('album-back-transition')
+    sessionStorage.removeItem('album-animation-performed')
+    sessionStorage.removeItem('album-navigation-active')
     router.push('/')
     return
   }
@@ -1375,16 +1360,21 @@ const startBackTransitionAndNavigate = () => {
           overlayClone.classList.add('album-back-overlay-clone')
           overlayClone.dataset.albumId = String(albumId)
           overlayClone.dataset.photoId = String(photoId)
-          
+
           document.body.appendChild(overlayClone)
         }
       }
 
       // clones created
 
+      console.log('[返回动画] 克隆数量:', usedPhotoIds.length)
+
       // 如果没有创建任何克隆，直接跳转
       if (usedPhotoIds.length === 0) {
-        router.back()
+        sessionStorage.removeItem('album-back-transition')
+        sessionStorage.removeItem('album-animation-performed')
+        sessionStorage.removeItem('album-navigation-active')
+        router.push('/')
         return
       }
 
@@ -1393,14 +1383,15 @@ const startBackTransitionAndNavigate = () => {
       backTransitionData.photoIds = usedPhotoIds
       backTransitionData.coverRects = coverRects
       sessionStorage.setItem('album-back-transition', JSON.stringify(backTransitionData))
-      
+
       // 清理已使用的数据
       sessionStorage.removeItem(storageKey)
 
       // session storage set
 
-      // 立即跳转，让用户感觉响应更快
-      router.back()
+      // 使用 router.push('/') 确保导航成功（router.back() 在某些情况下可能无效）
+      console.log('[返回动画] 导航到 Home')
+      router.push('/')
 
       // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
       setTimeout(() => {
@@ -1413,6 +1404,9 @@ const startBackTransitionAndNavigate = () => {
   } catch (error) {
     console.error('启动返回相册列表动画失败:', error)
     // 出错时导航到主页
+    sessionStorage.removeItem('album-back-transition')
+    sessionStorage.removeItem('album-animation-performed')
+    sessionStorage.removeItem('album-navigation-active')
     router.push('/')
   }
 }
@@ -1555,7 +1549,14 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('scroll', handleScroll)
-  // 注意：动画状态已经在 handleBack 中提前清理了，这里只需要处理可能遗漏的情况
+
+  // 清理临时克隆元素（详情页展开动画使用的克隆）
+  transitionClones.forEach(clone => {
+    clone.remove()
+  })
+  transitionClones = []
+
+  // 注意：不要清理 .album-back-clone 元素，它们会被传递到 Home 页用于返回动画
 
   // 注意：不要清理 album-cover-rects 和 album-animation-performed，因为返回动画需要用到这些数据
   // 动画相关数据会在 Home.vue 的返回动画完成后清理

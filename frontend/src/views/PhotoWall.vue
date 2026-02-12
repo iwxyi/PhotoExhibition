@@ -775,10 +775,7 @@ const onImageError = (e: Event) => {
 const loadMore = async () => {
   // 防止重复加载
   if (loading.value || isLoadingMore.value || !hasMore.value) return
-  
-  // 保存当前滚动位置
-  const scrollTop = window.scrollY || document.documentElement.scrollTop
-  
+
   try {
     isLoadingMore.value = true
     // 如果筛选请求正在进行，先不触发加载更多（避免竞态）
@@ -792,7 +789,7 @@ const loadMore = async () => {
       return
     }
     currentPage.value++
-    
+
     let data: any
     // 使用 store 的同步 helper判断是否处于活动筛选
     if (photoStore.hasActiveFilters && photoStore.hasActiveFilters()) {
@@ -825,22 +822,12 @@ const loadMore = async () => {
     console.log('[PhotoWall] 后端返回数据:', { last: data.last, contentLength: data.content?.length, totalPages: data.totalPages, currentPage: currentPage.value })
     hasMore.value = !data.last
 
-    // 等待新图片加载后重新布局并恢复滚动位置
-    nextTick(() => {
-      setTimeout(() => {
-        layoutItems()
-        window.scrollTo({ top: scrollTop, behavior: 'instant' })
-      }, 200)
-    })
+    // 新内容自然添加到页面底部，滚动位置自然延续，无需手动恢复
   } catch (error) {
     console.error('加载更多失败:', error)
     // 加载失败时回退页码
     currentPage.value--
     hasMore.value = false
-    // 恢复滚动位置
-    nextTick(() => {
-      window.scrollTo({ top: scrollTop, behavior: 'instant' })
-    })
   } finally {
     isLoadingMore.value = false
   }
@@ -902,19 +889,19 @@ const handleScroll = () => {
   // 更新视差效果
   updateParallax()
 
-  if (scrollTimer) clearTimeout(scrollTimer)
+  if (scrollTimer) return
+
   scrollTimer = setTimeout(() => {
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
 
-    console.log('[PhotoWall] scroll 检查 - scrollTop:', scrollTop, 'windowHeight:', windowHeight, 'documentHeight:', documentHeight, 'hasMore:', hasMore.value, 'loading:', loading.value, 'isLoadingMore:', isLoadingMore.value)
-
     // 距离底部 800px 时开始加载
     if (scrollTop + windowHeight >= documentHeight - 800) {
-      console.log('[PhotoWall] 触发加载条件，准备调用 loadMore')
       loadMore()
     }
+
+    scrollTimer = null
   }, 100)
 }
 

@@ -568,6 +568,15 @@ const loadAlbumSortOrder = async () => {
 
 
 onMounted(async () => {
+  // 清理可能残留的克隆元素（处理直接URL进入后返回或页面刷新等情况）
+  // 注意：不要清理 sessionStorage 数据，因为 performAlbumBackTransitionIfNeeded 需要用到它们
+  // 使用 setTimeout 延迟清理，确保动画有足够时间运行
+  setTimeout(() => {
+    document.querySelectorAll('.album-back-clone, .album-back-overlay-clone').forEach(clone => {
+      clone.remove()
+    })
+  }, 500)
+
   // 从 sessionStorage 恢复滚动位置（处理刷新后返回的情况）
   const savedPos = sessionStorage.getItem('home-scroll-position')
   if (savedPos) {
