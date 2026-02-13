@@ -247,11 +247,17 @@ export const personApi = {
   // 获取人物的相册推荐
   getPersonAlbumRecommendations: (personId: number) => api.get<AlbumRecommendation[]>(`/public/persons/${personId}/album-recommendations`),
 
+  // 获取指定相册中的人物列表（按人脸数量倒序）
+  getAlbumPersons: (albumId: number) => api.get<PersonSummary[]>(`/public/albums/${albumId}/persons`),
+
   // 获取人物被指派的图片（分页）
   getPersonAssignedPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/assigned-photos?page=${page}&size=${size}`),
 
   // 获取人物的所有照片（人脸所在照片）
   getPersonPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/photos?page=${page}&size=${size}`),
+
+  // 获取指定相册中的人物列表（按人脸数量倒序）
+  getAlbumPersons: (albumId: number) => api.get<PersonSummary[]>(`/public/albums/${albumId}/persons`),
 
   // 设置人物的样例照片
   setSamplePhoto: (personId: number, faceId: number) => api.post<Person>(`/admin/persons/${personId}/set-sample`, { faceId })

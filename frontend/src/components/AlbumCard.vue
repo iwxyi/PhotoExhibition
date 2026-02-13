@@ -134,6 +134,10 @@ const handleClick = () => {
   }
   })
   
+  // 先保存滚动位置（可能在导航前被重置）
+  const scrollY = window.scrollY || 0
+  sessionStorage.setItem('home-scroll-position', String(scrollY))
+  
   // 保存到 sessionStorage，供 AlbumDetail 使用
   if (coverRects.length > 0) {
     sessionStorage.setItem(

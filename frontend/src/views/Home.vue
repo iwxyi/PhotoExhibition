@@ -206,6 +206,8 @@ const getDynamicLoadSize = () => {
 }
 
 const goToAlbum = (id: number) => {
+  // 保存来源页面（当前完整路径），用于返回时判断
+  sessionStorage.setItem('album-entry-page', window.location.pathname)
   // 设置导航标志和时间戳，确保只有立即导航才能检测到
   sessionStorage.setItem('album-navigation-active', Date.now().toString())
   router.push(`/album/${id}`)
@@ -340,7 +342,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
       ovClone.style.pointerEvents = 'none'
       ovClone.style.opacity = '0'
       // 使用轻微回弹效果的 ease-out 曲线
-      ovClone.style.transition = 'opacity 120ms cubic-bezier(0.34, 1.56, 0.64, 1), transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+      ovClone.style.transition = 'opacity 120ms cubic-bezier(0.34, 1.56, 0.64, 1), transform 340ms cubic-bezier(0.34, 1.4, 0.63, 1)'
       ovClone.style.transform = 'scale(0.98)'
       ovClone.classList.add('album-back-overlay-clone')
       document.body.appendChild(ovClone)
@@ -417,6 +419,15 @@ const performAlbumBackTransitionIfNeeded = async () => {
         requestAnimationFrame(() => {
           clones.forEach((clone) => clone.remove())
           overlayClones.forEach((ov) => ov.remove())
+
+          // 动画完成后恢复滚动位置
+          const savedPos = sessionStorage.getItem('home-scroll-position')
+          if (savedPos) {
+            const scrollY = parseInt(savedPos, 10)
+            window.scrollTo({ top: scrollY, left: 0, behavior: 'instant' as ScrollBehavior })
+            savedScrollTop.value = scrollY
+          }
+
           sessionStorage.removeItem('album-back-transition')
           sessionStorage.removeItem('album-animation-performed')
         })
@@ -616,8 +627,10 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
-  // 恢复滚动位置（在动画之前执行）
-  window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
+  // 恢复滚动位置 - 直接从 sessionStorage 读取
+  const savedPos = sessionStorage.getItem('home-scroll-position')
+  const scrollY = savedPos ? parseInt(savedPos, 10) : savedScrollTop.value
+  window.scrollTo({ top: scrollY, left: 0, behavior: 'instant' as ScrollBehavior })
 
   // 重新添加滚动事件监听器（从 AlbumDetail 返回后需要重新添加）
   window.addEventListener('scroll', handleScroll, { passive: true })
@@ -632,8 +645,14 @@ onActivated(() => {
 })
 
 onDeactivated(() => {
-  savedScrollTop.value = window.scrollY || 0
-  sessionStorage.setItem('home-scroll-position', String(savedScrollTop.value))
+  // 保存滚动位置到 sessionStorage 和 ref
+  const scrollY = window.scrollY || 0
+  const existingPos = sessionStorage.getItem('home-scroll-position')
+  // 如果已经有保存的滚动位置且当前是 0（说明是路由切换导致的），不要覆盖
+  if (scrollY > 0 || !existingPos) {
+    savedScrollTop.value = scrollY
+    sessionStorage.setItem('home-scroll-position', String(scrollY))
+  }
   window.removeEventListener('scroll', handleScroll)
 })
 

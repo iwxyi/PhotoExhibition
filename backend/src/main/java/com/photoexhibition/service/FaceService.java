@@ -1610,6 +1610,41 @@ public class FaceService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * 获取指定相册中的人物列表（按人脸数量倒序）
+     */
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId) {
+        List<Object[]> rows = faceRepository.findPersonIdsWithFaceCountByAlbumId(albumId);
+        List<PersonSummaryDTO> result = new ArrayList<>();
+
+        for (Object[] row : rows) {
+            Long personId = ((Number) row[0]).longValue();
+            Integer faceCount = ((Number) row[1]).intValue();
+
+            // 获取人物信息
+            PersonProfile person = personProfileRepository.findById(personId).orElse(null);
+            if (person == null) continue;
+
+            PersonSummaryDTO dto = new PersonSummaryDTO();
+            dto.setId(person.getId());
+            dto.setName(person.getName());
+            dto.setDescription(person.getDescription());
+            dto.setFaceCount(faceCount);
+
+            // 获取代表缩略图
+            Object[] sampleData = getPersonSamplePhoto(person.getId());
+            if (sampleData[0] != null && sampleData[2] != null) {
+                dto.setSampleFaceId((Long) sampleData[0]);
+                dto.setSampleThumbnailPath((String) sampleData[2]);
+            }
+
+            result.add(dto);
+        }
+
+        return result;
+    }
+
     @Transactional
     public PersonDTO createOrUpdatePerson(Long id, PersonDTO payload) {
         PersonProfile person;

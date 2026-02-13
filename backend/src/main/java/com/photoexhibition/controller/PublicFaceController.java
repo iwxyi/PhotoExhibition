@@ -76,4 +76,12 @@ public class PublicFaceController {
         List<FaceDTO> faces = faceService.getPersonSamplePhotos(personId);
         return ResponseEntity.ok(faces);
     }
+
+    /**
+     * 获取指定相册中的人物列表（按人脸数量倒序）- 公开API
+     */
+    @GetMapping("/albums/{albumId}/persons")
+    public ResponseEntity<List<PersonSummaryDTO>> getPersonsInAlbum(@PathVariable Long albumId) {
+        return ResponseEntity.ok(faceService.getPersonsInAlbum(albumId));
+    }
 }

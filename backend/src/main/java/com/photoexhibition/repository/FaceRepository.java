@@ -97,5 +97,14 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     @Query("SELECT DISTINCT p.albumId FROM Face f JOIN f.photo p WHERE f.person.id = :personId " +
            "ORDER BY p.albumId DESC")
     List<Long> findDistinctAlbumIdsByPersonId(@Param("personId") Long personId);
+
+    /**
+     * 获取指定相册中所有已确认的人物及其人脸数量（按人脸数量倒序）
+     * 返回: [personId, faceCount]
+     */
+    @Query("SELECT p.id, COUNT(f) as cnt FROM Face f JOIN f.person p " +
+           "WHERE f.isConfirmed = true AND f.photo.albumId = :albumId " +
+           "GROUP BY p.id ORDER BY cnt DESC")
+    List<Object[]> findPersonIdsWithFaceCountByAlbumId(@Param("albumId") Long albumId);
 }
 

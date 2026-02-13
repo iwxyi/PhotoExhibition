@@ -39,6 +39,14 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <!-- 滚动进度条 -->
+      <div class="fixed top-0 left-0 right-0 h-0.5 z-50 bg-transparent">
+        <div
+          class="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 transition-all duration-100 ease-out"
+          :style="{ width: scrollProgress + '%', opacity: scrollProgress > 0 ? 1 : 0 }"
+        ></div>
+      </div>
+
       <!-- download progress bar -->
       <div v-if="downloadInProgress" class="fixed left-0 right-0 top-0 z-50">
         <div class="h-1 bg-gray-200 dark:bg-gray-800 w-full">
@@ -59,9 +67,45 @@
           <p v-if="album.description" class="album-description">{{ album.description }}</p>
           <!-- 分割线：位于备注和照片数量之间 -->
           <div class="album-header-divider"></div>
-          <p class="album-meta" :style="{ ...textStyle, opacity: 0.6 }">
-            {{ album.photoCount }} 张照片{{ commentCount > 0 ? ` · ${commentCount} 条评论` : '' }}
+          <p class="album-meta" :style="{ ...textStyle, opacity: 0.8 }">
+            <svg class="w-4 h-4 album-meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21,15 16,10 5,21"/>
+            </svg>
+            {{ album.photoCount }} 张照片
+            <span v-if="commentCount > 0" class="text-gray-400">·</span>
+            <span v-if="commentCount > 0">{{ commentCount }} 条评论</span>
           </p>
+        </div>
+
+        <!-- 人物列表 - 横向可滚动 -->
+        <div v-if="albumPersons.length > 0" class="album-persons-section">
+          <div class="album-persons-scroll">
+            <div
+              v-for="person in albumPersons"
+              :key="person.id"
+              class="album-person-card"
+              @click="router.push({ path: `/person/${person.id}`, query: { from: route.fullPath } })"
+            >
+              <div class="person-avatar-wrapper">
+                <img
+                  v-if="person.sampleThumbnailPath"
+                  :src="getImageUrl({ thumbnailPath: person.sampleThumbnailPath })"
+                  :alt="person.name"
+                  class="person-avatar"
+                />
+                <div v-else class="person-avatar-placeholder">
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                </div>
+              </div>
+              <span class="person-name">{{ person.name }}</span>
+              <span class="person-count">{{ person.faceCount }} 张</span>
+            </div>
+          </div>
         </div>
 
         <MasonryLayout
@@ -111,8 +155,11 @@
                 ⤢
               </button>
               <div class="gradient-overlay">
-                <div class="absolute bottom-0 left-0 right-0 p-4 text-white">
-                  <p class="text-sm font-light">{{ photo.filename }}</p>
+                <div class="photo-info absolute bottom-0 left-0 right-0 p-4 text-white">
+                  <p class="text-sm font-light truncate">{{ photo.filename }}</p>
+                  <p v-if="photo.width && photo.height" class="photo-dimensions text-xs opacity-70 mt-0.5">
+                    {{ photo.width }} × {{ photo.height }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -142,6 +189,20 @@
         :is-dark-mode="themeStore.isDark"
         :is-atmosphere-enabled="atmosphereEnabled"
       />
+
+      <!-- 回到顶部按钮 -->
+      <Transition name="fade">
+        <button
+          v-if="scrollProgress > 20"
+          @click="scrollToTop"
+          class="fixed bottom-8 right-8 z-40 w-12 h-12 rounded-full bg-white/80 dark:bg-gray-800/80 backdrop-blur-md shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center justify-center text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-gray-700/50"
+          title="回到顶部"
+        >
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 15l-6-6-6 6"/>
+          </svg>
+        </button>
+      </Transition>
     </main>
     <PhotoViewer
       v-model:visible="viewerVisible"
@@ -166,7 +227,7 @@ import PhotoViewer from '@/components/PhotoViewer.vue'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import MasonryLayout from '@/components/MasonryLayout.vue'
 import CommentSection from '@/components/CommentSection.vue'
-import { commentApi, api } from '@/api'
+import { commentApi, api, personApi } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -194,6 +255,17 @@ const isDownloadAllowed = computed(() => {
 
 // 评论数量
 const commentCount = ref(0)
+
+// 相册中的人物列表
+interface AlbumPerson {
+  id: number
+  name: string
+  description?: string
+  sampleThumbnailPath?: string
+  faceCount?: number
+}
+const albumPersons = ref<AlbumPerson[]>([])
+const albumPersonsLoading = ref(false)
 
 // 图片加载状态
 const imagesLoaded = ref(false)
@@ -247,6 +319,7 @@ const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载
 
 // 返回按钮折叠状态
 const isBackButtonCollapsed = ref(false)
+const scrollProgress = ref(0)
 let lastScrollTop = 0
 const SCROLL_HYSTERESIS = 20 // 滚动滞后，避免频繁切换
 
@@ -258,6 +331,10 @@ const handleScroll = () => {
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
+
+    // 计算滚动进度（0-100）
+    const maxScroll = Math.max(0, documentHeight - windowHeight)
+    scrollProgress.value = maxScroll > 0 ? Math.round((scrollTop / maxScroll) * 100) : 0
 
     // 返回按钮折叠逻辑：向上滚动时展开，向下滚动时折叠
     const scrollDelta = scrollTop - lastScrollTop
@@ -280,6 +357,14 @@ const handleScroll = () => {
 
     scrollThrottleTimer = null
   }, SCROLL_THROTTLE_MS)
+}
+
+// 回到顶部
+const scrollToTop = () => {
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  })
 }
 
 // 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
@@ -969,8 +1054,45 @@ const handleBack = async () => {
     return
   }
 
-  // 在路由切换前清理动画状态，让组件卸载更快
+  // 获取来源页面（从 URL 参数获取，更可靠）
+  const fromParam = route.query.from as string
+  const entryPage = sessionStorage.getItem('album-entry-page')
+  
+  // URL 参数优先，其次是 sessionStorage
+  const targetPage = fromParam || entryPage
+  
+  // 判断是否应该使用动画：从 Home 页面直接导航来的（没有 from 参数，且 entryPage 是 / 或空）
+  const shouldAnimate = !fromParam && (!entryPage || entryPage === '/' || entryPage === '')
+  
+  console.log('[AlbumDetail] handleBack - fromParam:', fromParam, 'entryPage:', entryPage, 'shouldAnimate:', shouldAnimate)
 
+  // 清理临时状态
+  cleanupAnimationState()
+
+  if (shouldAnimate && photos.value.length > 0) {
+    // 从相册列表来的，使用返回动画
+    startBackTransitionAndNavigate()
+  } else {
+    // 从其他页面或直接 URL 进入，直接导航
+    // 清理动画相关状态
+    sessionStorage.removeItem('album-back-transition')
+    sessionStorage.removeItem('album-animation-performed')
+    sessionStorage.removeItem('album-navigation-active')
+    sessionStorage.removeItem('album-entry-page')
+    
+    // 根据来源决定去向
+    if (targetPage && targetPage !== '/') {
+      // 从其他页面来的，返回该页面
+      router.push(targetPage)
+    } else {
+      // 直接 URL 进入或无来源，返回相册列表
+      router.push('/')
+    }
+  }
+}
+
+// 分离动画清理逻辑，便于复用
+const cleanupAnimationState = () => {
   // 清理定时器
   if ((window as any).__albumTransitionCleanupTimer) {
     clearTimeout((window as any).__albumTransitionCleanupTimer)
@@ -995,9 +1117,6 @@ const handleBack = async () => {
     photoElement.style.pointerEvents = ''
     photoElement.style.transition = ''
   })
-
-  // 启动返回动画并立即返回相册列表，由 Home 页面继续完成缩回到封面的效果
-  startBackTransitionAndNavigate()
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
@@ -1171,8 +1290,8 @@ const performCoverTransition = async (): Promise<boolean> => {
       clone.style.pointerEvents = 'none'
       clone.style.borderRadius = '8px'
       clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-      // 使用更快且非线性的 easing，使打开封面更有弹性且更快
-      clone.style.transition = 'all 380ms cubic-bezier(0.22, 1, 0.36, 1)'
+      // 使用非线性 ease 曲线，但不要回弹
+      clone.style.transition = 'all 400ms cubic-bezier(0.22, 1, 0.36, 1)'
       clone.style.willChange = 'transform, width, height, top, left'
       
       document.body.appendChild(clone)
@@ -1265,7 +1384,15 @@ const startBackTransitionAndNavigate = () => {
     sessionStorage.removeItem('album-back-transition')
     sessionStorage.removeItem('album-animation-performed')
     sessionStorage.removeItem('album-navigation-active')
-    router.push('/')
+    sessionStorage.removeItem('album-entry-page')
+    
+    // 根据来源决定去向
+    const entryPage = sessionStorage.getItem('album-entry-page')
+    if (entryPage && entryPage !== '/') {
+      router.push(entryPage)
+    } else {
+      router.push('/')
+    }
     return
   }
 
@@ -1328,8 +1455,8 @@ const startBackTransitionAndNavigate = () => {
         clone.style.pointerEvents = 'none'
         clone.style.borderRadius = '8px'
         clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-        // 使用轻微回弹效果
-        clone.style.transition = 'all 320ms cubic-bezier(0.25, 0.8, 0.25, 1)'
+        // 使用带轻微回弹效果
+        clone.style.transition = 'all 340ms cubic-bezier(0.34, 1.4, 0.63, 1)'
         clone.style.willChange = 'transform, width, height, top, left'
         clone.classList.add('album-back-clone')
         clone.dataset.albumId = String(albumId)
@@ -1354,8 +1481,8 @@ const startBackTransitionAndNavigate = () => {
           // 初始状态：缩小并向下偏移，准备向上出现的动画
           overlayClone.style.transform = 'scale(0.95) translateY(8px)'
           overlayClone.style.opacity = '0'
-          // 使用 ease-out 曲线，缩回速度加快
-          overlayClone.style.transition = 'all 320ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease-out'
+          // 使用非线性 ease 曲线
+          overlayClone.style.transition = 'all 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease-out'
           overlayClone.style.willChange = 'transform, width, height, top, left'
           overlayClone.classList.add('album-back-overlay-clone')
           overlayClone.dataset.albumId = String(albumId)
@@ -1374,7 +1501,14 @@ const startBackTransitionAndNavigate = () => {
         sessionStorage.removeItem('album-back-transition')
         sessionStorage.removeItem('album-animation-performed')
         sessionStorage.removeItem('album-navigation-active')
-        router.push('/')
+        sessionStorage.removeItem('album-entry-page')
+
+        const entryPage = sessionStorage.getItem('album-entry-page')
+        if (entryPage && entryPage !== '/') {
+          router.push(entryPage)
+        } else {
+          router.push('/')
+        }
         return
       }
 
@@ -1386,6 +1520,8 @@ const startBackTransitionAndNavigate = () => {
 
       // 清理已使用的数据
       sessionStorage.removeItem(storageKey)
+      // 清理 entry-page，让 Home 页能正常恢复滚动位置
+      sessionStorage.removeItem('album-entry-page')
 
       // session storage set
 
@@ -1407,7 +1543,14 @@ const startBackTransitionAndNavigate = () => {
     sessionStorage.removeItem('album-back-transition')
     sessionStorage.removeItem('album-animation-performed')
     sessionStorage.removeItem('album-navigation-active')
-    router.push('/')
+    sessionStorage.removeItem('album-entry-page')
+    
+    const entryPage = sessionStorage.getItem('album-entry-page')
+    if (entryPage && entryPage !== '/') {
+      router.push(entryPage)
+    } else {
+      router.push('/')
+    }
   }
 }
 
@@ -1435,6 +1578,37 @@ onMounted(async () => {
   // 检查导航时间戳，确保只有最近的导航才能触发动画
   const navigationTimestamp = sessionStorage.getItem('album-navigation-active')
   const isFromNavigation = navigationTimestamp && (Date.now() - parseInt(navigationTimestamp)) < 5000 // 5秒内
+
+  // 获取并保存来源页面（用于返回导航）
+  // 优先级：URL 参数 > sessionStorage 已有值 > document.referrer > 空（直接 URL 访问）
+  const fromParam = route.query.from as string
+  let savedEntryPage = sessionStorage.getItem('album-entry-page')
+  
+  console.log('[AlbumDetail] onMounted - fromParam:', fromParam, 'referrer:', document.referrer, 'savedEntryPage:', savedEntryPage)
+  
+  // URL 参数优先
+  if (fromParam) {
+    sessionStorage.setItem('album-entry-page', fromParam)
+    console.log('[AlbumDetail] onMounted - saved from URL param:', fromParam)
+  } else if (!savedEntryPage) {
+    // 只有在没有 sessionStorage 时，才从 referrer 获取
+    if (document.referrer && document.referrer.includes(window.location.origin)) {
+      try {
+        const referrerUrl = new URL(document.referrer)
+        const referrerPath = referrerUrl.pathname
+        // 只保存有效来源（不是当前页面或其他详情页）
+        if (referrerPath && referrerPath !== route.path && !referrerPath.match(/^\/(album|person|photo)\/\d+$/)) {
+          savedEntryPage = referrerPath
+          sessionStorage.setItem('album-entry-page', savedEntryPage)
+          console.log('[AlbumDetail] onMounted - saved from referrer:', savedEntryPage)
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } else {
+    console.log('[AlbumDetail] onMounted - keep existing entry page:', savedEntryPage)
+  }
 
   if (isFromNavigation) {
     // 从正常导航来，保持动画状态
@@ -1484,6 +1658,9 @@ onMounted(async () => {
 
   // 获取评论数量
   await loadCommentCount(albumId)
+
+  // 获取相册中的人物列表
+  await loadAlbumPersons(albumId)
 
   // 延迟显示评论区域，即使图片还没完全加载也给用户提供功能
   setTimeout(() => {
@@ -1579,6 +1756,20 @@ const loadCommentCount = async (albumId: number) => {
   } catch (error) {
     console.error('Failed to load comment count:', error)
     commentCount.value = 0
+  }
+}
+
+// 获取相册中的人物列表
+const loadAlbumPersons = async (albumId: number) => {
+  try {
+    albumPersonsLoading.value = true
+    const response = await personApi.getAlbumPersons(albumId)
+    albumPersons.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load album persons:', error)
+    albumPersons.value = []
+  } finally {
+    albumPersonsLoading.value = false
   }
 }
 

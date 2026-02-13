@@ -115,7 +115,9 @@ const savedScrollTop = ref(0)  // 保存滚动位置
 const PAGE_SIZE = 20
 
 const goToPerson = (id: number) => {
-  window.open(`/person/${id}`, '_blank')
+  // 保存来源页面（通过 URL 参数传递，因为新标签页无法共享 sessionStorage）
+  const entryPage = encodeURIComponent(window.location.pathname)
+  window.open(`/person/${id}?from=${entryPage}`, '_blank')
 }
 
 const loadPersons = async () => {

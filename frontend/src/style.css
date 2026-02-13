@@ -105,8 +105,34 @@
   }
 
   .gradient-overlay {
-    @apply absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300;
+    @apply absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300;
     will-change: opacity;
+    /* 悬停时显示文件名和更多信息的动画 */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 1rem;
+  }
+
+  /* 文件名和额外信息容器 */
+  .photo-info {
+    transform: translateY(8px);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .photo-card:hover .photo-info {
+    transform: translateY(0);
+  }
+
+  /* 照片尺寸信息 */
+  .photo-dimensions {
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .photo-card:hover .photo-dimensions {
+    opacity: 0.7;
   }
 
   /* 通用毛玻璃面板：用于前台与后台的卡片、弹窗等 */
@@ -485,29 +511,52 @@
   text-align: center;
   margin-bottom: 3rem;
   margin-top: 1rem;
+  /* 入场动画 */
+  animation: headerFadeIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes headerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .album-title {
-  font-size: 1.5rem;
-  font-weight: 300;
-  margin-bottom: 0.5rem;
+  font-size: 1.875rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
   letter-spacing: 0.02em;
+  /* 文字阴影增加层次感 */
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.dark .album-title {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
 }
 
 .album-description {
-  font-size: 0.9rem;
-  color: #6b7280;
-  margin-bottom: 0.5rem;
-  font-weight: 400;
+  font-size: 0.95rem;
+  color: #9ca3af;
+  margin-bottom: 0.75rem;
+  font-style: italic;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.7;
 }
 
 /* 分割线：位于备注和照片数量之间 */
 .album-header-divider {
-  width: 24px;
-  height: 1px;
-  border-radius: 1px;
-  background-color: rgba(148, 163, 184, 0.35);
-  margin: 0.75rem auto;
+  width: 48px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.5), transparent);
+  margin: 1.25rem auto;
 }
 
 .album-meta {
@@ -515,6 +564,133 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  color: #9ca3af;
+  /* 延迟入场动画 */
+  animation: metaFadeIn 0.8s 0.2s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes metaFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.album-meta-icon {
+  opacity: 0.6;
+}
+
+/* 人物列表区域 */
+.album-persons-section {
+  margin-bottom: 2rem;
+  padding: 0 0.5rem;
+}
+
+.album-persons-scroll {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding: 0.5rem 0.25rem 1rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.album-persons-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.album-persons-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.album-persons-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.4);
+  border-radius: 3px;
+}
+
+.album-person-card {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(248, 250, 252, 0.6);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.dark .album-person-card {
+  background: rgba(30, 41, 59, 0.4);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.album-person-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+}
+
+.dark .album-person-card:hover {
+  background: rgba(51, 65, 85, 0.6);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.person-avatar-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.person-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.person-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #374151;
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .person-name {
+  color: #d1d5db;
+}
+
+.person-count {
+  font-size: 0.7rem;
+  color: #9ca3af;
+}
+
+.dark .person-count {
+  color: #6b7280;
 }
 
 /* 响应式调整 */
@@ -708,6 +884,25 @@
   transition: opacity 200ms ease;
   will-change: opacity;
 }
+
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
+}
+
+/* 回到顶部按钮动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* 无障碍：尊重用户"减少动态效果"设置 */
 
 .page-fade-enter-from,
 .page-fade-leave-to {
