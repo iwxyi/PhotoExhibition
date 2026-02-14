@@ -39,6 +39,9 @@ public class AlbumController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String sort) {
         log.info("获取相册列表 - 页码: {}, 数量: {}, 分类: {}, 排序: {}", page, size, category, sort);
+        // 参数校验，确保 page 和 size 至少为 1
+        if (page < 0) page = 0;
+        if (size < 1) size = 12;
         Pageable pageable = PageRequest.of(page, size);
         Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort);
         log.info("返回 {} 个相册, 总数: {}", albums.getNumberOfElements(), albums.getTotalElements());
@@ -50,7 +53,12 @@ public class AlbumController {
      */
     @PostMapping("/filter")
     public ResponseEntity<Page<AlbumDTO>> filterAlbums(@RequestBody FilterRequest request) {
-        Pageable pageable = PageRequest.of(request.getPage(), request.getSize());
+        // 参数校验
+        int page = request.getPage();
+        int size = request.getSize();
+        if (page < 0) page = 0;
+        if (size < 1) size = 12;
+        Pageable pageable = PageRequest.of(page, size);
         Page<AlbumDTO> albums = albumService.filterAlbums(request, pageable);
         return ResponseEntity.ok(albums);
     }

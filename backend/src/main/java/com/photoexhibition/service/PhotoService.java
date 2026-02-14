@@ -17,7 +17,10 @@ import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.FilterOptionService;
 import com.photoexhibition.service.SystemConfigService;
+import com.photoexhibition.service.AlbumService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -52,6 +55,10 @@ public class PhotoService {
     private final SystemConfigService systemConfigService;
     private final PhotoAssignmentRepository photoAssignmentRepository;
     private final PersonProfileRepository personProfileRepository;
+    
+    @Lazy
+    @Autowired
+    private AlbumService albumService;
 
     @Value("${photo.scan.base-path}")
     private String photoBasePath;
@@ -115,25 +122,30 @@ public class PhotoService {
         boolean isAggregated = albumRepository.findById(albumId)
             .map(album -> {
                 Boolean agg = album.getAggregateSubAlbums();
+                log.debug("getAllPhotosByAlbum - albumId: {}, aggregateSubAlbums: {}", albumId, agg);
                 return agg != null && agg;
             })
             .orElse(false);
+
+        log.debug("getAllPhotosByAlbum - albumId: {}, isAggregated: {}", albumId, isAggregated);
 
         List<Photo> allPhotos;
         if (!isAggregated) {
             // 没有聚合，直接查询单个相册的所有照片
             allPhotos = new java.util.ArrayList<>(photoRepository.findByAlbumId(albumId, PageRequest.of(0, 1000)).getContent());
+            log.debug("getAllPhotosByAlbum - 非聚合模式，直接查询相册 {} 的照片，数量: {}", albumId, allPhotos.size());
         } else {
             // 聚合模式：查找所有相关的相册ID，然后查询所有照片
             List<Long> albumIds = getAggregatedAlbumIds(albumId);
-
+            log.debug("getAllPhotosByAlbum - 聚合模式，相册ID列表: {}, 大小: {}", albumIds, albumIds.size());
 
             allPhotos = new java.util.ArrayList<>();
             for (Long id : albumIds) {
                 List<Photo> albumPhotos = photoRepository.findByAlbumId(id, PageRequest.of(0, 1000)).getContent();
+                log.debug("getAllPhotosByAlbum - 子相册 {} 的照片数量: {}", id, albumPhotos.size());
                 allPhotos.addAll(albumPhotos);
             }
-
+            log.debug("getAllPhotosByAlbum - 聚合相册总照片数: {}", allPhotos.size());
         }
 
         // 排序
@@ -163,7 +175,9 @@ public class PhotoService {
         });
 
         List<PhotoDTO> dtos = allPhotos.stream().map(this::convertToDTO).collect(java.util.stream.Collectors.toList());
-        return new org.springframework.data.domain.PageImpl<>(dtos, PageRequest.of(0, allPhotos.size()), allPhotos.size());
+        // 确保 page size 至少为 1
+        int pageSize = Math.max(1, allPhotos.size());
+        return new org.springframework.data.domain.PageImpl<>(dtos, PageRequest.of(0, pageSize), allPhotos.size());
     }
 
     /**
@@ -774,34 +788,12 @@ public class PhotoService {
      * 如果相册开启了聚合下级相册，返回该相册及其所有子相册的ID
      * 否则只返回当前相册ID
      */
-    private List<Long> getAggregatedAlbumIds(Long albumId) {
-        List<Long> albumIds = new java.util.ArrayList<>();
-        albumIds.add(albumId);
-
-        // 检查相册是否开启了聚合下级相册
-        albumRepository.findById(albumId).ifPresent(album -> {
-            if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
-                // 递归获取所有子相册ID
-                addSubAlbumIds(album.getPath(), albumIds);
-            }
-        });
-
-        return albumIds;
-    }
-
     /**
-     * 递归添加子相册ID到列表中
+     * 获取聚合相册的所有子相册ID列表（调用AlbumService的方法）
      */
-    private void addSubAlbumIds(String parentPath, List<Long> albumIds) {
-        List<com.photoexhibition.entity.Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
-
-        for (com.photoexhibition.entity.Album subAlbum : subAlbums) {
-            albumIds.add(subAlbum.getId());
-            // 如果子相册也开启了聚合，继续递归
-            if (Boolean.TRUE.equals(subAlbum.getAggregateSubAlbums())) {
-                addSubAlbumIds(subAlbum.getPath(), albumIds);
-            }
-        }
+    private List<Long> getAggregatedAlbumIds(Long albumId) {
+        // 调用 AlbumService 的方法，确保使用一致的逻辑
+        return albumService.getAggregatedAlbumIds(albumId);
     }
 
     /**

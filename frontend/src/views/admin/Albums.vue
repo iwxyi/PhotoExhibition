@@ -1631,18 +1631,35 @@ const toggleAggregateSubAlbums = async (album: any) => {
 
 // 统一的路径分割函数，同时支持 Windows(\) 和 Unix(/) 分隔符
 // 返回路径分段和是否为绝对路径
-const splitPath = (path: string): { parts: string[]; isAbsolute: boolean } => {
-  // 检测是否是绝对路径（以 / 开头，或者是 Windows 的 D:/ 这种格式）
-  const isAbsolute = /^\//.test(path) || /^[a-zA-Z]:/.test(path)
+const splitPath = (path: string): { parts: string[]; isAbsolute: boolean; hasLeadingSlash: boolean } => {
+  // 检测是否有前导斜杠（对于 /D:/ 这种 Windows 路径）
+  const hasLeadingSlash = /^\//.test(path)
+  // 检测是否是绝对路径（以 / 开头，或者是 Windows 的 D: 这种格式）
+  // 注意：Windows 路径可能是 D:\ 或 D:/ 或 /D:/ (带前导斜杠)
+  const isAbsolute = hasLeadingSlash || /^[a-zA-Z]:/.test(path)
   // 先将反斜杠替换为正斜杠，然后分割
   const parts = path.replace(/\\/g, '/').split('/').filter(p => p.length > 0)
-  return { parts, isAbsolute }
+  return { parts, isAbsolute, hasLeadingSlash }
 }
 
 // 统一的路径连接函数，保留绝对路径标识
-const joinPath = (parts: string[], isAbsolute: boolean): string => {
+// 对于 Windows 盘符路径 (D: 开头)，保持原始格式（有前导斜杠就保留，没有就不加）
+// 对于 Unix 绝对路径 (/ 开头)，保持前导斜杠
+const joinPath = (parts: string[], isAbsolute: boolean, hasLeadingSlash?: boolean): string => {
   const joined = parts.join('/')
-  return isAbsolute ? '/' + joined : joined
+  if (!isAbsolute) {
+    return joined
+  }
+  // 对于 Windows 盘符路径 (如 D:)，保持原始的前导斜杠状态
+  if (parts.length > 0 && /^[a-zA-Z]:$/.test(parts[0])) {
+    // 如果原始路径有前导斜杠（如 /D:/xxx），就保留
+    if (hasLeadingSlash) {
+      return '/' + joined
+    }
+    return joined
+  }
+  // 对于 Unix 绝对路径，添加前导斜杠
+  return '/' + joined
 }
 
 const aggregateToParent = async (album: any) => {
@@ -1664,7 +1681,8 @@ const aggregateToParent = async (album: any) => {
   const pathInfo = splitPath(album.path)
   const pathParts = pathInfo.parts
   const isAbsolutePath = pathInfo.isAbsolute
-  console.log('路径分割结果:', pathParts, '长度:', pathParts.length, '是否绝对路径:', isAbsolutePath)
+  const hasLeadingSlash = pathInfo.hasLeadingSlash
+  console.log('路径分割结果:', pathParts, '长度:', pathParts.length, '是否绝对路径:', isAbsolutePath, '有前导斜杠:', hasLeadingSlash)
 
   // 检查路径层级：至少需要 base/分类/相册名 三级才能有父相册
   // 也就是 pathParts.length >= 4（例如：/photos/base/分类/相册名/子相册）
@@ -1682,14 +1700,14 @@ const aggregateToParent = async (album: any) => {
   }
 
   // 构造父相册路径（保留绝对路径标识）
-  const parentPath = joinPath(pathParts.slice(0, -1), isAbsolutePath)
+  const parentPath = joinPath(pathParts.slice(0, -1), isAbsolutePath, hasLeadingSlash)
   console.log('父相册路径:', parentPath)
 
   // 查找父相册（使用统一处理后的路径比较）
   // 同时尝试原始路径和标准化后的路径
   let parentAlbum = albums.value.find(a => {
     const aPathInfo = splitPath(a.path)
-    const normalizedPath = joinPath(aPathInfo.parts, aPathInfo.isAbsolute)
+    const normalizedPath = joinPath(aPathInfo.parts, aPathInfo.isAbsolute, aPathInfo.hasLeadingSlash)
     return a.path === parentPath ||
       normalizedPath === parentPath ||
       a.path.replace(/\\/g, '/') === parentPath

@@ -25,5 +25,13 @@ public class FilterRequest {
     private List<Long> excludePhotoIds = java.util.Arrays.asList(-1L);      // 排除的图片ID列表（避免重复显示，默认-1表示不排除）
     private Integer page = 0;
     private Integer size = 20;
+
+    public Integer getPage() {
+        return page == null || page < 0 ? 0 : page;
+    }
+
+    public Integer getSize() {
+        return size == null || size < 1 ? 20 : size;
+    }
 }
 

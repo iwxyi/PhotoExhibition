@@ -55,7 +55,7 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     /**
      * 查找以指定路径开头的所有相册（支持标准化路径，兼容Windows和Unix路径）
      */
-    @Query("SELECT a FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%')")
+    @Query("SELECT a FROM Album a WHERE (REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('/', CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%')))")
     List<Album> findByPathStartingWithNormalized(@Param("pathPrefix") String pathPrefix);
 
     /**
@@ -72,8 +72,8 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     /**
      * 路径前缀 + 有照片 的分页查询（支持标准化路径，兼容Windows和Unix路径）
      */
-    @Query(value = "SELECT a FROM Album a LEFT JOIN FETCH a.tags WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') AND a.photoCount > :minPhotoCount",
-           countQuery = "SELECT COUNT(a) FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') AND a.photoCount > :minPhotoCount")
+    @Query(value = "SELECT a FROM Album a LEFT JOIN FETCH a.tags WHERE (REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('/', CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%'))) AND a.photoCount > :minPhotoCount",
+           countQuery = "SELECT COUNT(a) FROM Album a WHERE (REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('/', CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%'))) AND a.photoCount > :minPhotoCount")
     Page<Album> findByPathStartingWithAndPhotoCountGreaterThanNormalized(String pathPrefix, Integer minPhotoCount, Pageable pageable);
 
     /**
@@ -92,9 +92,23 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
 
     /**
      * 查找指定相册的所有直接子相册（支持标准化路径，兼容Windows和Unix路径）
+     * 通过路径层级来判断：子相册的路径层级 = 父相册路径层级 + 1
      */
-    @Query("SELECT a FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:parentPath, '\\\\', '/'), '/%') AND REPLACE(a.path, '\\\\', '/') NOT LIKE CONCAT(REPLACE(:parentPath, '\\\\', '/'), '/%/%')")
-    List<Album> findDirectSubAlbumsNormalized(@Param("parentPath") String parentPath);
+    @Query(value = "SELECT a FROM Album a WHERE " +
+           "(REPLACE(a.path, '\\\\', '/') LIKE :parentPathLike ESCAPE '\\\\' " +
+           "OR REPLACE(a.path, '\\\\', '/') LIKE :parentPathLikeWithSlash ESCAPE '\\\\')",
+           countQuery = "SELECT COUNT(a) FROM Album a WHERE " +
+           "(REPLACE(a.path, '\\\\', '/') LIKE :parentPathLike ESCAPE '\\\\' " +
+           "OR REPLACE(a.path, '\\\\', '/') LIKE :parentPathLikeWithSlash ESCAPE '\\\\')")
+    List<Album> findDirectSubAlbumsNormalized(@Param("parentPath") String parentPath,
+                                              @Param("parentPathLike") String parentPathLike,
+                                              @Param("parentPathLikeWithSlash") String parentPathLikeWithSlash);
+
+    /**
+     * 简化查询：通过路径前缀查找子相册（忽略前导斜杠差异）
+     */
+    @Query("SELECT a FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE :prefix1 OR REPLACE(a.path, '\\\\', '/') LIKE :prefix2")
+    List<Album> findByPathPrefixes(@Param("prefix1") String prefix1, @Param("prefix2") String prefix2);
 
     /**
      * 查找所有开启了聚合下级相册功能的相册
