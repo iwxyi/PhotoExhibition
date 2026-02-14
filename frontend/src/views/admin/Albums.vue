@@ -36,7 +36,15 @@
               :default-covers="getDefaultCovers(album)"
               :photo-count="album.photoCount || 0"
               size="lg"
-                  />
+            />
+            <!-- 聚合标签 - 封面右上角 -->
+            <div
+              v-if="album.aggregateSubAlbums"
+              class="absolute top-2 right-2 px-2 py-0.5 bg-blue-500/30 backdrop-blur-sm rounded text-xs text-blue-200 border border-blue-400/30"
+              title="已开启聚合下级相册"
+            >
+              聚合
+            </div>
           </div>
 
           <!-- 相册信息 -->
@@ -1532,40 +1540,160 @@ const isTopLevelAlbum = (album: any) => {
 }
 
 const toggleAggregateSubAlbums = async (album: any) => {
+  // 先关闭菜单
+  closeAllMenus()
+
   const newValue = !album.aggregateSubAlbums
   const actionText = newValue ? '开启' : '关闭'
 
-  if (!confirm(`确定要${actionText}相册"${album.displayTitle || album.name}"的聚合下级相册功能吗？\n\n${newValue ? '开启后，该相册将显示其所有子相册的照片。' : '关闭后，该相册将只显示自己的照片。'}`)) {
-    return
-  }
+  // 找到当前相册的索引位置，用于插入子相册
+  const currentIndex = albums.value.findIndex(a => a.id === album.id)
 
   try {
     await api.put(`/albums/${album.id}/aggregate-sub-albums`, {
       aggregateSubAlbums: newValue
     })
-    // 直接更新本地数据，避免重新加载导致滚动丢失
-    updateAlbumData(album.id, {
-      aggregateSubAlbums: newValue
-    })
-    closeAllMenus()
+
+    if (newValue) {
+      // 开启聚合：只更新当前相册状态
+      updateAlbumData(album.id, {
+        aggregateSubAlbums: true
+      })
+    } else {
+      // 关闭聚合：需要从后端获取子相册（因为开启聚合时子相册不显示）
+      const albumPathInfo = splitPath(album.path)
+      const albumPathParts = albumPathInfo.parts
+      const albumPathPrefix = album.path.replace(/\\/g, '/')
+
+      // 先从当前列表过滤
+      let subAlbums = albums.value.filter(a => {
+        // 跳过自己
+        if (a.id === album.id) return false
+
+        const aPath = a.path.replace(/\\/g, '/')
+        const aPathInfo = splitPath(a.path)
+        const aPathParts = aPathInfo.parts
+
+        // 直接子相册必须是：
+        // 1. 路径以当前相册路径 + '/' 开头
+        // 2. 层级恰好是当前相册层级 + 1
+        const isDirectChild = aPath.startsWith(albumPathPrefix + '/') &&
+          aPathParts.length === albumPathParts.length + 1
+
+        return isDirectChild
+      })
+
+      console.log('关闭聚合 - 从列表找到的子相册:', subAlbums.map(a => a.name))
+
+      // 如果当前列表没有子相册，尝试从后端获取
+      if (subAlbums.length === 0) {
+        console.log('关闭聚合 - 当前列表没有子相册，尝试从后端获取')
+        try {
+          // 调用后端 API 获取子相册
+          const response = await api.get(`/albums/${album.id}/sub-albums`)
+          subAlbums = response.data || []
+          console.log('关闭聚合 - 从后端获取的子相册:', subAlbums.map(a => a.name))
+        } catch (fetchError: any) {
+          console.warn('从后端获取子相册失败:', fetchError)
+        }
+      }
+
+      console.log('关闭聚合 - 最终找到的子相册:', subAlbums.map(a => a.name))
+      console.log('关闭聚合 - 当前相册路径:', album.path)
+      console.log('关闭聚合 - 当前相册层级:', albumPathParts.length)
+
+      // 移除当前相册（它将分裂成多个子相册）
+      albums.value = albums.value.filter(a => a.id !== album.id)
+
+      // 在原来位置插入子相册
+      let insertIndex = currentIndex >= 0 ? currentIndex : albums.value.length
+      for (const subAlbum of subAlbums) {
+        if (!albums.value.find(a => a.id === subAlbum.id)) {
+          albums.value.splice(insertIndex, 0, subAlbum)
+          insertIndex++
+        }
+      }
+
+      // 如果没有获取到子相册，保留当前相册但更新状态
+      if (subAlbums.length === 0) {
+        updateAlbumData(album.id, {
+          aggregateSubAlbums: false
+        })
+        // 在原来位置重新添加当前相册
+        albums.value.splice(currentIndex, 0, album)
+        alert('未找到该相册的直接子相册，请刷新页面重试。')
+      }
+    }
   } catch (e: any) {
     alert(`${actionText}失败: ` + (e.response?.data?.error || e.message))
   }
 }
 
+// 统一的路径分割函数，同时支持 Windows(\) 和 Unix(/) 分隔符
+// 返回路径分段和是否为绝对路径
+const splitPath = (path: string): { parts: string[]; isAbsolute: boolean } => {
+  // 检测是否是绝对路径（以 / 开头，或者是 Windows 的 D:/ 这种格式）
+  const isAbsolute = /^\//.test(path) || /^[a-zA-Z]:/.test(path)
+  // 先将反斜杠替换为正斜杠，然后分割
+  const parts = path.replace(/\\/g, '/').split('/').filter(p => p.length > 0)
+  return { parts, isAbsolute }
+}
+
+// 统一的路径连接函数，保留绝对路径标识
+const joinPath = (parts: string[], isAbsolute: boolean): string => {
+  const joined = parts.join('/')
+  return isAbsolute ? '/' + joined : joined
+}
+
 const aggregateToParent = async (album: any) => {
-  // 检查是否可以聚合到上一级
-  const pathParts = album.path.split('/')
-  if (pathParts.length < 4) {
-    alert('该相册已经是顶级相册，无法聚合到上一级')
+  // 先关闭菜单
+  closeAllMenus()
+
+  // 调试信息：打印相册路径，帮助诊断问题
+  console.log('聚合到上一级 - 相册路径:', album.path)
+  console.log('聚合到上一级 - 相册名称:', album.name)
+  console.log('聚合到上一级 - isTopLevel:', album.isTopLevel)
+
+  // 首先使用后端的 isTopLevel 字段进行判断（如果后端正确计算了的话）
+  if (album.isTopLevel === true) {
+    alert(`该相册"${album.displayTitle || album.name}"已经是顶级相册，无法聚合到上一级。\n\n路径: ${album.path}\n\n注意：顶级相册是指位于基础路径分类目录下的相册（如：基础路径/人像/相册名）`)
     return
   }
 
-  // 构造父相册路径
-  const parentPath = pathParts.slice(0, -1).join('/')
+  // 使用统一的路径分割函数（保留绝对路径信息）
+  const pathInfo = splitPath(album.path)
+  const pathParts = pathInfo.parts
+  const isAbsolutePath = pathInfo.isAbsolute
+  console.log('路径分割结果:', pathParts, '长度:', pathParts.length, '是否绝对路径:', isAbsolutePath)
 
-  // 查找父相册
-  let parentAlbum = albums.value.find(a => a.path === parentPath)
+  // 检查路径层级：至少需要 base/分类/相册名 三级才能有父相册
+  // 也就是 pathParts.length >= 4（例如：/photos/base/分类/相册名/子相册）
+  // 注意：Windows 路径可能是 D:/photos/base/...，所以要考虑盘符的情况
+  const minDepth = isAbsolutePath ? 4 : 3 // 绝对路径需要 base/分类/相册名/子相册
+
+  if (pathParts.length < minDepth) {
+    const detailMsg = `\n\n详细信息：\n` +
+      `- 当前路径: ${album.path}\n` +
+      `- 路径层级数: ${pathParts.length}\n` +
+      `- 最小需要层级: ${minDepth}\n` +
+      `- 路径分段: ${JSON.stringify(pathParts)}`
+    alert(`该相册"${album.displayTitle || album.name}"已经是顶级相册，无法聚合到上一级。${detailMsg}`)
+    return
+  }
+
+  // 构造父相册路径（保留绝对路径标识）
+  const parentPath = joinPath(pathParts.slice(0, -1), isAbsolutePath)
+  console.log('父相册路径:', parentPath)
+
+  // 查找父相册（使用统一处理后的路径比较）
+  // 同时尝试原始路径和标准化后的路径
+  let parentAlbum = albums.value.find(a => {
+    const aPathInfo = splitPath(a.path)
+    const normalizedPath = joinPath(aPathInfo.parts, aPathInfo.isAbsolute)
+    return a.path === parentPath ||
+      normalizedPath === parentPath ||
+      a.path.replace(/\\/g, '/') === parentPath
+  })
 
   // 如果父相册不存在，尝试创建它
   if (!parentAlbum) {
@@ -1577,38 +1705,57 @@ const aggregateToParent = async (album: any) => {
       parentAlbum = createResponse.data
 
       if (!parentAlbum) {
-        alert('无法创建父相册，请检查文件夹路径是否正确')
+        alert(`无法创建父相册，请检查文件夹路径是否正确。\n\n父相册路径: ${parentPath}\n子相册路径: ${album.path}`)
         return
       }
 
-      // 将新创建的相册添加到列表中
-      albums.value.push(parentAlbum)
-
+      console.log('父相册创建成功:', parentAlbum)
     } catch (createError: any) {
       console.error('创建父相册失败:', createError)
-      alert('创建父相册失败: ' + (createError.response?.data?.error || createError.message))
+      const errorDetail = createError.response?.data?.error || createError.response?.data?.message || createError.message
+      alert(`创建父相册失败: ${errorDetail}\n\n父相册路径: ${parentPath}\n子相册路径: ${album.path}`)
       return
     }
   }
 
-  if (!confirm(`确定要将相册"${album.displayTitle || album.name}"聚合到父相册"${parentAlbum.displayTitle || parentAlbum.name}"吗？\n\n这将开启父相册的聚合下级相册功能。`)) {
-    return
-  }
+  // 找出同一层级的所有相册（父路径相同的相册）
+  const siblingAlbums = albums.value.filter(a => {
+    const aPathInfo = splitPath(a.path)
+    return aPathInfo.parts.slice(0, -1).join('/') === pathParts.slice(0, -1).join('/')
+  })
+  const siblingIds = siblingAlbums.map(a => a.id)
+  console.log('同一层级的相册:', siblingIds)
+  console.log('父相册信息:', parentAlbum)
+
+  // 找到第一个同级相册的索引位置，用于插入父相册
+  const firstSiblingIndex = albums.value.findIndex(a => siblingIds.includes(a.id))
 
   try {
     await api.put(`/albums/${parentAlbum.id}/aggregate-sub-albums`, {
       aggregateSubAlbums: true
     })
+
+    // 重新获取父相册的完整信息（包含照片数量）
+    let updatedParentAlbum = parentAlbum
+    try {
+      const parentResponse = await api.get(`/albums/${parentAlbum.id}`)
+      updatedParentAlbum = parentResponse.data
+      console.log('获取到更新后的父相册信息:', updatedParentAlbum)
+    } catch (getError: any) {
+      console.warn('获取更新后的父相册信息失败，使用之前的信息:', getError)
+      updatedParentAlbum = { ...parentAlbum, aggregateSubAlbums: true }
+    }
+
     // 直接更新本地数据，避免重新加载导致滚动丢失
-    // 1. 从列表中移除被聚合的相册
-    albums.value = albums.value.filter(a => a.id !== album.id)
-    // 2. 更新父相册状态
-    updateAlbumData(parentAlbum.id, {
-      aggregateSubAlbums: true
-    })
-    closeAllMenus()
+    // 1. 移除同一层级的所有相册
+    albums.value = albums.value.filter(a => !siblingIds.includes(a.id))
+    // 2. 在第一个同级相册的位置插入父相册
+    const insertIndex = firstSiblingIndex >= 0 ? firstSiblingIndex : albums.value.length
+    albums.value.splice(insertIndex, 0, updatedParentAlbum)
+    console.log('更新后的相册列表:', albums.value)
   } catch (e: any) {
-    alert('聚合到上一级失败: ' + (e.response?.data?.error || e.message))
+    const errorDetail = e.response?.data?.error || e.response?.data?.message || e.message
+    alert(`聚合到上一级失败: ${errorDetail}\n\n子相册: ${album.displayTitle || album.name}\n父相册: ${parentAlbum.displayTitle || parentAlbum.name}`)
   }
 }
 

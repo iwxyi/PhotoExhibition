@@ -961,6 +961,39 @@ public class AlbumService {
     }
 
     /**
+     * 获取相册的直接子相册（不经过聚合过滤）
+     */
+    @Transactional(readOnly = true)
+    public List<AlbumDTO> getSubAlbums(Long albumId) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        String pathPrefix = album.getPath();
+        if (!pathPrefix.endsWith("/") && !pathPrefix.endsWith("\\")) {
+            pathPrefix = pathPrefix + "/";
+        }
+
+        // 查找所有以当前相册路径开头的子相册
+        List<Album> subAlbums = albumRepository.findByPathStartingWith(pathPrefix);
+
+        // 过滤出直接子相册（层级 = 当前相册层级 + 1）
+        String[] currentParts = pathPrefix.replace("\\", "/").split("/");
+        int currentLevel = currentParts.length;
+
+        List<Album> directSubAlbums = subAlbums.stream()
+            .filter(sub -> {
+                String[] subParts = sub.getPath().replace("\\", "/").split("/");
+                // 直接子相册的层级 = 当前相册层级 + 1
+                return subParts.length == currentLevel + 1;
+            })
+            .collect(Collectors.toList());
+
+        return directSubAlbums.stream()
+            .map(this::convertToDTO)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * 设置相册照片排序方式
      */
     @Transactional

@@ -13,6 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -93,6 +94,15 @@ public class AlbumController {
         }
         AlbumDTO album = albumService.setAggregateSubAlbums(id, aggregate);
         return ResponseEntity.ok(album);
+    }
+
+    /**
+     * 获取相册的直接子相册（不经过聚合过滤）
+     */
+    @GetMapping("/{id}/sub-albums")
+    public ResponseEntity<List<AlbumDTO>> getSubAlbums(@PathVariable Long id) {
+        List<AlbumDTO> subAlbums = albumService.getSubAlbums(id);
+        return ResponseEntity.ok(subAlbums);
     }
 
     /**
