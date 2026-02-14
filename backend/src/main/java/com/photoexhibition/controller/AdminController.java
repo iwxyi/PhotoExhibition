@@ -14,6 +14,7 @@ import com.photoexhibition.service.FilterOptionService;
 import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.service.PhotoAIScoringService;
 import com.photoexhibition.service.SimilarPhotoSearchService;
+import com.photoexhibition.service.BackgroundRemovalService;
 import com.photoexhibition.service.OnnxConfigurationException;
 import com.photoexhibition.util.ONNXDiagnosticUtil;
 import java.lang.NoClassDefFoundError;
@@ -39,6 +40,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.io.File;
 
 @RestController
 @RequestMapping("/admin")
@@ -59,6 +61,7 @@ public class AdminController {
     private final PhotoAIScoringService aiScoringService;
     private final PhotoAIScoringRepository aiScoringRepository;
     private final SimilarPhotoSearchService similarPhotoSearchService;
+    private final BackgroundRemovalService backgroundRemovalService;
 
     /**
      * 全局异常处理器 - 处理各种异常
@@ -1302,6 +1305,274 @@ public class AdminController {
             return ResponseEntity.status(500).body(resp);
         }
 
+        return ResponseEntity.ok(resp);
+    }
+
+    // ==================== 背景移除批量处理 API ====================
+
+    /**
+     * 批量处理相册中的所有照片背景移除
+     * 同步处理，会阻塞直到完成
+     */
+    @PostMapping("/photos/batch-remove-background")
+    public ResponseEntity<Map<String, Object>> batchRemoveBackground(
+            @RequestParam(required = false) Long albumId,
+            @RequestParam(defaultValue = "50") int batchSize,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "true") boolean saveToPhoto) {
+        
+        Map<String, Object> resp = new HashMap<>();
+        
+        if (!backgroundRemovalService.isModelAvailable()) {
+            resp.put("success", false);
+            resp.put("message", "背景移除功能未启用或模型未加载");
+            log.warn("背景移除功能未启用或模型未加载");
+            return ResponseEntity.ok(resp);
+        }
+
+        try {
+            // 获取照片列表：如果 albumId 为空，则处理所有照片
+            Pageable pageable = PageRequest.of(page, batchSize);
+            Page<Photo> photoPage;
+            String taskDescription;
+            
+            if (albumId != null) {
+                photoPage = photoRepository.findByAlbumId(albumId, pageable);
+                taskDescription = "相册 " + albumId;
+            } else {
+                photoPage = photoRepository.findAll(pageable);
+                taskDescription = "全部照片";
+            }
+            
+            int processed = 0;
+            int failed = 0;
+            long startTime = System.currentTimeMillis();
+            
+            log.info("开始批量处理 {} 的背景移除，共 {} 张照片", taskDescription, photoPage.getContent().size());
+            
+            for (Photo photo : photoPage.getContent()) {
+                try {
+                    String photoPath = photo.getOriginalPath();
+                    
+                    File sourceFile = new File(photoPath);
+                    if (!sourceFile.exists()) {
+                        log.warn("源文件不存在: {}", photoPath);
+                        failed++;
+                        continue;
+                    }
+                    
+                    // 生成输出文件路径：原图目录下的 .thumbnails 文件夹
+                    File thumbnailDir = new File(sourceFile.getParent(), ".thumbnails");
+                    if (!thumbnailDir.exists()) {
+                        thumbnailDir.mkdirs();
+                    }
+                    
+                    String baseName = photo.getFilename();
+                    int dotIndex = baseName.lastIndexOf('.');
+                    if (dotIndex > 0) {
+                        baseName = baseName.substring(0, dotIndex);
+                    }
+                    File outputFile = new File(thumbnailDir, baseName + "_no_bg.png");
+                    
+                    // 执行背景移除
+                    boolean success = backgroundRemovalService.removeBackground(sourceFile, outputFile);
+                    
+                    if (success) {
+                        processed++;
+                        // 可选：保存路径到数据库
+                        if (saveToPhoto) {
+                            photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                            photoRepository.save(photo);
+                        }
+                    } else {
+                        failed++;
+                    }
+                    
+                } catch (Exception e) {
+                    log.error("处理照片失败: {}", photo.getId(), e);
+                    failed++;
+                }
+            }
+            
+            long duration = System.currentTimeMillis() - startTime;
+            
+            log.info("批量处理完成: 成功 {}, 失败 {}, 耗时 {}ms", processed, failed, duration);
+            
+            resp.put("success", true);
+            resp.put("message", "批量处理完成");
+            resp.put("processed", processed);
+            resp.put("failed", failed);
+            resp.put("total", photoPage.getContent().size());
+            resp.put("duration", duration + "ms");
+            resp.put("hasMore", !photoPage.isLast());
+            
+            return ResponseEntity.ok(resp);
+            
+        } catch (Exception e) {
+            log.error("批量处理失败", e);
+            resp.put("success", false);
+            resp.put("message", "批量处理失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 检查背景移除功能状态
+     */
+    @GetMapping("/background-removal/status")
+    public ResponseEntity<Map<String, Object>> getBackgroundRemovalStatus() {
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("available", backgroundRemovalService.isModelAvailable());
+        resp.put("message", backgroundRemovalService.isModelAvailable() ? "功能可用" : "功能未启用或模型未加载");
+        return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * 批量移除背景（抠图处理）
+     * 兼容旧版API：albumId可选，不传则处理所有图片
+     */
+    @PostMapping("/background-removal/batch")
+    public ResponseEntity<Map<String, Object>> batchBackgroundRemoval(
+            @RequestParam(required = false) Long albumId,
+            @RequestParam(defaultValue = "50") int batchSize,
+            @RequestParam(defaultValue = "false") boolean saveToPhoto,
+            @RequestParam(defaultValue = "false") boolean force) {
+        
+        Map<String, Object> resp = new HashMap<>();
+        
+        if (!backgroundRemovalService.isModelAvailable()) {
+            resp.put("success", false);
+            resp.put("message", "背景移除功能未启用或模型未加载");
+            return ResponseEntity.ok(resp);
+        }
+
+        try {
+            // 获取照片列表
+            Page<Photo> photoPage;
+            if (albumId != null) {
+                photoPage = photoRepository.findByAlbumId(albumId, PageRequest.of(0, batchSize));
+                resp.put("albumId", albumId);
+            } else {
+                photoPage = photoRepository.findAll(PageRequest.of(0, batchSize));
+                resp.put("albumId", "all");
+            }
+            
+            List<Photo> photos = photoPage.getContent();
+            resp.put("totalPhotos", photoPage.getTotalElements());
+            resp.put("processingCount", photos.size());
+            
+            int successCount = 0;
+            int skipCount = 0;
+            int failCount = 0;
+            
+            for (Photo photo : photos) {
+                try {
+                    // 检查是否已有缓存（除非force=true）
+                    if (!force && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isEmpty()) {
+                        File existingFile = new File(photo.getBackgroundRemovedPath());
+                        if (existingFile.exists()) {
+                            skipCount++;
+                            continue;
+                        }
+                    }
+                    
+                    File sourceFile = new File(photo.getOriginalPath());
+                    if (!sourceFile.exists()) {
+                        failCount++;
+                        continue;
+                    }
+                    
+                    // 输出到 .thumbnails 文件夹
+                    File parentDir = sourceFile.getParentFile();
+                    File cacheDir = new File(parentDir, ".thumbnails");
+                    File outputFile = new File(cacheDir, "bg_removed_" + photo.getId() + ".png");
+                    
+                    if (backgroundRemovalService.removeBackground(sourceFile, outputFile)) {
+                        if (saveToPhoto) {
+                            photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                            photoRepository.save(photo);
+                        }
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                    
+                } catch (Exception e) {
+                    log.warn("处理图片失败: {} - {}", photo.getId(), e.getMessage());
+                    failCount++;
+                }
+            }
+            
+            resp.put("success", true);
+            resp.put("message", String.format("处理完成: 成功 %d, 跳过 %d, 失败 %d", successCount, skipCount, failCount));
+            resp.put("successCount", successCount);
+            resp.put("skipCount", skipCount);
+            resp.put("failCount", failCount);
+            resp.put("hasMore", !photoPage.isLast());
+            
+            return ResponseEntity.ok(resp);
+            
+        } catch (Exception e) {
+            log.error("批量处理失败", e);
+            resp.put("success", false);
+            resp.put("message", "批量处理失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 清空所有抠图缓存（删除所有背景移除处理后的图片文件）
+     */
+    @DeleteMapping("/photos/clear-background-cache")
+    public ResponseEntity<Map<String, Object>> clearBackgroundCache() {
+        Map<String, Object> resp = new HashMap<>();
+        
+        try {
+            // 获取所有照片记录
+            List<Photo> allPhotos = photoRepository.findAll();
+            int totalCleared = 0;
+            int totalErrors = 0;
+            
+            for (Photo photo : allPhotos) {
+                String bgRemovedPath = photo.getBackgroundRemovedPath();
+                if (bgRemovedPath != null && !bgRemovedPath.isEmpty()) {
+                    File bgFile = new File(bgRemovedPath);
+                    if (bgFile.exists()) {
+                        try {
+                            if (bgFile.delete()) {
+                                totalCleared++;
+                            } else {
+                                totalErrors++;
+                                log.warn("无法删除文件: {}", bgRemovedPath);
+                            }
+                        } catch (Exception e) {
+                            totalErrors++;
+                            log.warn("删除文件失败: {} - {}", bgRemovedPath, e.getMessage());
+                        }
+                    }
+                }
+                // 清除数据库中的路径记录
+                if (photo.getBackgroundRemovedPath() != null) {
+                    photo.setBackgroundRemovedPath(null);
+                    photoRepository.save(photo);
+                }
+            }
+            
+            resp.put("success", true);
+            resp.put("message", "清空抠图缓存完成");
+            resp.put("cleared", totalCleared);
+            resp.put("errors", totalErrors);
+            resp.put("total", allPhotos.size());
+            
+            log.info("清空抠图缓存完成: 清除 {} 个文件, 错误 {} 个", totalCleared, totalErrors);
+            
+        } catch (Exception e) {
+            log.error("清空抠图缓存失败", e);
+            resp.put("success", false);
+            resp.put("message", "清空抠图缓存失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+        
         return ResponseEntity.ok(resp);
     }
 

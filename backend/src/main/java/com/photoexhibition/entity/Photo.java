@@ -41,6 +41,12 @@ public class Photo {
     @Column(name = "large_thumb_path", length = 1000)
     private String largeThumbPath;
 
+    /**
+     * 背景移除后的图片路径（透明PNG）
+     */
+    @Column(name = "background_removed_path", length = 1000)
+    private String backgroundRemovedPath;
+
     @Column(name = "file_size")
     private Long fileSize;
 

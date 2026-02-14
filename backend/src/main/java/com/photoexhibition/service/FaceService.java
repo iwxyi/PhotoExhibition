@@ -734,7 +734,7 @@ public class FaceService {
                     // 确保返回完整的Photo信息（使用相对路径）
                     if (face.getPhoto() != null) {
                         dto.setPhotoFilename(face.getPhoto().getFilename());
-                        dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
+                        dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
                         dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
                         dto.setPhotoWidth(face.getPhoto().getWidth());
                         dto.setPhotoHeight(face.getPhoto().getHeight());
@@ -777,7 +777,7 @@ public class FaceService {
                     FaceDTO dto = toDTO(face);
                     if (face.getPhoto() != null) {
                         dto.setPhotoFilename(face.getPhoto().getFilename());
-                        dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
+                        dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
                         dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
                         dto.setPhotoWidth(face.getPhoto().getWidth());
                         dto.setPhotoHeight(face.getPhoto().getHeight());
@@ -1683,7 +1683,7 @@ public class FaceService {
         if (face.getPhoto() != null) {
             dto.setPhotoId(face.getPhoto().getId());
             dto.setPhotoFilename(face.getPhoto().getFilename());
-            dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getThumbnailPath()));
+            dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
             dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
         }
         return dto;

@@ -31,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -115,6 +116,10 @@ public class PhotoScanService {
     @Value("${photo.scan.thumbnail.large.skip-if-no-benefit}")
     private boolean largeThumbnailSkipIfNoBenefit;
 
+    // 扫描时是否自动进行背景移除
+    @Value("${photo.scan.auto-background-removal:false}")
+    private boolean autoBackgroundRemoval;
+
     private final AlbumRepository albumRepository;
     private final PhotoRepository photoRepository;
     private final TagRepository tagRepository;
@@ -128,6 +133,7 @@ public class PhotoScanService {
     private final SystemConfigService systemConfigService;
     private final FilterOptionService filterOptionService;
     private final PhotoAIScoringService aiScoringService;
+    private final BackgroundRemovalService backgroundRemovalService;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -155,6 +161,7 @@ public class PhotoScanService {
                            SystemConfigService systemConfigService,
                            FilterOptionService filterOptionService,
                            PhotoAIScoringService aiScoringService,
+                           BackgroundRemovalService backgroundRemovalService,
                            ObjectMapper objectMapper) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
@@ -169,6 +176,7 @@ public class PhotoScanService {
         this.systemConfigService = systemConfigService;
         this.filterOptionService = filterOptionService;
         this.aiScoringService = aiScoringService;
+        this.backgroundRemovalService = backgroundRemovalService;
         this.objectMapper = objectMapper;
     }
     
@@ -1666,7 +1674,50 @@ public class PhotoScanService {
                 }
             }
 
-            // 步骤10: 完成处理
+            // 步骤10: 自动背景移除（如果开启）
+            if (autoBackgroundRemoval && backgroundRemovalService.isModelAvailable()) {
+                if (photo.getBackgroundRemovedPath() == null || photo.getBackgroundRemovedPath().isEmpty()) {
+                    try {
+                        // 输出到 .thumbnails 文件夹，使用统一的命名规范
+                        String thumbnailDir = new File(imageFile.getParent(), ".thumbnails").getAbsolutePath();
+                        File outputFile = new File(thumbnailDir, "bg_removed_" + photo.getId() + ".png");
+                        
+                        // 获取图片尺寸（用于转换人脸坐标）
+                        BufferedImage img = javax.imageio.ImageIO.read(imageFile);
+                        final int imgWidth = img.getWidth();
+                        final int imgHeight = img.getHeight();
+                        
+                        // 获取人脸区域用于优化（如果有人脸）- 转换归一化坐标到像素坐标
+                        // 使用 faceService 获取人脸，避免懒加载问题
+                        List<Rectangle> faceRegions = null;
+                        try {
+                            List<Face> existingFaces = faceService.getFacesByPhoto(photo.getId());
+                            if (existingFaces != null && !existingFaces.isEmpty()) {
+                                faceRegions = existingFaces.stream()
+                                    .map(face -> new Rectangle(
+                                        (int)(face.getX() * imgWidth),
+                                        (int)(face.getY() * imgHeight),
+                                        (int)(face.getWidth() * imgWidth),
+                                        (int)(face.getHeight() * imgHeight)))
+                                    .collect(java.util.stream.Collectors.toList());
+                            }
+                        } catch (Exception e) {
+                            log.debug("获取人脸信息失败，跳过人脸优化: {}", e.getMessage());
+                        }
+                        
+                        if (backgroundRemovalService.removeBackground(imageFile, outputFile, faceRegions)) {
+                            photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                            photoRepository.save(photo);
+                            log.debug("自动背景移除完成: {}", photo.getId());
+                        }
+                    } catch (Exception e) {
+                        log.warn("自动背景移除失败: {} - {}", photo.getId(), e.getMessage());
+                        // 不阻止流程继续
+                    }
+                }
+            }
+
+            // 步骤11: 完成处理
             if (photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE) {
                 photo.setProcessingStatus(ProcessingStatus.COMPLETED);
                 photoRepository.save(photo);

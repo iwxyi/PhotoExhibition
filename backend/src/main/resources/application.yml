@@ -120,13 +120,13 @@ photo:
     thumbnail:
       # 小缩略图：用于压缩封面的缩略图和PhotoViewer下面的缩略图列表
       small:
-        width: 400
-        height: 400
+        width: 540
+        height: 540
         quality: 0.85
       # 中缩略图：用于各种瀑布流（图墙、随机、相册详情的图片）的照片
       medium:
-        width: 800
-        height: 800
+        width: 720
+        height: 720
         quality: 0.90
       # 大缩略图：点击图片查看大图（PhotoViewer中未打开原图时看的大图），清晰度高
       large:
@@ -142,6 +142,8 @@ photo:
     webp-quality: 0.85
     # 自动扫描间隔（秒）
     scan-interval: 3600
+    # 扫描时自动进行背景移除（生成透明背景人物图）
+    auto-background-removal: true
 
 # 文件上传配置
 file:
@@ -230,3 +232,17 @@ ai:
     enabled: false  # 暂时禁用，等待模型文件
     model-path: ./models/emotion_analysis.onnx
     confidence-threshold: 0.3
+
+# 背景移除配置 (用于人物抠图，创建立体封面效果)
+background:
+  removal:
+    enabled: true  # 设为 true 启用背景移除功能
+    model-path: ./models/briaai_rmbg.onnx  # BriaAI RMBG 模型路径
+    cpu-threads: 4  # CPU 推理线程数
+    keep-size: 1024  # 模型输入尺寸（BriaAI RMBG 推荐 1024）
+    output-max-size: 720  # 输出图片最大尺寸（宽度或高度），用于优化文件大小
+    threshold-transparent: 0.45  # 低于此值设为完全透明（0-1，越高抠图越严格，但太高会丢失细节）
+    threshold-solid: 0.85  # 高于此值设为完全不透明（0-1）
+    erode-radius: 1  # 腐蚀半径，用于去除边缘噪点（0-3）
+    blur-radius: 2  # 高斯模糊半径，用于平滑边缘（0-5）
+    concurrent-tasks: 1  # 并发处理任务数（1=串行处理，更省性能）

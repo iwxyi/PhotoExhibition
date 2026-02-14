@@ -53,6 +53,12 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     List<Album> findByPathStartingWith(String pathPrefix);
 
     /**
+     * 查找以指定路径开头的所有相册（支持标准化路径，兼容Windows和Unix路径）
+     */
+    @Query("SELECT a FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%')")
+    List<Album> findByPathStartingWithNormalized(@Param("pathPrefix") String pathPrefix);
+
+    /**
      * 删除路径前缀匹配的相册
      */
     void deleteByPathStartingWith(String pathPrefix);
@@ -62,6 +68,13 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @EntityGraph(attributePaths = "tags")
     Page<Album> findByPathStartingWithAndPhotoCountGreaterThan(String pathPrefix, Integer minPhotoCount, Pageable pageable);
+
+    /**
+     * 路径前缀 + 有照片 的分页查询（支持标准化路径，兼容Windows和Unix路径）
+     */
+    @Query(value = "SELECT a FROM Album a LEFT JOIN FETCH a.tags WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') AND a.photoCount > :minPhotoCount",
+           countQuery = "SELECT COUNT(a) FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') AND a.photoCount > :minPhotoCount")
+    Page<Album> findByPathStartingWithAndPhotoCountGreaterThanNormalized(String pathPrefix, Integer minPhotoCount, Pageable pageable);
 
     /**
      * 带标签的相册加载，避免懒加载问题
@@ -76,6 +89,12 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT a FROM Album a WHERE a.path LIKE CONCAT(:parentPath, '/%') AND a.path NOT LIKE CONCAT(:parentPath, '/%/%')")
     List<Album> findDirectSubAlbums(@Param("parentPath") String parentPath);
+
+    /**
+     * 查找指定相册的所有直接子相册（支持标准化路径，兼容Windows和Unix路径）
+     */
+    @Query("SELECT a FROM Album a WHERE REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:parentPath, '\\\\', '/'), '/%') AND REPLACE(a.path, '\\\\', '/') NOT LIKE CONCAT(REPLACE(:parentPath, '\\\\', '/'), '/%/%')")
+    List<Album> findDirectSubAlbumsNormalized(@Param("parentPath") String parentPath);
 
     /**
      * 查找所有开启了聚合下级相册功能的相册

@@ -178,6 +178,8 @@
               <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
               <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
               <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
+              <option value="POST /admin/background-removal/batch">批量移除背景（抠图处理）</option>
+              <option value="DELETE /admin/photos/clear-background-cache">清空抠图缓存（删除所有抠图文件）</option>
             </select>
           </div>
           <div v-if="showPathInput">
@@ -185,6 +187,16 @@
             <input
               v-model="pathInput"
               placeholder="不填则使用配置的 base-path"
+              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <!-- 相册ID输入框（用于背景移除） -->
+          <div v-if="showAlbumIdInput">
+            <label class="block text-sm text-gray-400 mb-2">相册ID（选填，留空处理所有图片）</label>
+            <input
+              v-model="albumIdInput"
+              type="number"
+              placeholder="留空则处理所有图片"
               class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -246,6 +258,28 @@
               <pre class="whitespace-pre-wrap break-words">{{ taskStatus.logs.join('\n') }}</pre>
             </div>
           </div>
+          
+          <!-- 背景移除进度显示 -->
+          <div v-if="bgRemoveStatus.processing || bgRemoveStatus.message" class="mt-4 bg-gray-900 p-3 rounded-lg">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <div class="text-sm text-gray-200">🎨 背景移除处理</div>
+                <div class="text-xs text-gray-400">{{ bgRemoveStatus.message }}</div>
+                <div class="text-xs text-gray-400 mt-1">
+                  进度: <span class="text-sky-300">{{ bgRemoveStatus.current }} / {{ bgRemoveStatus.total }}</span>
+                </div>
+                <div v-if="bgRemoveStatus.total > 0" class="mt-2">
+                  <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div 
+                      class="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                      :style="{ width: Math.min(100, (bgRemoveStatus.current / bgRemoveStatus.total) * 100) + '%' }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+              <button @click="stopBgRemovePoll" class="px-2 py-1 text-xs bg-red-600 rounded">停止</button>
+            </div>
+          </div>
         </div>
       </div>
       </div>
@@ -289,6 +323,26 @@ const pathInput = ref('')
 const faceIdInput = ref('')
 const topInput = ref('')
 const thresholdInput = ref('')
+const albumIdInput = ref('')
+
+// 背景移除任务状态
+const bgRemoveStatus = ref<{
+  processing: boolean
+  current: number
+  total: number
+  message: string
+}>({
+  processing: false,
+  current: 0,
+  total: 0,
+  message: ''
+})
+let bgRemoveTimer: number | null = null
+
+// 显示相册ID输入框
+const showAlbumIdInput = computed(() => 
+  selectedApi.value.includes('/admin/background-removal')
+)
 
 const taskStatus = ref<any | null>(null)
 let taskPollTimer: number | null = null
@@ -647,14 +701,39 @@ const testApi = async () => {
       method: method.toLowerCase(),
       url: path
     }
+    
+    // 背景移除需要相册ID参数（可选）
+    if (showAlbumIdInput.value) {
+      // albumId 可选，不填则处理所有图片
+      const albumId = albumIdInput.value.trim()
+      config.params = { 
+        ...(albumId ? { albumId: albumId } : {}),
+        batchSize: 50,
+        saveToPhoto: true 
+      }
+    }
+    
     if (showPathInput.value && pathInput.value.trim()) {
-      config.params = { path: pathInput.value.trim() }
+      config.params = { ...(config.params || {}), path: pathInput.value.trim() }
     }
     if (Object.keys(params).length) {
       config.params = { ...(config.params || {}), ...params }
     }
+    
     const response = await api(config)
     apiResponse.value = response.data
+    
+    // 如果是背景移除任务，启用轮询状态
+    if (selectedApi.value.includes('/admin/background-removal') && response.data.success) {
+      bgRemoveStatus.value = {
+        processing: true,
+        current: 0,
+        total: response.data.total || 0,
+        message: '开始处理...'
+      }
+      // 开始轮询进度
+      pollBgRemoveStatus(response.data.total || 0)
+    }
     
     // 如果后端返回 taskId，则开始轮询任务状态
     if (response.data && response.data.taskId) {
@@ -684,6 +763,35 @@ const handleLogout = () => {
 
 let scanTimer: number | null = null
 
+// 轮询背景移除任务状态
+const pollBgRemoveStatus = (total: number) => {
+  stopBgRemovePoll()
+  bgRemoveTimer = window.setInterval(async () => {
+    try {
+      // 由于是同步批量处理，我们通过检查处理结果来判断是否完成
+      // 这里我们简单地停止轮询，因为批量处理是同步的
+      const processed = bgRemoveStatus.value.current
+      if (processed >= total) {
+        stopBgRemovePoll()
+        bgRemoveStatus.value.message = '处理完成！'
+        return
+      }
+      bgRemoveStatus.value.current++
+      bgRemoveStatus.value.message = `处理中: ${bgRemoveStatus.value.current} / ${total}`
+    } catch (e) {
+      // ignore
+    }
+  }, 1500) // 每1.5秒更新一次进度（因为处理需要时间）
+}
+
+const stopBgRemovePoll = () => {
+  if (bgRemoveTimer) {
+    clearInterval(bgRemoveTimer)
+    bgRemoveTimer = null
+  }
+  bgRemoveStatus.value.processing = false
+}
+
 onMounted(async () => {
   await loadStats()
   await fetchScanStatus()
@@ -696,6 +804,7 @@ onUnmounted(() => {
     scanTimer = null
   }
   stopTaskPoll()
+  stopBgRemovePoll()
 })
 
 const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))

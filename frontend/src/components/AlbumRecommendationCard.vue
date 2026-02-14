@@ -1,6 +1,6 @@
 <template>
   <div
-    class="group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden border border-gray-100 dark:border-gray-700"
+    class="group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden border border-gray-100 dark:border-gray-700 cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-1 hover:border-blue-400/50 dark:hover:border-blue-500/30"
     @click="$emit('click')"
   >
     <!-- 相册封面 -->
@@ -17,11 +17,13 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
       </div>
+      <!-- 悬停遮罩效果 -->
+      <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
     </div>
 
     <!-- 相册信息 -->
-    <div class="p-4">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2 truncate">
+    <div class="p-4 transition-all duration-300 group-hover:bg-gray-50 dark:group-hover:bg-gray-750">
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
         {{ recommendation.albumName }}
       </h3>
 
@@ -40,7 +42,7 @@
 
       <!-- 匹配信息和数量 -->
       <div class="flex items-center justify-between text-sm">
-        <span class="text-gray-500 dark:text-gray-500">{{ matchPercentage }}% 匹配</span>
+        <span class="text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-400 transition-colors">{{ matchPercentage }}% 匹配</span>
         <span class="text-gray-600 dark:text-gray-400 font-medium">{{ recommendation.similarFaceCount }} / {{ recommendation.photoCount }}</span>
       </div>
     </div>

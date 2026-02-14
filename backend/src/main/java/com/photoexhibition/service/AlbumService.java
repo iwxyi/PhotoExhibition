@@ -61,7 +61,8 @@ public class AlbumService {
         List<Album> allAlbums;
         if (category != null && !category.isEmpty()) {
             String prefix = buildCategoryPrefix(category);
-            allAlbums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+            // 使用标准化路径查询
+            allAlbums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThanNormalized(prefix, 0, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
         } else {
             // 查询有照片的相册或开启了聚合功能的相册
             allAlbums = albumRepository.findAlbumsWithPhotosOrAggregation(PageRequest.of(0, Integer.MAX_VALUE)).getContent();
@@ -87,7 +88,8 @@ public class AlbumService {
         Page<Album> albums;
         if (category != null && !category.isEmpty()) {
             String prefix = buildCategoryPrefix(category);
-            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThan(prefix, 0, fetchPageable);
+            // 使用标准化路径查询
+            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThanNormalized(prefix, 0, fetchPageable);
         } else {
             // 查询有照片的相册或开启了聚合功能的相册
             albums = albumRepository.findAlbumsWithPhotosOrAggregation(fetchPageable);
@@ -279,8 +281,11 @@ public class AlbumService {
      * 自动生成相册封面图片组合
      */
     private CoverImagesDTO generateAutoCoverImages(Long albumId) {
+        log.debug("generateAutoCoverImages - albumId: {}", albumId);
+
         // 检查相册是否开启了聚合
         List<Long> albumIds = getAggregatedAlbumIds(albumId);
+        log.debug("generateAutoCoverImages - 聚合相册ID列表: {}, 大小: {}", albumIds, albumIds.size());
 
         List<Photo> photos;
         if (albumIds.size() == 1) {
@@ -449,7 +454,7 @@ public class AlbumService {
         // 检查是否有子文件夹（用于聚合功能）
         boolean hasSubs = false;
         try {
-            Path albumPath = Paths.get(album.getPath());
+            Path albumPath = normalizePath(album.getPath());
             if (Files.exists(albumPath) && Files.isDirectory(albumPath)) {
                 try (Stream<Path> stream = Files.list(albumPath)) {
                     hasSubs = stream.anyMatch(path -> Files.isDirectory(path) &&
@@ -465,7 +470,7 @@ public class AlbumService {
         // 检查是否是顶级相册（不能聚合到上一级）
         // 顶级相册是指在base-path/分类/下的相册
         Path basePathResolved = resolveBasePath();
-        Path albumPath = Paths.get(album.getPath());
+        Path albumPath = normalizePath(album.getPath());
         int depth = 0;
         boolean pathMatches = false;
 
@@ -735,7 +740,7 @@ public class AlbumService {
             }
             basePathResolved = basePathResolved.normalize();
 
-            Path albumRealPath = Paths.get(albumPath).normalize();
+            Path albumRealPath = normalizePath(albumPath);
             Path relative;
             if (albumRealPath.startsWith(basePathResolved)) {
                 relative = basePathResolved.relativize(albumRealPath);
@@ -786,7 +791,7 @@ public class AlbumService {
             if (albumPath == null || albumPath.isEmpty()) return "";
 
             Path basePathResolved = resolveBasePath();
-            Path albumRealPath = Paths.get(albumPath).normalize();
+            Path albumRealPath = normalizePath(albumPath);
             if (!albumRealPath.startsWith(basePathResolved)) {
                 return "";
             }
@@ -811,17 +816,28 @@ public class AlbumService {
      */
     private java.util.Optional<java.time.LocalDateTime> findEarliestTakenAtFromSubAlbums(String parentPath) {
         try {
-            // 查找所有直接子相册
-            java.util.List<Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+            // 确保路径以 / 结尾
+            String normalizedPath = parentPath;
+            if (!normalizedPath.endsWith("/") && !normalizedPath.endsWith("\\")) {
+                normalizedPath = normalizedPath + "/";
+            }
+
+            log.debug("findEarliestTakenAtFromSubAlbums - parentPath: {}, normalizedPath: {}", parentPath, normalizedPath);
+
+            // 使用标准化路径查询
+            java.util.List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(normalizedPath);
+            log.debug("findEarliestTakenAtFromSubAlbums - 找到 {} 个直接子相册", subAlbums.size());
             if (subAlbums.isEmpty()) {
                 return java.util.Optional.empty();
             }
 
             java.time.LocalDateTime earliest = null;
             for (Album subAlbum : subAlbums) {
+                log.debug("findEarliestTakenAtFromSubAlbums - 子相册: {}, path: {}", subAlbum.getName(), subAlbum.getPath());
                 // 递归查找子相册的最早时间
                 java.util.Optional<java.time.LocalDateTime> subTakenAt = findEarliestTakenAtFromAlbum(subAlbum);
                 if (subTakenAt.isPresent()) {
+                    log.debug("findEarliestTakenAtFromSubAlbums - 子相册 {} 的最早时间: {}", subAlbum.getName(), subTakenAt.get());
                     if (earliest == null || subTakenAt.get().isBefore(earliest)) {
                         earliest = subTakenAt.get();
                     }
@@ -854,6 +870,21 @@ public class AlbumService {
         return java.util.Optional.empty();
     }
 
+    /**
+     * 规范化路径，处理前导斜杠的Windows路径（如 /D:/xxx -> D:/xxx）
+     */
+    private Path normalizePath(String path) {
+        if (path == null) {
+            return null;
+        }
+        // 处理前导斜杠的Windows路径，如 /D:/xxx -> D:/xxx
+        String normalized = path;
+        if (path.matches("^/[A-Za-z]:/.*")) {
+            normalized = path.substring(1);
+        }
+        return Paths.get(normalized).normalize();
+    }
+
     private Path resolveBasePath() {
         Path basePathResolved = Paths.get(photoBasePath);
         if (!basePathResolved.isAbsolute()) {
@@ -879,12 +910,23 @@ public class AlbumService {
 
         try {
             Path basePathResolved = resolveBasePath();
-            Path albumRealPath = Paths.get(albumPath).normalize();
+
+            // 处理前导斜杠的Windows路径，如 /D:/xxx -> D:/xxx
+            String normalizedAlbumPath = albumPath;
+            if (albumPath.matches("^/[A-Za-z]:/.*")) {
+                // 去掉前导斜杠，将 /D:/xxx 转换为 D:/xxx
+                normalizedAlbumPath = albumPath.substring(1);
+            }
+
+            Path albumRealPath = Paths.get(normalizedAlbumPath).normalize();
 
             // 如果相册路径不在 base-path 下，直接返回原路径
             if (!albumRealPath.startsWith(basePathResolved)) {
-                // 尝试去掉常见的绝对路径前缀（如 D:\wwwroot\...）
+                // 处理前导斜杠的Windows路径，如 /D:/xxx -> D:/xxx
                 String normalizedPath = albumPath.replace("\\", "/");
+                if (normalizedPath.matches("^/[A-Za-z]:/.*")) {
+                    normalizedPath = normalizedPath.substring(1);
+                }
                 String windowsMatch = normalizedPath.replaceFirst("^[A-Za-z]:[/\\\\]", "");
                 return windowsMatch;
             }
@@ -973,8 +1015,8 @@ public class AlbumService {
             pathPrefix = pathPrefix + "/";
         }
 
-        // 查找所有以当前相册路径开头的子相册
-        List<Album> subAlbums = albumRepository.findByPathStartingWith(pathPrefix);
+        // 使用标准化路径查询
+        List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(pathPrefix);
 
         // 过滤出直接子相册（层级 = 当前相册层级 + 1）
         String[] currentParts = pathPrefix.replace("\\", "/").split("/");
@@ -1158,7 +1200,14 @@ public class AlbumService {
      * 递归收集指定相册的所有子相册路径
      */
     private void collectSubAlbumPaths(String parentPath, java.util.Set<String> paths) {
-        List<Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+        // 确保路径以 / 结尾
+        String normalizedPath = parentPath;
+        if (!normalizedPath.endsWith("/") && !normalizedPath.endsWith("\\")) {
+            normalizedPath = normalizedPath + "/";
+        }
+
+        // 使用标准化路径查询
+        List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(normalizedPath);
         for (Album subAlbum : subAlbums) {
             paths.add(subAlbum.getPath());
             // 如果子相册也开启了聚合，继续递归收集
@@ -1177,12 +1226,15 @@ public class AlbumService {
 
         // 检查相册是否开启了聚合下级相册
         albumRepository.findById(albumId).ifPresent(album -> {
+            log.debug("getAggregatedAlbumIds - albumId: {}, name: {}, path: {}, aggregateSubAlbums: {}",
+                albumId, album.getName(), album.getPath(), album.getAggregateSubAlbums());
             if (Boolean.TRUE.equals(album.getAggregateSubAlbums())) {
                 // 递归获取所有子相册ID
                 addSubAlbumIds(album.getPath(), albumIds);
             }
         });
 
+        log.debug("getAggregatedAlbumIds - 最终相册ID列表: {}", albumIds);
         return albumIds;
     }
 
@@ -1190,8 +1242,19 @@ public class AlbumService {
      * 递归添加子相册ID到列表中
      */
     private void addSubAlbumIds(String parentPath, List<Long> albumIds) {
-        List<Album> subAlbums = albumRepository.findDirectSubAlbums(parentPath);
+        // 确保路径以 / 结尾
+        String normalizedPath = parentPath;
+        if (!normalizedPath.endsWith("/") && !normalizedPath.endsWith("\\")) {
+            normalizedPath = normalizedPath + "/";
+        }
+
+        log.debug("addSubAlbumIds - parentPath: {}, normalizedPath: {}", parentPath, normalizedPath);
+
+        // 使用标准化路径查询
+        List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(normalizedPath);
+        log.debug("addSubAlbumIds - 找到 {} 个直接子相册", subAlbums.size());
         for (Album subAlbum : subAlbums) {
+            log.debug("addSubAlbumIds - 子相册: {}, path: {}", subAlbum.getName(), subAlbum.getPath());
             albumIds.add(subAlbum.getId());
             // 如果子相册也开启了聚合，继续递归
             if (Boolean.TRUE.equals(subAlbum.getAggregateSubAlbums())) {

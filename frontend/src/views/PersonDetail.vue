@@ -248,23 +248,43 @@
             <div
               v-for="face in personPhotos"
               :key="face.id"
-              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:z-30"
               @click="goToPhoto(face.photoId!)"
+              @mouseenter="onPhotoHover(face)"
+              @mouseleave="onPhotoLeave(face)"
             >
-              <img
-                :src="convertImagePath(face.photoThumbnailPath || '')"
-                :alt="face.photoFilename"
-                class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                loading="lazy"
-              />
-              <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300"></div>
-              <div class="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0">
-                <div class="flex items-center gap-1 px-2 py-1 bg-black/50 backdrop-blur-sm rounded-lg">
-                  <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
+              <!-- 背景图容器（负责裁切） -->
+              <div class="absolute inset-0 overflow-hidden rounded-xl">
+                <img
+                  :src="convertImagePath(face.photoThumbnailPath || '')"
+                  :alt="face.photoFilename"
+                  class="w-full h-full object-cover"
+                  :style="{ 
+                    transform: visiblePhotoId === face.photoId ? 'scale(1.2)' : 'scale(1)', 
+                    transformOrigin: 'center',
+                    transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                  }"
+                  loading="lazy"
+                />
+              </div>
+              
+              <!-- 抠图浮层（直接显示/隐藏，加圆角） -->
+              <div 
+                v-if="visiblePhotoId === face.photoId || bgRemoveSuccessCache.has(face.photoId!) || bgRemoveLoadingCache.has(face.photoId!)"
+                class="absolute inset-0 z-20 pointer-events-none"
+              >
+                <img
+                  :src="getBackgroundRemovedUrl(face.photoId!)"
+                  :alt="face.photoFilename"
+                  class="w-full h-full object-cover rounded-xl"
+                  :style="{ 
+                    transform: visiblePhotoId === face.photoId ? 'scale(1.2)' : 'scale(1)', 
+                    transformOrigin: 'center',
+                    transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                  }"
+                  @load="handleBgRemoveSuccess(face.photoId!)"
+                  @error="handleBgRemoveError($event, face)"
+                />
               </div>
             </div>
           </div>
@@ -308,7 +328,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
-import { personApi, PersonSummary, AlbumRecommendation, FaceFace } from '@/api'
+import { personApi, PersonSummary, AlbumRecommendation, FaceFace, backgroundRemovalApi } from '@/api'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import AlbumRecommendationCard from '@/components/AlbumRecommendationCard.vue'
 import { useMobileNav } from '@/composables/useMobileNav'
@@ -370,6 +390,127 @@ const albumRecommendations = ref<AlbumRecommendation[]>([])
 const personPhotos = ref<FaceFace[]>([])
 const loadingAlbums = ref(false)
 const loadingPhotos = ref(false)
+
+// 人物抠图悬浮效果相关状态
+const bgRemoveLoadingCache = ref<Set<number>>(new Set())
+const bgRemoveFailedCache = ref<Set<number>>(new Set())
+const bgRemoveSuccessCache = ref<Set<number>>(new Set())
+const bgRemoveEnabled = ref<boolean | null>(null) // null = unknown, true = enabled, false = disabled
+
+// 用于控制两层同步显示的 ID（抠图加载完成后才设置）
+const visiblePhotoId = ref<number | null>(null)
+
+// 悬浮显示抠图
+const onPhotoHover = (face: FaceFace) => {
+  if (face.photoId) {
+    // 如果功能明确未启用，直接返回
+    if (bgRemoveEnabled.value === false) {
+      return
+    }
+    // 每次hover都尝试预加载（不检查失败缓存，允许重复尝试）
+    preloadBackgroundRemovedImage(face.photoId)
+  }
+}
+
+// 预加载抠图图片（带超时，但允许重试）
+const preloadBackgroundRemovedImage = (photoId: number) => {
+  // 如果正在加载或已成功，直接显示
+  if (bgRemoveSuccessCache.value.has(photoId) || bgRemoveLoadingCache.value.has(photoId)) {
+    visiblePhotoId.value = photoId
+    return
+  }
+  
+  // 标记正在加载
+  bgRemoveLoadingCache.value.add(photoId)
+  
+  // 创建 Image 对象预加载
+  const img = new Image()
+  img.src = getBackgroundRemovedUrl(photoId)
+  
+  // 设置超时：3秒内没加载成功则视为失败
+  const timeout = setTimeout(() => {
+    bgRemoveLoadingCache.value.delete(photoId)
+    // 注意：不加入失败缓存，允许下次重试
+    // 如果是第一次检测到失败，认为功能未启用
+    if (bgRemoveEnabled.value === null) {
+      bgRemoveEnabled.value = false
+    }
+    // 超时时也显示（使用正在加载的状态），让用户看到尝试过程
+    visiblePhotoId.value = photoId
+  }, 3000)
+  
+  img.onload = () => {
+    clearTimeout(timeout)
+    bgRemoveLoadingCache.value.delete(photoId)
+    bgRemoveSuccessCache.value.add(photoId)
+    // 如果是第一次检测成功，认为功能已启用
+    if (bgRemoveEnabled.value === null) {
+      bgRemoveEnabled.value = true
+    }
+    // 延迟一点设置 visiblePhotoId，让图片先渲染完成再开始动画
+    setTimeout(() => {
+      visiblePhotoId.value = photoId
+    }, 50)
+  }
+  img.onerror = () => {
+    clearTimeout(timeout)
+    bgRemoveLoadingCache.value.delete(photoId)
+    // 加载失败时不加入失败缓存，允许重试
+    // 如果是第一次检测到失败，认为功能未启用
+    if (bgRemoveEnabled.value === null) {
+      bgRemoveEnabled.value = false
+    }
+  }
+}
+
+// 离开时恢复正常显示
+const onPhotoLeave = (_face: FaceFace) => {
+  visiblePhotoId.value = null
+}
+
+// 获取抠图后的图片URL
+const getBackgroundRemovedUrl = (photoId: number): string => {
+  return backgroundRemovalApi.getUrl(photoId)
+}
+
+// 处理抠图加载成功
+const handleBgRemoveSuccess = (photoId: number) => {
+  bgRemoveSuccessCache.value.add(photoId)
+}
+
+// 处理抠图加载失败
+const handleBgRemoveError = (event: Event, face: FaceFace) => {
+  console.warn('[抠图] 加载失败:', face.photoId, event)
+  const img = event.target as HTMLImageElement
+  // 标记失败（可选，用于统计）
+  if (face.photoId) {
+    // 不隐藏图片，因为可能后端还在处理
+    // img.style.display = 'none'
+  }
+}
+
+// 根据人脸位置计算剪裁路径（抠出人物区域）
+const getFaceClipPath = (face: FaceFace): string => {
+  if (face.x !== undefined && face.y !== undefined && face.width !== undefined && face.height !== undefined) {
+    // 人脸在图片中的归一化坐标
+    const left = face.x * 100
+    const top = face.y * 100
+    const faceWidth = face.width * 100
+    const faceHeight = face.height * 100
+    
+    // 扩展区域，让人物更完整（头部+肩部）
+    const paddingX = faceWidth * 0.5
+    const paddingY = faceHeight * 0.8
+    
+    const clipLeft = Math.max(0, left - paddingX)
+    const clipTop = Math.max(0, top - paddingY * 0.3)
+    const clipWidth = Math.min(100 - clipLeft, faceWidth + paddingX * 2)
+    const clipHeight = Math.min(100 - clipTop, faceHeight + paddingY * 1.5)
+    
+    return `inset(${clipTop}% ${100 - clipLeft - clipWidth}% ${100 - clipTop - clipHeight}% ${clipLeft}%)`
+  }
+  return 'none'
+}
 
 // 分页加载状态
 const currentPhotoPage = ref(0)
