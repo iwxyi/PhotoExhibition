@@ -248,7 +248,8 @@
             <div
               v-for="face in personPhotos"
               :key="face.id"
-              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-visible cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:z-30"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-visible cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+              :class="{ 'z-30': visiblePhotoId === face.photoId || animatingPhotoId === face.photoId }"
               @click="goToPhoto(face.photoId!)"
               @mouseenter="onPhotoHover(face)"
               @mouseleave="onPhotoLeave(face)"
@@ -272,19 +273,13 @@
               <div 
                 v-if="visiblePhotoId === face.photoId || bgRemoveSuccessCache.has(face.photoId!) || bgRemoveLoadingCache.has(face.photoId!)"
                 class="absolute inset-0 z-20 pointer-events-none overflow-visible rounded-xl"
-                :style="getBgRemoveContainerStyle(face, visiblePhotoId === face.photoId)"
+                :style="{ ...getBgRemoveContainerStyle(face, visiblePhotoId === face.photoId), transformOrigin: 'center', transition: 'all 500ms cubic-bezier(0.34, 1.56, 0.64, 1)' }"
               >
                 <img
                   :src="getBackgroundRemovedUrl(face.photoId!, 'medium')"
                   :alt="face.photoFilename"
-                  class="w-full h-full"
-                  :style="{ 
-                    // 与背景层完全一致的缩放
-                    transform: getBgRemoveTransform(face, visiblePhotoId === face.photoId),
-                    transformOrigin: 'center',
-                    transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)',
-                    objectFit: 'cover'
-                  }"
+                  class="w-full h-full rounded-xl"
+                  :style="{ objectFit: 'cover' }"
                   @load="handleBgRemoveSuccess(face.photoId!)"
                   @error="handleBgRemoveError($event, face)"
                 />
@@ -403,6 +398,9 @@ const bgRemoveEnabled = ref<boolean | null>(null) // null = unknown, true = enab
 // 用于控制两层同步显示的 ID（抠图加载完成后才设置）
 const visiblePhotoId = ref<number | null>(null)
 
+// 用于保持 z-index 高直到收缩动画完成
+const animatingPhotoId = ref<number | null>(null)
+
 // 悬浮显示抠图
 const onPhotoHover = (face: FaceFace) => {
   if (face.photoId) {
@@ -466,9 +464,19 @@ const preloadBackgroundRemovedImage = (photoId: number) => {
   }
 }
 
-// 离开时恢复正常显示
-const onPhotoLeave = (_face: FaceFace) => {
-  visiblePhotoId.value = null
+// 离开时保持 z-index 直到动画完成
+const onPhotoLeave = (face: FaceFace) => {
+  if (face.photoId && (visiblePhotoId.value === face.photoId || animatingPhotoId.value === face.photoId)) {
+    const photoId = face.photoId
+    visiblePhotoId.value = null
+    // 保持 z-index 高直到动画完成(500ms)
+    animatingPhotoId.value = photoId
+    setTimeout(() => {
+      if (animatingPhotoId.value === photoId) {
+        animatingPhotoId.value = null
+      }
+    }, 550)
+  }
 }
 
 // 获取抠图后的图片URL
@@ -518,48 +526,29 @@ const getFaceClipPath = (face: FaceFace): string => {
 // 根据照片宽高比计算抠图层的展开参数
 // 横图：左右展开；竖图：上下展开
 
-// 计算抠图层容器的尺寸（基于宽高比展开，使用transform居中）
+// 计算抠图层容器的尺寸（展开时显示完整图片，需要重新居中）
 const getBgRemoveContainerStyle = (face: FaceFace, isExpanded: boolean): Record<string, string> => {
-  if (!face.photoWidth || !face.photoHeight || !isExpanded) {
-    return {
-      width: '100%',
-      height: '100%'
-    }
+  if (!face.photoWidth || !face.photoHeight) {
+    return { width: '100%', height: '100%' }
   }
   
   const ratio = face.photoWidth / face.photoHeight
-  
-  if (ratio > 1) {
-    // 横图：宽度展开，用translateX居中
-    const width = `${ratio * 100}%`
-    const translateX = `-${((ratio - 1) / 2 / ratio) * 100}%`
-    return {
-      width,
-      height: '100%',
-      transform: `translateX(${translateX})`
-    }
-  } else if (ratio < 1) {
-    // 竖图：高度展开，用translateY居中
-    const height = `${(1 / ratio) * 100}%`
-    const translateY = `-${((1 / ratio - 1) / 2 / (1 / ratio)) * 100}%`
-    return {
-      width: '100%',
-      height,
-      transform: `translateY(${translateY})`
-    }
-  }
-  
-  // 方形图
-  return {
-    width: '100%',
-    height: '100%'
-  }
-}
-
-// 计算 transform（与背景层一致，只做缩放）
-const getBgRemoveTransform = (face: FaceFace, isExpanded: boolean): string => {
   const baseScale = isExpanded ? 1.44 : 1
-  return `scale(${baseScale})`
+  
+  if (isExpanded && ratio > 1) {
+    // 横图：宽度展开，需要向左偏移使中心对齐
+    const width = `${ratio * 100}%`
+    const leftOffset = -((ratio - 1) / 2) * 100
+    return { width, height: '100%', left: `${leftOffset}%`, transform: `scale(${baseScale})` }
+  } else if (isExpanded && ratio < 1) {
+    // 竖图：高度展开，需要向上偏移使中心对齐
+    const height = `${(1 / ratio) * 100}%`
+    const topOffset = -((1 / ratio - 1) / 2) * 100
+    return { width: '100%', height, top: `${topOffset}%`, transform: `scale(${baseScale})` }
+  }
+  
+  // 方形图或不展开时
+  return { width: '100%', height: '100%', transform: `scale(${baseScale})` }
 }
 
 // 分页加载状态
