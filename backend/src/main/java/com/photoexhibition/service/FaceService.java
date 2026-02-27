@@ -708,7 +708,7 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public Page<FaceDTO> listPersonFaces(Long personId, Pageable pageable) {
-        return faceRepository.findByPersonId(personId, pageable).map(this::toDTO);
+        return faceRepository.findByPersonIdOrderByPhotoTimeDesc(personId, pageable).map(this::toDTO);
     }
 
     /**
@@ -1684,7 +1684,10 @@ public class FaceService {
             dto.setPhotoId(face.getPhoto().getId());
             dto.setPhotoFilename(face.getPhoto().getFilename());
             dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
+            dto.setPhotoMediumThumbPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
             dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
+            dto.setPhotoWidth(face.getPhoto().getWidth());
+            dto.setPhotoHeight(face.getPhoto().getHeight());
         }
         return dto;
     }

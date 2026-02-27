@@ -40,6 +40,12 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     Page<Face> findByPersonId(Long personId, Pageable pageable);
 
+    /**
+     * 按人物ID获取人脸，按照片拍摄时间倒序
+     */
+    @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person.id = :personId ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
+    Page<Face> findByPersonIdOrderByPhotoTimeDesc(@Param("personId") Long personId, Pageable pageable);
+
     Page<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed, Pageable pageable);
 
     List<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed);

@@ -300,8 +300,9 @@ export const backgroundRemovalApi = {
     api.get<{ enabled: boolean; photoExists: boolean }>(`/photos/${photoId}/background-removal/available`),
 
   // 获取移除背景后的图片URL（使用 api 的 baseURL）
-  getUrl: (photoId: number): string => 
-    `${api.defaults.baseURL}/photos/${photoId}/remove-background`,
+  // quality: 'small' | 'medium' | 'large'，默认为 medium
+  getUrl: (photoId: number, quality: string = 'medium'): string => 
+    `${api.defaults.baseURL}/photos/${photoId}/remove-background?quality=${quality}`,
 
   // 触发异步背景移除任务
   triggerAsync: (photoId: number) =>

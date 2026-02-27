@@ -16,6 +16,7 @@ public class FaceDTO {
     private String personDescription;
     private String photoFilename;
     private String photoThumbnailPath;
+    private String photoMediumThumbPath;
     private String photoOriginalPath;
     private Integer photoWidth;   // 照片宽度
     private Integer photoHeight;  // 照片高度

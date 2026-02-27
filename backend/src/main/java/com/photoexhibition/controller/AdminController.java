@@ -1572,7 +1572,7 @@ public class AdminController {
             resp.put("message", "清空抠图缓存失败: " + e.getMessage());
             return ResponseEntity.status(500).body(resp);
         }
-        
+
         return ResponseEntity.ok(resp);
     }
 

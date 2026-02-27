@@ -1259,6 +1259,8 @@ public class PhotoScanService {
                     newAlbum.setName(albumPath.getFileName().toString());
                     newAlbum.setPath(albumPathStr);
                     newAlbum.setPathHash(albumPathHash);
+                    // 从路径中解析相册名日期（用于排序）- 使用简单的方式
+                    newAlbum.setAlbumNameDate(parseDateFromFolderName(albumPath.getFileName().toString()));
                     return albumRepository.save(newAlbum);
                 });
 
@@ -3159,6 +3161,10 @@ public class PhotoScanService {
         patterns.add(new Object[]{"(\\d{1,2})[\\.-/](\\d{1,2})[\\.-/](\\d{4})", "MM-dd-yyyy"}); // 08-08-2023 或 08/08/2023 或 08.08.2023 (日月年)
         patterns.add(new Object[]{"(\\d{1,2})[\\.-/](\\d{1,2})[\\.-/](\\d{2})", "MM-dd-yy"}); // 08-08-23 (两位数年份，日月年)
 
+        // 低优先级：年.月或年-月格式（无日期，默认该月1号）
+        patterns.add(new Object[]{"(\\d{4})[\\.-](\\d{1,2})$", "yyyy-MM"}); // 2024.1 或 2024-1 或 2024.01 或 2024-01 (年.月，无日期，默认该月1号)
+        patterns.add(new Object[]{"(\\d{4})年(\\d{1,2})月$", "yyyy-MM"}); // 2024年1月 (年.月，无日期，默认该月1号)
+
         String normalizedName = folderName.trim();
 
         for (Object[] pattern : patterns) {
@@ -3185,6 +3191,11 @@ public class PhotoScanService {
                         dateStr.append(m.group(3)).append("-")  // 年
                                .append(String.format("%02d", Integer.parseInt(m.group(1)))).append("-")  // 月
                                .append(String.format("%02d", Integer.parseInt(m.group(2))));  // 日
+                    } else if (patternStr.equals("yyyy-MM")) {
+                        // 年.月或年-月格式（无日期，默认该月1号）：2024.1 -> 2024-01-01
+                        dateStr.append(m.group(1)).append("-")  // 年
+                               .append(String.format("%02d", Integer.parseInt(m.group(2)))).append("-")  // 月
+                               .append("01");  // 默认该月1号
                     } else {
                         // 标准年月日格式
                         dateStr.append(m.group(1)).append("-")  // 年
@@ -3216,6 +3227,9 @@ public class PhotoScanService {
                     if (patternStr.contains("HH:mm")) {
                         // 有时间的格式，直接解析为LocalDateTime
                         return LocalDateTime.parse(dateStr.toString(), formatter);
+                    } else if (patternStr.equals("yyyy-MM")) {
+                        // 年.月格式，使用yyyy-MM-dd格式解析
+                        return LocalDateTime.parse(dateStr.toString(), DateTimeFormatter.ofPattern("yyyy-MM-dd"));
                     } else {
                         // 只有日期的格式，解析为LocalDate然后转换为LocalDateTime
                         java.time.LocalDate date = java.time.LocalDate.parse(dateStr.toString(), formatter);

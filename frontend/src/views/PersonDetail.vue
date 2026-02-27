@@ -248,39 +248,42 @@
             <div
               v-for="face in personPhotos"
               :key="face.id"
-              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:z-30"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-visible cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:z-30"
               @click="goToPhoto(face.photoId!)"
               @mouseenter="onPhotoHover(face)"
               @mouseleave="onPhotoLeave(face)"
             >
               <!-- 背景图容器（负责裁切） -->
               <div class="absolute inset-0 overflow-hidden rounded-xl">
-                <img
-                  :src="convertImagePath(face.photoThumbnailPath || '')"
-                  :alt="face.photoFilename"
+              <img
+                :src="convertImagePath(face.photoThumbnailPath || '')"
+                :alt="face.photoFilename"
                   class="w-full h-full object-cover"
-                  :style="{ 
-                    transform: visiblePhotoId === face.photoId ? 'scale(1.2)' : 'scale(1)', 
-                    transformOrigin: 'center',
-                    transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)'
-                  }"
-                  loading="lazy"
-                />
-              </div>
+                :style="{ 
+                  transform: visiblePhotoId === face.photoId ? 'scale(1.44)' : 'scale(1)', 
+                  transformOrigin: 'center',
+                  transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                }"
+                loading="lazy"
+              />
+                </div>
               
-              <!-- 抠图浮层（直接显示/隐藏，加圆角） -->
+              <!-- 抠图浮层（允许溢出容器） -->
               <div 
                 v-if="visiblePhotoId === face.photoId || bgRemoveSuccessCache.has(face.photoId!) || bgRemoveLoadingCache.has(face.photoId!)"
-                class="absolute inset-0 z-20 pointer-events-none"
+                class="absolute inset-0 z-20 pointer-events-none overflow-visible rounded-xl"
+                :style="getBgRemoveContainerStyle(face, visiblePhotoId === face.photoId)"
               >
                 <img
-                  :src="getBackgroundRemovedUrl(face.photoId!)"
+                  :src="getBackgroundRemovedUrl(face.photoId!, 'medium')"
                   :alt="face.photoFilename"
-                  class="w-full h-full object-cover rounded-xl"
+                  class="w-full h-full"
                   :style="{ 
-                    transform: visiblePhotoId === face.photoId ? 'scale(1.2)' : 'scale(1)', 
+                    // 与背景层完全一致的缩放
+                    transform: getBgRemoveTransform(face, visiblePhotoId === face.photoId),
                     transformOrigin: 'center',
-                    transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                    transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    objectFit: 'cover'
                   }"
                   @load="handleBgRemoveSuccess(face.photoId!)"
                   @error="handleBgRemoveError($event, face)"
@@ -469,8 +472,8 @@ const onPhotoLeave = (_face: FaceFace) => {
 }
 
 // 获取抠图后的图片URL
-const getBackgroundRemovedUrl = (photoId: number): string => {
-  return backgroundRemovalApi.getUrl(photoId)
+const getBackgroundRemovedUrl = (photoId: number, quality: string = 'medium'): string => {
+  return backgroundRemovalApi.getUrl(photoId, quality)
 }
 
 // 处理抠图加载成功
@@ -510,6 +513,53 @@ const getFaceClipPath = (face: FaceFace): string => {
     return `inset(${clipTop}% ${100 - clipLeft - clipWidth}% ${100 - clipTop - clipHeight}% ${clipLeft}%)`
   }
   return 'none'
+}
+
+// 根据照片宽高比计算抠图层的展开参数
+// 横图：左右展开；竖图：上下展开
+
+// 计算抠图层容器的尺寸（基于宽高比展开，使用transform居中）
+const getBgRemoveContainerStyle = (face: FaceFace, isExpanded: boolean): Record<string, string> => {
+  if (!face.photoWidth || !face.photoHeight || !isExpanded) {
+    return {
+      width: '100%',
+      height: '100%'
+    }
+  }
+  
+  const ratio = face.photoWidth / face.photoHeight
+  
+  if (ratio > 1) {
+    // 横图：宽度展开，用translateX居中
+    const width = `${ratio * 100}%`
+    const translateX = `-${((ratio - 1) / 2 / ratio) * 100}%`
+    return {
+      width,
+      height: '100%',
+      transform: `translateX(${translateX})`
+    }
+  } else if (ratio < 1) {
+    // 竖图：高度展开，用translateY居中
+    const height = `${(1 / ratio) * 100}%`
+    const translateY = `-${((1 / ratio - 1) / 2 / (1 / ratio)) * 100}%`
+    return {
+      width: '100%',
+      height,
+      transform: `translateY(${translateY})`
+    }
+  }
+  
+  // 方形图
+  return {
+    width: '100%',
+    height: '100%'
+  }
+}
+
+// 计算 transform（与背景层一致，只做缩放）
+const getBgRemoveTransform = (face: FaceFace, isExpanded: boolean): string => {
+  const baseScale = isExpanded ? 1.44 : 1
+  return `scale(${baseScale})`
 }
 
 // 分页加载状态
@@ -611,7 +661,7 @@ const loadPersonPhotos = async () => {
     const photos = response.data.content || []
     totalPhotoCount.value = person.value?.faceCount || response.data.totalElements || 0
     hasMorePhotos.value = !response.data.last
-    personPhotos.value = photos.sort(() => Math.random() - 0.5)
+    personPhotos.value = photos
   } catch (error) {
     console.error('加载人物照片失败:', error)
     personPhotos.value = []

@@ -480,6 +480,20 @@ public class BackgroundRemovalService implements AutoCloseable {
      * @return 处理后的图片，null表示失败或跳过
      */
     public BufferedImage removeBackgroundConcurrently(Long photoId, File sourceFile, File outputFile) {
+        // 使用默认的 outputMaxSize
+        return removeBackgroundConcurrently(photoId, sourceFile, outputFile, outputMaxSize);
+    }
+
+    /**
+     * 并发背景移除 - 带缓存检查和任务追踪，支持指定输出尺寸
+     * 
+     * @param photoId 图片ID（用于追踪任务）
+     * @param sourceFile 源图片文件
+     * @param outputFile 输出文件（可选，为null时只返回内存图片）
+     * @param outputMaxSize 输出图片的最大边长
+     * @return 处理后的图片，null表示失败或跳过
+     */
+    public BufferedImage removeBackgroundConcurrently(Long photoId, File sourceFile, File outputFile, int outputMaxSize) {
         if (!enabled || !modelLoaded) {
             log.warn("模型未就绪，跳过处理: photoId={}", photoId);
             return null;
@@ -511,10 +525,10 @@ public class BackgroundRemovalService implements AutoCloseable {
         // 提交新任务
         java.util.concurrent.Future<?> task = processingExecutor.submit(() -> {
             try {
-                log.info("开始处理抠图: photoId={}, file={}", photoId, sourceFile.getName());
+                log.info("开始处理抠图: photoId={}, file={}, outputMaxSize={}", photoId, sourceFile.getName(), outputMaxSize);
                 
-                // 执行背景移除
-                BufferedImage result = removeBackground(sourceFile);
+                // 执行背景移除（使用指定的输出尺寸）
+                BufferedImage result = removeBackground(sourceFile, outputMaxSize);
                 
                 if (result != null && outputFile != null) {
                     // 保存到文件

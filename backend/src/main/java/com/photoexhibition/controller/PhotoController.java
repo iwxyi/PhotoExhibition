@@ -228,10 +228,15 @@ public class PhotoController {
      * 使用场景：
      * - 获取已抠出背景的图片
      * - 缓存结果，避免重复计算
+     * 
+     * @param id 照片ID
+     * @param quality 图片质量：small(480), medium(720), large(1080)，默认为 medium
      */
     @GetMapping("/{id}/remove-background")
-    public ResponseEntity<byte[]> removeBackground(@PathVariable Long id) {
-        log.info("收到抠图请求: photoId={}", id);
+    public ResponseEntity<byte[]> removeBackground(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "medium") String quality) {
+        log.info("收到抠图请求: photoId={}, quality={}", id, quality);
         
         // 1. 检查功能是否启用
         if (!backgroundRemovalService.isModelAvailable()) {
@@ -246,7 +251,22 @@ public class PhotoController {
             return ResponseEntity.notFound().build();
         }
 
-        // 3. 检查缓存（数据库中已存储的处理结果）
+        // 3. 确定使用哪个质量的图片
+        int outputMaxSize;
+        switch (quality) {
+            case "small":
+                outputMaxSize = 480;
+                break;
+            case "large":
+                outputMaxSize = 1080;
+                break;
+            case "medium":
+            default:
+                outputMaxSize = 720;
+                break;
+        }
+
+        // 4. 检查对应质量的缓存
         String cachedPath = photo.getBackgroundRemovedPath();
         if (cachedPath != null && !cachedPath.isEmpty()) {
             File cachedFile = new File(cachedPath);
@@ -266,7 +286,7 @@ public class PhotoController {
             }
         }
 
-        // 4. 确定源图片路径
+        // 5. 确定源图片路径
         String photoPath = photo.getOriginalPath();
         log.info("源图片路径: {}", photoPath);
         File sourceFile = new File(photoPath);
@@ -276,8 +296,8 @@ public class PhotoController {
         }
 
         try {
-            // 5. 执行背景移除（使用并发版本）
-            log.info("开始处理抠图(并发): {}", photoPath);
+            // 6. 执行背景移除（使用并发版本，传入 outputMaxSize）
+            log.info("开始处理抠图(并发): {}, outputMaxSize={}", photoPath, outputMaxSize);
             
             // 确定输出文件路径
             File parentDir = new File(photo.getOriginalPath()).getParentFile();
@@ -285,9 +305,9 @@ public class PhotoController {
             String cachedFileName = "bg_removed_" + photo.getId() + ".png";
             File outputFile = new File(cacheDir, cachedFileName);
             
-            // 使用并发方法处理
+            // 使用并发方法处理，传入 outputMaxSize
             BufferedImage resultImage = backgroundRemovalService.removeBackgroundConcurrently(
-                photo.getId(), sourceFile, outputFile);
+                photo.getId(), sourceFile, outputFile, outputMaxSize);
             
             if (resultImage == null) {
                 log.error("背景移除返回空结果");
@@ -295,12 +315,12 @@ public class PhotoController {
             }
 
             log.info("抠图处理完成，返回图片");
-            // 6. 转换为 PNG 字节流
+            // 7. 转换为 PNG 字节流
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ImageIO.write(resultImage, "PNG", baos);
             byte[] imageBytes = baos.toByteArray();
 
-            // 7. 保存到缓存文件（如果并发方法没保存）
+            // 8. 保存到缓存文件（如果并发方法没保存）
             try {
                 if (cacheDir.exists() && !outputFile.exists()) {
                     ImageIO.write(resultImage, "PNG", outputFile);
@@ -314,7 +334,7 @@ public class PhotoController {
                 log.warn("保存缓存文件失败", e);
             }
 
-            // 8. 返回图片
+            // 9. 返回图片
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.IMAGE_PNG);
             headers.setContentLength(imageBytes.length);
