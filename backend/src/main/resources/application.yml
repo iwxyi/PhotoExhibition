@@ -78,6 +78,7 @@ logging:
     com.photoexhibition: DEBUG
     com.photoexhibition.service.SubjectDetectionService: DEBUG
     com.photoexhibition.service.PhotoScanService: DEBUG
+    com.photoexhibition.service.AlbumService: WARN
     org.springframework: WARN
     org.springframework.web: INFO
     org.hibernate: WARN
@@ -241,8 +242,8 @@ background:
     cpu-threads: 4  # CPU 推理线程数
     keep-size: 1024  # 模型输入尺寸（BriaAI RMBG 推荐 1024）
     output-max-size: 720  # 输出图片最大尺寸（宽度或高度），用于优化文件大小
-    threshold-transparent: 0.45  # 低于此值设为完全透明（0-1，越高抠图越严格，但太高会丢失细节）
-    threshold-solid: 0.85  # 高于此值设为完全不透明（0-1）
-    erode-radius: 1  # 腐蚀半径，用于去除边缘噪点（0-3）
-    blur-radius: 2  # 高斯模糊半径，用于平滑边缘（0-5）
+    threshold-transparent: 0.55  # 提高阈值，更严格去除背景（0-1）
+    threshold-solid: 0.90  # 提高阈值，主体更实（0-1）
+    erode-radius: 2  # 增大腐蚀半径，去除边缘噪点（0-3）
+    blur-radius: 3  # 增大模糊，平滑边缘（0-5）
     concurrent-tasks: 1  # 并发处理任务数（1=串行处理，更省性能）

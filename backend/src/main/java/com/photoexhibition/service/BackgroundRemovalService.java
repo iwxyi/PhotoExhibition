@@ -954,8 +954,14 @@ public class BackgroundRemovalService implements AutoCloseable {
         if (alpha > thresholdSolid) {
             return 1f;
         }
-        // 使用平滑过渡
-        return alpha;
+        // 使用 sigmoid 平滑过渡，使边缘更干净
+        float mid = (customThreshold + thresholdSolid) / 2;
+        float range = thresholdSolid - customThreshold;
+        float normalized = (alpha - mid) / (range / 2);
+        // Sigmoid 函数: 1 / (1 + e^(-x * steepness))
+        float steepness = 3.0f;
+        float sigmoid = 1.0f / (1.0f + (float) Math.exp(-normalized * steepness));
+        return sigmoid;
     }
 
     /**

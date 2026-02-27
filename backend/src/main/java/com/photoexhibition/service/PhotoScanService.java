@@ -66,6 +66,7 @@ public class PhotoScanService {
         public int current = 0;
         public int total = 0;
         public boolean complete = false;
+        public boolean stopped = false;
         public LocalDateTime startTime;
         public LocalDateTime endTime;
     }
@@ -276,6 +277,220 @@ public class PhotoScanService {
             log.info("哈希回填完成");
         } catch (Exception e) {
             log.error("回填哈希任务失败", e);
+        }
+    }
+
+    /**
+     * 异步清空所有抠图缓存（文件 + 数据库记录）
+     * @param taskId 任务ID（由调用方生成）
+     */
+    @Async
+    public void clearBackgroundCacheAsync(String taskId) {
+        TaskStatus ts = new TaskStatus();
+        ts.taskId = taskId;
+        ts.status = "running";
+        ts.startTime = LocalDateTime.now();
+        tasks.put(taskId, ts);
+        
+        try {
+            log.info("开始清空抠图缓存...");
+            ts.logs.add("开始清空抠图缓存...");
+            
+            // 获取所有有背景移除路径的照片
+            List<Photo> photosWithBg = photoRepository.findAll().stream()
+                .filter(p -> p.getBackgroundRemovedPath() != null && !p.getBackgroundRemovedPath().isEmpty())
+                .toList();
+            
+            ts.total = photosWithBg.size();
+            ts.logs.add("共找到 " + ts.total + " 个抠图文件");
+            
+            int totalCleared = 0;
+            int totalErrors = 0;
+            
+            for (int i = 0; i < photosWithBg.size(); i++) {
+                Photo photo = photosWithBg.get(i);
+                ts.current = i + 1;
+                
+                String bgRemovedPath = photo.getBackgroundRemovedPath();
+                File bgFile = new File(bgRemovedPath);
+                if (bgFile.exists()) {
+                    try {
+                        if (bgFile.delete()) {
+                            totalCleared++;
+                        } else {
+                            totalErrors++;
+                            log.warn("无法删除文件: {}", bgRemovedPath);
+                        }
+                    } catch (Exception e) {
+                        totalErrors++;
+                        log.warn("删除文件失败: {} - {}", bgRemovedPath, e.getMessage());
+                    }
+                }
+                
+                // 每处理10张输出一次日志
+                if ((i + 1) % 10 == 0) {
+                    ts.logs.add("已处理 " + (i + 1) + " / " + ts.total);
+                }
+            }
+            
+            // 批量清除数据库中的路径记录
+            int updatedCount = photoRepository.clearAllBackgroundRemovedPath();
+            log.info("已清除 {} 条背景移除路径记录", updatedCount);
+            ts.logs.add("已清除数据库记录: " + updatedCount + " 条");
+            
+            ts.logs.add("清空完成: 清除 " + totalCleared + " 个文件, 错误 " + totalErrors + " 个");
+            log.info("清空抠图缓存完成: 清除 {} 个文件, 错误 {} 个", totalCleared, totalErrors);
+            
+            ts.complete = true;
+            ts.status = "completed";
+        } catch (Exception e) {
+            log.error("清空抠图缓存失败", e);
+            ts.status = "failed";
+            ts.logs.add("失败: " + e.getMessage());
+        } finally {
+            ts.endTime = LocalDateTime.now();
+        }
+    }
+
+    /**
+     * 异步批量移除背景（抠图处理）
+     * @param albumId 相册ID（可选，为空则处理所有图片）
+     * @param batchSize 每批处理数量
+     * @param saveToPhoto 是否保存路径到照片记录
+     * @param force 是否强制重新处理
+     */
+    @Async
+    public void batchBackgroundRemovalAsync(String taskId, Long albumId, int batchSize, boolean saveToPhoto, boolean force) {
+        TaskStatus ts = tasks.get(taskId);
+        if (ts == null) {
+            ts = new TaskStatus();
+            ts.taskId = taskId;
+            ts.status = "running";
+            ts.startTime = LocalDateTime.now();
+            tasks.put(taskId, ts);
+        }
+        
+        try {
+            if (!backgroundRemovalService.isModelAvailable()) {
+                ts.status = "failed";
+                ts.logs.add("背景移除功能未启用或模型未加载");
+                return;
+            }
+            
+            log.info("开始批量背景移除任务: albumId={}, batchSize={}, force={}", albumId, batchSize, force);
+            ts.logs.add("开始批量背景移除...");
+            
+            // 先获取总数
+            long totalPhotos;
+            if (albumId != null) {
+                totalPhotos = photoRepository.countByAlbumId(albumId);
+                ts.logs.add("处理相册 " + albumId + " 的照片，共 " + totalPhotos + " 张");
+            } else {
+                totalPhotos = photoRepository.count();
+                ts.logs.add("处理所有照片，共 " + totalPhotos + " 张");
+            }
+            ts.total = (int) totalPhotos;
+            
+            if (totalPhotos == 0) {
+                ts.logs.add("没有找到需要处理的照片");
+                ts.complete = true;
+                ts.status = "completed";
+                return;
+            }
+            
+            int successCount = 0;
+            int skipCount = 0;
+            int failCount = 0;
+            int processedCount = 0;
+            int pageNum = 0;
+            
+            // 循环处理所有页面
+            while (processedCount < totalPhotos) {
+                // 检查任务是否被停止
+                if (ts.stopped) {
+                    ts.logs.add("任务已停止");
+                    ts.status = "stopped";
+                    break;
+                }
+                
+                Page<Photo> photoPage;
+                if (albumId != null) {
+                    photoPage = photoRepository.findByAlbumId(albumId, PageRequest.of(pageNum, batchSize));
+                } else {
+                    photoPage = photoRepository.findAll(PageRequest.of(pageNum, batchSize));
+                }
+                
+                List<Photo> photos = photoPage.getContent();
+                if (photos.isEmpty()) {
+                    break;
+                }
+                
+                for (Photo photo : photos) {
+                    ts.current = processedCount + 1;
+                    
+                    try {
+                        // 检查是否已有缓存（除非force=true）
+                        if (!force && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isEmpty()) {
+                            File existingFile = new File(photo.getBackgroundRemovedPath());
+                            if (existingFile.exists()) {
+                                skipCount++;
+                                processedCount++;
+                                continue;
+                            }
+                        }
+                        
+                        File sourceFile = new File(photo.getOriginalPath());
+                        if (!sourceFile.exists()) {
+                            failCount++;
+                            processedCount++;
+                            continue;
+                        }
+                        
+                        // 输出到 .thumbnails 文件夹
+                        File parentDir = sourceFile.getParentFile();
+                        File cacheDir = new File(parentDir, ".thumbnails");
+                        if (!cacheDir.exists()) {
+                            cacheDir.mkdirs();
+                        }
+                        File outputFile = new File(cacheDir, "bg_removed_" + photo.getId() + ".png");
+                        
+                        if (backgroundRemovalService.removeBackground(sourceFile, outputFile)) {
+                            if (saveToPhoto) {
+                                photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                                photoRepository.save(photo);
+                            }
+                            successCount++;
+                        } else {
+                            failCount++;
+                        }
+                        
+                    } catch (Exception e) {
+                        log.error("处理照片失败: {}", photo.getId(), e);
+                        failCount++;
+                    }
+                    
+                    processedCount++;
+                    
+                    // 每处理10张输出一次日志
+                    if (processedCount % 10 == 0) {
+                        ts.logs.add("已处理 " + processedCount + " / " + totalPhotos + " (成功:" + successCount + " 跳过:" + skipCount + " 失败:" + failCount + ")");
+                    }
+                }
+                
+                pageNum++;
+            }
+            
+            ts.logs.add("处理完成: 成功 " + successCount + ", 跳过 " + skipCount + ", 失败 " + failCount);
+            log.info("批量背景移除完成: 成功 {} 跳过 {} 失败 {}", successCount, skipCount, failCount);
+            
+            ts.complete = true;
+            ts.status = "completed";
+        } catch (Exception e) {
+            log.error("批量背景移除失败", e);
+            ts.status = "failed";
+            ts.logs.add("失败: " + e.getMessage());
+        } finally {
+            ts.endTime = LocalDateTime.now();
         }
     }
 
@@ -2994,6 +3209,29 @@ public class PhotoScanService {
         resp.put("startTime", ts.startTime != null ? ts.startTime.toString() : null);
         resp.put("endTime", ts.endTime != null ? ts.endTime.toString() : null);
         resp.put("logs", new ArrayList<>(ts.logs));
+        return resp;
+    }
+
+    /**
+     * 停止任务
+     */
+    public Map<String, Object> stopTask(String taskId) {
+        Map<String, Object> resp = new HashMap<>();
+        TaskStatus ts = tasks.get(taskId);
+        if (ts == null) {
+            resp.put("found", false);
+            resp.put("taskId", taskId);
+            return resp;
+        }
+        ts.stopped = true;
+        ts.status = "stopped";
+        ts.complete = true;
+        ts.endTime = LocalDateTime.now();
+        ts.logs.add("任务已被用户停止");
+        log.info("任务 {} 已停止", taskId);
+        resp.put("found", true);
+        resp.put("taskId", taskId);
+        resp.put("status", "stopped");
         return resp;
     }
 

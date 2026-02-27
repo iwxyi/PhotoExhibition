@@ -5,9 +5,11 @@ import com.photoexhibition.entity.ProcessingStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +28,14 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     Page<Photo> findByAlbumId(Long albumId, Pageable pageable);
 
     Long countByAlbumId(Long albumId);
+
+    /**
+     * 批量清除所有照片的背景移除路径记录
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Photo p SET p.backgroundRemovedPath = NULL WHERE p.backgroundRemovedPath IS NOT NULL")
+    int clearAllBackgroundRemovedPath();
 
     @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore ORDER BY RAND()")
     List<Photo> findRandomHighQualityPhotos(@Param("minScore") Double minScore, Pageable pageable);
