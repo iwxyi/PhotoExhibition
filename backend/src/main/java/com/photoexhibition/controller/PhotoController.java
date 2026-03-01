@@ -320,16 +320,23 @@ public class PhotoController {
             ImageIO.write(resultImage, "PNG", baos);
             byte[] imageBytes = baos.toByteArray();
 
-            // 8. 保存到缓存文件（如果并发方法没保存）
+            // 8. 保存到缓存文件
             try {
-                if (cacheDir.exists() && !outputFile.exists()) {
-                    ImageIO.write(resultImage, "PNG", outputFile);
-                    
-                    // 更新数据库路径
-                    photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
-                    photoRepository.save(photo);
-                    log.info("已保存缓存文件: {}", outputFile.getAbsolutePath());
+                // 确保缓存目录存在
+                if (!cacheDir.exists()) {
+                    cacheDir.mkdirs();
                 }
+                // 无论文件是否存在，都更新数据库路径（确保路径正确）
+                if (!outputFile.exists()) {
+                    ImageIO.write(resultImage, "PNG", outputFile);
+                    log.info("已保存新的缓存文件: {}", outputFile.getAbsolutePath());
+                } else {
+                    log.info("缓存文件已存在: {}", outputFile.getAbsolutePath());
+                }
+                // 始终更新数据库路径
+                photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                photoRepository.save(photo);
+                log.info("已更新数据库缓存路径: {}", outputFile.getAbsolutePath());
             } catch (IOException e) {
                 log.warn("保存缓存文件失败", e);
             }

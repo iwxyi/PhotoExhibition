@@ -271,9 +271,13 @@
               
               <!-- 抠图浮层（允许溢出容器） -->
               <div 
-                v-if="visiblePhotoId === face.photoId || bgRemoveSuccessCache.has(face.photoId!) || bgRemoveLoadingCache.has(face.photoId!)"
                 class="absolute inset-0 z-20 pointer-events-none overflow-visible rounded-xl"
-                :style="{ ...getBgRemoveContainerStyle(face, visiblePhotoId === face.photoId), transformOrigin: 'center', transition: 'all 500ms cubic-bezier(0.34, 1.56, 0.64, 1)' }"
+                :style="{ 
+                  ...getBgRemoveContainerStyle(face, visiblePhotoId === face.photoId), 
+                  transformOrigin: 'center', 
+                  transition: 'all 500ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  opacity: (visiblePhotoId === face.photoId || bgRemoveSuccessCache[face.photoId!] || bgRemoveLoadingCache[face.photoId!]) ? 1 : 0
+                }"
               >
                 <img
                   :src="getBackgroundRemovedUrl(face.photoId!, 'medium')"
@@ -390,9 +394,10 @@ const loadingAlbums = ref(false)
 const loadingPhotos = ref(false)
 
 // 人物抠图悬浮效果相关状态
-const bgRemoveLoadingCache = ref<Set<number>>(new Set())
-const bgRemoveFailedCache = ref<Set<number>>(new Set())
-const bgRemoveSuccessCache = ref<Set<number>>(new Set())
+// 使用普通对象以支持更好的响应式
+const bgRemoveLoadingCache = ref<Record<number, boolean>>({})
+const bgRemoveFailedCache = ref<Record<number, boolean>>({})
+const bgRemoveSuccessCache = ref<Record<number, boolean>>({})
 const bgRemoveEnabled = ref<boolean | null>(null) // null = unknown, true = enabled, false = disabled
 
 // 用于控制两层同步显示的 ID（抠图加载完成后才设置）
@@ -404,25 +409,27 @@ const animatingPhotoId = ref<number | null>(null)
 // 悬浮显示抠图
 const onPhotoHover = (face: FaceFace) => {
   if (face.photoId) {
+    // 立即触发放大动画，不需要等待抠图完成
+    visiblePhotoId.value = face.photoId
+    
     // 如果功能明确未启用，直接返回
     if (bgRemoveEnabled.value === false) {
       return
     }
-    // 每次hover都尝试预加载（不检查失败缓存，允许重复尝试）
+    // 异步预加载抠图（不阻塞放大动画）
     preloadBackgroundRemovedImage(face.photoId)
   }
 }
 
 // 预加载抠图图片（带超时，但允许重试）
 const preloadBackgroundRemovedImage = (photoId: number) => {
-  // 如果正在加载或已成功，直接显示
-  if (bgRemoveSuccessCache.value.has(photoId) || bgRemoveLoadingCache.value.has(photoId)) {
-    visiblePhotoId.value = photoId
+  // 如果正在加载或已成功，直接返回
+  if (bgRemoveSuccessCache.value[photoId] || bgRemoveLoadingCache.value[photoId]) {
     return
   }
   
   // 标记正在加载
-  bgRemoveLoadingCache.value.add(photoId)
+  bgRemoveLoadingCache.value[photoId] = true
   
   // 创建 Image 对象预加载
   const img = new Image()
@@ -430,32 +437,26 @@ const preloadBackgroundRemovedImage = (photoId: number) => {
   
   // 设置超时：3秒内没加载成功则视为失败
   const timeout = setTimeout(() => {
-    bgRemoveLoadingCache.value.delete(photoId)
+    delete bgRemoveLoadingCache.value[photoId]
     // 注意：不加入失败缓存，允许下次重试
     // 如果是第一次检测到失败，认为功能未启用
     if (bgRemoveEnabled.value === null) {
       bgRemoveEnabled.value = false
     }
-    // 超时时也显示（使用正在加载的状态），让用户看到尝试过程
-    visiblePhotoId.value = photoId
   }, 3000)
   
   img.onload = () => {
     clearTimeout(timeout)
-    bgRemoveLoadingCache.value.delete(photoId)
-    bgRemoveSuccessCache.value.add(photoId)
+    delete bgRemoveLoadingCache.value[photoId]
+    bgRemoveSuccessCache.value[photoId] = true
     // 如果是第一次检测成功，认为功能已启用
     if (bgRemoveEnabled.value === null) {
       bgRemoveEnabled.value = true
     }
-    // 延迟一点设置 visiblePhotoId，让图片先渲染完成再开始动画
-    setTimeout(() => {
-      visiblePhotoId.value = photoId
-    }, 50)
   }
   img.onerror = () => {
     clearTimeout(timeout)
-    bgRemoveLoadingCache.value.delete(photoId)
+    delete bgRemoveLoadingCache.value[photoId]
     // 加载失败时不加入失败缓存，允许重试
     // 如果是第一次检测到失败，认为功能未启用
     if (bgRemoveEnabled.value === null) {
@@ -486,7 +487,7 @@ const getBackgroundRemovedUrl = (photoId: number, quality: string = 'medium'): s
 
 // 处理抠图加载成功
 const handleBgRemoveSuccess = (photoId: number) => {
-  bgRemoveSuccessCache.value.add(photoId)
+  bgRemoveSuccessCache.value[photoId] = true
 }
 
 // 处理抠图加载失败
