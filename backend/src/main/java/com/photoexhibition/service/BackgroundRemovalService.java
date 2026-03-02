@@ -751,7 +751,7 @@ public class BackgroundRemovalService implements AutoCloseable {
         int h = original.getHeight();
 
         // 计算所有人脸区域的合并区域（带扩展）
-        int padding = (int) (Math.min(w, h) * 0.3); // 扩展30%的图片尺寸
+        int padding = (int) (Math.min(w, h) * 0.4); // 扩展40%的图片尺寸
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = 0, maxY = 0;
         
         for (java.awt.Rectangle face : faceRegions) {
@@ -778,8 +778,8 @@ public class BackgroundRemovalService implements AutoCloseable {
         final int faceRegionMaxY = maxY;
         
         // 人脸区域内外的不同阈值
-        final float faceRegionThreshold = thresholdTransparent * 0.7f; // 区域内更宽松
-        final float outsideThreshold = thresholdTransparent * 1.5f; // 区域外更严格
+        final float faceRegionThreshold = thresholdTransparent * 0.6f; // 区域内更宽松
+        final float outsideThreshold = thresholdTransparent * 1.8f; // 区域外更严格
         
         log.debug("人脸优化区域: ({}, {}) - ({}, {})", minX, minY, maxX, maxY);
 
@@ -944,24 +944,20 @@ public class BackgroundRemovalService implements AutoCloseable {
     }
     
     /**
-     * 平滑 alpha 值，使用自定义阈值
+     * 平滑 alpha 值，使用更激进的阈值处理
      */
     private float smoothAlpha(float alpha, float customThreshold) {
-        // 阈值处理，去除弱置信度区域
+        // 低于阈值直接设为完全透明（去除背景）
         if (alpha < customThreshold) {
             return 0f;
         }
+        // 高于阈值直接设为完全不透明（确认为主体）
         if (alpha > thresholdSolid) {
             return 1f;
         }
-        // 使用 sigmoid 平滑过渡，使边缘更干净
-        float mid = (customThreshold + thresholdSolid) / 2;
+        // 中间区域使用线性插值，不要sigmoid（避免半透明）
         float range = thresholdSolid - customThreshold;
-        float normalized = (alpha - mid) / (range / 2);
-        // Sigmoid 函数: 1 / (1 + e^(-x * steepness))
-        float steepness = 3.0f;
-        float sigmoid = 1.0f / (1.0f + (float) Math.exp(-normalized * steepness));
-        return sigmoid;
+        return (alpha - customThreshold) / range;
     }
 
     /**

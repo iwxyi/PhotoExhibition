@@ -136,7 +136,7 @@
 
     <!-- Tab 切换 -->
     <div class="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-2">
-      <div class="relative border-b border-gray-200/50 dark:border-gray-800/50 bg-gray-50/50 dark:bg-gray-950/50">
+      <div class="relative border-b border-gray-200/50 dark:border-gray-800/50 overflow-visible">
         <nav class="flex gap-8 overflow-x-auto scrollbar-hide">
           <button
             @click="activeTab = 'albums'"
@@ -248,8 +248,9 @@
             <div
               v-for="face in personPhotos"
               :key="face.id"
-              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-visible cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
-              :class="{ 'z-30': visiblePhotoId === face.photoId || animatingPhotoId === face.photoId }"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-visible cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 isolate"
+              :class="{ 'z-50': visiblePhotoId === face.photoId || animatingPhotoId === face.photoId }"
+              :style="{ transform: (visiblePhotoId === face.photoId || animatingPhotoId === face.photoId) ? 'translateZ(0)' : 'none' }"
               @click="goToPhoto(face.photoId!)"
               @mouseenter="onPhotoHover(face)"
               @mouseleave="onPhotoLeave(face)"
@@ -276,11 +277,11 @@
                   ...getBgRemoveContainerStyle(face, visiblePhotoId === face.photoId), 
                   transformOrigin: 'center', 
                   transition: 'all 500ms cubic-bezier(0.34, 1.56, 0.64, 1)',
-                  opacity: (visiblePhotoId === face.photoId || bgRemoveSuccessCache[face.photoId!] || bgRemoveLoadingCache[face.photoId!]) ? 1 : 0
+                  opacity: (visiblePhotoId === face.photoId || bgRemoveSuccessCache[face.photoId!] || bgRemoveLoadingCache[face.photoId!]) && !bgRemoveFailedCache[face.photoId!] ? 1 : 0
                 }"
               >
                 <img
-                  :src="getBackgroundRemovedUrl(face.photoId!, 'medium')"
+                  :src="bgRemoveBlobUrlCache[face.photoId!] || getBackgroundRemovedUrl(face.photoId!, 'medium')"
                   :alt="face.photoFilename"
                   class="w-full h-full rounded-xl"
                   :style="{ objectFit: 'cover' }"
@@ -398,6 +399,8 @@ const loadingPhotos = ref(false)
 const bgRemoveLoadingCache = ref<Record<number, boolean>>({})
 const bgRemoveFailedCache = ref<Record<number, boolean>>({})
 const bgRemoveSuccessCache = ref<Record<number, boolean>>({})
+// 存储 blob URL 以避免重复请求
+const bgRemoveBlobUrlCache = ref<Record<number, string>>({})
 const bgRemoveEnabled = ref<boolean | null>(null) // null = unknown, true = enabled, false = disabled
 
 // 用于控制两层同步显示的 ID（抠图加载完成后才设置）
@@ -421,7 +424,7 @@ const onPhotoHover = (face: FaceFace) => {
   }
 }
 
-// 预加载抠图图片（带超时，但允许重试）
+// 预加载抠图图片（先检查响应状态，避免显示错误图片）
 const preloadBackgroundRemovedImage = (photoId: number) => {
   // 如果正在加载或已成功，直接返回
   if (bgRemoveSuccessCache.value[photoId] || bgRemoveLoadingCache.value[photoId]) {
@@ -431,38 +434,45 @@ const preloadBackgroundRemovedImage = (photoId: number) => {
   // 标记正在加载
   bgRemoveLoadingCache.value[photoId] = true
   
-  // 创建 Image 对象预加载
-  const img = new Image()
-  img.src = getBackgroundRemovedUrl(photoId)
+  const url = getBackgroundRemovedUrl(photoId)
+  
+  // 先用 fetch 检查响应状态，避免显示错误图片
+  fetch(url)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      return response.blob()
+    })
+    .then(blob => {
+      clearTimeout(timeout)
+      delete bgRemoveLoadingCache.value[photoId]
+      // 创建 blob URL 用于显示
+      const blobUrl = URL.createObjectURL(blob)
+      // 存储 blob URL 供 img 使用
+      bgRemoveBlobUrlCache.value[photoId] = blobUrl
+      bgRemoveSuccessCache.value[photoId] = true
+      // 如果是第一次检测成功，认为功能已启用
+      if (bgRemoveEnabled.value === null) {
+        bgRemoveEnabled.value = true
+      }
+    })
+    .catch(() => {
+      clearTimeout(timeout)
+      delete bgRemoveLoadingCache.value[photoId]
+      // 加载失败时，认为功能未启用或该图片处理失败
+      if (bgRemoveEnabled.value === null) {
+        bgRemoveEnabled.value = false
+      }
+    })
   
   // 设置超时：3秒内没加载成功则视为失败
   const timeout = setTimeout(() => {
     delete bgRemoveLoadingCache.value[photoId]
-    // 注意：不加入失败缓存，允许下次重试
-    // 如果是第一次检测到失败，认为功能未启用
     if (bgRemoveEnabled.value === null) {
       bgRemoveEnabled.value = false
     }
   }, 3000)
-  
-  img.onload = () => {
-    clearTimeout(timeout)
-    delete bgRemoveLoadingCache.value[photoId]
-    bgRemoveSuccessCache.value[photoId] = true
-    // 如果是第一次检测成功，认为功能已启用
-    if (bgRemoveEnabled.value === null) {
-      bgRemoveEnabled.value = true
-    }
-  }
-  img.onerror = () => {
-    clearTimeout(timeout)
-    delete bgRemoveLoadingCache.value[photoId]
-    // 加载失败时不加入失败缓存，允许重试
-    // 如果是第一次检测到失败，认为功能未启用
-    if (bgRemoveEnabled.value === null) {
-      bgRemoveEnabled.value = false
-    }
-  }
 }
 
 // 离开时保持 z-index 直到动画完成
@@ -493,11 +503,15 @@ const handleBgRemoveSuccess = (photoId: number) => {
 // 处理抠图加载失败
 const handleBgRemoveError = (event: Event, face: FaceFace) => {
   console.warn('[抠图] 加载失败:', face.photoId, event)
-  const img = event.target as HTMLImageElement
-  // 标记失败（可选，用于统计）
+  // 标记为失败，避免重复尝试
   if (face.photoId) {
-    // 不隐藏图片，因为可能后端还在处理
-    // img.style.display = 'none'
+    delete bgRemoveLoadingCache.value[face.photoId]
+    bgRemoveFailedCache.value[face.photoId] = true
+  }
+  // 清理 blob URL
+  if (face.photoId && bgRemoveBlobUrlCache.value[face.photoId]) {
+    URL.revokeObjectURL(bgRemoveBlobUrlCache.value[face.photoId])
+    delete bgRemoveBlobUrlCache.value[face.photoId]
   }
 }
 
