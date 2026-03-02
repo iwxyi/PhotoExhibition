@@ -1535,6 +1535,12 @@ public class AlbumService {
             return albums;
         }
 
+        if (sort == null || sort.isEmpty()) {
+            return albums.stream()
+                .sorted(Comparator.comparing(Album::getName, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
+        }
+
         switch (sort) {
             case SystemConfigService.SORT_BY_NAME_ASC:
                 return albums.stream()
