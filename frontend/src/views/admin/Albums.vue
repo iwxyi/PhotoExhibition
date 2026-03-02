@@ -28,8 +28,8 @@
           <!-- 封面预览 -->
           <div
             class="relative overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
-            @click="openAlbum(album.id)"
-            title="点击查看相册"
+            @click="openPhotoManageModal(album)"
+            title="点击管理照片"
           >
             <CoverDisplay
               :covers="getAlbumCovers(album)"
@@ -142,6 +142,17 @@
           @click.stop
         >
           <div class="py-1">
+            <!-- 查看相册菜单项 -->
+            <button
+              @click="openAlbum(showMenuForAlbum.id); closeAllMenus()"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              查看相册
+            </button>
             <!-- 添加标签菜单项 -->
             <button
               @click="addTag(showMenuForAlbum)"
@@ -866,6 +877,155 @@
             >
               确认移动
             </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- 照片管理弹窗 -->
+    <teleport to="body">
+      <div
+        v-if="photoModalVisible"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="closePhotoModal"
+      >
+        <div class="glass-dialog rounded-lg w-full max-w-5xl max-h-[90vh] flex flex-col text-gray-100">
+          <!-- Header -->
+          <div class="flex items-center justify-between p-4 border-b border-gray-600/50 flex-shrink-0">
+            <div class="flex items-center gap-3">
+              <h3 class="text-lg font-medium">{{ photoModalAlbum?.displayTitle || photoModalAlbum?.name }}</h3>
+              <span class="text-xs text-gray-400">{{ photoModalPhotos.length }} 张照片</span>
+              <span v-if="photoModalSelected.size > 0" class="text-xs text-blue-400">
+                已选 {{ photoModalSelected.size }} 张
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- Select all -->
+              <button
+                v-if="photoModalPhotos.length > 0"
+                @click="toggleSelectAllPhotos"
+                class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+              >
+                {{ photoModalSelected.size === photoModalPhotos.length ? '取消全选' : '全选' }}
+              </button>
+              <!-- Move to button -->
+              <div v-if="photoModalSelected.size > 0" class="relative" ref="photoMoveMenuRef">
+                <button
+                  @click="togglePhotoMoveMenu"
+                  class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded text-xs transition-colors flex items-center gap-1"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  移动到
+                </button>
+                <!-- Move submenu -->
+                <div
+                  v-if="photoMoveMenuVisible"
+                  class="absolute right-0 top-full mt-1 w-56 glass-menu rounded-lg shadow-2xl z-60 max-h-80 overflow-y-auto"
+                  @click.stop
+                >
+                  <div class="py-1">
+                    <!-- Parent dir -->
+                    <button
+                      v-if="photoMoveTargets.parentDir"
+                      @click="doMovePhotosTo(photoMoveTargets.parentDir.path)"
+                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                      :title="photoMoveTargets.parentDir.name"
+                    >
+                      📁 {{ photoMoveTargets.parentDir.name }}
+                    </button>
+                    <div v-if="photoMoveTargets.parentDir && (photoMoveTargets.siblingDirs?.length || photoMoveTargets.childDirs?.length)" class="border-t border-gray-600 my-1"></div>
+                    <!-- Sibling dirs -->
+                    <div v-if="photoMoveTargets.siblingDirs?.length > 0" class="px-3 py-1 text-xs text-gray-500">同级目录</div>
+                    <button
+                      v-for="dir in photoMoveTargets.siblingDirs"
+                      :key="'sibling-' + dir.path"
+                      @click="doMovePhotosTo(dir.path)"
+                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                      :title="dir.name"
+                    >
+                      {{ dir.name }}
+                    </button>
+                    <!-- Child dirs -->
+                    <div v-if="photoMoveTargets.childDirs?.length > 0" class="border-t border-gray-600 my-1"></div>
+                    <div v-if="photoMoveTargets.childDirs?.length > 0" class="px-3 py-1 text-xs text-gray-500">子目录</div>
+                    <button
+                      v-for="dir in photoMoveTargets.childDirs"
+                      :key="'child-' + dir.path"
+                      @click="doMovePhotosTo(dir.path)"
+                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                      :title="dir.name"
+                    >
+                      {{ dir.name }}
+                    </button>
+                    <div v-if="!photoMoveTargets.parentDir && !photoMoveTargets.siblingDirs?.length && !photoMoveTargets.childDirs?.length" class="px-4 py-2 text-xs text-gray-500">
+                      暂无可移动位置
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- Delete button -->
+              <button
+                v-if="photoModalSelected.size > 0"
+                @click="deleteSelectedPhotos"
+                class="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors flex items-center gap-1"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                删除 ({{ photoModalSelected.size }})
+              </button>
+              <!-- Close -->
+              <button
+                @click="closePhotoModal"
+                class="p-1.5 hover:bg-gray-700 rounded transition-colors"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <!-- Photo grid -->
+          <div class="flex-1 overflow-y-auto p-4 min-h-0">
+            <div v-if="photoModalLoading" class="text-center py-8 text-gray-400">加载中...</div>
+            <div v-else-if="photoModalPhotos.length === 0" class="text-center py-8 text-gray-500">暂无照片</div>
+            <div v-else class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2">
+              <div
+                v-for="photo in photoModalPhotos"
+                :key="photo.id"
+                class="relative aspect-square rounded overflow-hidden cursor-pointer group"
+                :class="photoModalSelected.has(photo.id) ? 'ring-2 ring-blue-500' : 'hover:ring-1 hover:ring-gray-500'"
+                @click="togglePhotoSelect(photo.id)"
+              >
+                <img
+                  :src="'/api/photos/' + photo.id + '/thumbnail?size=small'"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <!-- Selection overlay -->
+                <div
+                  v-if="photoModalSelected.has(photo.id)"
+                  class="absolute inset-0 bg-blue-500/20"
+                ></div>
+                <!-- Checkbox -->
+                <div
+                  class="absolute top-1 left-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
+                  :class="photoModalSelected.has(photo.id)
+                    ? 'bg-blue-500 border-blue-500'
+                    : 'border-white/50 bg-black/30 opacity-0 group-hover:opacity-100'"
+                >
+                  <svg v-if="photoModalSelected.has(photo.id)" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <!-- Filename tooltip -->
+                <div class="absolute bottom-0 left-0 right-0 p-1 bg-black/60 text-xs text-gray-300 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                  {{ photo.filename }}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2135,9 +2295,147 @@ const setAlbumDownloadAllowed = async (album: any, downloadAllowed: string) => {
 }
 
 const openAlbum = (albumId: number) => {
-  // 在新页面打开相册详情
   const url = `/album/${albumId}`
   window.open(url, '_blank')
+}
+
+// ==================== 照片管理弹窗 ====================
+const photoModalVisible = ref(false)
+const photoModalAlbum = ref<any>(null)
+const photoModalPhotos = ref<any[]>([])
+const photoModalSelected = ref<Set<number>>(new Set())
+const photoModalLoading = ref(false)
+const photoMoveMenuVisible = ref(false)
+const photoMoveMenuRef = ref<HTMLElement | null>(null)
+const photoMoveTargets = ref<any>({})
+
+const openPhotoManageModal = async (album: any) => {
+  photoModalAlbum.value = album
+  photoModalVisible.value = true
+  photoModalSelected.value = new Set()
+  photoMoveMenuVisible.value = false
+  photoModalLoading.value = true
+
+  try {
+    const res = await api.get(`/photos/album/${album.id}`, { params: { all: true } })
+    photoModalPhotos.value = res.data.content || []
+  } catch (e: any) {
+    console.error('获取相册照片失败:', e)
+    photoModalPhotos.value = []
+  } finally {
+    photoModalLoading.value = false
+  }
+
+  // Load move targets in background
+  try {
+    const res = await api.get(`/admin/photos/move-targets/${album.id}`)
+    photoMoveTargets.value = res.data || {}
+  } catch (e) {
+    console.error('获取移动目标失败:', e)
+    photoMoveTargets.value = {}
+  }
+}
+
+const closePhotoModal = () => {
+  photoModalVisible.value = false
+  photoMoveMenuVisible.value = false
+}
+
+const togglePhotoSelect = (photoId: number) => {
+  const s = new Set(photoModalSelected.value)
+  if (s.has(photoId)) {
+    s.delete(photoId)
+  } else {
+    s.add(photoId)
+  }
+  photoModalSelected.value = s
+}
+
+const toggleSelectAllPhotos = () => {
+  if (photoModalSelected.value.size === photoModalPhotos.value.length) {
+    photoModalSelected.value = new Set()
+  } else {
+    photoModalSelected.value = new Set(photoModalPhotos.value.map((p: any) => p.id))
+  }
+}
+
+const togglePhotoMoveMenu = () => {
+  photoMoveMenuVisible.value = !photoMoveMenuVisible.value
+}
+
+const doMovePhotosTo = async (targetPath: string) => {
+  if (photoModalSelected.value.size === 0) return
+  const count = photoModalSelected.value.size
+  const dirName = targetPath.split('/').pop() || targetPath.split('\\').pop() || targetPath
+  if (!confirm(`确定将 ${count} 张照片移动到「${dirName}」吗？`)) return
+
+  photoMoveMenuVisible.value = false
+  try {
+    const res = await api.post('/admin/photos/batch-move', {
+      photoIds: Array.from(photoModalSelected.value),
+      targetPath
+    })
+    const result = res.data
+    if (result.success) {
+      alert('✅ ' + result.message)
+      photoModalSelected.value = new Set()
+      // Refresh modal photos
+      if (photoModalAlbum.value) {
+        const albumId = photoModalAlbum.value.id
+        try {
+          const res2 = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
+          photoModalPhotos.value = res2.data.content || []
+        } catch {
+          photoModalPhotos.value = []
+        }
+        // If album is now empty, close modal
+        if (photoModalPhotos.value.length === 0) {
+          closePhotoModal()
+        }
+      }
+      // Refresh album list
+      await load()
+    } else {
+      alert('移动失败: ' + (result.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('移动失败: ' + (e.response?.data?.message || e.message))
+  }
+}
+
+const deleteSelectedPhotos = async () => {
+  if (photoModalSelected.value.size === 0) return
+  const count = photoModalSelected.value.size
+  if (!confirm(`确定删除选中的 ${count} 张照片吗？此操作不可撤销，照片文件将被永久删除。`)) return
+
+  try {
+    const res = await api.post('/admin/photos/batch-delete', {
+      photoIds: Array.from(photoModalSelected.value)
+    })
+    const result = res.data
+    if (result.success) {
+      alert('✅ ' + result.message)
+      photoModalSelected.value = new Set()
+      // Refresh modal photos
+      if (photoModalAlbum.value) {
+        const albumId = photoModalAlbum.value.id
+        try {
+          const res2 = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
+          photoModalPhotos.value = res2.data.content || []
+        } catch {
+          photoModalPhotos.value = []
+        }
+        if (photoModalPhotos.value.length === 0) {
+          closePhotoModal()
+        }
+      }
+      await load()
+    } else {
+      alert('删除失败: ' + (result.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('删除失败: ' + (e.response?.data?.message || e.message))
+  }
 }
 
 const forceScanAndRebuild = async () => {
