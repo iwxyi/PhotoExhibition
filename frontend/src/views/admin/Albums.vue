@@ -192,6 +192,87 @@
               </svg>
               重命名
             </button>
+            <!-- 移动至菜单项 -->
+            <div class="relative group/move">
+              <button
+                class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+                @mouseenter="loadMoveMenuData(showMenuForAlbum)"
+              >
+                <span class="flex items-center gap-2">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  移动至
+                </span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+              </button>
+              <!-- 移动至子菜单 -->
+              <div class="hidden group-hover/move:block absolute left-full top-0 w-56 glass-menu rounded-lg shadow-2xl z-20 ml-1">
+                <div class="py-1">
+                  <!-- 分类 -->
+                  <div class="relative group/cat">
+                    <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                      <span>分类</span>
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                    <div class="hidden group-hover/cat:block absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 ml-1 max-h-80 overflow-y-auto">
+                      <div class="py-1">
+                        <button
+                          v-for="cat in moveCategories"
+                          :key="cat.path"
+                          @click="doMoveToCategory(showMenuForAlbum, cat)"
+                          class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                          :title="cat.name"
+                        >
+                          {{ cat.name }}
+                        </button>
+                        <div v-if="moveCategories.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无分类</div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 上一级 -->
+                  <button
+                    @click="doMoveToParent(showMenuForAlbum)"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+                  >
+                    上一级
+                  </button>
+                  <!-- 下一级 -->
+                  <div class="relative group/child">
+                    <button
+                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+                      @mouseenter="loadChildDirs(showMenuForAlbum)"
+                    >
+                      <span>下一级</span>
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                    <div class="hidden group-hover/child:block absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 ml-1 max-h-80 overflow-y-auto">
+                      <div class="py-1">
+                        <button
+                          v-for="dir in moveChildDirs"
+                          :key="dir.path"
+                          @click="doMoveToChild(showMenuForAlbum, dir)"
+                          class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                          :title="dir.name"
+                        >
+                          {{ dir.name }}
+                        </button>
+                        <div v-if="moveChildDirs.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无子目录</div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 分割线 -->
+                  <div class="border-t border-gray-600 my-1"></div>
+                  <!-- 指定路径 -->
+                  <button
+                    @click="openPathPicker(showMenuForAlbum)"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+                  >
+                    指定路径…
+                  </button>
+                </div>
+              </div>
+            </div>
             <!-- 删除菜单项 -->
             <button
               @click="deleteAlbum(showMenuForAlbum)"
@@ -680,6 +761,116 @@
       </div>
     </teleport>
 
+    <!-- 移动冲突对话框 -->
+    <teleport to="body">
+      <div
+        v-if="moveConflictDialogVisible"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="moveConflictDialogVisible = false"
+      >
+        <div class="glass-dialog rounded-lg p-6 max-w-lg w-full text-gray-100">
+          <h3 class="text-lg font-medium mb-3 text-yellow-400 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+            同名文件夹冲突
+          </h3>
+          <p class="text-sm text-gray-300 mb-3">{{ moveConflictInfo.message }}</p>
+          <!-- 文件清单 -->
+          <div v-if="moveConflictInfo.conflictFiles && moveConflictInfo.conflictFiles.length > 0" class="mb-4 max-h-40 overflow-y-auto bg-gray-900/60 rounded p-2 border border-gray-700">
+            <div class="text-xs text-gray-400 mb-1">目标文件夹内的文件：</div>
+            <div v-for="f in moveConflictInfo.conflictFiles" :key="f" class="text-xs text-gray-300 py-0.5 truncate" :title="f">
+              📄 {{ f }}
+            </div>
+          </div>
+          <div class="flex flex-col gap-2">
+            <button
+              @click="executeMoveWithResolution('overwrite')"
+              class="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm flex items-center justify-center gap-2"
+            >
+              覆盖（删除目标文件夹内容后移动）
+            </button>
+            <button
+              @click="executeMoveWithResolution('rename')"
+              class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm flex items-center justify-center gap-2"
+            >
+              重命名为 "{{ moveConflictInfo.suggestedNewName }}"
+            </button>
+            <button
+              @click="moveConflictDialogVisible = false"
+              class="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- 路径选择器对话框 -->
+    <teleport to="body">
+      <div
+        v-if="pathPickerVisible"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="pathPickerVisible = false"
+      >
+        <div class="glass-dialog rounded-lg max-w-lg w-full max-h-[70vh] flex flex-col text-gray-100">
+          <div class="p-4 border-b border-gray-700">
+            <h3 class="text-lg font-medium">选择目标路径</h3>
+            <p class="text-xs text-gray-400 mt-1">将相册 "{{ pathPickerAlbum?.displayTitle || pathPickerAlbum?.name }}" 移动到选定目录</p>
+          </div>
+          <!-- 当前路径 -->
+          <div class="px-4 py-2 bg-gray-900/50 border-b border-gray-700 flex items-center gap-2">
+            <span class="text-xs text-gray-400">当前：</span>
+            <span class="text-xs text-gray-200 truncate flex-1" :title="pathPickerCurrentPath">{{ pathPickerCurrentPath }}</span>
+            <button
+              v-if="pathPickerParentPath"
+              @click="navigatePathPicker(pathPickerParentPath)"
+              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs flex-shrink-0"
+            >
+              ↑ 上级
+            </button>
+          </div>
+          <!-- 目录列表 -->
+          <div class="flex-1 overflow-y-auto p-2">
+            <div v-if="pathPickerLoading" class="text-center py-4 text-gray-400 text-sm">加载中...</div>
+            <div v-else-if="pathPickerDirs.length === 0" class="text-center py-4 text-gray-500 text-sm">该目录下无子目录</div>
+            <div v-else>
+              <button
+                v-for="dir in pathPickerDirs"
+                :key="dir.path"
+                @dblclick="navigatePathPicker(dir.path)"
+                @click="selectPickerDir(dir)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded text-sm flex items-center gap-2 mb-1',
+                  pathPickerSelectedDir?.path === dir.path ? 'bg-blue-600/30 border border-blue-500/50' : 'hover:bg-gray-700/50'
+                ]"
+              >
+                <svg class="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
+                <span class="truncate">{{ dir.name }}</span>
+              </button>
+            </div>
+          </div>
+          <!-- 底部按钮 -->
+          <div class="p-4 border-t border-gray-700 flex gap-3">
+            <div class="text-xs text-gray-400 flex-1 self-center truncate">
+              移动到：{{ pathPickerSelectedDir?.path || pathPickerCurrentPath }}
+            </div>
+            <button
+              @click="pathPickerVisible = false"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+            <button
+              @click="confirmPathPicker"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+            >
+              确认移动
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- 加载状态提示 -->
     <div v-if="loadingMore" class="text-center py-4 text-gray-400 text-sm">
       加载中...
@@ -744,6 +935,21 @@ const renameDialogVisible = ref(false)
 const nameInput = ref('')
 const nameInputRef = ref<HTMLInputElement | null>(null)
 const currentNameAlbum = ref<any>(null)
+
+// 移动相关
+const moveCategories = ref<any[]>([])
+const moveChildDirs = ref<any[]>([])
+const moveConflictDialogVisible = ref(false)
+const moveConflictInfo = ref<any>({})
+const moveConflictAlbum = ref<any>(null)
+const moveConflictTargetPath = ref('')
+const pathPickerVisible = ref(false)
+const pathPickerAlbum = ref<any>(null)
+const pathPickerCurrentPath = ref('')
+const pathPickerParentPath = ref('')
+const pathPickerDirs = ref<any[]>([])
+const pathPickerSelectedDir = ref<any>(null)
+const pathPickerLoading = ref(false)
 
 // 特效相关
 const effectsDialogVisible = ref(false)
@@ -1482,6 +1688,125 @@ const deleteAlbum = async (album: any) => {
   }
 }
 
+// ==================== 移动相册方法 ====================
+
+const loadMoveMenuData = async (album: any) => {
+  if (moveCategories.value.length === 0) {
+    try {
+      const res = await api.get('/albums/move/categories')
+      moveCategories.value = res.data || []
+    } catch (e) {
+      console.error('加载分类列表失败:', e)
+    }
+  }
+}
+
+const loadChildDirs = async (album: any) => {
+  if (!album) return
+  try {
+    const res = await api.get(`/albums/${album.id}/move/children`)
+    moveChildDirs.value = res.data || []
+  } catch (e) {
+    console.error('加载子目录失败:', e)
+    moveChildDirs.value = []
+  }
+}
+
+const doMoveAlbum = async (album: any, targetPath: string, conflictResolution?: string) => {
+  try {
+    const res = await api.post(`/albums/${album.id}/move`, {
+      targetPath,
+      conflictResolution: conflictResolution || null
+    })
+    const result = res.data
+
+    if (result.conflict) {
+      moveConflictInfo.value = result
+      moveConflictAlbum.value = album
+      moveConflictTargetPath.value = targetPath
+      moveConflictDialogVisible.value = true
+      closeAllMenus()
+      return
+    }
+
+    if (result.success) {
+      closeAllMenus()
+      moveConflictDialogVisible.value = false
+      await load()
+      alert('✅ ' + (result.message || '相册移动成功'))
+    } else {
+      alert('移动失败: ' + (result.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('移动失败: ' + (e.response?.data?.message || e.response?.data?.error || e.message))
+  }
+}
+
+const doMoveToCategory = (album: any, category: any) => {
+  doMoveAlbum(album, category.path)
+}
+
+const doMoveToParent = (album: any) => {
+  if (!album) return
+  const pathInfo = splitPath(album.path)
+  if (pathInfo.parts.length < 2) {
+    alert('已经在最顶层，无法向上移动')
+    return
+  }
+  const parentOfParent = joinPath(
+    pathInfo.parts.slice(0, -2),
+    pathInfo.isAbsolute,
+    pathInfo.hasLeadingSlash
+  )
+  doMoveAlbum(album, parentOfParent)
+}
+
+const doMoveToChild = (album: any, dir: any) => {
+  doMoveAlbum(album, dir.path)
+}
+
+const executeMoveWithResolution = (resolution: string) => {
+  if (!moveConflictAlbum.value) return
+  doMoveAlbum(moveConflictAlbum.value, moveConflictTargetPath.value, resolution)
+}
+
+const openPathPicker = async (album: any) => {
+  pathPickerAlbum.value = album
+  pathPickerSelectedDir.value = null
+  closeAllMenus()
+  pathPickerVisible.value = true
+  // 默认定位到当前相册的上级目录
+  const pathInfo = splitPath(album.path)
+  const parentPath = joinPath(pathInfo.parts.slice(0, -1), pathInfo.isAbsolute, pathInfo.hasLeadingSlash)
+  await navigatePathPicker(parentPath)
+}
+
+const navigatePathPicker = async (dirPath: string) => {
+  pathPickerLoading.value = true
+  pathPickerSelectedDir.value = null
+  try {
+    const res = await api.get('/albums/move/directories', { params: { path: dirPath } })
+    pathPickerCurrentPath.value = res.data.currentPath || dirPath
+    pathPickerParentPath.value = res.data.parent || ''
+    pathPickerDirs.value = res.data.directories || []
+  } catch (e) {
+    console.error('加载目录失败:', e)
+  } finally {
+    pathPickerLoading.value = false
+  }
+}
+
+const selectPickerDir = (dir: any) => {
+  pathPickerSelectedDir.value = dir
+}
+
+const confirmPathPicker = () => {
+  if (!pathPickerAlbum.value) return
+  const targetPath = pathPickerSelectedDir.value?.path || pathPickerCurrentPath.value
+  pathPickerVisible.value = false
+  doMoveAlbum(pathPickerAlbum.value, targetPath)
+}
+
 // 菜单相关方法
 const openMenu = (event: MouseEvent, album: any) => {
   event.stopPropagation()
@@ -1527,6 +1852,7 @@ const closeAllMenus = () => {
   coverDialogVisible.value = false
   descriptionDialogVisible.value = false
   renameDialogVisible.value = false
+  moveChildDirs.value = []
 }
 
 const hasSubAlbums = (album: any) => {
@@ -1873,7 +2199,14 @@ const forceScanAndRebuild = async () => {
 
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
-    // 优先关闭所有弹窗（按优先级从高到低）
+    if (moveConflictDialogVisible.value) {
+      moveConflictDialogVisible.value = false
+      return
+    }
+    if (pathPickerVisible.value) {
+      pathPickerVisible.value = false
+      return
+    }
     if (renameDialogVisible.value) {
       renameDialogVisible.value = false
       return

@@ -1,8 +1,11 @@
 package com.photoexhibition.controller;
 
 import com.photoexhibition.dto.AlbumDTO;
+import com.photoexhibition.dto.AlbumMoveRequest;
+import com.photoexhibition.dto.AlbumMoveResult;
 import com.photoexhibition.dto.CoverImagesDTO;
 import com.photoexhibition.dto.FilterRequest;
+import com.photoexhibition.service.AlbumMoveService;
 import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,7 @@ public class AlbumController {
     private static final Logger log = LoggerFactory.getLogger(AlbumController.class);
 
     private final AlbumService albumService;
+    private final AlbumMoveService albumMoveService;
     private final SystemConfigService systemConfigService;
 
     /**
@@ -180,6 +184,54 @@ public class AlbumController {
     public ResponseEntity<Void> deleteAlbum(@PathVariable Long id) {
         albumService.deleteAlbum(id);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 移动相册到新路径
+     */
+    @PostMapping("/{id}/move")
+    public ResponseEntity<AlbumMoveResult> moveAlbum(
+            @PathVariable Long id,
+            @RequestBody AlbumMoveRequest request) {
+        log.info("移动相册 {} 到 {}, 冲突处理: {}", id, request.getTargetPath(), request.getConflictResolution());
+        AlbumMoveResult result = albumMoveService.moveAlbum(id, request.getTargetPath(), request.getConflictResolution());
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 检查移动相册是否有冲突（预检）
+     */
+    @GetMapping("/{id}/move/check")
+    public ResponseEntity<AlbumMoveResult> checkMoveAlbum(
+            @PathVariable Long id,
+            @RequestParam String targetPath) {
+        AlbumMoveResult result = albumMoveService.checkMove(id, targetPath);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取分类列表（用于移动至分类）
+     */
+    @GetMapping("/move/categories")
+    public ResponseEntity<List<Map<String, String>>> getMoveCategories() {
+        return ResponseEntity.ok(albumMoveService.getCategories());
+    }
+
+    /**
+     * 获取相册的下一级子目录（用于移动至下一级）
+     */
+    @GetMapping("/{id}/move/children")
+    public ResponseEntity<List<Map<String, String>>> getMoveChildren(@PathVariable Long id) {
+        return ResponseEntity.ok(albumMoveService.getChildDirectories(id));
+    }
+
+    /**
+     * 列出指定路径的子目录（用于路径选择器）
+     */
+    @GetMapping("/move/directories")
+    public ResponseEntity<Map<String, Object>> listMoveDirectories(
+            @RequestParam(required = false) String path) {
+        return ResponseEntity.ok(albumMoveService.listDirectories(path));
     }
 
     /**
