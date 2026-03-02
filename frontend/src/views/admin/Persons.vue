@@ -1542,7 +1542,8 @@ const handleFaceListKeydown = (e: KeyboardEvent) => {
   }
 }
 
-const loadPersons = async () => {
+const loadPersons = async (options?: { restoreClusterPages?: number }) => {
+  const targetClusterPages = options?.restoreClusterPages ?? 1
   loadingPersons.value = true
   try {
     // 一次性加载已确认人物和聚类人物，避免重复API调用
@@ -1564,6 +1565,19 @@ const loadPersons = async () => {
     } else {
       clusterPage.value = 1 // 下一页从1开始
       hasMoreClusters.value = true
+    }
+
+    // 恢复之前已加载的聚类分页（用于创建/编辑后保持滚动位置）
+    while (clusterPage.value < targetClusterPages && hasMoreClusters.value) {
+      const res = await api.get('/admin/persons/items', {
+        params: { threshold: clusterThreshold.value, clusterPage: clusterPage.value, clusterSize: clusterPageSize.value }
+      })
+      const newClusters: PersonListItem[] = (res.data || []).filter((p: PersonListItem) => p.type === 'cluster')
+      if (newClusters.length < clusterPageSize.value) {
+        hasMoreClusters.value = false
+      }
+      clusterPersons.value = [...clusterPersons.value, ...newClusters]
+      clusterPage.value++
     }
 
     // 合并所有人物
@@ -1757,7 +1771,11 @@ const refreshPersonsAfterFaceChange = async () => {
     ? { id: selectedItem.value.id, type: selectedItem.value.type }
     : null
 
-  await loadPersons()
+  // 保存滚动位置和已加载的聚类页数
+  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedClusterPage = clusterPage.value
+
+  await loadPersons({ restoreClusterPages: savedClusterPage })
 
   if (current) {
     const found = persons.value.find(
@@ -1773,6 +1791,12 @@ const refreshPersonsAfterFaceChange = async () => {
         selectedClusterIndex.value = found.id as number
       }
     }
+  }
+
+  // 恢复滚动位置
+  await nextTick()
+  if (personListContainer.value) {
+    personListContainer.value.scrollTop = savedScrollTop
   }
 }
 
@@ -2253,6 +2277,9 @@ const savePersonName = async (p: PersonListItem) => {
   
   savingPerson.value = true
   try {
+    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedClusterPage = clusterPage.value
+
     console.debug('[Persons] savePersonName request', {
       apiPersonId: p.id,
       newName
@@ -2261,8 +2288,13 @@ const savePersonName = async (p: PersonListItem) => {
       name: newName,
       description: p.description || ''
     })
-    await loadPersons()
+    await loadPersons({ restoreClusterPages: savedClusterPage })
     cancelEdit()
+
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
+    }
   } catch (e: any) {
     alert('保存失败: ' + (e.response?.data?.error || e.message))
     cancelEdit()
@@ -2280,6 +2312,9 @@ const saveSelectedPersonName = async () => {
   }
   savingPerson.value = true
   try {
+    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedClusterPage = clusterPage.value
+
     await api.put(`/admin/persons/${selectedItem.value.id}`, {
       name: newName,
       description: selectedItem.value.description || ''
@@ -2287,11 +2322,16 @@ const saveSelectedPersonName = async () => {
     originalSelectedPersonName.value = newName
     // 刷新人物列表，保持选中人物
     const prevId = selectedItem.value.id
-    await loadPersons()
+    await loadPersons({ restoreClusterPages: savedClusterPage })
     const found = persons.value.find(p => p.id === prevId && p.type === 'confirmed')
     if (found) {
       selectedItem.value = found
       selectedPersonId.value = found.id
+    }
+
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
     }
   } catch (e: any) {
     alert('保存姓名失败: ' + (e.response?.data?.error || e.message))
@@ -2311,6 +2351,10 @@ const createPersonFromSelectedCluster = async () => {
   if (!name) return
   savingPerson.value = true
   try {
+    // 保存滚动位置和已加载的聚类页数，以便创建后恢复
+    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedClusterPage = clusterPage.value
+
     // 获取当前聚类的人脸ID
     const facesRes = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
       params: { threshold: clusterThreshold.value }
@@ -2324,9 +2368,9 @@ const createPersonFromSelectedCluster = async () => {
       description: ''
     })
 
-    // 重新加载人物列表，并选中新建或合并后的人物（优先用后端返回的 id）
+    // 重新加载人物列表（恢复之前的聚类页数），并选中新建或合并后的人物
     const createdId = resCreate?.data?.id
-    await loadPersons()
+    await loadPersons({ restoreClusterPages: savedClusterPage })
     let created: PersonListItem | undefined
     if (createdId) {
       created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
@@ -2336,6 +2380,12 @@ const createPersonFromSelectedCluster = async () => {
     }
     if (created) {
       selectPerson(created)
+    }
+
+    // 恢复滚动位置
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
     }
   } catch (e: any) {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
@@ -2375,6 +2425,10 @@ const createPersonFromName = async (p: PersonListItem) => {
   
   savingPerson.value = true
   try {
+    // 保存滚动位置和已加载的聚类页数
+    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedClusterPage = clusterPage.value
+
     const res = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
       params: { threshold: clusterThreshold.value }
     })
@@ -2387,7 +2441,7 @@ const createPersonFromName = async (p: PersonListItem) => {
       description: ''
     })
     const createdId = resCreate?.data?.id
-    await loadPersons()
+    await loadPersons({ restoreClusterPages: savedClusterPage })
     cancelEdit()
     // Prefer selecting by returned id, fallback to name or first entry
     let created: PersonListItem | undefined
@@ -2398,6 +2452,12 @@ const createPersonFromName = async (p: PersonListItem) => {
       created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
     }
     if (created) selectPerson(created)
+
+    // 恢复滚动位置
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
+    }
   } catch (e: any) {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
     cancelEdit()
@@ -2415,6 +2475,9 @@ const savePersonDescription = async () => {
   
   const newDesc = editingDescription.value.trim()
   if (newDesc === originalDescription.value) return
+
+  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedClusterPage = clusterPage.value
   
   try {
     await api.put(`/admin/persons/${selectedPersonId.value}`, {
@@ -2422,7 +2485,12 @@ const savePersonDescription = async () => {
       description: newDesc
     })
     originalDescription.value = newDesc
-    await loadPersons()
+    await loadPersons({ restoreClusterPages: savedClusterPage })
+
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
+    }
   } catch (e: any) {
     alert('保存备注失败: ' + (e.response?.data?.error || e.message))
     editingDescription.value = originalDescription.value
@@ -2847,6 +2915,8 @@ const restoreFace = async (faceId: number) => {
 // 将人脸设为人物头像
 const setAsPersonAvatar = async (face: any) => {
   if (!selectedPersonId.value) return
+  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedClusterPage = clusterPage.value
   try {
     await personApi.setSamplePhoto(selectedPersonId.value, face.id)
     // 更新本地人物样例数据
@@ -2858,7 +2928,11 @@ const setAsPersonAvatar = async (face: any) => {
       selectedItem.value.sampleConfidence = face.confidence
     }
     // 刷新人物卡片
-    await loadPersons()
+    await loadPersons({ restoreClusterPages: savedClusterPage })
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
+    }
   } catch (error) {
     console.error('设置头像失败:', error)
     alert('设置头像失败: ' + (error.response?.data?.error || error.message))
@@ -4612,6 +4686,10 @@ watch(tab, (v) => {
 const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
   if (!selectedItem.value || selectedItem.value.type !== 'cluster') return
 
+  // 保存滚动位置和已加载的聚类页数
+  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedClusterPage = clusterPage.value
+
   try {
     // 获取当前聚类的人脸ID
     const res = await api.get(`/admin/clusters/${selectedItem.value.id}/faces`, {
@@ -4629,8 +4707,8 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
       confirmed: true
     })
 
-    // 刷新人物列表并聚焦到目标人物
-    await loadPersons()
+    // 刷新人物列表（恢复之前的聚类页数）并聚焦到目标人物
+    await loadPersons({ restoreClusterPages: savedClusterPage })
     const found = persons.value.find(p => p.type === 'confirmed' && p.id === targetPerson.id)
     if (found) {
       selectPerson(found)
@@ -4638,6 +4716,12 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
       // fallback: clear selection
       selectedItem.value = null
       selectedClusterIndex.value = null
+    }
+
+    // 恢复滚动位置
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
     }
   } catch (error) {
     console.error('合并到现有人物失败:', error)
@@ -4858,6 +4942,10 @@ const handleCreatePersonFromClaimDialog = async () => {
     return
   }
 
+  // 保存滚动位置和已加载的聚类页数
+  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedClusterPage = clusterPage.value
+
   try {
     // 创建新人物并直接分配人脸
     const res = await api.post('/admin/persons/from-faces', {
@@ -4869,13 +4957,19 @@ const handleCreatePersonFromClaimDialog = async () => {
     // 关闭弹窗
     closeClaimDialog()
 
-    // 刷新人物列表
-    await loadPersons()
+    // 刷新人物列表（恢复之前的聚类页数）
+    await loadPersons({ restoreClusterPages: savedClusterPage })
 
     // 选中新创建的人物
     const found = persons.value.find(p => p.type === 'confirmed' && p.id === newPersonId)
     if (found) {
       selectPerson(found)
+    }
+
+    // 恢复滚动位置
+    await nextTick()
+    if (personListContainer.value) {
+      personListContainer.value.scrollTop = savedScrollTop
     }
 
     // 如果是从聚类tab来的，刷新聚类人脸列表
@@ -4913,6 +5007,10 @@ const confirmClaimToPerson = async () => {
   } else {
     return
   }
+
+  // 保存滚动位置和已加载的聚类页数
+  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedClusterPage = clusterPage.value
   
   try {
     const targetPersonId = selectedClaimPersonId.value
@@ -4932,13 +5030,19 @@ const confirmClaimToPerson = async () => {
       // 聚类tab：清空选中，刷新人物列表和聚类人脸列表
       selectedClusterFaces.value.clear()
       
-      await loadPersons()
+      await loadPersons({ restoreClusterPages: savedClusterPage })
       const found = persons.value.find(p => p.type === 'confirmed' && p.id === targetPersonId)
       if (found) {
         selectPerson(found)
       } else {
         selectedItem.value = null
         selectedClusterIndex.value = null
+      }
+
+      // 恢复滚动位置
+      await nextTick()
+      if (personListContainer.value) {
+        personListContainer.value.scrollTop = savedScrollTop
       }
       
       if (selectedItem.value?.type === 'cluster' && selectedClusterIndex.value !== null) {
@@ -4956,7 +5060,13 @@ const confirmClaimToPerson = async () => {
       resetFaceVisible('unassigned')
 
       // 刷新人物列表（用于更新人物数量等统计）
-      await loadPersons()
+      await loadPersons({ restoreClusterPages: savedClusterPage })
+
+      // 恢复滚动位置
+      await nextTick()
+      if (personListContainer.value) {
+        personListContainer.value.scrollTop = savedScrollTop
+      }
 
       // 不切换tab，保持未分配tab显示
     }
