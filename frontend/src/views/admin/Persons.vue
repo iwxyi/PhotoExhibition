@@ -184,8 +184,10 @@
 
       <!-- 可拖拽分割线 -->
       <div
-        class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 transition-colors flex-shrink-0"
+        class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 active:bg-gray-500 transition-colors flex-shrink-0"
+        style="touch-action: none; padding: 0 4px; margin: 0 -4px;"
         @mousedown="startResize"
+        @touchstart.prevent="startResize"
       ></div>
 
       <!-- 右侧内容区域 -->
@@ -521,8 +523,10 @@
 
               <!-- 可拖拽分割线 -->
               <div
-                class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 transition-colors flex-shrink-0 mx-2"
+                class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 active:bg-gray-500 transition-colors flex-shrink-0 mx-2"
+                style="touch-action: none; padding: 0 4px; margin-left: 4px; margin-right: 4px;"
                 @mousedown="startResizeAlbums"
+                @touchstart.prevent="startResizeAlbums"
               ></div>
 
               <!-- 右列：选中相册的人脸图片 -->
@@ -1343,21 +1347,32 @@ const activeFaceIndex = ref<number | null>(null)
 const selectedPersonName = ref('')
 const originalSelectedPersonName = ref('')
 
-const startResize = (e: MouseEvent) => {
+const getClientX = (e: MouseEvent | TouchEvent): number => {
+  if ('touches' in e) {
+    return e.touches[0]?.clientX ?? (e as TouchEvent).changedTouches[0]?.clientX ?? 0
+  }
+  return (e as MouseEvent).clientX
+}
+
+const startResize = (e: MouseEvent | TouchEvent) => {
   isResizing.value = true
-  resizeStartX.value = e.clientX
+  resizeStartX.value = getClientX(e)
   resizeStartWidth.value = leftPanelWidth.value
   updateContainerWidth()
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'col-resize'
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
+  document.addEventListener('touchmove', handleResize, { passive: false })
+  document.addEventListener('touchend', stopResize)
+  document.addEventListener('touchcancel', stopResize)
   e.preventDefault()
 }
 
-const handleResize = (e: MouseEvent) => {
+const handleResize = (e: MouseEvent | TouchEvent) => {
   if (!isResizing.value) return
-  const diff = e.clientX - resizeStartX.value
+  e.preventDefault()
+  const diff = getClientX(e) - resizeStartX.value
   const newWidth = Math.max(200, Math.min(500, resizeStartWidth.value + diff))
   leftPanelWidth.value = newWidth
   updateContainerWidth()
@@ -1370,23 +1385,30 @@ const stopResize = () => {
   document.body.style.cursor = ''
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener('touchmove', handleResize)
+  document.removeEventListener('touchend', stopResize)
+  document.removeEventListener('touchcancel', stopResize)
 }
 
 // 相册区域分割线拖拽
-const startResizeAlbums = (e: MouseEvent) => {
+const startResizeAlbums = (e: MouseEvent | TouchEvent) => {
   isResizingAlbums.value = true
-  resizeStartX.value = e.clientX
+  resizeStartX.value = getClientX(e)
   resizeStartWidth.value = albumsPanelWidth.value
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'col-resize'
   document.addEventListener('mousemove', handleResizeAlbums)
   document.addEventListener('mouseup', stopResizeAlbums)
+  document.addEventListener('touchmove', handleResizeAlbums, { passive: false })
+  document.addEventListener('touchend', stopResizeAlbums)
+  document.addEventListener('touchcancel', stopResizeAlbums)
   e.preventDefault()
 }
 
-const handleResizeAlbums = (e: MouseEvent) => {
+const handleResizeAlbums = (e: MouseEvent | TouchEvent) => {
   if (!isResizingAlbums.value) return
-  const diff = e.clientX - resizeStartX.value
+  e.preventDefault()
+  const diff = getClientX(e) - resizeStartX.value
   const newWidth = Math.max(150, Math.min(400, resizeStartWidth.value + diff))
   albumsPanelWidth.value = newWidth
 }
@@ -1398,6 +1420,9 @@ const stopResizeAlbums = () => {
   document.body.style.cursor = ''
   document.removeEventListener('mousemove', handleResizeAlbums)
   document.removeEventListener('mouseup', stopResizeAlbums)
+  document.removeEventListener('touchmove', handleResizeAlbums)
+  document.removeEventListener('touchend', stopResizeAlbums)
+  document.removeEventListener('touchcancel', stopResizeAlbums)
 }
 
 const updateContainerWidth = () => {
