@@ -27,21 +27,23 @@ public class PhotoManageController {
     }
 
     /**
-     * Batch move photos to a target directory
+     * Batch move photos to a target directory.
+     * Pass conflictResolution: null (detect), "overwrite", "rename", "skip".
      */
     @PostMapping("/batch-move")
     public ResponseEntity<Map<String, Object>> batchMovePhotos(@RequestBody Map<String, Object> request) {
         @SuppressWarnings("unchecked")
         List<Integer> rawIds = (List<Integer>) request.get("photoIds");
         String targetPath = (String) request.get("targetPath");
+        String conflictResolution = (String) request.get("conflictResolution");
 
         if (rawIds == null || targetPath == null) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "缺少参数"));
         }
 
         List<Long> photoIds = rawIds.stream().map(Integer::longValue).collect(java.util.stream.Collectors.toList());
-        log.info("批量移动照片: {} 张 -> {}", photoIds.size(), targetPath);
-        Map<String, Object> result = photoManageService.movePhotos(photoIds, targetPath);
+        log.info("批量移动照片: {} 张 -> {}, 冲突处理: {}", photoIds.size(), targetPath, conflictResolution);
+        Map<String, Object> result = photoManageService.movePhotos(photoIds, targetPath, conflictResolution);
         return ResponseEntity.ok(result);
     }
 

@@ -1031,6 +1031,44 @@
       </div>
     </teleport>
 
+    <!-- 照片移动冲突对话框 -->
+    <teleport to="body">
+      <div
+        v-if="photoConflictDialogVisible"
+        class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+        @click.self="photoConflictDialogVisible = false"
+      >
+        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+          <h3 class="text-lg font-medium mb-3">文件名冲突</h3>
+          <p class="text-sm text-gray-300 mb-2">{{ photoConflictInfo.message }}</p>
+          <div v-if="photoConflictInfo.conflictFiles?.length" class="mb-4 p-2 bg-gray-900/50 rounded text-xs text-gray-400 max-h-32 overflow-y-auto">
+            <div v-for="f in photoConflictInfo.conflictFiles" :key="f">{{ f }}</div>
+          </div>
+          <p class="text-sm text-gray-400 mb-4">请选择处理方式：</p>
+          <div class="flex gap-3">
+            <button
+              @click="resolvePhotoConflict('overwrite')"
+              class="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
+            >
+              覆盖
+            </button>
+            <button
+              @click="resolvePhotoConflict('rename')"
+              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+            >
+              重命名
+            </button>
+            <button
+              @click="resolvePhotoConflict('cancel')"
+              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- 加载状态提示 -->
     <div v-if="loadingMore" class="text-center py-4 text-gray-400 text-sm">
       加载中...
@@ -2363,44 +2401,69 @@ const togglePhotoMoveMenu = () => {
   photoMoveMenuVisible.value = !photoMoveMenuVisible.value
 }
 
-const doMovePhotosTo = async (targetPath: string) => {
+// 照片移动冲突处理
+const photoConflictDialogVisible = ref(false)
+const photoConflictInfo = ref<any>({})
+const photoConflictTargetPath = ref('')
+
+const doMovePhotosTo = async (targetPath: string, conflictResolution?: string) => {
   if (photoModalSelected.value.size === 0) return
   const count = photoModalSelected.value.size
   const dirName = targetPath.split('/').pop() || targetPath.split('\\').pop() || targetPath
-  if (!confirm(`确定将 ${count} 张照片移动到「${dirName}」吗？`)) return
+
+  if (!conflictResolution) {
+    if (!confirm(`确定将 ${count} 张照片移动到「${dirName}」吗？`)) return
+  }
 
   photoMoveMenuVisible.value = false
   try {
     const res = await api.post('/admin/photos/batch-move', {
       photoIds: Array.from(photoModalSelected.value),
-      targetPath
+      targetPath,
+      conflictResolution: conflictResolution || null
     })
     const result = res.data
+
+    if (result.conflict) {
+      photoConflictInfo.value = result
+      photoConflictTargetPath.value = targetPath
+      photoConflictDialogVisible.value = true
+      return
+    }
+
     if (result.success) {
+      photoConflictDialogVisible.value = false
       alert('✅ ' + result.message)
-      photoModalSelected.value = new Set()
-      // Refresh modal photos
-      if (photoModalAlbum.value) {
-        const albumId = photoModalAlbum.value.id
-        try {
-          const res2 = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
-          photoModalPhotos.value = res2.data.content || []
-        } catch {
-          photoModalPhotos.value = []
-        }
-        // If album is now empty, close modal
-        if (photoModalPhotos.value.length === 0) {
-          closePhotoModal()
-        }
-      }
-      // Refresh album list
-      await load()
+      await refreshPhotoModalAfterChange()
     } else {
       alert('移动失败: ' + (result.message || '未知错误'))
     }
   } catch (e: any) {
     alert('移动失败: ' + (e.response?.data?.message || e.message))
   }
+}
+
+const resolvePhotoConflict = (resolution: string) => {
+  photoConflictDialogVisible.value = false
+  if (resolution === 'cancel') return
+  doMovePhotosTo(photoConflictTargetPath.value, resolution)
+}
+
+const refreshPhotoModalAfterChange = async () => {
+  photoModalSelected.value = new Set()
+  if (photoModalAlbum.value) {
+    const albumId = photoModalAlbum.value.id
+    try {
+      const res = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
+      photoModalPhotos.value = res.data.content || []
+    } catch {
+      photoModalPhotos.value = []
+    }
+    if (photoModalPhotos.value.length === 0) {
+      closePhotoModal()
+    }
+  }
+  await load()
 }
 
 const deleteSelectedPhotos = async () => {
@@ -2415,21 +2478,7 @@ const deleteSelectedPhotos = async () => {
     const result = res.data
     if (result.success) {
       alert('✅ ' + result.message)
-      photoModalSelected.value = new Set()
-      // Refresh modal photos
-      if (photoModalAlbum.value) {
-        const albumId = photoModalAlbum.value.id
-        try {
-          const res2 = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
-          photoModalPhotos.value = res2.data.content || []
-        } catch {
-          photoModalPhotos.value = []
-        }
-        if (photoModalPhotos.value.length === 0) {
-          closePhotoModal()
-        }
-      }
-      await load()
+      await refreshPhotoModalAfterChange()
     } else {
       alert('删除失败: ' + (result.message || '未知错误'))
     }

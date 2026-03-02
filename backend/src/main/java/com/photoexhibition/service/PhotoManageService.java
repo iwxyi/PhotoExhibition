@@ -106,10 +106,10 @@ public class PhotoManageService {
 
     /**
      * Move photos to a target directory.
-     * Handles: physical file move, DB path updates, album creation/removal.
+     * @param conflictResolution null = detect conflicts first; "overwrite" / "rename" / "skip"
      */
     @Transactional
-    public Map<String, Object> movePhotos(List<Long> photoIds, String targetDirPath) {
+    public Map<String, Object> movePhotos(List<Long> photoIds, String targetDirPath, String conflictResolution) {
         Map<String, Object> result = new HashMap<>();
 
         if (photoIds == null || photoIds.isEmpty()) {
@@ -120,7 +120,6 @@ public class PhotoManageService {
 
         Path targetDir = Paths.get(targetDirPath).toAbsolutePath().normalize();
 
-        // Create target directory if it doesn't exist
         try {
             Files.createDirectories(targetDir);
         } catch (IOException e) {
@@ -136,12 +135,34 @@ public class PhotoManageService {
             return result;
         }
 
+        // Detect filename conflicts
+        List<String> conflictFiles = new ArrayList<>();
+        for (Photo photo : photos) {
+            Path sourceFile = Paths.get(photo.getOriginalPath()).toAbsolutePath().normalize();
+            Path targetFile = targetDir.resolve(sourceFile.getFileName());
+            if (Files.exists(targetFile) && !targetFile.equals(sourceFile)) {
+                conflictFiles.add(photo.getFilename());
+            }
+        }
+
+        // If conflicts exist and no resolution specified, return conflict info
+        if (!conflictFiles.isEmpty() && (conflictResolution == null || conflictResolution.isEmpty())) {
+            result.put("success", false);
+            result.put("conflict", true);
+            result.put("conflictFiles", conflictFiles);
+            String fileList = conflictFiles.size() > 3
+                    ? conflictFiles.subList(0, 3).stream().collect(Collectors.joining("、")) + " 等"
+                    : String.join("、", conflictFiles);
+            result.put("message", String.format("目标目录已存在 %d 个同名文件：%s",
+                    conflictFiles.size(), fileList));
+            return result;
+        }
+
         // Track source albums for later cleanup
         Set<Long> sourceAlbumIds = photos.stream()
                 .map(Photo::getAlbumId)
                 .collect(Collectors.toSet());
 
-        // Find or create target album
         Album targetAlbum = findOrCreateAlbumForPath(targetDir.toString());
 
         int movedCount = 0;
@@ -149,7 +170,7 @@ public class PhotoManageService {
 
         for (Photo photo : photos) {
             try {
-                movePhotoToDir(photo, targetDir, targetAlbum);
+                movePhotoToDir(photo, targetDir, targetAlbum, conflictResolution);
                 movedCount++;
             } catch (Exception e) {
                 log.error("移动照片失败: {} -> {}", photo.getOriginalPath(), targetDir, e);
@@ -157,7 +178,6 @@ public class PhotoManageService {
             }
         }
 
-        // Save all updated photos
         photoRepository.saveAll(photos);
 
         // Update target album photo count
@@ -165,8 +185,7 @@ public class PhotoManageService {
         targetAlbum.setPhotoCount((int) targetCount);
         albumRepository.save(targetAlbum);
 
-        // Update source album photo counts, remove empty albums
-        List<Long> removedAlbumIds = new ArrayList<>();
+        // Update source album photo counts
         for (Long sourceAlbumId : sourceAlbumIds) {
             if (sourceAlbumId.equals(targetAlbum.getId())) continue;
             albumRepository.findById(sourceAlbumId).ifPresent(sourceAlbum -> {
@@ -245,38 +264,42 @@ public class PhotoManageService {
 
     // ======================== Internal methods ========================
 
-    private void movePhotoToDir(Photo photo, Path targetDir, Album targetAlbum) throws IOException {
+    private void movePhotoToDir(Photo photo, Path targetDir, Album targetAlbum, String conflictResolution) throws IOException {
         Path sourceFile = Paths.get(photo.getOriginalPath()).toAbsolutePath().normalize();
         if (!Files.exists(sourceFile)) {
             throw new IOException("源文件不存在: " + sourceFile);
         }
 
-        // Determine target file path (handle name conflicts)
         String filename = sourceFile.getFileName().toString();
         Path targetFile = targetDir.resolve(filename);
+
         if (Files.exists(targetFile) && !targetFile.equals(sourceFile)) {
-            filename = findUniqueFilename(targetDir, filename);
-            targetFile = targetDir.resolve(filename);
+            if ("overwrite".equals(conflictResolution)) {
+                cleanupOverwrittenPhoto(targetFile.toString());
+                Files.deleteIfExists(targetFile);
+            } else if ("rename".equals(conflictResolution)) {
+                filename = findUniqueFilename(targetDir, filename);
+                targetFile = targetDir.resolve(filename);
+            } else {
+                throw new IOException("同名文件冲突: " + filename);
+            }
         }
 
-        // Physical move
-        Files.move(sourceFile, targetFile, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(sourceFile, targetFile, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+        }
 
-        // Update photo paths
         String oldOriginal = photo.getOriginalPath();
-        String newOriginal = targetFile.toString();
-
-        // For thumbnail paths, we need to update the prefix
-        // Thumbnails are stored in .thumbnails subdirectory relative to the photo
         Path oldParent = Paths.get(oldOriginal).getParent();
         Path newParent = targetFile.getParent();
 
-        photo.setOriginalPath(newOriginal);
-        photo.setPathHash(computeSha256(newOriginal));
+        photo.setOriginalPath(targetFile.toString());
+        photo.setPathHash(computeSha256(targetFile.toString()));
         photo.setFilename(filename);
         photo.setAlbumId(targetAlbum.getId());
 
-        // Update thumbnail paths (replace parent directory prefix)
         if (oldParent != null && newParent != null) {
             String oldPrefix = oldParent.toString();
             String newPrefix = newParent.toString();
@@ -287,9 +310,43 @@ public class PhotoManageService {
             photo.setLargeThumbPath(replacePrefix(photo.getLargeThumbPath(), oldPrefix, newPrefix));
             photo.setBackgroundRemovedPath(replacePrefix(photo.getBackgroundRemovedPath(), oldPrefix, newPrefix));
 
-            // Move thumbnail files too
             moveThumbnailFiles(photo, oldPrefix, newPrefix);
         }
+    }
+
+    /**
+     * Clean up an existing photo record that is about to be overwritten.
+     * Deletes its DB records (faces, assignments, AI scoring) and thumbnail files.
+     */
+    private void cleanupOverwrittenPhoto(String originalPath) {
+        Optional<Photo> existing = photoRepository.findByOriginalPath(originalPath);
+        if (existing.isEmpty()) return;
+
+        Photo victim = existing.get();
+        log.info("覆盖移动 - 清理被覆盖照片: id={}, path={}", victim.getId(), originalPath);
+
+        // Delete thumbnail files of the overwritten photo
+        deleteFileIfExists(victim.getThumbnailPath());
+        deleteFileIfExists(victim.getWebpPath());
+        deleteFileIfExists(victim.getSmallThumbPath());
+        deleteFileIfExists(victim.getMediumThumbPath());
+        deleteFileIfExists(victim.getLargeThumbPath());
+        deleteFileIfExists(victim.getBackgroundRemovedPath());
+
+        // Delete faces
+        List<Face> faces = faceRepository.findByPhotoId(victim.getId());
+        if (!faces.isEmpty()) {
+            log.info("覆盖移动 - 删除被覆盖照片的 {} 个人脸记录", faces.size());
+            faceRepository.deleteAll(faces);
+        }
+        // Delete assignments
+        photoAssignmentRepository.deleteByPhotoId(victim.getId());
+        // Delete AI scoring
+        photoAIScoringRepository.findByPhotoId(victim.getId())
+                .ifPresent(photoAIScoringRepository::delete);
+        // Delete the photo record
+        photoRepository.delete(victim);
+        photoRepository.flush();
     }
 
     private void moveThumbnailFiles(Photo photo, String oldPrefix, String newPrefix) {
