@@ -238,23 +238,28 @@ const renderColorShift: ShaderRenderFn = (ctx, w, h, t, p) => {
   const x2 = w * (0.7 + Math.sin(t * 0.25 * speed + 2) * 0.3)
   const y2 = h * (0.7 + Math.cos(t * 0.18 * speed + 2) * 0.3)
 
-  const a = 0.06 * intensity
+  const a = 0.25 * intensity
 
   const g1 = ctx.createRadialGradient(x1, y1, 0, x1, y1, w * 0.6)
-  g1.addColorStop(0, `hsla(${hue1}, 70%, 55%, ${a})`)
-  g1.addColorStop(1, `hsla(${hue1}, 70%, 55%, 0)`)
+  g1.addColorStop(0, `hsla(${hue1}, 80%, 55%, ${a})`)
+  g1.addColorStop(0.6, `hsla(${hue1}, 75%, 50%, ${a * 0.4})`)
+  g1.addColorStop(1, `hsla(${hue1}, 70%, 45%, 0)`)
   ctx.fillStyle = g1
   ctx.fillRect(0, 0, w, h)
 
-  const g2 = ctx.createRadialGradient(x2, y2, 0, x2, y2, w * 0.5)
-  g2.addColorStop(0, `hsla(${hue2}, 65%, 50%, ${a * 0.8})`)
-  g2.addColorStop(1, `hsla(${hue2}, 65%, 50%, 0)`)
+  const g2 = ctx.createRadialGradient(x2, y2, 0, x2, y2, w * 0.55)
+  g2.addColorStop(0, `hsla(${hue2}, 75%, 50%, ${a * 0.85})`)
+  g2.addColorStop(0.6, `hsla(${hue2}, 70%, 45%, ${a * 0.3})`)
+  g2.addColorStop(1, `hsla(${hue2}, 65%, 40%, 0)`)
   ctx.fillStyle = g2
   ctx.fillRect(0, 0, w, h)
 
-  const g3 = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, w * 0.7)
-  g3.addColorStop(0, `hsla(${hue3}, 60%, 50%, ${a * 0.5})`)
-  g3.addColorStop(1, `hsla(${hue3}, 60%, 50%, 0)`)
+  const x3 = w * (0.5 + Math.cos(t * 0.18 * speed + 4) * 0.25)
+  const y3 = h * (0.5 + Math.sin(t * 0.22 * speed + 4) * 0.25)
+  const g3 = ctx.createRadialGradient(x3, y3, 0, x3, y3, w * 0.5)
+  g3.addColorStop(0, `hsla(${hue3}, 70%, 50%, ${a * 0.7})`)
+  g3.addColorStop(0.6, `hsla(${hue3}, 65%, 45%, ${a * 0.25})`)
+  g3.addColorStop(1, `hsla(${hue3}, 60%, 40%, 0)`)
   ctx.fillStyle = g3
   ctx.fillRect(0, 0, w, h)
 }
@@ -344,6 +349,100 @@ const renderGlitch: ShaderRenderFn = (ctx, w, h, t, p) => {
   }
 }
 
+// ─── Fireworks (彩色烟花绽放) ──────────────────────────────────
+interface Firework { x: number; y: number; born: number; hue: number; particles: { angle: number; speed: number; size: number; hue: number }[] }
+let fireworks: Firework[] = []
+let fwNextSpawn = 0
+
+const renderFireworks: ShaderRenderFn = (ctx, w, h, t, p) => {
+  const intensity = (p.intensity ?? 5) / 10
+  const freq = (p.speed ?? 5) / 5
+
+  if (t > fwNextSpawn) {
+    const count = 40 + Math.floor(Math.random() * 30)
+    const hue = Math.random() * 360
+    const pts = Array.from({ length: count }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      speed: 40 + Math.random() * 100,
+      size: 2 + Math.random() * 3,
+      hue: hue + (Math.random() - 0.5) * 60,
+    }))
+    fireworks.push({ x: w * (0.15 + Math.random() * 0.7), y: h * (0.15 + Math.random() * 0.45), born: t, hue, particles: pts })
+    fwNextSpawn = t + 0.6 / freq + Math.random() * 1.5 / freq
+  }
+
+  fireworks = fireworks.filter(fw => t - fw.born < 3)
+
+  for (const fw of fireworks) {
+    const age = t - fw.born
+    for (const pt of fw.particles) {
+      const dist = pt.speed * age * (1 - age * 0.2)
+      if (dist < 0) continue
+      const px = fw.x + Math.cos(pt.angle) * dist
+      const py = fw.y + Math.sin(pt.angle) * dist + age * age * 30
+      const alpha = Math.max(0, (1 - age / 2.5)) * intensity
+      const r = pt.size * (1 - age * 0.3)
+      if (r <= 0 || alpha <= 0) continue
+
+      ctx.beginPath()
+      ctx.arc(px, py, r, 0, Math.PI * 2)
+      ctx.fillStyle = `hsla(${pt.hue}, 90%, 60%, ${alpha})`
+      ctx.fill()
+    }
+  }
+}
+
+// ─── Birthday Candles (生日蜡烛) ──────────────────────────────
+const renderBirthday: ShaderRenderFn = (ctx, w, h, t, p) => {
+  const intensity = (p.intensity ?? 5) / 10
+  const speed = (p.speed ?? 3) / 10
+  const candleCount = Math.round((p.count ?? 5) / 2) + 3
+
+  const baseY = h * 0.88
+  const spacing = Math.min(60, (w * 0.6) / candleCount)
+  const startX = (w - spacing * (candleCount - 1)) / 2
+
+  for (let i = 0; i < candleCount; i++) {
+    const cx = startX + i * spacing
+    const candleH = 60 + (i % 3) * 15
+    const burnProgress = Math.min(1, t * speed * 0.02)
+    const currentH = candleH * (1 - burnProgress * 0.6)
+    const candleTop = baseY - currentH
+
+    const hues = [350, 200, 50, 130, 280, 30, 170]
+    const hue = hues[i % hues.length]
+    ctx.fillStyle = `hsla(${hue}, 70%, 55%, ${0.8 * intensity})`
+    ctx.fillRect(cx - 4, candleTop, 8, currentH)
+    ctx.fillStyle = `hsla(${hue}, 60%, 45%, ${0.6 * intensity})`
+    ctx.fillRect(cx - 4, candleTop, 2, currentH)
+
+    if (burnProgress < 0.95) {
+      const flickerX = Math.sin(t * 8 + i * 3) * 2
+      const flickerH = 12 + Math.sin(t * 6 + i * 2) * 4
+      const flameY = candleTop - flickerH
+
+      const fg = ctx.createRadialGradient(cx + flickerX, candleTop - flickerH * 0.4, 0, cx + flickerX, candleTop - flickerH * 0.3, flickerH)
+      fg.addColorStop(0, `rgba(255,255,200,${0.9 * intensity})`)
+      fg.addColorStop(0.3, `rgba(255,200,50,${0.7 * intensity})`)
+      fg.addColorStop(0.7, `rgba(255,100,20,${0.3 * intensity})`)
+      fg.addColorStop(1, 'rgba(255,60,10,0)')
+      ctx.fillStyle = fg
+      ctx.beginPath()
+      ctx.ellipse(cx + flickerX, candleTop - flickerH * 0.3, 5 + Math.sin(t * 5 + i) * 1.5, flickerH * 0.7, 0, 0, Math.PI * 2)
+      ctx.fill()
+
+      const glowR = 25 + Math.sin(t * 4 + i) * 5
+      const gg = ctx.createRadialGradient(cx, flameY + 8, 0, cx, flameY + 8, glowR)
+      gg.addColorStop(0, `rgba(255,200,80,${0.08 * intensity})`)
+      gg.addColorStop(1, 'rgba(255,150,30,0)')
+      ctx.fillStyle = gg
+      ctx.beginPath()
+      ctx.arc(cx, flameY + 8, glowR, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+}
+
 // ─── Registry ──────────────────────────────────────────────────
 export const shaderRegistry: Record<string, ShaderRenderFn> = {
   aurora: renderAurora,
@@ -357,6 +456,8 @@ export const shaderRegistry: Record<string, ShaderRenderFn> = {
   vignette: renderVignette,
   lens_flare: renderLensFlare,
   glitch: renderGlitch,
+  fireworks: renderFireworks,
+  birthday: renderBirthday,
 }
 
 export const shaderEffectMeta: Record<string, { name: string; description: string; category: string }> = {
@@ -371,6 +472,8 @@ export const shaderEffectMeta: Record<string, { name: string; description: strin
   film_grain:   { name: '胶片噪点',   description: '复古胶片颗粒感',         category: '风格' },
   color_shift:  { name: '色彩流转',   description: '缓慢流动的彩色光晕',     category: '风格' },
   glitch:       { name: '故障风',     description: '随机数字故障闪烁',       category: '风格' },
+  fireworks:    { name: '烟花',       description: '夜空中彩色烟花绽放',     category: '氛围' },
+  birthday:     { name: '生日蜡烛',   description: '底部蜡烛缓慢燃烧',       category: '氛围' },
 }
 
 export const shaderParamDefs: Record<string, EffectParamDef[]> = {
@@ -385,6 +488,8 @@ export const shaderParamDefs: Record<string, EffectParamDef[]> = {
   film_grain:   [{ key: 'intensity', label: '噪点密度' }, { key: 'size', label: '颗粒大小' }],
   color_shift:  [{ key: 'intensity', label: '强度' }, { key: 'speed', label: '流动速度' }],
   glitch:       [{ key: 'intensity', label: '故障强度' }, { key: 'speed', label: '触发频率' }],
+  fireworks:    [{ key: 'intensity', label: '亮度' }, { key: 'speed', label: '绽放频率' }],
+  birthday:     [{ key: 'intensity', label: '亮度' }, { key: 'count', label: '蜡烛数量' }, { key: 'speed', label: '燃烧速度' }],
 }
 
 export const isShaderEffect = (type: string): boolean => type in shaderRegistry

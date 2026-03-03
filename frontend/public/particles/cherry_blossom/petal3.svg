@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 55 50" width="55" height="50">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 62" width="50" height="62">
   <defs>
-    <radialGradient id="p3g" cx="40%" cy="45%" r="55%">
-      <stop offset="0%" stop-color="#fff0f3"/>
-      <stop offset="35%" stop-color="#ffc0d8"/>
-      <stop offset="100%" stop-color="#e880a8"/>
-    </radialGradient>
+    <linearGradient id="p3" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffe8f0"/>
+      <stop offset="50%" stop-color="#ffaac8"/>
+      <stop offset="100%" stop-color="#d87098"/>
+    </linearGradient>
   </defs>
-  <path d="M28 4 C42 4, 52 14, 52 28 C52 40, 42 48, 28 48 C16 48, 4 40, 3 28 C2 14, 14 4, 28 4Z" fill="url(#p3g)" opacity="0.82"/>
-  <path d="M22 10 Q28 24, 26 42" stroke="#d0789a" stroke-width="0.5" fill="none" opacity="0.3"/>
-  <path d="M12 20 Q28 24, 44 18" stroke="#d0789a" stroke-width="0.4" fill="none" opacity="0.2"/>
+  <path d="M22 2 Q38 6, 46 20 Q50 34, 40 48 Q30 60, 22 58 Q12 56, 5 42 Q0 28, 6 16 Q12 4, 22 2Z" fill="url(#p3)" opacity="0.82"/>
+  <path d="M20 8 Q22 28, 22 52" stroke="#c07088" stroke-width="0.4" fill="none" opacity="0.25"/>
+  <path d="M10 22 Q22 24, 38 18" stroke="#c07088" stroke-width="0.3" fill="none" opacity="0.18"/>
 </svg>

@@ -1,12 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 52" width="48" height="52">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 60" width="50" height="60">
   <defs>
-    <linearGradient id="al2" x1="20%" y1="0%" x2="80%" y2="100%">
+    <linearGradient id="a2" x1="20%" y1="0%" x2="80%" y2="100%">
       <stop offset="0%" stop-color="#daa520"/>
-      <stop offset="50%" stop-color="#cd853f"/>
-      <stop offset="100%" stop-color="#a0522d"/>
+      <stop offset="60%" stop-color="#cd853f"/>
+      <stop offset="100%" stop-color="#8b5a2b"/>
     </linearGradient>
   </defs>
-  <path d="M24 2 L32 8 L40 6 L36 16 L44 22 L36 26 L38 36 L28 34 L24 44 L20 34 L10 36 L12 26 L4 22 L12 16 L8 6 L16 8 Z" fill="url(#al2)" opacity="0.85"/>
-  <path d="M24 6 L24 40" stroke="#8b6914" stroke-width="0.6" fill="none" opacity="0.4"/>
-  <path d="M14 18 L24 20 L34 18" stroke="#8b6914" stroke-width="0.4" fill="none" opacity="0.3"/>
+  <path d="M25 3 Q42 8, 46 22 Q48 36, 38 48 Q30 58, 25 56 Q20 58, 12 48 Q2 36, 4 22 Q8 8, 25 3Z" fill="url(#a2)" opacity="0.85"/>
+  <path d="M25 8 L25 50" stroke="#6b4220" stroke-width="0.6" fill="none" opacity="0.3"/>
+  <path d="M12 18 Q25 22, 38 16" stroke="#6b4220" stroke-width="0.35" fill="none" opacity="0.2"/>
+  <path d="M10 34 Q25 36, 40 32" stroke="#6b4220" stroke-width="0.35" fill="none" opacity="0.2"/>
 </svg>

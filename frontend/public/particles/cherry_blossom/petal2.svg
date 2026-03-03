@@ -1,14 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 65" width="50" height="65">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 55 68" width="55" height="68">
   <defs>
-    <radialGradient id="p2g" cx="50%" cy="30%" r="60%">
+    <radialGradient id="p2" cx="45%" cy="30%" r="58%">
       <stop offset="0%" stop-color="#fff5f8"/>
-      <stop offset="40%" stop-color="#ffc8de"/>
-      <stop offset="100%" stop-color="#f090b8"/>
+      <stop offset="40%" stop-color="#ffc0d8"/>
+      <stop offset="100%" stop-color="#e87aa8"/>
     </radialGradient>
-    <filter id="p2s">
-      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#ff90b8" flood-opacity="0.25"/>
-    </filter>
   </defs>
-  <path d="M25 3 C40 8, 48 22, 46 38 C44 52, 32 63, 25 61 C18 63, 6 52, 4 38 C2 22, 10 8, 25 3Z" fill="url(#p2g)" filter="url(#p2s)" opacity="0.85"/>
-  <path d="M25 10 C23 24, 24 40, 25 56" stroke="#d87898" stroke-width="0.6" fill="none" opacity="0.35"/>
+  <path d="M24 3 Q40 0, 50 16 Q55 30, 46 46 Q36 62, 24 65 Q14 58, 6 42 Q0 26, 6 14 Q12 3, 24 3Z" fill="url(#p2)" opacity="0.84"/>
+  <path d="M24 8 C22 28, 23 44, 24 58" stroke="#c87090" stroke-width="0.5" fill="none" opacity="0.3"/>
 </svg>

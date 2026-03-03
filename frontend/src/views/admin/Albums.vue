@@ -1204,8 +1204,6 @@ const availableEffects = ref([
   { type: 'dandelion', name: '蒲公英', description: '随风飘散的蒲公英种子', imageMode: true },
   { type: 'hearts', name: '爱心', description: '缓缓上升的爱心 · 脉动效果', imageMode: true },
   { type: 'dust', name: '光尘', description: '空气中飘浮的暖色光点', imageMode: true },
-  { type: 'fireworks', name: '烟花', description: '绽放的烟花粒子', imageMode: true },
-  { type: 'birthday', name: '生日', description: '彩色彩屑和装饰', imageMode: true },
   { type: 'aurora', name: '极光', description: '流动的彩色极光波带', imageMode: true, category: '光照' },
   { type: 'light_rays', name: '丁达尔光线', description: '从天而降的体积光束', imageMode: true, category: '光照' },
   { type: 'lens_flare', name: '镜头光晕', description: '移动的镜头光晕鬼影', imageMode: true, category: '光照' },
@@ -1217,6 +1215,8 @@ const availableEffects = ref([
   { type: 'film_grain', name: '胶片噪点', description: '复古胶片颗粒感', imageMode: true, category: '风格' },
   { type: 'color_shift', name: '色彩流转', description: '缓慢流动的彩色光晕', imageMode: true, category: '风格' },
   { type: 'glitch', name: '故障风', description: '随机数字故障闪烁', imageMode: true, category: '风格' },
+  { type: 'fireworks', name: '烟花', description: '夜空中彩色烟花绽放', imageMode: true, category: '氛围' },
+  { type: 'birthday', name: '生日蜡烛', description: '底部蜡烛缓慢燃烧', imageMode: true, category: '氛围' },
 ])
 const currentEffects = ref<any[]>([])
 
