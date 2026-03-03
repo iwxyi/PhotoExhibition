@@ -78,6 +78,13 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     Face findTopByPersonIdOrderByCreatedAtDesc(Long personId);
 
     /**
+     * 批量获取每个人物的人脸数量（避免 N+1 查询）
+     * 返回: [personId, faceCount]
+     */
+    @Query("SELECT f.person.id, COUNT(f) FROM Face f WHERE f.person IS NOT NULL GROUP BY f.person.id")
+    List<Object[]> countFacesByPersonGrouped();
+
+    /**
      * 查找重复的人脸记录（按照片分组，统计每张照片的人脸数量）
      */
     @Query("SELECT f.photo.id, COUNT(f) FROM Face f GROUP BY f.photo.id HAVING COUNT(f) > 1")

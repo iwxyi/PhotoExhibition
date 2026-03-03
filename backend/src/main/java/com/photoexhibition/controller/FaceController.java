@@ -464,6 +464,20 @@ public class FaceController {
     }
 
     /**
+     * 切换人物的隐藏状态
+     */
+    @PostMapping("/persons/{id}/toggle-hidden")
+    public ResponseEntity<Map<String, Object>> togglePersonHidden(@PathVariable Long id) {
+        var person = faceService.togglePersonHidden(id);
+        boolean hidden = person.getHidden() != null && person.getHidden();
+        return ResponseEntity.ok(Map.of(
+            "id", person.getId(),
+            "hidden", hidden,
+            "message", hidden ? "已隐藏" : "已取消隐藏"
+        ));
+    }
+
+    /**
      * 删除人物（会解除所有人脸的关联）
      */
     @DeleteMapping("/persons/{id}")
@@ -535,12 +549,9 @@ public class FaceController {
         }
 
         log.info("批量绑定人脸调用 - personId: {}, confirmed: {}, 数量: {}", personId, confirmed, faceIds.size());
-        log.debug("批量绑定人脸 ID 列表: {}", faceIds);
-        for (Long fid : faceIds) {
-            faceService.assignFaceToPerson(fid, personId, confirmed);
-        }
-        log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, faceIds.size());
-        return ResponseEntity.ok(Map.of("message", "已批量绑定 " + faceIds.size() + " 个人脸"));
+        int count = faceService.batchAssignFacesToPerson(faceIds, personId, confirmed);
+        log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, count);
+        return ResponseEntity.ok(Map.of("message", "已批量绑定 " + count + " 个人脸"));
     }
 
     /**

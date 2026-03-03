@@ -20,7 +20,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -30,8 +37,13 @@ public class FolderService {
     private final AlbumRepository albumRepository;
     private final PhotoRepository photoRepository;
     private final PhotoScanService photoScanService;
+    private final PlatformTransactionManager transactionManager;
     @Value("${photo.scan.base-path}")
     private String basePath;
+
+    private final ScheduledExecutorService uploadProcessExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final ConcurrentLinkedQueue<Path> pendingUploadPaths = new ConcurrentLinkedQueue<>();
+    private volatile ScheduledFuture<?> uploadProcessFuture;
 
     /**
      * 移动/重命名文件夹，同时更新数据库中的相册/照片路径
@@ -411,13 +423,15 @@ public class FolderService {
     }
 
     /**
-     * 上传文件/文件夹
+     * 上传文件/文件夹（仅保存文件到磁盘，处理延迟到上传全部完成后执行）。
+     * 处理采用 3 秒防抖：连续多批上传时，计时器不断重置，
+     * 直到最后一批上传后 3 秒才统一执行图片处理（缩略图/EXIF/人脸等）。
      */
-    @Transactional
-    public void uploadFiles(List<MultipartFile> files, String targetDir, List<String> relativePaths) throws Exception {
-        if (files == null || files.isEmpty()) return;
+    public int uploadFiles(List<MultipartFile> files, String targetDir, List<String> relativePaths) throws Exception {
+        if (files == null || files.isEmpty()) return 0;
         Path baseTarget = resolvePath(targetDir);
         Files.createDirectories(baseTarget);
+        int saved = 0;
         for (int i = 0; i < files.size(); i++) {
             MultipartFile mf = files.get(i);
             String rel = (relativePaths != null && relativePaths.size() > i) ? relativePaths.get(i) : mf.getOriginalFilename();
@@ -425,8 +439,46 @@ public class FolderService {
             Path dest = baseTarget.resolve(rel).normalize();
             Files.createDirectories(dest.getParent());
             mf.transferTo(dest.toFile());
-            syncFileCreate(dest);
+            pendingUploadPaths.add(dest);
+            saved++;
         }
+        scheduleDeferredProcessing();
+        return saved;
+    }
+
+    /**
+     * 防抖调度：上一批上传后 3 秒内若无新批次，则开始后台处理。
+     */
+    private void scheduleDeferredProcessing() {
+        if (uploadProcessFuture != null && !uploadProcessFuture.isDone()) {
+            uploadProcessFuture.cancel(false);
+        }
+        uploadProcessFuture = uploadProcessExecutor.schedule(this::processQueuedUploads, 3, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 后台线程：逐个处理待处理的上传文件，每个文件单独事务。
+     */
+    private void processQueuedUploads() {
+        List<Path> toProcess = new ArrayList<>();
+        Path p;
+        while ((p = pendingUploadPaths.poll()) != null) {
+            toProcess.add(p);
+        }
+        if (toProcess.isEmpty()) return;
+
+        log.info("开始后台处理 {} 个上传文件...", toProcess.size());
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        int processed = 0;
+        for (Path path : toProcess) {
+            try {
+                txTemplate.executeWithoutResult(status -> syncFileCreate(path));
+                processed++;
+            } catch (Exception e) {
+                log.warn("处理上传文件失败: {}", path, e);
+            }
+        }
+        log.info("后台处理完成: {} / {} 个文件", processed, toProcess.size());
     }
 
     private void moveSingleFile(Path source, Path target) throws Exception {

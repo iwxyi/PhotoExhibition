@@ -15,6 +15,7 @@ public class PersonListItemDTO {
     private String sampleOriginalPath; // 代表脸原图
     private Double sampleConfidence; // 代表脸置信度
     private Double avgConfidence; // 平均置信度（聚类用）
+    private Boolean hidden;
     private java.time.LocalDateTime createdAt;
     private java.time.LocalDateTime updatedAt;
 }

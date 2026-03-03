@@ -41,6 +41,9 @@ public class PersonProfile {
     @Column(name = "sample_confidence")
     private Double sampleConfidence;
 
+    @Column(nullable = false)
+    private Boolean hidden = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
