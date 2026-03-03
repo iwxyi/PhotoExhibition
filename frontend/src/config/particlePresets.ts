@@ -85,18 +85,6 @@ export const effectParamDefs: Record<string, EffectParamDef[]> = {
     { key: 'glow', label: '发光强度' },
     { key: 'opacity', label: '透明度' },
   ],
-  fireworks: [
-    { key: 'count', label: '烟花数量' },
-    { key: 'speed', label: '绽放速度' },
-    { key: 'size', label: '爆炸大小' },
-    { key: 'brightness', label: '亮度' },
-  ],
-  birthday: [
-    { key: 'count', label: '彩屑数量' },
-    { key: 'speed', label: '飘落速度' },
-    { key: 'size', label: '大小' },
-    { key: 'opacity', label: '透明度' },
-  ],
 }
 
 export const particlePresets: Record<string, ParticlePreset> = {
@@ -141,17 +129,15 @@ export const particlePresets: Record<string, ParticlePreset> = {
 
   starry_sky: {
     type: 'starry_sky',
-    images: [`${B}/starry_sky/star1.svg`, `${B}/starry_sky/star2.svg`, `${B}/starry_sky/star3.svg`],
+    images: [`${B}/starry_sky/star2.svg`],
     physics: {
-      gravity: 0, windX: 0, windVariance: 0, rotationSpeed: 0.1,
-      flutter: 0, minSpeed: 0, maxSpeed: 0.5, minSize: 8, maxSize: 28,
+      gravity: 0, windX: 0, windVariance: 0, rotationSpeed: 0,
+      flutter: 0, minSpeed: 0, maxSpeed: 0, minSize: 3, maxSize: 10,
       fadeIn: 2000, fadeOut: 2000,
       sway: false, swayAmplitude: 0, swayFrequency: 0,
-      glow: 10, glowColor: 'rgba(200,220,255,0.6)',
-      pulse: true, pulseSpeed: 1.5, pulseMin: 0.15,
+      pulse: true, pulseSpeed: 1.2, pulseMin: 0.1,
       spawnMode: 'random',
-      scaleOscillation: 0.15,
-      minLifetime: 6000, maxLifetime: 18000,
+      minLifetime: 5000, maxLifetime: 15000,
     },
   },
 
@@ -159,14 +145,14 @@ export const particlePresets: Record<string, ParticlePreset> = {
     type: 'meteor',
     images: [`${B}/meteor/meteor1.svg`, `${B}/meteor/meteor2.svg`],
     physics: {
-      gravity: 2, windX: 0, windVariance: 10, rotationSpeed: 0,
+      gravity: 2, windX: 0, windVariance: 5, rotationSpeed: 0,
       flutter: 0, minSpeed: 200, maxSpeed: 400, minSize: 18, maxSize: 32,
       fadeIn: 200, fadeOut: 600,
       sway: false, swayAmplitude: 0, swayFrequency: 0,
-      angle: 135, angleVariance: 20,
-      glow: 6, glowColor: 'rgba(255,240,200,0.7)',
-      trail: 6, trailFade: 0.55,
-      spawnMode: 'top', aspectRatio: 0.25,
+      angle: 135, angleVariance: 15,
+      trail: 5, trailFade: 0.55,
+      spawnMode: 'top', aspectRatio: 0.2,
+      lockRotation: true, rotationOffset: -Math.PI / 2,
       minLifetime: 1500, maxLifetime: 3500,
     },
   },
@@ -191,11 +177,12 @@ export const particlePresets: Record<string, ParticlePreset> = {
     type: 'rain',
     images: [`${B}/rain/drop1.svg`, `${B}/rain/drop2.svg`],
     physics: {
-      gravity: 30, windX: 15, windVariance: 5, rotationSpeed: 0,
+      gravity: 30, windX: 15, windVariance: 3, rotationSpeed: 0,
       flutter: 0, minSpeed: 250, maxSpeed: 450, minSize: 10, maxSize: 22,
       fadeIn: 100, fadeOut: 200,
       sway: false, swayAmplitude: 0, swayFrequency: 0,
-      angle: 82, angleVariance: 4, aspectRatio: 0.22,
+      angle: 84, angleVariance: 3, aspectRatio: 0.2,
+      lockRotation: true, rotationOffset: -Math.PI / 2,
       minLifetime: 1200, maxLifetime: 2500,
     },
   },
@@ -258,54 +245,23 @@ export const particlePresets: Record<string, ParticlePreset> = {
     },
   },
 
-  fireworks: {
-    type: 'fireworks',
-    images: [`${B}/starry_sky/star1.svg`, `${B}/starry_sky/star2.svg`],
-    physics: {
-      gravity: 25, windX: 0, windVariance: 5, rotationSpeed: 2,
-      flutter: 0, minSpeed: 60, maxSpeed: 160, minSize: 6, maxSize: 14,
-      fadeIn: 100, fadeOut: 800,
-      sway: false, swayAmplitude: 0, swayFrequency: 0,
-      glow: 10, glowColor: 'rgba(255,200,100,0.8)',
-      trail: 4, trailFade: 0.5,
-      spawnMode: 'random', angleVariance: 360, angle: 270,
-      minLifetime: 1500, maxLifetime: 3000,
-    },
-  },
-
-  birthday: {
-    type: 'birthday',
-    images: [`${B}/hearts/heart1.svg`, `${B}/hearts/heart2.svg`, `${B}/starry_sky/star2.svg`],
-    physics: {
-      gravity: -3, windX: 0, windVariance: 15, rotationSpeed: 1.5,
-      flutter: 6, minSpeed: 10, maxSpeed: 25, minSize: 12, maxSize: 28,
-      fadeIn: 800, fadeOut: 1500,
-      sway: true, swayAmplitude: 20, swayFrequency: 0.7,
-      angle: 270, angleVariance: 40,
-      spawnMode: 'bottom',
-      minLifetime: 6000, maxLifetime: 14000,
-    },
-  },
 }
 
 export const intensityParticleCount: Record<string, Record<string, number>> = {
   low: {
     cherry_blossom: 15, snow: 25, autumn_leaves: 12,
-    starry_sky: 60, meteor: 3, firefly: 10, rain: 80,
+    starry_sky: 30, meteor: 3, firefly: 10, rain: 80,
     bubble: 8, dandelion: 8, hearts: 8, dust: 30,
-    fireworks: 20, birthday: 12,
   },
   medium: {
     cherry_blossom: 35, snow: 60, autumn_leaves: 25,
-    starry_sky: 120, meteor: 6, firefly: 20, rain: 160,
+    starry_sky: 60, meteor: 6, firefly: 20, rain: 160,
     bubble: 15, dandelion: 15, hearts: 15, dust: 60,
-    fireworks: 35, birthday: 20,
   },
   high: {
     cherry_blossom: 60, snow: 100, autumn_leaves: 45,
-    starry_sky: 200, meteor: 10, firefly: 35, rain: 300,
+    starry_sky: 100, meteor: 10, firefly: 35, rain: 300,
     bubble: 25, dandelion: 25, hearts: 25, dust: 100,
-    fireworks: 50, birthday: 35,
   },
 }
 

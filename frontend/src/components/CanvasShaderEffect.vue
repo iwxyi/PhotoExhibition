@@ -2,7 +2,7 @@
   <canvas
     ref="canvasRef"
     class="canvas-shader-layer"
-    :class="{ 'above-layer': layer === 'above', 'background-layer': layer === 'background' }"
+    :class="[layer === 'above' ? 'above-layer' : 'background-layer', isReady ? 'ready' : '']"
   />
 </template>
 
@@ -19,12 +19,14 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), { layer: 'above' })
 
 const canvasRef = ref<HTMLCanvasElement>()
+const isReady = ref(false)
 let ctx: CanvasRenderingContext2D | null = null
 let animId = 0
 let startTime = 0
 let isActive = false
 let width = 0
 let height = 0
+let frameCount = 0
 
 const resizeCanvas = () => {
   const canvas = canvasRef.value
@@ -50,6 +52,9 @@ const render = (timestamp: number) => {
   const fn = shaderRegistry[props.effectType]
   if (fn) fn(ctx, width, height, elapsed, props.params)
 
+  frameCount++
+  if (frameCount === 3) isReady.value = true
+
   animId = requestAnimationFrame(render)
 }
 
@@ -58,6 +63,8 @@ const start = () => {
   resizeCanvas()
   isActive = true
   startTime = 0
+  frameCount = 0
+  isReady.value = false
   animId = requestAnimationFrame(render)
 }
 
@@ -92,6 +99,12 @@ watch(() => [props.effectType, props.params], () => {
   left: 0;
   pointer-events: none;
   overflow: hidden;
+  background: transparent;
+  opacity: 0;
+  transition: opacity 0.5s ease-in;
+}
+.canvas-shader-layer.ready {
+  opacity: 1;
 }
 .canvas-shader-layer.above-layer { z-index: 2; }
 .canvas-shader-layer.background-layer { z-index: 0; }

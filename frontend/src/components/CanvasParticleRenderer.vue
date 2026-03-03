@@ -40,6 +40,8 @@ export interface ParticlePhysics {
   minLifetime?: number
   maxLifetime?: number
   aspectRatio?: number
+  lockRotation?: boolean
+  rotationOffset?: number
 }
 
 export interface ParticlePreset {
@@ -140,13 +142,18 @@ const spawnParticle = (initialSpawn: boolean): Particle => {
   const minL = ph.minLifetime ?? 8000
   const maxL = ph.maxLifetime ?? 20000
 
+  const vx = Math.cos(actualAngle) * baseSpeed + ph.windX + (Math.random() - 0.5) * ph.windVariance * 2
+  const vy = Math.sin(actualAngle) * baseSpeed
+  const initRotation = ph.lockRotation
+    ? Math.atan2(vy, vx) + (ph.rotationOffset ?? 0)
+    : Math.random() * Math.PI * 2
+
   return {
     x, y,
-    vx: Math.cos(actualAngle) * baseSpeed + ph.windX + (Math.random() - 0.5) * ph.windVariance * 2,
-    vy: Math.sin(actualAngle) * baseSpeed,
+    vx, vy,
     size,
-    rotation: Math.random() * Math.PI * 2,
-    rotationSpeed: (Math.random() - 0.5) * ph.rotationSpeed * 2,
+    rotation: initRotation,
+    rotationSpeed: ph.lockRotation ? 0 : (Math.random() - 0.5) * ph.rotationSpeed * 2,
     imgIndex: Math.floor(Math.random() * loadedImages.length),
     opacity: initialSpawn ? props.opacity : 0,
     baseOpacity: props.opacity,
@@ -172,7 +179,12 @@ const updateParticle = (p: Particle, dt: number): boolean => {
   p.vy += ph.gravity * dtSec
   p.x += p.vx * dtSec * props.speedMultiplier
   p.y += p.vy * dtSec * props.speedMultiplier
-  p.rotation += p.rotationSpeed * dtSec
+
+  if (ph.lockRotation) {
+    p.rotation = Math.atan2(p.vy, p.vx) + (ph.rotationOffset ?? 0)
+  } else {
+    p.rotation += p.rotationSpeed * dtSec
+  }
 
   if (ph.sway) {
     p.swayPhase += p.swaySpeed * dtSec
