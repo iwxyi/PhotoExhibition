@@ -527,7 +527,11 @@
                     @click="toggleEffect(effect)"
                   >
                     <span
-                      v-if="effect.imageMode"
+                      v-if="effect.category"
+                      class="absolute top-1 right-1 px-1.5 py-0.5 bg-violet-500/30 border border-violet-500/50 rounded text-[10px] text-violet-300 leading-none"
+                    >{{ effect.category }}</span>
+                    <span
+                      v-else-if="effect.imageMode"
                       class="absolute top-1 right-1 px-1.5 py-0.5 bg-emerald-500/30 border border-emerald-500/50 rounded text-[10px] text-emerald-300 leading-none"
                     >Canvas</span>
                     <div class="font-medium text-sm">{{ effect.name }}</div>
@@ -1020,6 +1024,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, albumApi } from '@/api'
 import { getEffectParamDefs } from '@/config/particlePresets'
+import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
 import CoverDisplay from '@/components/CoverDisplay.vue'
 
 const router = useRouter()
@@ -1100,6 +1105,17 @@ const availableEffects = ref([
   { type: 'dust', name: '光尘', description: '空气中飘浮的暖色光点', imageMode: true },
   { type: 'fireworks', name: '烟花', description: '绽放的烟花粒子', imageMode: true },
   { type: 'birthday', name: '生日', description: '彩色彩屑和装饰', imageMode: true },
+  { type: 'aurora', name: '极光', description: '流动的彩色极光波带', imageMode: true, category: '光照' },
+  { type: 'light_rays', name: '丁达尔光线', description: '从天而降的体积光束', imageMode: true, category: '光照' },
+  { type: 'lens_flare', name: '镜头光晕', description: '移动的镜头光晕鬼影', imageMode: true, category: '光照' },
+  { type: 'water_ripple', name: '水波纹', description: '扩散的同心椭圆涟漪', imageMode: true, category: '水面' },
+  { type: 'wave', name: '海浪', description: '底部涌动的海浪层次', imageMode: true, category: '水面' },
+  { type: 'fog', name: '雾气', description: '缓慢飘动的半透明雾层', imageMode: true, category: '氛围' },
+  { type: 'bokeh', name: '光斑虚化', description: '大面积柔和虚化光斑', imageMode: true, category: '氛围' },
+  { type: 'vignette', name: '暗角呼吸', description: '缓慢呼吸的暗角效果', imageMode: true, category: '氛围' },
+  { type: 'film_grain', name: '胶片噪点', description: '复古胶片颗粒感', imageMode: true, category: '风格' },
+  { type: 'color_shift', name: '色彩流转', description: '缓慢流动的彩色光晕', imageMode: true, category: '风格' },
+  { type: 'glitch', name: '故障风', description: '随机数字故障闪烁', imageMode: true, category: '风格' },
 ])
 const currentEffects = ref<any[]>([])
 
@@ -1601,6 +1617,7 @@ const getEffectName = (type: string): string => {
 }
 
 const getEffectParams = (type: string) => {
+  if (isShaderEffect(type)) return shaderParamDefs[type] || []
   return getEffectParamDefs(type)
 }
 
