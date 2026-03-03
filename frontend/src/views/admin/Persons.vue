@@ -73,7 +73,7 @@
             class="flex-1 px-2 py-1 rounded text-xs transition-colors"
             :class="leftPanelTab === 'cluster' ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
           >
-            聚类 ({{ clusterPersons.length }})
+            聚类 ({{ visibleClusterPersons.length }})
           </button>
         </div>
         <!-- 已确认人物列表 -->
@@ -137,10 +137,13 @@
             </div>
             <div class="text-center w-full">
               <div
-                class="font-medium text-xs truncate text-yellow-400"
-                :title="p.name || '未命名'"
+                v-if="p.name"
+                class="font-medium text-xs truncate"
+                :class="(p as any).convertedFromClusterId ? 'text-blue-400' : 'text-yellow-400'"
+                :title="p.name"
               >
-                {{ p.name || '未命名' }}
+                {{ p.name }}
+                <span v-if="(p as any).convertedFromClusterId" class="text-[9px] text-blue-400 ml-0.5">✓</span>
               </div>
               <div class="text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
             </div>
@@ -151,8 +154,8 @@
 
         <!-- 选中人物的姓名 / 备注 / 删除按钮 -->
         <div v-if="selectedItem" class="mt-3 pt-3 border-t border-gray-700 space-y-2">
-          <!-- 相似人物推荐（仅聚类显示） -->
-          <div v-if="selectedItem.type === 'cluster' && similarPersons.length > 0" class="mb-3">
+          <!-- 相似人物推荐（仅聚类显示，转换后的人物不显示） -->
+          <div v-if="selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId && similarPersons.length > 0" class="mb-3">
             <div class="flex gap-2 overflow-x-auto pb-2">
               <button
                 v-for="person in similarPersons"
@@ -175,10 +178,10 @@
                 @keyup.enter="handleSelectedPersonNameEnter"
                 @keyup.esc="resetSelectedPersonName"
                 class="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                :placeholder="selectedItem.type === 'cluster' ? '人物姓名' : '修改姓名'"
+                :placeholder="(selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId) ? '人物姓名' : '修改姓名'"
               />
               <button
-                v-if="selectedItem.type === 'cluster'"
+                v-if="selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId"
                 @click="createPersonFromSelectedCluster"
                 class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs whitespace-nowrap"
                 :disabled="!selectedPersonName.trim() || savingPerson"
@@ -186,7 +189,7 @@
                 新建人物
               </button>
               <button
-                v-if="selectedItem.type === 'confirmed'"
+                v-if="selectedItem.type === 'confirmed' || (selectedItem as any).convertedFromClusterId"
                 @click="showDeleteDialog"
                 class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
                 title="删除人物"
@@ -197,7 +200,7 @@
               </button>
             </div>
           </div>
-          <div v-if="selectedItem.type === 'confirmed'">
+          <div v-if="selectedItem.type === 'confirmed' || (selectedItem as any).convertedFromClusterId">
             <textarea
               v-model="editingDescription"
               @blur="savePersonDescription"
@@ -1128,6 +1131,7 @@ interface PersonListItem {
   sampleFaceId?: number
   sampleConfidence?: number
   avgConfidence?: number
+  convertedFromClusterId?: number  // 如果是从聚类转换而来，记录原始聚类ID
 }
 
 interface FaceItem {
@@ -1176,6 +1180,11 @@ const personContextMenu = ref({
 const leftPanelTab = ref<'confirmed' | 'cluster'>('confirmed')
 const confirmedListContainer = ref<HTMLElement | null>(null)
 const clusterListContainer = ref<HTMLElement | null>(null)
+
+// 聚类转人物的临时映射：从聚类转换而来的人物（仅在聚类tab中显示）
+const convertedClusterIds = ref<Set<number>>(new Set())
+// 聚类ID到人物ID的映射，用于在聚类tab中显示转换后的人物
+const clusterToPersonMap = ref<Map<number, PersonListItem>>(new Map())
 
 // 聚类分页
 const clusterPage = ref(0)
@@ -1246,7 +1255,30 @@ let thresholdTimer: number | null = null
 
 // 左侧人物列表（直接显示所有已加载的人物，无分页）
 const visibleConfirmedPersons = computed(() => persons.value.filter(p => p.type === 'confirmed'))
-const visibleClusterPersons = computed(() => persons.value.filter(p => p.type === 'cluster'))
+
+// 聚类列表显示：包含普通聚类和已转换为人物的聚类（直接显示人物item）
+const visibleClusterPersons = computed(() => {
+  const result: PersonListItem[] = []
+  
+  for (const p of persons.value) {
+    if (p.type === 'cluster' && !convertedClusterIds.value.has(p.id)) {
+      // 普通聚类，未被转换
+      result.push(p)
+    } else if (p.type === 'cluster' && convertedClusterIds.value.has(p.id)) {
+      // 聚类已被转换，从映射中获取转换后的人物（显示为confirmed类型）
+      const convertedPerson = clusterToPersonMap.value.get(p.id)
+      if (convertedPerson) {
+        // 使用 confirmed 类型，这样选中时就是真正的人物
+        result.push({
+          ...convertedPerson,
+          type: 'confirmed'
+        })
+      }
+    }
+  }
+  
+  return result
+})
 
 // 编辑相关（列表不再内联编辑，仅右侧姓名输入框使用）
 const editingPersonId = ref<number | null>(null)
@@ -1617,8 +1649,9 @@ const handleFaceListKeydown = (e: KeyboardEvent) => {
   }
 }
 
-const loadPersons = async (options?: { restoreClusterPages?: number }) => {
+const loadPersons = async (options?: { restoreClusterPages?: number; autoSelectFirst?: boolean }) => {
   const targetClusterPages = options?.restoreClusterPages ?? 1
+  const autoSelectFirst = options?.autoSelectFirst ?? true
   loadingPersons.value = true
   try {
     // 一次性加载已确认人物和聚类人物，避免重复API调用
@@ -1663,7 +1696,7 @@ const loadPersons = async (options?: { restoreClusterPages?: number }) => {
       persons.value = persons.value.filter(p => (p.name || '').toLowerCase().includes(kw))
     }
 
-    if (persons.value.length && !selectedItem.value) {
+    if (autoSelectFirst && persons.value.length && !selectedItem.value) {
       selectPerson(persons.value[0])
     }
   } finally {
@@ -1710,11 +1743,19 @@ const loadMoreClusters = async () => {
 
 const isSelected = (p: PersonListItem) => {
   if (!selectedItem.value) return false
+  // 对于转换后的人物，需要比较convertedFromClusterId
+  const pConvertedId = (p as any).convertedFromClusterId
+  const selectedConvertedId = (selectedItem.value as any).convertedFromClusterId
+  if (pConvertedId || selectedConvertedId) {
+    return pConvertedId === selectedConvertedId && pConvertedId !== undefined
+  }
   return selectedItem.value.type === p.type && selectedItem.value.id === p.id
 }
 
 const scrollToSelectedPerson = (p: PersonListItem) => {
-  const container = p.type === 'confirmed' ? confirmedListContainer.value : clusterListContainer.value
+  // 对于转换后的人物（从聚类转换但在聚类tab显示），使用cluster容器
+  const isConverted = (p as any).convertedFromClusterId
+  const container = (p.type === 'confirmed' && !isConverted) ? confirmedListContainer.value : clusterListContainer.value
   if (!container) return
   const key = `${p.type}-${p.id}`
   const el = container.querySelector(`[data-person-key="${key}"]`) as HTMLElement
@@ -1741,8 +1782,13 @@ const selectPerson = (p: PersonListItem) => {
   unassignedFaces.value = []
   unassignedLoadedOnce.value = false
   selectedUnassigned.value.clear()
-  if (p.type === 'confirmed') {
-    selectedPersonId.value = p.id
+  
+  // 检查是否是转换后的人物（从聚类转换而来，但在聚类tab中显示）
+  const isConvertedPerson = p.type === 'cluster' && (p as any).convertedFromClusterId
+  
+  if (p.type === 'confirmed' || isConvertedPerson) {
+    // 对于已确认人物或转换后的人物，使用相同的处理逻辑
+    selectedPersonId.value = isConvertedPerson ? (p as any).convertedFromClusterId : p.id
     selectedClusterIndex.value = null
     selectedPersonName.value = p.name || '未命名'
     originalSelectedPersonName.value = selectedPersonName.value
@@ -2445,6 +2491,7 @@ const createPersonFromSelectedCluster = async () => {
   savingPerson.value = true
   try {
     const savedClusterPage = clusterPage.value
+    const originalClusterId = selectedItem.value.id  // 保存原始聚类ID
 
     // 获取当前聚类的人脸ID
     const facesRes = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
@@ -2461,7 +2508,7 @@ const createPersonFromSelectedCluster = async () => {
 
     // 重新加载人物列表（恢复聚类页数保持聚类 tab 滚动位置）
     const createdId = resCreate?.data?.id
-    await loadPersons({ restoreClusterPages: savedClusterPage })
+    await loadPersons({ restoreClusterPages: savedClusterPage, autoSelectFirst: false })
     let created: PersonListItem | undefined
     if (createdId) {
       created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
@@ -2469,14 +2516,26 @@ const createPersonFromSelectedCluster = async () => {
     if (!created) {
       created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
     }
-    if (created) {
-      // 切换到人物 tab 并选中新建的人物
-      leftPanelTab.value = 'confirmed'
-      selectPerson(created)
+    if (created && createdId) {
+      // 将聚类ID添加到已转换集合
+      convertedClusterIds.value.add(originalClusterId)
+      // 存储聚类ID到人物ID的映射
+      clusterToPersonMap.value.set(originalClusterId, created)
+      
+      // 保持在聚类 tab，选中这个人物（使用 confirmed 类型）
+      leftPanelTab.value = 'cluster'
+      selectPerson({
+        ...created,
+        type: 'confirmed'  // 使用 confirmed 类型，选中时加载人物图片
+      })
 
       // 滚动人物列表到新建的人物位置
       await nextTick()
+      // 临时切换到人物tab进行滚动，滚动完再切回聚类tab
+      leftPanelTab.value = 'confirmed'
       scrollToSelectedPerson(created)
+      await nextTick()
+      leftPanelTab.value = 'cluster'
     }
   } catch (e: any) {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
@@ -2608,11 +2667,16 @@ const togglePersonHidden = async (p: PersonListItem) => {
   if (!p || p.type !== 'confirmed') return
   try {
     await api.post(`/admin/persons/${p.id}/toggle-hidden`)
-    const savedClusterPage = clusterPage.value
-    await loadPersons({ restoreClusterPages: savedClusterPage })
+    // 直接更新本地状态，不需要重新加载整个列表
+    p.hidden = !p.hidden
+    // 同时更新 persons 数组中的对应项
+    const found = persons.value.find(x => x.type === 'confirmed' && x.id === p.id)
+    if (found) {
+      found.hidden = p.hidden
+    }
+    // 如果当前选中的是这个人，更新选中项
     if (selectedItem.value?.id === p.id) {
-      const found = persons.value.find(x => x.type === 'confirmed' && x.id === p.id)
-      if (found) selectedItem.value = found
+      selectedItem.value = { ...selectedItem.value, hidden: p.hidden }
     }
   } catch (e: any) {
     console.error('切换隐藏状态失败:', e)
@@ -4807,6 +4871,7 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
   // 保存滚动位置和已加载的聚类页数
   const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
+  const originalClusterId = selectedItem.value.id  // 保存原始聚类ID
 
   try {
     // 获取当前聚类的人脸ID
@@ -4825,14 +4890,30 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
       confirmed: true
     })
 
-    // 刷新人物列表（恢复之前的聚类页数）并聚焦到目标人物
-    await loadPersons({ restoreClusterPages: savedClusterPage })
+    // 刷新人物列表（恢复之前的聚类页数）
+    await loadPersons({ restoreClusterPages: savedClusterPage, autoSelectFirst: false })
+    // 获取更新后的人物信息
     const found = persons.value.find(p => p.type === 'confirmed' && p.id === targetPerson.id)
     if (found) {
-      leftPanelTab.value = 'confirmed'
-      selectPerson(found)
+      // 将聚类ID添加到已转换集合
+      convertedClusterIds.value.add(originalClusterId)
+      // 存储聚类ID到人物ID的映射
+      clusterToPersonMap.value.set(originalClusterId, found)
+      
+      // 保持在聚类 tab，选中这个人物（使用 confirmed 类型）
+      leftPanelTab.value = 'cluster'
+      selectPerson({
+        ...found,
+        type: 'confirmed'  // 使用 confirmed 类型，选中时加载人物图片
+      })
+
+      // 滚动人物列表到目标人物位置
       await nextTick()
+      // 临时切换到人物tab进行滚动，滚动完再切回聚类tab
+      leftPanelTab.value = 'confirmed'
       scrollToSelectedPerson(found)
+      await nextTick()
+      leftPanelTab.value = 'cluster'
     } else {
       selectedItem.value = null
       selectedClusterIndex.value = null
@@ -5246,6 +5327,9 @@ watch(clusterThreshold, (v) => {
   val = Math.max(0.1, Math.min(0.9, val))
   clusterThreshold.value = parseFloat(Number(val).toFixed(2))
   localStorage.setItem(CLUSTER_THRESHOLD_KEY, String(clusterThreshold.value))
+  // 清除聚类转人物的临时映射（阈值改变后聚类列表会重新加载）
+  convertedClusterIds.value.clear()
+  clusterToPersonMap.value.clear()
   if (thresholdTimer) {
     clearTimeout(thresholdTimer)
   }
