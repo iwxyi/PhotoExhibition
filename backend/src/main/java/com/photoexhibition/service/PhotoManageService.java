@@ -56,7 +56,7 @@ public class PhotoManageService {
             Path grandParent = parentDir.getParent();
             if (grandParent != null) {
                 result.put("parentDir", Map.of(
-                        "name", "上一级 (" + parentDir.getFileName() + ")",
+                        "name", parentDir.getFileName().toString(),
                         "path", parentDir.toString()
                 ));
             }

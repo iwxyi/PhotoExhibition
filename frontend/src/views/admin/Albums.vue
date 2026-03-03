@@ -204,7 +204,7 @@
               重命名
             </button>
             <!-- 移动至菜单项 -->
-            <div class="relative group/move">
+            <div class="relative" @mouseenter="showMoveMenu = true" @mouseleave="showMoveMenu = false">
               <button
                 class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
                 @mouseenter="loadMoveMenuData(showMenuForAlbum)"
@@ -217,16 +217,23 @@
                 </span>
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
               </button>
-              <!-- 移动至子菜单 -->
-              <div class="hidden group-hover/move:block absolute left-full top-0 w-56 glass-menu rounded-lg shadow-2xl z-20 ml-1">
+              <!-- 移动至子菜单 - 使用绝对定位和 JS 控制显示，移除间隙避免鼠标移出隐藏 -->
+              <div 
+                v-show="showMoveMenu"
+                class="absolute left-full top-0 w-56 glass-menu rounded-lg shadow-2xl z-20"
+              >
                 <div class="py-1">
                   <!-- 分类 -->
-                  <div class="relative group/cat">
+                  <div class="relative" @mouseenter="showCatMenu = true" @mouseleave="showCatMenu = false">
                     <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                       <span>分类</span>
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                     </button>
-                    <div class="hidden group-hover/cat:block absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 ml-1 max-h-80 overflow-y-auto">
+                    <!-- 分类子菜单 -->
+                    <div 
+                      v-show="showCatMenu"
+                      class="absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                    >
                       <div class="py-1">
                         <button
                           v-for="cat in moveCategories"
@@ -249,7 +256,7 @@
                     上一级
                   </button>
                   <!-- 下一级 -->
-                  <div class="relative group/child">
+                  <div class="relative" @mouseenter="showChildMenu = true" @mouseleave="showChildMenu = false">
                     <button
                       class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
                       @mouseenter="loadChildDirs(showMenuForAlbum)"
@@ -257,7 +264,11 @@
                       <span>下一级</span>
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                     </button>
-                    <div class="hidden group-hover/child:block absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 ml-1 max-h-80 overflow-y-auto">
+                    <!-- 下一级子菜单 -->
+                    <div 
+                      v-show="showChildMenu"
+                      class="absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                    >
                       <div class="py-1">
                         <button
                           v-for="dir in moveChildDirs"
@@ -919,51 +930,7 @@
                   </svg>
                   移动到
                 </button>
-                <!-- Move submenu -->
-                <div
-                  v-if="photoMoveMenuVisible"
-                  class="absolute right-0 top-full mt-1 w-56 glass-menu rounded-lg shadow-2xl z-60 max-h-80 overflow-y-auto"
-                  @click.stop
-                >
-                  <div class="py-1">
-                    <!-- Parent dir -->
-                    <button
-                      v-if="photoMoveTargets.parentDir"
-                      @click="doMovePhotosTo(photoMoveTargets.parentDir.path)"
-                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                      :title="photoMoveTargets.parentDir.name"
-                    >
-                      📁 {{ photoMoveTargets.parentDir.name }}
-                    </button>
-                    <div v-if="photoMoveTargets.parentDir && (photoMoveTargets.siblingDirs?.length || photoMoveTargets.childDirs?.length)" class="border-t border-gray-600 my-1"></div>
-                    <!-- Sibling dirs -->
-                    <div v-if="photoMoveTargets.siblingDirs?.length > 0" class="px-3 py-1 text-xs text-gray-500">同级目录</div>
-                    <button
-                      v-for="dir in photoMoveTargets.siblingDirs"
-                      :key="'sibling-' + dir.path"
-                      @click="doMovePhotosTo(dir.path)"
-                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                      :title="dir.name"
-                    >
-                      {{ dir.name }}
-                    </button>
-                    <!-- Child dirs -->
-                    <div v-if="photoMoveTargets.childDirs?.length > 0" class="border-t border-gray-600 my-1"></div>
-                    <div v-if="photoMoveTargets.childDirs?.length > 0" class="px-3 py-1 text-xs text-gray-500">子目录</div>
-                    <button
-                      v-for="dir in photoMoveTargets.childDirs"
-                      :key="'child-' + dir.path"
-                      @click="doMovePhotosTo(dir.path)"
-                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                      :title="dir.name"
-                    >
-                      {{ dir.name }}
-                    </button>
-                    <div v-if="!photoMoveTargets.parentDir && !photoMoveTargets.siblingDirs?.length && !photoMoveTargets.childDirs?.length" class="px-4 py-2 text-xs text-gray-500">
-                      暂无可移动位置
-                    </div>
-                  </div>
-                </div>
+                <!-- Move submenu - 使用 teleport 移到 body 避免被遮挡 -->
               </div>
               <!-- Delete button -->
               <button
@@ -1000,7 +967,7 @@
                 @click="togglePhotoSelect(photo.id)"
               >
                 <img
-                  :src="'/api/photos/' + photo.id + '/thumbnail?size=small'"
+                  :src="getPhotoUrl(photo)"
                   class="w-full h-full object-cover"
                   loading="lazy"
                 />
@@ -1026,6 +993,98 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- 照片移动菜单 - 使用 teleport 避免被遮挡 -->
+    <teleport to="body">
+      <div
+        v-if="photoMoveMenuVisible"
+        class="fixed z-[100] w-56 glass-menu rounded-lg shadow-2xl max-h-80 overflow-y-auto"
+        :style="photoMoveMenuStyle"
+        @click.stop
+      >
+        <div class="py-1">
+          <!-- 上一级 -->
+          <button
+            v-if="photoMoveTargets.parentDir"
+            @click="doMovePhotosTo(photoMoveTargets.parentDir.path)"
+            class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+            :title="photoMoveTargets.parentDir.name"
+          >
+            ⬆️ 上一级 ({{ photoMoveTargets.parentDir.name }})
+          </button>
+          
+          <!-- 同级目录 - 可展开菜单 -->
+          <div v-if="photoMoveTargets.siblingDirs?.length > 0" class="relative group/sibling">
+            <button
+              @click="photoMoveExpandedSiblings = !photoMoveExpandedSiblings"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+            >
+              <span>📂 同级目录 ({{ photoMoveTargets.siblingDirs.length }})</span>
+              <svg 
+                class="w-3 h-3 transition-transform" 
+                :class="photoMoveExpandedSiblings ? 'rotate-90' : ''" 
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <!-- 子菜单 -->
+            <div v-if="photoMoveExpandedSiblings" class="pl-2 border-l border-gray-600 ml-2">
+              <button
+                v-for="dir in photoMoveTargets.siblingDirs"
+                :key="'sibling-' + dir.path"
+                @click="doMovePhotosTo(dir.path)"
+                class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                :title="dir.name"
+              >
+                📁 {{ dir.name }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 下一级目录 - 可展开菜单 -->
+          <div v-if="photoMoveTargets.childDirs?.length > 0" class="relative group/child">
+            <button
+              @click="photoMoveExpandedChildren = !photoMoveExpandedChildren"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+            >
+              <span>📂 下一级 ({{ photoMoveTargets.childDirs.length }})</span>
+              <svg 
+                class="w-3 h-3 transition-transform" 
+                :class="photoMoveExpandedChildren ? 'rotate-90' : ''" 
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <!-- 子菜单 -->
+            <div v-if="photoMoveExpandedChildren" class="pl-2 border-l border-gray-600 ml-2">
+              <button
+                v-for="dir in photoMoveTargets.childDirs"
+                :key="'child-' + dir.path"
+                @click="doMovePhotosTo(dir.path)"
+                class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                :title="dir.name"
+              >
+                📁 {{ dir.name }}
+              </button>
+            </div>
+          </div>
+          
+          <!-- 没有下一级时显示置灰 -->
+          <div 
+            v-if="!photoMoveTargets.childDirs?.length" 
+            class="px-4 py-2 text-sm text-gray-500 italic"
+          >
+            📂 下一级 (无)
+          </div>
+
+          <div v-if="!photoMoveTargets.parentDir && !photoMoveTargets.siblingDirs?.length && !photoMoveTargets.childDirs?.length" class="px-4 py-2 text-xs text-gray-500">
+            暂无可移动位置
           </div>
         </div>
       </div>
@@ -1099,6 +1158,10 @@ const currentNameAlbum = ref<any>(null)
 // 移动相关
 const moveCategories = ref<any[]>([])
 const moveChildDirs = ref<any[]>([])
+// 移动至子菜单显示状态（使用 JS 控制，解决鼠标移动间隙问题）
+const showMoveMenu = ref(false)
+const showCatMenu = ref(false)
+const showChildMenu = ref(false)
 const moveConflictDialogVisible = ref(false)
 const moveConflictInfo = ref<any>({})
 const moveConflictAlbum = ref<any>(null)
@@ -2013,6 +2076,10 @@ const closeAllMenus = () => {
   descriptionDialogVisible.value = false
   renameDialogVisible.value = false
   moveChildDirs.value = []
+  // 重置移动至子菜单状态
+  showMoveMenu.value = false
+  showCatMenu.value = false
+  showChildMenu.value = false
 }
 
 const hasSubAlbums = (album: any) => {
@@ -2308,6 +2375,21 @@ const photoModalLoading = ref(false)
 const photoMoveMenuVisible = ref(false)
 const photoMoveMenuRef = ref<HTMLElement | null>(null)
 const photoMoveTargets = ref<any>({})
+// 菜单展开状态
+const photoMoveExpandedSiblings = ref(false)
+const photoMoveExpandedChildren = ref(false)
+
+// 计算移动菜单的位置
+const photoMoveMenuStyle = computed(() => {
+  if (!photoMoveMenuRef.value) {
+    return { top: '0px', left: '0px' }
+  }
+  const rect = photoMoveMenuRef.value.getBoundingClientRect()
+  return {
+    top: `${rect.bottom + 4}px`,
+    right: `${window.innerWidth - rect.right}px`
+  }
+})
 
 const openPhotoManageModal = async (album: any) => {
   photoModalAlbum.value = album
@@ -2339,6 +2421,8 @@ const openPhotoManageModal = async (album: any) => {
 const closePhotoModal = () => {
   photoModalVisible.value = false
   photoMoveMenuVisible.value = false
+  photoMoveExpandedSiblings.value = false
+  photoMoveExpandedChildren.value = false
 }
 
 const togglePhotoSelect = (photoId: number) => {
@@ -2360,7 +2444,17 @@ const toggleSelectAllPhotos = () => {
 }
 
 const togglePhotoMoveMenu = () => {
-  photoMoveMenuVisible.value = !photoMoveMenuVisible.value
+  if (photoMoveMenuVisible.value) {
+    // 关闭时重置展开状态
+    photoMoveMenuVisible.value = false
+    photoMoveExpandedSiblings.value = false
+    photoMoveExpandedChildren.value = false
+  } else {
+    // 打开时重置展开状态
+    photoMoveExpandedSiblings.value = false
+    photoMoveExpandedChildren.value = false
+    photoMoveMenuVisible.value = true
+  }
 }
 
 const doMovePhotosTo = async (targetPath: string) => {
@@ -2497,6 +2591,11 @@ const forceScanAndRebuild = async () => {
 
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
+    // 优先关闭照片管理弹窗（最上层）
+    if (photoModalVisible.value) {
+      closePhotoModal()
+      return
+    }
     if (moveConflictDialogVisible.value) {
       moveConflictDialogVisible.value = false
       return
@@ -2552,6 +2651,17 @@ onBeforeUnmount(() => {
   cleanupScrollObserver()
 })
 </script>
+
+<!-- 全局样式 - 供 teleport 元素使用 -->
+<style>
+.glass-menu {
+  background: rgba(31, 41, 55, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(75, 85, 99, 0.4);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+</style>
 
 <style scoped>
 /* 滑块样式 */
