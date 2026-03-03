@@ -552,13 +552,17 @@
                     v-for="effect in availableEffects"
                     :key="effect.type"
                     :class="[
-                      'border rounded p-3 cursor-pointer transition-colors',
+                      'border rounded p-3 cursor-pointer transition-colors relative',
                       isEffectSelected(effect.type)
                         ? 'border-blue-500 bg-blue-500/20 text-blue-100'
                         : 'border-gray-600 hover:border-blue-500/50 hover:bg-gray-700/30'
                     ]"
                     @click="toggleEffect(effect)"
                   >
+                    <span
+                      v-if="effect.imageMode"
+                      class="absolute top-1 right-1 px-1.5 py-0.5 bg-emerald-500/30 border border-emerald-500/50 rounded text-[10px] text-emerald-300 leading-none"
+                    >Canvas</span>
                     <div class="font-medium text-sm">{{ effect.name }}</div>
                     <div class="text-xs text-gray-400 mt-1">{{ effect.description }}</div>
                   </div>
@@ -1116,16 +1120,25 @@ const effectsDialogVisible = ref(false)
 const selectedAlbumForEffects = ref<any>(null)
 const availableEffects = ref([
   {
-    type: 'snow',
-    name: '雪景',
-    description: '飘落的雪花特效',
-    intensityOptions: ['low', 'medium', 'high']
-  },
-  {
     type: 'cherry_blossom',
     name: '樱花',
-    description: '飘落的樱花瓣特效',
-    intensityOptions: ['low', 'medium', 'high']
+    description: '实景素材 · 飘落的樱花瓣',
+    intensityOptions: ['low', 'medium', 'high'],
+    imageMode: true
+  },
+  {
+    type: 'snow',
+    name: '雪景',
+    description: '实景素材 · 飘落的雪花',
+    intensityOptions: ['low', 'medium', 'high'],
+    imageMode: true
+  },
+  {
+    type: 'autumn_leaves',
+    name: '秋叶',
+    description: '实景素材 · 飘落的秋叶',
+    intensityOptions: ['low', 'medium', 'high'],
+    imageMode: true
   },
   {
     type: 'birthday',
@@ -1149,12 +1162,6 @@ const availableEffects = ref([
     type: 'fireworks',
     name: '烟花',
     description: '绽放的烟花特效',
-    intensityOptions: ['low', 'medium', 'high']
-  },
-  {
-    type: 'autumn_leaves',
-    name: '秋叶',
-    description: '飘落的秋叶特效',
     intensityOptions: ['low', 'medium', 'high']
   }
 ])

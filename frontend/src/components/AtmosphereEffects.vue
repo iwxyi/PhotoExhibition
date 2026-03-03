@@ -1,35 +1,21 @@
 <template>
-  <!-- 背景层特效 -->
+  <!-- 基于Canvas的图片素材粒子特效 -->
+  <CanvasParticleRenderer
+    v-for="eff in imageBasedEffects"
+    :key="eff.key"
+    :preset="eff.preset"
+    :count="eff.count"
+    :layer="eff.layer"
+    :opacity="eff.opacity"
+    :speed-multiplier="eff.speedMul"
+    :size-multiplier="eff.sizeMul"
+  />
+
+  <!-- 背景层特效（仅CSS类型：生日/流星/星空/烟花） -->
   <div class="atmosphere-effects background-layer">
-    <!-- 雪花特效 -->
-    <div
-      v-if="hasEffect('snow') && isBackgroundEffect('snow')"
-      class="snow-container"
-      :class="getEffectClass('snow')"
-    >
-      <div
-        v-for="flake in getEffectConfig('snow').particleCount"
-        :key="flake"
-        class="snow-flake"
-        :style="getSnowFlakeStyle(flake)"
-      ></div>
-    </div>
-    <!-- 樱花特效 -->
-    <div
-      v-if="hasEffect('cherry_blossom') && isBackgroundEffect('cherry_blossom')"
-      class="cherry-blossom-container"
-      :class="getEffectClass('cherry_blossom')"
-    >
-      <div
-        v-for="petal in getEffectConfig('cherry_blossom').particleCount"
-        :key="petal"
-        class="cherry-petal"
-        :style="getCherryPetalStyle(petal)"
-      ></div>
-    </div>
     <!-- 生日特效 -->
     <div
-      v-if="hasEffect('birthday') && isBackgroundEffect('birthday')"
+      v-if="hasCssEffect('birthday') && isBackgroundEffect('birthday')"
       class="birthday-container"
       :class="getEffectClass('birthday')"
     >
@@ -50,7 +36,7 @@
     </div>
     <!-- 流星特效 -->
     <div
-      v-if="hasEffect('meteor') && isBackgroundEffect('meteor')"
+      v-if="hasCssEffect('meteor') && isBackgroundEffect('meteor')"
       class="meteor-container"
       :class="getEffectClass('meteor')"
     >
@@ -63,7 +49,7 @@
     </div>
     <!-- 星空特效 -->
     <div
-      v-if="hasEffect('starry_sky') && isBackgroundEffect('starry_sky')"
+      v-if="hasCssEffect('starry_sky') && isBackgroundEffect('starry_sky')"
       class="starry-sky-container"
       :class="getEffectClass('starry_sky')"
     >
@@ -77,7 +63,7 @@
 
     <!-- 烟花特效 -->
     <div
-      v-if="hasEffect('fireworks') && isBackgroundEffect('fireworks')"
+      v-if="hasCssEffect('fireworks') && isBackgroundEffect('fireworks')"
       class="fireworks-container"
       :class="getEffectClass('fireworks')"
     >
@@ -105,54 +91,13 @@
         ></div>
       </div>
     </div>
-    <!-- 秋叶特效 -->
-    <div
-      v-if="hasEffect('autumn_leaves') && isBackgroundEffect('autumn_leaves')"
-      class="autumn-leaves-container"
-      :class="getEffectClass('autumn_leaves')"
-    >
-      <div
-        v-for="leaf in getEffectConfig('autumn_leaves').leafCount"
-        :key="'leaf-' + leaf"
-        class="autumn-leaf"
-        :style="getAutumnLeafStyle(leaf)"
-      ></div>
-    </div>
   </div>
 
-  <!-- 图片上方特效 -->
+  <!-- 图片上方特效（仅CSS类型） -->
   <div class="atmosphere-effects above-layer">
-    <!-- 下雪特效 -->
-    <div
-      v-if="hasEffect('snow') && !isBackgroundEffect('snow')"
-      class="snow-container"
-      :class="getEffectClass('snow')"
-    >
-      <div
-        v-for="flake in getEffectConfig('snow').particleCount"
-        :key="flake"
-        class="snow-flake"
-        :style="getSnowFlakeStyle(flake)"
-      ></div>
-    </div>
-
-    <!-- 樱花特效 -->
-    <div
-      v-if="hasEffect('cherry_blossom') && !isBackgroundEffect('cherry_blossom')"
-      class="cherry-blossom-container"
-      :class="getEffectClass('cherry_blossom')"
-    >
-      <div
-        v-for="petal in getEffectConfig('cherry_blossom').particleCount"
-        :key="petal"
-        class="cherry-petal"
-        :style="getCherryPetalStyle(petal)"
-      ></div>
-    </div>
-
     <!-- 生日特效 -->
     <div
-      v-if="hasEffect('birthday') && !isBackgroundEffect('birthday')"
+      v-if="hasCssEffect('birthday') && !isBackgroundEffect('birthday')"
       class="birthday-container"
       :class="getEffectClass('birthday')"
     >
@@ -175,7 +120,7 @@
 
     <!-- 流星特效 -->
     <div
-      v-if="hasEffect('meteor') && !isBackgroundEffect('meteor')"
+      v-if="hasCssEffect('meteor') && !isBackgroundEffect('meteor')"
       class="meteor-container"
       :class="getEffectClass('meteor')"
     >
@@ -187,10 +132,9 @@
       ></div>
     </div>
 
-
     <!-- 星空特效（如果设置为above层级） -->
     <div
-      v-if="hasEffect('starry_sky') && !isBackgroundEffect('starry_sky')"
+      v-if="hasCssEffect('starry_sky') && !isBackgroundEffect('starry_sky')"
       class="starry-sky-container"
       :class="getEffectClass('starry_sky')"
     >
@@ -202,23 +146,9 @@
       ></div>
     </div>
 
-    <!-- 秋叶特效 -->
-    <div
-      v-if="hasEffect('autumn_leaves') && !isBackgroundEffect('autumn_leaves')"
-      class="autumn-leaves-container"
-      :class="getEffectClass('autumn_leaves')"
-    >
-      <div
-        v-for="leaf in getEffectConfig('autumn_leaves').leafCount"
-        :key="'leaf-' + leaf"
-        class="autumn-leaf"
-        :style="getAutumnLeafStyle(leaf)"
-      ></div>
-    </div>
-
     <!-- 烟花特效 -->
     <div
-      v-if="hasEffect('fireworks') && !isBackgroundEffect('fireworks')"
+      v-if="hasCssEffect('fireworks') && !isBackgroundEffect('fireworks')"
       class="fireworks-container"
       :class="getEffectClass('fireworks')"
     >
@@ -251,6 +181,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
+import CanvasParticleRenderer from './CanvasParticleRenderer.vue'
+import { hasImagePreset, getPreset, getParticleCount } from '@/config/particlePresets'
+import type { ParticlePreset } from './CanvasParticleRenderer.vue'
 
 interface AtmosphereEffect {
   type: string
@@ -264,6 +197,35 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const imageBasedEffects = computed(() => {
+  if (!props.effects) return []
+  return props.effects
+    .filter(e => hasImagePreset(e.type))
+    .map(e => {
+      const preset = getPreset(e.type)!
+      const intensity = e.intensity || 'medium'
+      const customCount = e.config?.custom?.count
+      const customSpeed = e.config?.custom?.speed
+      const customSize = e.config?.custom?.size
+      const customOpacity = e.config?.custom?.opacity
+      const count = getParticleCount(e.type, intensity, customCount)
+      const layer = (e.config?.layer || e.layer || 'above') as 'above' | 'background'
+      const speedMul = intensity === 'custom' && customSpeed !== undefined ? customSpeed / 5 : 1
+      const sizeMul = intensity === 'custom' && customSize !== undefined ? customSize / 5 : 1
+      const opacity = customOpacity !== undefined ? customOpacity / 10 : 0.9
+      return { preset, count, layer, speedMul, sizeMul, opacity, key: e.type + '-' + layer }
+    })
+})
+
+const cssOnlyEffects = computed(() => {
+  if (!props.effects) return []
+  return props.effects.filter(e => !hasImagePreset(e.type))
+})
+
+const hasCssEffect = (type: string) => {
+  return cssOnlyEffects.value.some(e => e.type === type)
+}
 
 // 调试：组件挂载时输出特效数据
 onMounted(() => {

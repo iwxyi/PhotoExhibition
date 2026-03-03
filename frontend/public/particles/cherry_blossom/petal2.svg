@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 65" width="50" height="65">
+  <defs>
+    <radialGradient id="p2g" cx="50%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#fff5f8"/>
+      <stop offset="40%" stop-color="#ffc8de"/>
+      <stop offset="100%" stop-color="#f090b8"/>
+    </radialGradient>
+    <filter id="p2s">
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#ff90b8" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <path d="M25 3 C40 8, 48 22, 46 38 C44 52, 32 63, 25 61 C18 63, 6 52, 4 38 C2 22, 10 8, 25 3Z" fill="url(#p2g)" filter="url(#p2s)" opacity="0.85"/>
+  <path d="M25 10 C23 24, 24 40, 25 56" stroke="#d87898" stroke-width="0.6" fill="none" opacity="0.35"/>
+</svg>
