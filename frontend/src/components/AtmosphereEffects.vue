@@ -1,5 +1,4 @@
 <template>
-  <!-- Canvas 粒子特效 -->
   <CanvasParticleRenderer
     v-for="eff in particleEffects"
     :key="eff.key"
@@ -9,23 +8,25 @@
     :opacity="eff.opacity"
     :speed-multiplier="eff.speedMul"
     :size-multiplier="eff.sizeMul"
+    :interaction="interaction"
   />
-  <!-- Canvas Shader 特效 -->
   <CanvasShaderEffect
     v-for="eff in shaderEffectList"
     :key="eff.key"
     :effect-type="eff.type"
     :params="eff.params"
     :layer="eff.layer"
+    :interaction="interaction"
   />
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 import CanvasParticleRenderer from './CanvasParticleRenderer.vue'
 import CanvasShaderEffect from './CanvasShaderEffect.vue'
 import { hasImagePreset, getPreset, getParticleCount } from '@/config/particlePresets'
 import { isShaderEffect } from '@/config/shaderEffects'
+import { useEffectInteraction, type ClickEvent } from '@/composables/useEffectInteraction'
 
 interface AtmosphereEffect {
   type: string
@@ -35,6 +36,29 @@ interface AtmosphereEffect {
 }
 
 const props = defineProps<{ effects: AtmosphereEffect[] }>()
+
+const { triggerClick, updateScroll, scrollVelocity, consumeClicks } = useEffectInteraction()
+
+const interaction = computed(() => ({
+  scrollVelocity: scrollVelocity.value,
+  consumeClicks,
+  triggerClick,
+}))
+
+let scrollTimer = 0
+const onScroll = () => { updateScroll() }
+const onClick = (e: MouseEvent) => { triggerClick(e.clientX, e.clientY) }
+
+onMounted(() => {
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('click', onClick)
+  scrollTimer = window.setInterval(updateScroll, 100)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('click', onClick)
+  clearInterval(scrollTimer)
+})
 
 const particleEffects = computed(() => {
   if (!props.effects) return []

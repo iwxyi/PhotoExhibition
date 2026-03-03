@@ -14,6 +14,7 @@ interface Props {
   effectType: string
   params: ShaderParams
   layer?: 'above' | 'background'
+  interaction?: any
 }
 
 const props = withDefaults(defineProps<Props>(), { layer: 'above' })
@@ -50,7 +51,7 @@ const render = (timestamp: number) => {
   ctx.clearRect(0, 0, width, height)
 
   const fn = shaderRegistry[props.effectType]
-  if (fn) fn(ctx, width, height, elapsed, props.params)
+  if (fn) fn(ctx, width, height, elapsed, props.params, props.interaction)
 
   frameCount++
   if (frameCount === 3) isReady.value = true
