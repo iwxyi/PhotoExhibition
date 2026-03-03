@@ -33,7 +33,7 @@ public class PublicFaceController {
     public ResponseEntity<Page<PersonSummaryDTO>> getPersonsWithSample(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(faceService.listPersonsWithSample(PageRequest.of(page, size)));
+        return ResponseEntity.ok(faceService.listVisiblePersonsWithSample(PageRequest.of(page, size)));
     }
 
     /**
@@ -82,6 +82,6 @@ public class PublicFaceController {
      */
     @GetMapping("/albums/{albumId}/persons")
     public ResponseEntity<List<PersonSummaryDTO>> getPersonsInAlbum(@PathVariable Long albumId) {
-        return ResponseEntity.ok(faceService.getPersonsInAlbum(albumId));
+        return ResponseEntity.ok(faceService.getPersonsInAlbum(albumId, true));
     }
 }

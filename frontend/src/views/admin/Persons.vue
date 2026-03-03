@@ -69,8 +69,12 @@
             v-for="p in visibleConfirmedPersons"
             :key="`confirmed-${p.id}`"
             class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/70 hover:bg-gray-700/80"
-            :class="isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : ''"
+            :class="[
+              isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : '',
+              p.hidden ? 'opacity-40' : ''
+            ]"
             @click="selectPerson(p)"
+            @contextmenu.prevent="openPersonContextMenu($event, p)"
           >
             <div 
               class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
@@ -81,7 +85,7 @@
             <div class="text-center w-full">
               <div
                 class="font-medium text-xs truncate"
-                :title="p.name || '未命名'"
+                :title="(p.hidden ? '[已隐藏] ' : '') + (p.name || '未命名')"
               >
                 {{ p.name || '未命名' }}
               </div>
@@ -1041,6 +1045,40 @@
       </div>
     </div>
   </div>
+
+  <!-- 人物右键菜单（毛玻璃） -->
+  <teleport to="body">
+    <div
+      v-if="personContextMenu.show"
+      class="fixed inset-0 z-50"
+      @click="closePersonContextMenu"
+      @contextmenu.prevent="closePersonContextMenu"
+    >
+      <div
+        class="absolute person-glass-menu rounded-lg shadow-2xl z-10 w-44"
+        :style="{ left: personContextMenu.x + 'px', top: personContextMenu.y + 'px' }"
+        @click.stop
+      >
+        <div class="py-1">
+          <button
+            @click="togglePersonHidden(personContextMenu.person!)"
+            class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-white/10 flex items-center gap-2 transition-colors"
+          >
+            <svg v-if="personContextMenu.person?.hidden" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+            {{ personContextMenu.person?.hidden ? '取消隐藏' : '隐藏' }}
+          </button>
+          <button
+            @click="() => { selectPerson(personContextMenu.person!); closePersonContextMenu(); showDeleteDialog() }"
+            class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-white/10 flex items-center gap-2 transition-colors"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </teleport>
 </template>
 
 <script setup lang="ts">
@@ -1059,6 +1097,7 @@ interface PersonListItem {
   name?: string
   description?: string
   faceCount?: number
+  hidden?: boolean
   sampleThumbnailPath?: string
   sampleOriginalPath?: string
   samplePhotoId?: number
@@ -1102,6 +1141,13 @@ const confirmedPersons = ref<PersonListItem[]>([])
 const clusterPersons = ref<PersonListItem[]>([])
 const personKeyword = ref('')
 const selectedItem = ref<PersonListItem | null>(null)
+
+const personContextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  person: null as PersonListItem | null
+})
 
 // 聚类分页
 const clusterPage = ref(0)
@@ -2501,6 +2547,32 @@ const savePersonDescription = async () => {
 const showDeleteDialog = () => {
   if (!selectedItem.value || selectedItem.value.type !== 'confirmed') return
   deleteDialogVisible.value = true
+}
+
+const openPersonContextMenu = (event: MouseEvent, p: PersonListItem) => {
+  if (p.type !== 'confirmed') return
+  event.preventDefault()
+  personContextMenu.value = { show: true, x: event.clientX, y: event.clientY, person: p }
+}
+
+const closePersonContextMenu = () => {
+  personContextMenu.value.show = false
+}
+
+const togglePersonHidden = async (p: PersonListItem) => {
+  closePersonContextMenu()
+  if (!p || p.type !== 'confirmed') return
+  try {
+    await api.post(`/admin/persons/${p.id}/toggle-hidden`)
+    const savedClusterPage = clusterPage.value
+    await loadPersons({ restoreClusterPages: savedClusterPage })
+    if (selectedItem.value?.id === p.id) {
+      const found = persons.value.find(x => x.type === 'confirmed' && x.id === p.id)
+      if (found) selectedItem.value = found
+    }
+  } catch (e: any) {
+    console.error('切换隐藏状态失败:', e)
+  }
 }
 
 // 执行解散人物
@@ -5196,6 +5268,15 @@ watch(clusterThreshold, (v) => {
 
 .no-spinner[type='number'] {
   -moz-appearance: textfield;
+}
+
+/* 人物右键菜单毛玻璃样式（与相册管理一致） */
+.person-glass-menu {
+  background: rgba(31, 41, 55, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(75, 85, 99, 0.4);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 </style>
 

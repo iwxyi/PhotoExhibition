@@ -910,14 +910,22 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public Page<PersonSummaryDTO> listPersonsWithSample(Pageable pageable) {
-        // 使用自定义分页查询，按 faceCount 倒序排序
         Page<PersonProfile> personPage = personProfileRepository.findAllOrderByFaceCountDesc(pageable);
-
-        // 转换为 DTO
         List<PersonSummaryDTO> persons = personPage.getContent().stream()
             .map(this::toSummaryDTO)
             .collect(Collectors.toList());
+        return new PageImpl<>(persons, pageable, personPage.getTotalElements());
+    }
 
+    /**
+     * 公开页面使用：仅返回未隐藏的人物
+     */
+    @Transactional(readOnly = true)
+    public Page<PersonSummaryDTO> listVisiblePersonsWithSample(Pageable pageable) {
+        Page<PersonProfile> personPage = personProfileRepository.findVisibleOrderByFaceCountDesc(pageable);
+        List<PersonSummaryDTO> persons = personPage.getContent().stream()
+            .map(this::toSummaryDTO)
+            .collect(Collectors.toList());
         return new PageImpl<>(persons, pageable, personPage.getTotalElements());
     }
 
@@ -944,6 +952,7 @@ public class FaceService {
             item.setId(person.getId());
             item.setName(person.getName());
             item.setDescription(person.getDescription());
+            item.setHidden(person.getHidden() != null && person.getHidden());
             item.setCreatedAt(person.getCreatedAt());
             item.setUpdatedAt(person.getUpdatedAt());
 
@@ -1718,9 +1727,10 @@ public class FaceService {
 
     /**
      * 获取指定相册中的人物列表（按人脸数量倒序）
+     * @param visibleOnly true=排除隐藏人物（公开页面用），false=包含所有人物（后台用）
      */
     @Transactional(readOnly = true)
-    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId) {
+    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId, boolean visibleOnly) {
         List<Object[]> rows = faceRepository.findPersonIdsWithFaceCountByAlbumId(albumId);
         List<PersonSummaryDTO> result = new ArrayList<>();
 
@@ -1728,9 +1738,9 @@ public class FaceService {
             Long personId = ((Number) row[0]).longValue();
             Integer faceCount = ((Number) row[1]).intValue();
 
-            // 获取人物信息
             PersonProfile person = personProfileRepository.findById(personId).orElse(null);
             if (person == null) continue;
+            if (visibleOnly && person.getHidden() != null && person.getHidden()) continue;
 
             PersonSummaryDTO dto = new PersonSummaryDTO();
             dto.setId(person.getId());
@@ -1749,6 +1759,23 @@ public class FaceService {
         }
 
         return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId) {
+        return getPersonsInAlbum(albumId, false);
+    }
+
+    /**
+     * 切换人物的隐藏状态
+     */
+    @Transactional
+    public PersonProfile togglePersonHidden(Long personId) {
+        PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+        boolean current = person.getHidden() != null && person.getHidden();
+        person.setHidden(!current);
+        return personProfileRepository.save(person);
     }
 
     @Transactional

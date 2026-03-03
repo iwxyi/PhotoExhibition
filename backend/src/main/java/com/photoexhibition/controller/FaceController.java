@@ -464,6 +464,20 @@ public class FaceController {
     }
 
     /**
+     * 切换人物的隐藏状态
+     */
+    @PostMapping("/persons/{id}/toggle-hidden")
+    public ResponseEntity<Map<String, Object>> togglePersonHidden(@PathVariable Long id) {
+        var person = faceService.togglePersonHidden(id);
+        boolean hidden = person.getHidden() != null && person.getHidden();
+        return ResponseEntity.ok(Map.of(
+            "id", person.getId(),
+            "hidden", hidden,
+            "message", hidden ? "已隐藏" : "已取消隐藏"
+        ));
+    }
+
+    /**
      * 删除人物（会解除所有人脸的关联）
      */
     @DeleteMapping("/persons/{id}")
