@@ -57,6 +57,7 @@ interface Props {
   opacity?: number
   speedMultiplier?: number
   sizeMultiplier?: number
+  interaction?: any
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -94,6 +95,7 @@ let loadedImages: HTMLImageElement[] = []
 let isActive = false
 let width = 0
 let height = 0
+const clickTimes = new Set<number>()
 
 const loadImages = async (urls: string[]): Promise<HTMLImageElement[]> => {
   const promises = urls.map(url => {
@@ -236,6 +238,29 @@ const render = (timestamp: number) => {
   lastTime = timestamp
 
   ctx.clearRect(0, 0, width, height)
+
+  if (props.interaction?.consumeClicks) {
+    const recent = props.interaction.consumeClicks(timestamp - 100)
+    for (const click of recent) {
+      if (!clickTimes.has(click.time)) {
+        clickTimes.add(click.time)
+        const burstCount = Math.min(8, Math.max(3, Math.round(props.count * 0.15)))
+        for (let b = 0; b < burstCount; b++) {
+          const bp = spawnParticle(false)
+          bp.x = click.x
+          bp.y = click.y
+          const angle = Math.random() * Math.PI * 2
+          const spd = 40 + Math.random() * 80
+          bp.vx = Math.cos(angle) * spd
+          bp.vy = Math.sin(angle) * spd
+          bp.age = 0
+          bp.opacity = 0
+          bp.lifetime = 2000 + Math.random() * 2000
+          particles.push(bp)
+        }
+      }
+    }
+  }
 
   const ph = props.preset.physics
   const hasGlow = (ph.glow ?? 0) > 0

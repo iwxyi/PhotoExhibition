@@ -2,14 +2,18 @@ import type { EffectParamDef } from './particlePresets'
 
 export type ShaderParams = Record<string, number>
 export type ShaderRenderFn = (
-  ctx: CanvasRenderingContext2D, w: number, h: number, t: number, p: ShaderParams
+  ctx: CanvasRenderingContext2D, w: number, h: number, t: number, p: ShaderParams, interaction?: any
 ) => void
 
 // ─── Aurora Borealis (极光) ──────────────────────────────────────
-const renderAurora: ShaderRenderFn = (ctx, w, h, t, p) => {
+const renderAurora: ShaderRenderFn = (ctx, w, h, t, p, interaction) => {
   const intensity = (p.intensity ?? 5) / 10
   const speed = (p.speed ?? 5) / 5
   const bands = Math.round((p.bands ?? 5) / 2) + 1
+
+  const scrollBoost = interaction?.scrollVelocity
+    ? Math.min(2, 1 + Math.abs(interaction.scrollVelocity) * 0.002)
+    : 1
 
   for (let b = 0; b < bands; b++) {
     const phase = b * 1.3 + t * 0.3 * speed
@@ -18,8 +22,8 @@ const renderAurora: ShaderRenderFn = (ctx, w, h, t, p) => {
     ctx.moveTo(0, yBase)
     for (let x = 0; x <= w; x += 4) {
       const y = yBase
-        + Math.sin(x * 0.003 + phase) * 40
-        + Math.sin(x * 0.007 + phase * 1.3) * 25
+        + Math.sin(x * 0.003 + phase) * 40 * scrollBoost
+        + Math.sin(x * 0.007 + phase * 1.3) * 25 * scrollBoost
         + Math.sin(x * 0.001 + t * 0.15 * speed) * 60
       ctx.lineTo(x, y)
     }
@@ -354,20 +358,40 @@ interface Firework { x: number; y: number; born: number; hue: number; particles:
 let fireworks: Firework[] = []
 let fwNextSpawn = 0
 
-const renderFireworks: ShaderRenderFn = (ctx, w, h, t, p) => {
+const fwClickTimes = new Set<number>()
+
+const spawnFirework = (x: number, y: number, t: number) => {
+  const count = 40 + Math.floor(Math.random() * 30)
+  const hue = Math.random() * 360
+  const pts = Array.from({ length: count }, () => ({
+    angle: Math.random() * Math.PI * 2,
+    speed: 40 + Math.random() * 100,
+    size: 2 + Math.random() * 3,
+    hue: hue + (Math.random() - 0.5) * 60,
+  }))
+  fireworks.push({ x, y, born: t, hue, particles: pts })
+}
+
+const renderFireworks: ShaderRenderFn = (ctx, w, h, t, p, interaction) => {
   const intensity = (p.intensity ?? 5) / 10
   const freq = (p.speed ?? 5) / 5
 
+  if (interaction?.consumeClicks) {
+    const recent = interaction.consumeClicks(performance.now() - 150)
+    for (const click of recent) {
+      if (!fwClickTimes.has(click.time)) {
+        fwClickTimes.add(click.time)
+        spawnFirework(click.x, click.y, t)
+        if (fwClickTimes.size > 50) {
+          const oldest = fwClickTimes.values().next().value
+          if (oldest !== undefined) fwClickTimes.delete(oldest)
+        }
+      }
+    }
+  }
+
   if (t > fwNextSpawn) {
-    const count = 40 + Math.floor(Math.random() * 30)
-    const hue = Math.random() * 360
-    const pts = Array.from({ length: count }, () => ({
-      angle: Math.random() * Math.PI * 2,
-      speed: 40 + Math.random() * 100,
-      size: 2 + Math.random() * 3,
-      hue: hue + (Math.random() - 0.5) * 60,
-    }))
-    fireworks.push({ x: w * (0.15 + Math.random() * 0.7), y: h * (0.15 + Math.random() * 0.45), born: t, hue, particles: pts })
+    spawnFirework(w * (0.02 + Math.random() * 0.96), h * (0.03 + Math.random() * 0.6), t)
     fwNextSpawn = t + 0.6 / freq + Math.random() * 1.5 / freq
   }
 
@@ -398,7 +422,7 @@ const renderBirthday: ShaderRenderFn = (ctx, w, h, t, p) => {
   const speed = (p.speed ?? 3) / 10
   const candleCount = Math.round((p.count ?? 5) / 2) + 3
 
-  const baseY = h * 0.88
+  const baseY = h - 4
   const spacing = Math.min(60, (w * 0.6) / candleCount)
   const startX = (w - spacing * (candleCount - 1)) / 2
 
@@ -416,28 +440,31 @@ const renderBirthday: ShaderRenderFn = (ctx, w, h, t, p) => {
     ctx.fillStyle = `hsla(${hue}, 60%, 45%, ${0.6 * intensity})`
     ctx.fillRect(cx - 4, candleTop, 2, currentH)
 
-    if (burnProgress < 0.95) {
-      const flickerX = Math.sin(t * 8 + i * 3) * 2
-      const flickerH = 12 + Math.sin(t * 6 + i * 2) * 4
-      const flameY = candleTop - flickerH
+    ctx.fillStyle = `rgba(60,60,60,${0.5 * intensity})`
+    ctx.fillRect(cx - 0.5, candleTop - 6, 1, 6)
 
-      const fg = ctx.createRadialGradient(cx + flickerX, candleTop - flickerH * 0.4, 0, cx + flickerX, candleTop - flickerH * 0.3, flickerH)
-      fg.addColorStop(0, `rgba(255,255,200,${0.9 * intensity})`)
-      fg.addColorStop(0.3, `rgba(255,200,50,${0.7 * intensity})`)
-      fg.addColorStop(0.7, `rgba(255,100,20,${0.3 * intensity})`)
+    if (burnProgress < 0.95) {
+      const flickerX = Math.sin(t * 8 + i * 3) * 2.5
+      const flickerH = 14 + Math.sin(t * 6 + i * 2) * 5
+      const flameCenter = candleTop - 6 - flickerH * 0.55
+
+      const fg = ctx.createRadialGradient(cx + flickerX, flameCenter, 0, cx + flickerX, flameCenter, flickerH * 0.8)
+      fg.addColorStop(0, `rgba(255,255,210,${0.95 * intensity})`)
+      fg.addColorStop(0.25, `rgba(255,210,60,${0.8 * intensity})`)
+      fg.addColorStop(0.6, `rgba(255,120,20,${0.35 * intensity})`)
       fg.addColorStop(1, 'rgba(255,60,10,0)')
       ctx.fillStyle = fg
       ctx.beginPath()
-      ctx.ellipse(cx + flickerX, candleTop - flickerH * 0.3, 5 + Math.sin(t * 5 + i) * 1.5, flickerH * 0.7, 0, 0, Math.PI * 2)
+      ctx.ellipse(cx + flickerX, flameCenter, 4.5 + Math.sin(t * 5 + i) * 1.5, flickerH * 0.65, 0, 0, Math.PI * 2)
       ctx.fill()
 
-      const glowR = 25 + Math.sin(t * 4 + i) * 5
-      const gg = ctx.createRadialGradient(cx, flameY + 8, 0, cx, flameY + 8, glowR)
-      gg.addColorStop(0, `rgba(255,200,80,${0.08 * intensity})`)
+      const glowR = 30 + Math.sin(t * 4 + i) * 6
+      const gg = ctx.createRadialGradient(cx, flameCenter, 0, cx, flameCenter, glowR)
+      gg.addColorStop(0, `rgba(255,200,80,${0.1 * intensity})`)
       gg.addColorStop(1, 'rgba(255,150,30,0)')
       ctx.fillStyle = gg
       ctx.beginPath()
-      ctx.arc(cx, flameY + 8, glowR, 0, Math.PI * 2)
+      ctx.arc(cx, flameCenter, glowR, 0, Math.PI * 2)
       ctx.fill()
     }
   }
