@@ -485,55 +485,22 @@
                   </div>
                 </div>
 
-                <!-- 详细参数调节 -->
+                <!-- 按类型显示对应参数 -->
                 <div class="space-y-2">
                   <div class="text-xs text-gray-400 mb-2">自定义参数 (1-10):</div>
                   <div class="grid grid-cols-2 gap-3">
-                    <!-- 速度 -->
-                    <div class="flex flex-col">
-                      <label class="text-xs text-gray-400 mb-1">速度: {{ getCustomValue(effect, 'speed') }}</label>
+                    <div
+                      v-for="param in getEffectParams(effect.type)"
+                      :key="param.key"
+                      class="flex flex-col"
+                    >
+                      <label class="text-xs text-gray-400 mb-1">{{ param.label }}: {{ getCustomValue(effect, param.key) }}</label>
                       <input
                         type="range"
-                        min="1"
-                        max="10"
-                        :value="getCustomValue(effect, 'speed')"
-                        @input="updateCustomParam(index, 'speed', parseInt(($event.target as HTMLInputElement).value))"
-                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                    </div>
-                    <!-- 大小 -->
-                    <div class="flex flex-col">
-                      <label class="text-xs text-gray-400 mb-1">大小: {{ getCustomValue(effect, 'size') }}</label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        :value="getCustomValue(effect, 'size')"
-                        @input="updateCustomParam(index, 'size', parseInt(($event.target as HTMLInputElement).value))"
-                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                    </div>
-                    <!-- 数量 -->
-                    <div class="flex flex-col">
-                      <label class="text-xs text-gray-400 mb-1">数量: {{ getCustomValue(effect, 'count') }}</label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        :value="getCustomValue(effect, 'count')"
-                        @input="updateCustomParam(index, 'count', parseInt(($event.target as HTMLInputElement).value))"
-                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                    </div>
-                    <!-- 透明度 -->
-                    <div class="flex flex-col">
-                      <label class="text-xs text-gray-400 mb-1">透明度: {{ getCustomValue(effect, 'opacity') }}</label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        :value="getCustomValue(effect, 'opacity')"
-                        @input="updateCustomParam(index, 'opacity', parseInt(($event.target as HTMLInputElement).value))"
+                        :min="param.min || 1"
+                        :max="param.max || 10"
+                        :value="getCustomValue(effect, param.key)"
+                        @input="updateCustomParam(index, param.key, parseInt(($event.target as HTMLInputElement).value))"
                         class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
                       />
                     </div>
@@ -1052,6 +1019,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, albumApi } from '@/api'
+import { getEffectParamDefs } from '@/config/particlePresets'
 import CoverDisplay from '@/components/CoverDisplay.vue'
 
 const router = useRouter()
@@ -1119,51 +1087,19 @@ const pathPickerLoading = ref(false)
 const effectsDialogVisible = ref(false)
 const selectedAlbumForEffects = ref<any>(null)
 const availableEffects = ref([
-  {
-    type: 'cherry_blossom',
-    name: '樱花',
-    description: '实景素材 · 飘落的樱花瓣',
-    intensityOptions: ['low', 'medium', 'high'],
-    imageMode: true
-  },
-  {
-    type: 'snow',
-    name: '雪景',
-    description: '实景素材 · 飘落的雪花',
-    intensityOptions: ['low', 'medium', 'high'],
-    imageMode: true
-  },
-  {
-    type: 'autumn_leaves',
-    name: '秋叶',
-    description: '实景素材 · 飘落的秋叶',
-    intensityOptions: ['low', 'medium', 'high'],
-    imageMode: true
-  },
-  {
-    type: 'birthday',
-    name: '生日',
-    description: '生日气球和彩带特效',
-    intensityOptions: ['low', 'medium', 'high']
-  },
-  {
-    type: 'meteor',
-    name: '流星',
-    description: '划过的流星特效',
-    intensityOptions: ['low', 'medium', 'high']
-  },
-  {
-    type: 'starry_sky',
-    name: '星空',
-    description: '闪烁的星星特效',
-    intensityOptions: ['low', 'medium', 'high']
-  },
-  {
-    type: 'fireworks',
-    name: '烟花',
-    description: '绽放的烟花特效',
-    intensityOptions: ['low', 'medium', 'high']
-  }
+  { type: 'cherry_blossom', name: '樱花', description: '实景素材 · 飘落的樱花瓣', imageMode: true },
+  { type: 'snow', name: '雪景', description: '实景素材 · 飘落的雪花', imageMode: true },
+  { type: 'autumn_leaves', name: '秋叶', description: '实景素材 · 飘落的秋叶', imageMode: true },
+  { type: 'starry_sky', name: '星空', description: '闪烁的星星 · 支持闪烁/亮度', imageMode: true },
+  { type: 'meteor', name: '流星', description: '划过夜空 · 带拖尾光迹', imageMode: true },
+  { type: 'firefly', name: '萤火虫', description: '夜间发光飘动的萤火虫', imageMode: true },
+  { type: 'rain', name: '雨滴', description: '倾斜飘落的雨丝', imageMode: true },
+  { type: 'bubble', name: '气泡', description: '缓缓上升的透明气泡', imageMode: true },
+  { type: 'dandelion', name: '蒲公英', description: '随风飘散的蒲公英种子', imageMode: true },
+  { type: 'hearts', name: '爱心', description: '缓缓上升的爱心 · 脉动效果', imageMode: true },
+  { type: 'dust', name: '光尘', description: '空气中飘浮的暖色光点', imageMode: true },
+  { type: 'fireworks', name: '烟花', description: '绽放的烟花粒子', imageMode: true },
+  { type: 'birthday', name: '生日', description: '彩色彩屑和装饰', imageMode: true },
 ])
 const currentEffects = ref<any[]>([])
 
@@ -1662,6 +1598,10 @@ const editAtmosphereEffects = async (album: any) => {
 const getEffectName = (type: string): string => {
   const effect = availableEffects.value.find(e => e.type === type)
   return effect?.name || type
+}
+
+const getEffectParams = (type: string) => {
+  return getEffectParamDefs(type)
 }
 
 // 检查特效是否已被选中
