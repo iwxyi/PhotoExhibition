@@ -34,6 +34,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Iterator;
 
 @Service
 @RequiredArgsConstructor
@@ -81,6 +82,9 @@ public class FaceService {
     private int maxFacesPerImage;    // 单张图片最多保存人脸数
     // 聚类缓存（按阈值存储计算结果，避免重复计算）
     private final Map<Double, List<FaceClusterDTO>> clusterCache = new ConcurrentHashMap<>();
+
+    // 向量解析缓存（face.id -> float[]），避免重复 JSON 解析
+    private final ConcurrentHashMap<Long, float[]> embeddingParseCache = new ConcurrentHashMap<>();
 
     // ========== 人物相似度缓存（用于加速"相似推荐"和"未分配"tab） ==========
     // 缓存结构：personId -> PersonSimilarityCacheEntry
@@ -312,13 +316,14 @@ public class FaceService {
         Face face = faceRepository.findById(faceId)
             .orElseThrow(() -> new RuntimeException("人脸不存在"));
 
-        // 记录原来的 personId，用于清除缓存
         Long originalPersonId = face.getPerson() != null ? face.getPerson().getId() : null;
+        boolean wasUnassigned = (originalPersonId == null);
 
         if (personId == null) {
             face.setPerson(null);
             face.setIsConfirmed(false);
             faceRepository.save(face);
+            invalidateClusterCache();
         } else {
             PersonProfile person = personProfileRepository.findById(personId)
                 .orElseThrow(() -> new RuntimeException("人物不存在"));
@@ -327,9 +332,12 @@ public class FaceService {
                 face.setIsConfirmed(confirmed);
             }
             faceRepository.save(face);
+            if (wasUnassigned) {
+                removeFromClusterCache(Collections.singleton(faceId));
+            } else {
+                invalidateClusterCache();
+            }
         }
-        invalidateClusterCache();
-        // 清除相关人物的相似度缓存
         if (originalPersonId != null) {
             clearPersonSimilarityCache(originalPersonId);
         }
@@ -669,10 +677,9 @@ public class FaceService {
         List<FaceSimilarity> candidates = new ArrayList<>();
 
         for (Face face : allUnassigned) {
-            if (clusterFaceIds.contains(face.getId())) continue; // 排除已在聚类中的
+            if (clusterFaceIds.contains(face.getId())) continue;
 
-            if (face.getEmbedding() == null || face.getEmbedding().isEmpty()) continue;
-            float[] faceEmbedding = parseEmbedding(face.getEmbedding());
+            float[] faceEmbedding = getEmbedding(face);
             if (faceEmbedding == null) continue;
 
             double similarity = cosine(clusterAvgEmbedding, faceEmbedding);
@@ -860,13 +867,12 @@ public class FaceService {
             FolderScope scope = matchFolderScope(upath, folderPrefixes);
             if (scope == FolderScope.NONE) continue; // 不在同目录相关范围内
             
-            float[] unassignedVec = parseEmbedding(candidate.getEmbedding());
+            float[] unassignedVec = getEmbedding(candidate);
             if (unassignedVec == null) continue;
 
             double maxSim = -1;
             for (Face ref : referenceFaces) {
-                if (ref.getEmbedding() == null || ref.getEmbedding().isEmpty()) continue;
-                float[] refVec = parseEmbedding(ref.getEmbedding());
+                float[] refVec = getEmbedding(ref);
                 if (refVec == null) continue;
                 
                 double sim = cosine(unassignedVec, refVec);
@@ -904,14 +910,22 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public Page<PersonSummaryDTO> listPersonsWithSample(Pageable pageable) {
-        // 使用自定义分页查询，按 faceCount 倒序排序
         Page<PersonProfile> personPage = personProfileRepository.findAllOrderByFaceCountDesc(pageable);
-
-        // 转换为 DTO
         List<PersonSummaryDTO> persons = personPage.getContent().stream()
             .map(this::toSummaryDTO)
             .collect(Collectors.toList());
+        return new PageImpl<>(persons, pageable, personPage.getTotalElements());
+    }
 
+    /**
+     * 公开页面使用：仅返回未隐藏的人物
+     */
+    @Transactional(readOnly = true)
+    public Page<PersonSummaryDTO> listVisiblePersonsWithSample(Pageable pageable) {
+        Page<PersonProfile> personPage = personProfileRepository.findVisibleOrderByFaceCountDesc(pageable);
+        List<PersonSummaryDTO> persons = personPage.getContent().stream()
+            .map(this::toSummaryDTO)
+            .collect(Collectors.toList());
         return new PageImpl<>(persons, pageable, personPage.getTotalElements());
     }
 
@@ -922,7 +936,15 @@ public class FaceService {
     public List<PersonListItemDTO> listPersonItems(double clusterThreshold, int clusterPage, int clusterSize) {
         List<PersonListItemDTO> items = new ArrayList<>();
 
-        // 1. 已确认的人物
+        // 1. 批量获取所有人物的人脸数量（避免 N+1 查询）
+        Map<Long, Integer> faceCountMap = new HashMap<>();
+        for (Object[] row : faceRepository.countFacesByPersonGrouped()) {
+            Long pid = ((Number) row[0]).longValue();
+            int cnt = ((Number) row[1]).intValue();
+            faceCountMap.put(pid, cnt);
+        }
+
+        // 2. 已确认的人物
         List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
         for (PersonProfile person : confirmedPersons) {
             PersonListItemDTO item = new PersonListItemDTO();
@@ -930,15 +952,12 @@ public class FaceService {
             item.setId(person.getId());
             item.setName(person.getName());
             item.setDescription(person.getDescription());
+            item.setHidden(person.getHidden() != null && person.getHidden());
             item.setCreatedAt(person.getCreatedAt());
             item.setUpdatedAt(person.getUpdatedAt());
 
-            // 获取该人物的人脸数量
-            long faceCount = faceRepository.findByPersonId(person.getId(), PageRequest.of(0, 1))
-                .getTotalElements();
-            item.setFaceCount((int) faceCount);
+            item.setFaceCount(faceCountMap.getOrDefault(person.getId(), 0));
 
-            // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）
             Object[] sampleData = getPersonSamplePhoto(person.getId());
             if (sampleData[0] != null) {
                 item.setSampleFaceId((Long) sampleData[0]);
@@ -1130,7 +1149,7 @@ public class FaceService {
         List<float[]> groupRepresentatives = new ArrayList<>();
 
         for (Face candidate : withEmbedding) {
-            float[] candidateVec = parseEmbedding(candidate.getEmbedding());
+            float[] candidateVec = getEmbedding(candidate);
             if (candidateVec == null) continue;
 
             Integer bestGroup = null;
@@ -1143,10 +1162,9 @@ public class FaceService {
             // 计算与各组代表向量的相似度，用于预过滤
             for (int g = 0; g < groups.size(); g++) {
                 if (groupRepresentatives.size() <= g) {
-                    // 计算组的代表向量（取第一个成员的向量作为代表）
                     List<Face> group = groups.get(g);
                     if (!group.isEmpty()) {
-                        float[] repVec = parseEmbedding(group.get(0).getEmbedding());
+                        float[] repVec = getEmbedding(group.get(0));
                         groupRepresentatives.add(repVec != null ? repVec : new float[0]);
                     } else {
                         groupRepresentatives.add(new float[0]);
@@ -1176,7 +1194,7 @@ public class FaceService {
                 int matchCount = 0;
                 
                 for (Face member : group) {
-                    float[] memberVec = parseEmbedding(member.getEmbedding());
+                    float[] memberVec = getEmbedding(member);
                     if (memberVec == null) continue;
                     
                     double sim = cosine(candidateVec, memberVec);
@@ -1250,10 +1268,9 @@ public class FaceService {
             float[] centroid = updateCentroid(group);
             if (centroid == null) continue;
 
-            // 离群值清理：移除与中心向量相似度低于阈值的人脸
             List<Face> cleanedGroup = new ArrayList<>();
             for (Face face : group) {
-                float[] vec = parseEmbedding(face.getEmbedding());
+                float[] vec = getEmbedding(face);
                 if (vec == null) continue;
                 double sim = cosine(centroid, vec);
                 // 使用稍微宽松的阈值进行清理（比加入阈值低0.02）
@@ -1309,7 +1326,104 @@ public class FaceService {
 
     private void invalidateClusterCache() {
         clusterCache.clear();
+        embeddingParseCache.clear();
         log.debug("聚类缓存已清空");
+    }
+
+    /**
+     * 增量更新聚类缓存：从已缓存的聚类结果中移除指定人脸，而不是清空整个缓存重新计算。
+     * 适用于将人脸从未分配池移到已分配（assign/createPerson）的场景。
+     * 这避免了 O(n²) 的全量重聚类，将操作降为 O(clusters * removedFaces)。
+     */
+    private void removeFromClusterCache(Set<Long> removedFaceIds) {
+        if (removedFaceIds == null || removedFaceIds.isEmpty()) {
+            return;
+        }
+        if (clusterCache.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<Double, List<FaceClusterDTO>> entry : clusterCache.entrySet()) {
+            List<FaceClusterDTO> clusters = entry.getValue();
+            Iterator<FaceClusterDTO> it = clusters.iterator();
+            while (it.hasNext()) {
+                FaceClusterDTO cluster = it.next();
+                List<FaceDTO> faces = cluster.getFaces();
+                if (faces != null) {
+                    faces.removeIf(f -> removedFaceIds.contains(f.getId()));
+                    cluster.setCount(faces.size());
+                    if (faces.isEmpty()) {
+                        it.remove();
+                    } else if (cluster.getRepresentativeFaceId() != null
+                            && removedFaceIds.contains(cluster.getRepresentativeFaceId())) {
+                        cluster.setRepresentativeFaceId(faces.get(0).getId());
+                    }
+                }
+            }
+        }
+        for (Long faceId : removedFaceIds) {
+            embeddingParseCache.remove(faceId);
+        }
+        log.debug("增量更新聚类缓存：移除 {} 个人脸", removedFaceIds.size());
+    }
+
+    /**
+     * 批量绑定人脸到人物（性能优化版：仅做一次缓存更新）。
+     * 对比逐条调用 assignFaceToPerson，减少了 N-1 次缓存失效操作。
+     */
+    @Transactional
+    public int batchAssignFacesToPerson(List<Long> faceIds, Long personId, Boolean confirmed) {
+        if (faceIds == null || faceIds.isEmpty()) {
+            return 0;
+        }
+
+        PersonProfile person = null;
+        if (personId != null) {
+            person = personProfileRepository.findById(personId)
+                .orElseThrow(() -> new RuntimeException("人物不存在"));
+        }
+
+        Set<Long> affectedPersonIds = new HashSet<>();
+        Set<Long> assignedFaceIds = new HashSet<>();
+        int count = 0;
+
+        for (Long faceId : faceIds) {
+            Face face = faceRepository.findById(faceId).orElse(null);
+            if (face == null) continue;
+
+            Long originalPersonId = face.getPerson() != null ? face.getPerson().getId() : null;
+            if (originalPersonId != null) {
+                affectedPersonIds.add(originalPersonId);
+            }
+
+            if (person == null) {
+                face.setPerson(null);
+                face.setIsConfirmed(false);
+            } else {
+                face.setPerson(person);
+                if (confirmed != null) {
+                    face.setIsConfirmed(confirmed);
+                }
+                assignedFaceIds.add(faceId);
+            }
+            faceRepository.save(face);
+            count++;
+        }
+
+        if (!assignedFaceIds.isEmpty()) {
+            removeFromClusterCache(assignedFaceIds);
+        } else {
+            invalidateClusterCache();
+        }
+
+        for (Long pid : affectedPersonIds) {
+            clearPersonSimilarityCache(pid);
+        }
+        if (personId != null && !affectedPersonIds.contains(personId)) {
+            clearPersonSimilarityCache(personId);
+        }
+
+        log.info("批量绑定 {} 个人脸到人物 {}（增量缓存更新）", count, personId);
+        return count;
     }
 
     /**
@@ -1320,7 +1434,7 @@ public class FaceService {
         
         List<float[]> vectors = new ArrayList<>();
         for (Face face : group) {
-            float[] vec = parseEmbedding(face.getEmbedding());
+            float[] vec = getEmbedding(face);
             if (vec != null) {
                 vectors.add(vec);
             }
@@ -1530,16 +1644,18 @@ public class FaceService {
         }
 
         // 绑定所有人脸（创建时直接设为已确认，跳过自动分配步骤）
+        Set<Long> boundFaceIds = new HashSet<>();
         for (Long faceId : faceIds) {
             Face face = faceRepository.findById(faceId)
                 .orElseThrow(() -> new RuntimeException("人脸不存在: " + faceId));
             face.setPerson(person);
-            face.setIsConfirmed(true); // 创建时直接设为已确认
+            face.setIsConfirmed(true);
             faceRepository.save(face);
+            boundFaceIds.add(faceId);
         }
 
         log.info("创建人物并绑定人脸: personId={}, name={}, faceCount={}", person.getId(), person.getName(), faceIds.size());
-        invalidateClusterCache();
+        removeFromClusterCache(boundFaceIds);
         return toDTO(person);
     }
 
@@ -1549,15 +1665,14 @@ public class FaceService {
     @Transactional(readOnly = true)
     public List<FaceDTO> findSimilarFaces(Long faceId, int top, double threshold) {
         Face base = faceRepository.findById(faceId).orElseThrow(() -> new RuntimeException("人脸不存在"));
-        float[] baseVec = parseEmbedding(base.getEmbedding());
+        float[] baseVec = getEmbedding(base);
         if (baseVec == null) return List.of();
 
-        // 关键优化：只遍历有 embedding 的人脸，避免全表扫描 + 大量 parseEmbedding(null/空)
         List<Face> all = faceRepository.findAllWithEmbedding();
         List<FaceDTO> result = new ArrayList<>();
         for (Face f : all) {
             if (f.getId().equals(faceId)) continue;
-            float[] vec = parseEmbedding(f.getEmbedding());
+            float[] vec = getEmbedding(f);
             if (vec == null) continue;
             double sim = cosine(baseVec, vec);
             if (sim >= threshold) {
@@ -1612,9 +1727,10 @@ public class FaceService {
 
     /**
      * 获取指定相册中的人物列表（按人脸数量倒序）
+     * @param visibleOnly true=排除隐藏人物（公开页面用），false=包含所有人物（后台用）
      */
     @Transactional(readOnly = true)
-    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId) {
+    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId, boolean visibleOnly) {
         List<Object[]> rows = faceRepository.findPersonIdsWithFaceCountByAlbumId(albumId);
         List<PersonSummaryDTO> result = new ArrayList<>();
 
@@ -1622,9 +1738,9 @@ public class FaceService {
             Long personId = ((Number) row[0]).longValue();
             Integer faceCount = ((Number) row[1]).intValue();
 
-            // 获取人物信息
             PersonProfile person = personProfileRepository.findById(personId).orElse(null);
             if (person == null) continue;
+            if (visibleOnly && person.getHidden() != null && person.getHidden()) continue;
 
             PersonSummaryDTO dto = new PersonSummaryDTO();
             dto.setId(person.getId());
@@ -1643,6 +1759,23 @@ public class FaceService {
         }
 
         return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId) {
+        return getPersonsInAlbum(albumId, false);
+    }
+
+    /**
+     * 切换人物的隐藏状态
+     */
+    @Transactional
+    public PersonProfile togglePersonHidden(Long personId) {
+        PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+        boolean current = person.getHidden() != null && person.getHidden();
+        person.setHidden(!current);
+        return personProfileRepository.save(person);
     }
 
     @Transactional
@@ -1828,6 +1961,19 @@ public class FaceService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 带缓存的向量获取：避免对同一人脸重复解析 JSON embedding 字符串。
+     * 聚类过程中同一人脸的向量会被多次比较，缓存可显著减少 JSON 解析开销。
+     */
+    private float[] getEmbedding(Face face) {
+        if (face == null || face.getId() == null
+                || face.getEmbedding() == null || face.getEmbedding().isEmpty()) {
+            return null;
+        }
+        return embeddingParseCache.computeIfAbsent(face.getId(),
+                id -> parseEmbedding(face.getEmbedding()));
     }
 
     private double cosine(float[] a, float[] b) {
@@ -2089,12 +2235,12 @@ public class FaceService {
             return null;
         }
 
-        int vectorSize = 512; // 假设特征向量长度为512
+        int vectorSize = 512;
         float[] avgVector = new float[vectorSize];
 
         int validFaces = 0;
         for (Face face : faces) {
-            float[] embedding = parseEmbedding(face.getEmbedding());
+            float[] embedding = getEmbedding(face);
             if (embedding != null && embedding.length == vectorSize) {
                 for (int i = 0; i < vectorSize; i++) {
                     avgVector[i] += embedding[i];
@@ -2284,9 +2430,8 @@ public class FaceService {
         for (Face face : albumFaces) {
             double similarity = 0.0;
 
-            // 如果有确认的人脸，计算相似度
             if (personAvgEmbedding != null) {
-                float[] embedding = parseEmbedding(face.getEmbedding());
+                float[] embedding = getEmbedding(face);
                 if (embedding != null) {
                     similarity = cosine(personAvgEmbedding, embedding);
                 }

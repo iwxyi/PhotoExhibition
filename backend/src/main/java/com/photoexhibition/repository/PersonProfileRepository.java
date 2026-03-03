@@ -20,5 +20,11 @@ public interface PersonProfileRepository extends JpaRepository<PersonProfile, Lo
      */
     @Query("SELECT p FROM PersonProfile p LEFT JOIN p.faces f GROUP BY p ORDER BY COUNT(f) DESC")
     Page<PersonProfile> findAllOrderByFaceCountDesc(Pageable pageable);
+
+    /**
+     * 按人脸数量倒序分页查询可见人物（排除 hidden=true）
+     */
+    @Query("SELECT p FROM PersonProfile p LEFT JOIN p.faces f WHERE p.hidden = false OR p.hidden IS NULL GROUP BY p ORDER BY COUNT(f) DESC")
+    Page<PersonProfile> findVisibleOrderByFaceCountDesc(Pageable pageable);
 }
 
