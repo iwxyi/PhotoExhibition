@@ -28,9 +28,10 @@
             </button>
           </div>
           <button
-            v-if="currentPath !== basePath"
             @click="goToParent"
-            class="ml-auto px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+            :disabled="isAtRoot"
+            class="ml-auto px-3 py-1 rounded text-sm transition-colors"
+            :class="isAtRoot ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
           >
             返回上级
           </button>
@@ -101,12 +102,31 @@
         <input ref="dirInput" type="file" multiple webkitdirectory class="hidden" @change="handleFileInput(true, $event)" />
       </div>
 
+      <!-- 上传进度 -->
+      <div v-if="uploading" class="glass-panel p-4 mb-4">
+        <div class="flex items-center gap-3">
+          <div class="animate-spin w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+          <span class="text-blue-300">{{ uploadStatus }}</span>
+        </div>
+      </div>
+
       <!-- 文件列表 -->
       <div
-        class="glass-panel p-4"
-        @dragover.prevent
+        class="glass-panel p-4 relative"
+        @dragover.prevent="onDragOver"
+        @dragleave.prevent="onDragLeave"
         @drop.prevent="handleDrop"
       >
+        <!-- 拖拽覆盖层 -->
+        <div
+          v-if="isDragOver"
+          class="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg z-10 flex items-center justify-center pointer-events-none"
+        >
+          <div class="text-center">
+            <div class="text-4xl mb-2">📂</div>
+            <div class="text-blue-300 text-lg">拖放文件或文件夹到此处上传</div>
+          </div>
+        </div>
         <div v-if="loading" class="text-center py-8 text-gray-400">
           加载中...
         </div>
@@ -354,6 +374,9 @@ const selectedItem = ref<FileItem | null>(null)
 const selectedPaths = ref<Set<string>>(new Set())
 const multiSelect = ref(false)
 const uploading = ref(false)
+const uploadStatus = ref('')
+const isDragOver = ref(false)
+let dragLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const showCreateDialog = ref(false)
 const newFolderName = ref('')
@@ -377,6 +400,10 @@ const dirInput = ref<HTMLInputElement | null>(null)
 
 const directories = computed(() => items.value.filter(item => item.isDirectory))
 const files = computed(() => items.value.filter(item => !item.isDirectory))
+const isAtRoot = computed(() => {
+  if (!currentPath.value || !basePath.value) return true
+  return normalizePath(currentPath.value) === normalizePath(basePath.value)
+})
 
 const normalizePath = (p: string | null | undefined) => {
   if (!p) return ''
@@ -413,17 +440,18 @@ const loadBasePath = async () => {
   }
 }
 
+let loadFilesRequestId = 0
 const loadFiles = async (path?: string) => {
+  const requestId = ++loadFilesRequestId
   loading.value = true
   error.value = ''
   try {
     const res = await api.get('/admin/folders/browser/list', {
       params: { path: path || currentPath.value }
     })
+    if (requestId !== loadFilesRequestId) return
     const data = res.data
     const serverPath = data.path || currentPath.value || basePath.value
-    // 如果后端返回了绝对路径，而当前 basePath 是相对路径（如 ./data/photos），
-    // 则将 basePath 替换为该绝对路径，确保后续前端判断统一基于绝对路径
     if (serverPath && basePath.value && !/^(\/|[A-Za-z]:[\\/])/.test(basePath.value)) {
       basePath.value = normalizePath(serverPath)
     }
@@ -439,7 +467,7 @@ const loadFiles = async (path?: string) => {
       rightTop: d.rightTop,
       rightBottom: d.rightBottom
     }))
-    const files = (data.files || []).map((f: any) => ({
+    const filesList = (data.files || []).map((f: any) => ({
       name: f.name,
       path: f.path,
       isDirectory: false,
@@ -448,12 +476,15 @@ const loadFiles = async (path?: string) => {
       thumbnail: f.thumbnail
     }))
     
-    items.value = [...dirs, ...files]
+    items.value = [...dirs, ...filesList]
   } catch (e: any) {
+    if (requestId !== loadFilesRequestId) return
     error.value = e.response?.data?.error || e.message || '加载失败'
     items.value = []
   } finally {
-    loading.value = false
+    if (requestId === loadFilesRequestId) {
+      loading.value = false
+    }
   }
 }
 
@@ -707,28 +738,86 @@ const triggerFileInput = (isDir: boolean) => {
 const handleFileInput = async (isDir: boolean, event: Event) => {
   const input = event.target as HTMLInputElement
   if (!input.files || !input.files.length) return
-  const files = Array.from(input.files)
-  const relativePaths = isDir ? files.map(f => (f as any).webkitRelativePath || f.name) : undefined
-  await uploadFiles(files, relativePaths)
+  const fileList = Array.from(input.files)
+  const relativePaths = isDir ? fileList.map(f => (f as any).webkitRelativePath || f.name) : undefined
+  await uploadFiles(fileList, relativePaths)
   input.value = ''
 }
 
-const handleDrop = async (event: DragEvent) => {
-  const dt = event.dataTransfer
-  if (!dt) return
-  const files = Array.from(dt.files)
-  const relativePaths = files.map(f => (f as any).webkitRelativePath || f.name)
-  await uploadFiles(files, relativePaths)
+const onDragOver = () => {
+  if (dragLeaveTimer) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null }
+  isDragOver.value = true
+}
+const onDragLeave = () => {
+  dragLeaveTimer = setTimeout(() => { isDragOver.value = false }, 100)
 }
 
-const uploadFiles = async (files: File[], relativePaths?: string[]) => {
-  if (!files.length) return
-  const uploadUrl = '/api/admin/folders/browser/upload' // 走前端同源代理，避免跨域/凭证问题
-  const BATCH_SIZE = 10 // 较小批次，降低 EOF 风险
+const readEntryRecursive = async (entry: any, basePath: string): Promise<{file: File, relativePath: string}[]> => {
+  const results: {file: File, relativePath: string}[] = []
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => entry.file(resolve, reject))
+    results.push({ file, relativePath: basePath + entry.name })
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader()
+    const entries: any[] = await new Promise((resolve) => {
+      const all: any[] = []
+      const readBatch = () => {
+        reader.readEntries((batch: any[]) => {
+          if (batch.length === 0) { resolve(all) }
+          else { all.push(...batch); readBatch() }
+        })
+      }
+      readBatch()
+    })
+    for (const child of entries) {
+      const childResults = await readEntryRecursive(child, basePath + entry.name + '/')
+      results.push(...childResults)
+    }
+  }
+  return results
+}
+
+const handleDrop = async (event: DragEvent) => {
+  isDragOver.value = false
+  const dt = event.dataTransfer
+  if (!dt) return
+
+  const allEntries: {file: File, relativePath: string}[] = []
+  const items = dt.items
+  if (items && items.length > 0) {
+    for (let i = 0; i < items.length; i++) {
+      const entry = (items[i] as any).webkitGetAsEntry?.()
+      if (entry) {
+        const results = await readEntryRecursive(entry, '')
+        allEntries.push(...results)
+      }
+    }
+  }
+
+  if (allEntries.length > 0) {
+    await uploadFiles(
+      allEntries.map(e => e.file),
+      allEntries.map(e => e.relativePath)
+    )
+  } else {
+    const fileList = Array.from(dt.files)
+    if (fileList.length > 0) {
+      await uploadFiles(fileList)
+    }
+  }
+}
+
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
+  if (!fileList.length) return
+  const uploadUrl = '/api/admin/folders/browser/upload'
+  const BATCH_SIZE = 10
   uploading.value = true
+  uploadStatus.value = `正在上传 0 / ${fileList.length} 个文件...`
+  let totalSaved = 0
   try {
-    for (let i = 0; i < files.length; i += BATCH_SIZE) {
-      const slice = files.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < fileList.length; i += BATCH_SIZE) {
+      const slice = fileList.slice(i, i + BATCH_SIZE)
       const relSlice = relativePaths ? relativePaths.slice(i, i + BATCH_SIZE) : undefined
 
       const form = new FormData()
@@ -747,13 +836,18 @@ const uploadFiles = async (files: File[], relativePaths?: string[]) => {
         const text = await res.text()
         throw new Error(text || res.statusText)
       }
+      const data = await res.json()
+      totalSaved += data.saved || slice.length
+      uploadStatus.value = `正在上传 ${Math.min(i + BATCH_SIZE, fileList.length)} / ${fileList.length} 个文件...`
     }
-    await loadFiles()
+    uploadStatus.value = `已保存 ${totalSaved} 个文件，后台处理中...`
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => loadFiles(), 500)
   } catch (e: any) {
     console.error('上传失败', e)
     alert('上传失败: ' + (e.message || '上传失败'))
   } finally {
-    uploading.value = false
+    setTimeout(() => { uploading.value = false }, 3000)
   }
 }
 

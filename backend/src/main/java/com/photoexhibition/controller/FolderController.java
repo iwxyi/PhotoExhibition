@@ -182,8 +182,9 @@ public class FolderController {
                                                       @RequestParam(required = false) List<String> relativePaths) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            folderService.uploadFiles(files, target, relativePaths);
-            resp.put("message", "上传成功");
+            int saved = folderService.uploadFiles(files, target, relativePaths);
+            resp.put("message", "已保存 " + saved + " 个文件，后台处理中");
+            resp.put("saved", saved);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage());
