@@ -170,13 +170,22 @@ public class FaceService {
             }
         }
 
-        // 控制检测服务的详细日志开关
+        // 读取图片一次，检测和嵌入提取共用，避免重复磁盘 I/O
+        java.awt.image.BufferedImage loadedImage = null;
+        try {
+            loadedImage = javax.imageio.ImageIO.read(imageFile);
+        } catch (Exception e) {
+            log.warn("读取图片失败: {}", imageFile.getName(), e);
+        }
+        if (loadedImage == null) {
+            return new ArrayList<>();
+        }
+
         FaceDetectionService.VERBOSE_LOG.set(verbose);
         List<FaceRecognitionService.DetectedFace> detected;
         try {
-            detected = faceRecognitionService.detectFaces(imageFile);
+            detected = faceRecognitionService.detectFaces(loadedImage);
         } finally {
-            // 用完即清理，避免泄漏到其他线程
             FaceDetectionService.VERBOSE_LOG.remove();
         }
         if (verbose) {
@@ -249,8 +258,8 @@ public class FaceService {
             face.setConfidence(f.getConfidence());
             Face saved = faceRepository.save(face);
 
-            // 提取人脸向量
-            float[] embedding = faceEmbeddingService.extract(imageFile, saved);
+            // 提取人脸向量（复用已加载的图片，避免重复磁盘读取）
+            float[] embedding = faceEmbeddingService.extractFromImage(loadedImage, saved);
             if (embedding != null) {
                 saved.setEmbedding(toJson(embedding));
                 saved = faceRepository.save(saved);
@@ -1858,14 +1867,28 @@ public class FaceService {
     private float[] parseEmbedding(String json) {
         if (json == null || json.isEmpty()) return null;
         try {
-            String s = json.trim();
-            if (s.startsWith("[")) s = s.substring(1);
-            if (s.endsWith("]")) s = s.substring(0, s.length() - 1);
-            if (s.isEmpty()) return null;
-            String[] parts = s.split(",");
-            float[] v = new float[parts.length];
-            for (int i = 0; i < parts.length; i++) {
-                v[i] = Float.parseFloat(parts[i]);
+            int start = json.indexOf('[');
+            int end = json.lastIndexOf(']');
+            if (start < 0 || end <= start) return null;
+            // 预分配 512 维数组，避免动态扩容
+            float[] v = new float[512];
+            int idx = 0;
+            int pos = start + 1;
+            int len = end;
+            while (pos < len && idx < v.length) {
+                // 跳过空白
+                while (pos < len && json.charAt(pos) <= ' ') pos++;
+                if (pos >= len) break;
+                int numStart = pos;
+                while (pos < len && json.charAt(pos) != ',') pos++;
+                v[idx++] = Float.parseFloat(json.substring(numStart, pos).trim());
+                pos++; // skip comma
+            }
+            if (idx != 512) {
+                // 非标准长度，回退到精确解析
+                float[] result = new float[idx];
+                System.arraycopy(v, 0, result, 0, idx);
+                return result;
             }
             return v;
         } catch (Exception e) {
@@ -1875,25 +1898,27 @@ public class FaceService {
 
     private double cosine(float[] a, float[] b) {
         if (a == null || b == null || a.length != b.length) return -1;
+        // 嵌入向量已 L2 归一化，cosine = dot product
+        // 仍保留范数计算作为防御，但对已归一化向量几乎零开销
         double dot = 0, na = 0, nb = 0;
         for (int i = 0; i < a.length; i++) {
             dot += a[i] * b[i];
             na += a[i] * a[i];
             nb += b[i] * b[i];
         }
-        double denom = Math.sqrt(na) * Math.sqrt(nb);
+        double denom = Math.sqrt(na * nb);
         if (denom < 1e-6) return -1;
         return dot / denom;
     }
 
     private String toJson(float[] arr) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
+        StringBuilder sb = new StringBuilder(arr.length * 10);
+        sb.append('[');
         for (int i = 0; i < arr.length; i++) {
-            if (i > 0) sb.append(",");
-            sb.append(String.format(java.util.Locale.US, "%.6f", arr[i]));
+            if (i > 0) sb.append(',');
+            sb.append(arr[i]);
         }
-        sb.append("]");
+        sb.append(']');
         return sb.toString();
     }
 

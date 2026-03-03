@@ -62,15 +62,24 @@ public class FaceDetectionService implements AutoCloseable {
         if (!enabled) {
             return new ArrayList<>();
         }
+        try {
+            BufferedImage img = ImageIO.read(imageFile);
+            if (img == null) return new ArrayList<>();
+            return detectFaces(img);
+        } catch (Exception e) {
+            log.warn("ONNX人脸检测失败: {}", imageFile.getName(), e);
+            return new ArrayList<>();
+        }
+    }
+
+    public List<DetectedFace> detectFaces(BufferedImage img) {
+        if (!enabled || img == null) {
+            return new ArrayList<>();
+        }
 
         try {
             ensureSession();
             if (detectionSession == null) {
-                return new ArrayList<>();
-            }
-
-            BufferedImage img = ImageIO.read(imageFile);
-            if (img == null) {
                 return new ArrayList<>();
             }
 
@@ -177,7 +186,7 @@ public class FaceDetectionService implements AutoCloseable {
                 input.close();
             }
         } catch (Exception e) {
-            log.warn("ONNX人脸检测失败，将回退到简单检测方法: {}", imageFile.getName(), e);
+            log.warn("ONNX人脸检测失败: {}", e.getMessage());
         }
         
         return new ArrayList<>();
@@ -238,12 +247,12 @@ public class FaceDetectionService implements AutoCloseable {
         int newW = (int) (w * scale);
         int newH = (int) (h * scale);
         
-        java.awt.Image scaled = img.getScaledInstance(newW, newH, java.awt.Image.SCALE_SMOOTH);
         BufferedImage resized = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_RGB);
         java.awt.Graphics2D g = resized.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setColor(java.awt.Color.BLACK);
         g.fillRect(0, 0, targetSize, targetSize);
-        g.drawImage(scaled, (targetSize - newW) / 2, (targetSize - newH) / 2, null);
+        g.drawImage(img, (targetSize - newW) / 2, (targetSize - newH) / 2, newW, newH, null);
         g.dispose();
         
         return resized;

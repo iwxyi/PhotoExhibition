@@ -35,35 +35,49 @@ public class FaceRecognitionService {
      * 人脸检测：优先使用ONNX专业模型，失败时回退到简单检测方法
      */
     public List<DetectedFace> detectFaces(File imageFile) {
-        // 优先尝试使用专业检测模型
         if (faceDetectionService != null) {
             try {
                 List<FaceDetectionService.DetectedFace> onnxFaces = faceDetectionService.detectFaces(imageFile);
                 if (!onnxFaces.isEmpty()) {
-                    // 转换为旧格式
-                    return onnxFaces.stream()
-                        .map(f -> new DetectedFace(f.getX(), f.getY(), f.getWidth(), f.getHeight(), f.getConfidence()))
-                        .collect(java.util.stream.Collectors.toList());
+                    return convertDetections(onnxFaces);
                 }
-                log.debug("专业检测模型未返回结果，简单检测={}", allowSimpleFallback);
             } catch (NoClassDefFoundError e) {
                 log.warn("ONNX Runtime类加载失败，人脸检测功能不可用: {}", e.getMessage());
-                // ONNX Runtime不可用时，直接跳过，不回退到简单检测
                 return new ArrayList<>();
             } catch (Exception e) {
                 log.debug("专业检测模型失败，回退到简单检测: {}", e.getMessage());
             }
-        } else {
-            log.debug("未注入专业检测服务，简单检测={}", allowSimpleFallback);
         }
-        
-        // 回退到简单检测方法（可配置禁用以避免低精度框）
         if (allowSimpleFallback) {
             return detectFacesSimple(imageFile);
         }
-
-        // 禁用回退时返回空结果，由上层决定是否处理
         return java.util.Collections.emptyList();
+    }
+
+    /**
+     * 从已加载的 BufferedImage 检测人脸（避免重复磁盘读取）
+     */
+    public List<DetectedFace> detectFaces(BufferedImage img) {
+        if (faceDetectionService != null) {
+            try {
+                List<FaceDetectionService.DetectedFace> onnxFaces = faceDetectionService.detectFaces(img);
+                if (!onnxFaces.isEmpty()) {
+                    return convertDetections(onnxFaces);
+                }
+            } catch (NoClassDefFoundError e) {
+                log.warn("ONNX Runtime类加载失败: {}", e.getMessage());
+                return new ArrayList<>();
+            } catch (Exception e) {
+                log.debug("专业检测模型失败: {}", e.getMessage());
+            }
+        }
+        return java.util.Collections.emptyList();
+    }
+
+    private List<DetectedFace> convertDetections(List<FaceDetectionService.DetectedFace> onnxFaces) {
+        return onnxFaces.stream()
+            .map(f -> new DetectedFace(f.getX(), f.getY(), f.getWidth(), f.getHeight(), f.getConfidence()))
+            .collect(java.util.stream.Collectors.toList());
     }
 
     /**
