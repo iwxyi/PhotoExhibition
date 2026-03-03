@@ -174,13 +174,22 @@ public class FaceService {
             }
         }
 
-        // 控制检测服务的详细日志开关
+        // 读取图片一次，检测和嵌入提取共用，避免重复磁盘 I/O
+        java.awt.image.BufferedImage loadedImage = null;
+        try {
+            loadedImage = javax.imageio.ImageIO.read(imageFile);
+        } catch (Exception e) {
+            log.warn("读取图片失败: {}", imageFile.getName(), e);
+        }
+        if (loadedImage == null) {
+            return new ArrayList<>();
+        }
+
         FaceDetectionService.VERBOSE_LOG.set(verbose);
         List<FaceRecognitionService.DetectedFace> detected;
         try {
-            detected = faceRecognitionService.detectFaces(imageFile);
+            detected = faceRecognitionService.detectFaces(loadedImage);
         } finally {
-            // 用完即清理，避免泄漏到其他线程
             FaceDetectionService.VERBOSE_LOG.remove();
         }
         if (verbose) {
@@ -253,8 +262,8 @@ public class FaceService {
             face.setConfidence(f.getConfidence());
             Face saved = faceRepository.save(face);
 
-            // 提取人脸向量
-            float[] embedding = faceEmbeddingService.extract(imageFile, saved);
+            // 提取人脸向量（复用已加载的图片，避免重复磁盘读取）
+            float[] embedding = faceEmbeddingService.extractFromImage(loadedImage, saved);
             if (embedding != null) {
                 saved.setEmbedding(toJson(embedding));
                 saved = faceRepository.save(saved);
@@ -1115,7 +1124,6 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceClusterDTO> clusterSimilarFaces(double threshold) {
-        // 获取所有未分配且质量合格的人脸
         List<Face> unassigned = faceRepository.findByPersonIsNull();
         List<Face> withEmbedding = unassigned.stream()
             .filter(this::isValidForClustering)
@@ -1125,165 +1133,214 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        // 人脸聚类处理所有质量合格的人脸，后续有照片匹配补全步骤
-
-        // 聚类阈值可配置：在用户阈值基础上加偏移，并设定可配置下限
         final double strictThreshold = Math.max(threshold + clusteringThresholdBonus, clusteringMinThreshold);
 
-        // 尝试从缓存命中
         double cacheKey = roundThreshold(threshold);
         List<FaceClusterDTO> cached = clusterCache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
         
+        // ==================== 阶段1: 贪心初始聚类 ====================
         List<List<Face>> groups = new ArrayList<>();
+        // 预计算所有嵌入向量，避免重复解析
+        Map<Long, float[]> embeddingCache = new HashMap<>();
+        for (Face f : withEmbedding) {
+            float[] vec = parseEmbedding(f.getEmbedding());
+            if (vec != null) embeddingCache.put(f.getId(), vec);
+        }
 
-        // 按置信度降序排序，优先处理高质量人脸
         withEmbedding.sort((a, b) -> Double.compare(
             (b.getConfidence() != null ? b.getConfidence() : 0.0),
             (a.getConfidence() != null ? a.getConfidence() : 0.0)
         ));
 
-        // 预计算组的代表向量，用于快速预过滤
-        List<float[]> groupRepresentatives = new ArrayList<>();
-
         for (Face candidate : withEmbedding) {
-            float[] candidateVec = getEmbedding(candidate);
+            float[] candidateVec = embeddingCache.get(candidate.getId());
             if (candidateVec == null) continue;
 
             Integer bestGroup = null;
-            double bestAvgSimilarity = -1;
+            double bestMaxSimilarity = -1;
 
-            // 性能优化：预过滤机制，只检查最有可能匹配的前N个组
-            final int MAX_GROUPS_TO_CHECK = Math.min(10, groups.size()); // 最多检查10个最有可能的组
+            // 预筛选：用与组内每个成员的最大相似度代替单一代表相似度
+            final int MAX_GROUPS_TO_CHECK = Math.min(15, groups.size());
             List<GroupSimilarity> groupSimilarities = new ArrayList<>();
 
-            // 计算与各组代表向量的相似度，用于预过滤
             for (int g = 0; g < groups.size(); g++) {
-                if (groupRepresentatives.size() <= g) {
-                    List<Face> group = groups.get(g);
-                    if (!group.isEmpty()) {
-                        float[] repVec = getEmbedding(group.get(0));
-                        groupRepresentatives.add(repVec != null ? repVec : new float[0]);
-                    } else {
-                        groupRepresentatives.add(new float[0]);
-                    }
+                List<Face> group = groups.get(g);
+                double maxSim = -1;
+                for (Face member : group) {
+                    float[] memberVec = embeddingCache.get(member.getId());
+                    if (memberVec == null) continue;
+                    double sim = cosine(candidateVec, memberVec);
+                    if (sim > maxSim) maxSim = sim;
+                    if (maxSim > strictThreshold) break;
                 }
-
-                float[] repVec = groupRepresentatives.get(g);
-                if (repVec.length > 0) {
-                    double repSimilarity = cosine(candidateVec, repVec);
-                    groupSimilarities.add(new GroupSimilarity(g, repSimilarity));
+                if (maxSim > strictThreshold * 0.85) {
+                    groupSimilarities.add(new GroupSimilarity(g, maxSim));
                 }
             }
 
-            // 按相似度排序，只检查最有可能的组
             groupSimilarities.sort((a, b) -> Double.compare(b.similarity, a.similarity));
             List<Integer> groupsToCheck = groupSimilarities.stream()
                 .limit(MAX_GROUPS_TO_CHECK)
                 .map(gs -> gs.groupIndex)
                 .collect(Collectors.toList());
 
-            // 检查筛选出的组
             for (int g : groupsToCheck) {
                 List<Face> group = groups.get(g);
 
-                // 多点验证：计算与组内所有成员的相似度
+                // 物种隔离：不允许高置信度人脸（≥0.75）和低置信度（<0.55）混在同一组
+                double candidateConf = candidate.getConfidence() != null ? candidate.getConfidence() : 0.5;
+                double groupAvgConf = group.stream()
+                    .mapToDouble(f -> f.getConfidence() != null ? f.getConfidence() : 0.5)
+                    .average().orElse(0.5);
+                if ((candidateConf >= 0.75 && groupAvgConf < 0.55) ||
+                    (candidateConf < 0.55 && groupAvgConf >= 0.75)) {
+                    continue;
+                }
+
                 List<Double> similarities = new ArrayList<>();
                 int matchCount = 0;
+                double maxSim = -1;
                 
                 for (Face member : group) {
-                    float[] memberVec = getEmbedding(member);
+                    float[] memberVec = embeddingCache.get(member.getId());
                     if (memberVec == null) continue;
-                    
                     double sim = cosine(candidateVec, memberVec);
                     similarities.add(sim);
-                    
-                    // 统计达到阈值的匹配数
-                    if (sim >= strictThreshold) {
-                        matchCount++;
-                    }
+                    if (sim >= strictThreshold) matchCount++;
+                    if (sim > maxSim) maxSim = sim;
                 }
 
                 if (similarities.isEmpty()) continue;
 
-                // 计算统计指标
                 double avgSim = similarities.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-                double medianSim = quantile(similarities, 0.5);
-                double q75Sim = quantile(similarities, 0.75);
                 double minSim = similarities.stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
 
                 boolean canJoin = false;
 
                 if (group.size() < clusteringMinGroupSize) {
-                    // 小组：可配置是否使用严格匹配
                     if (clusteringSmallGroupStrict) {
                         canJoin = matchCount == group.size() && avgSim >= strictThreshold && minSim >= (strictThreshold - clusteringMinSimSlackSmall);
                     } else {
-                        // 宽松模式：只要平均相似度达标即可
-                        canJoin = avgSim >= strictThreshold || minSim >= (strictThreshold - clusteringMinSimSlackSmall);
+                        canJoin = avgSim >= strictThreshold || maxSim >= strictThreshold;
                     }
                 } else {
-                    // 大组（3个或以上人脸）：使用多点验证和统计指标
                     int requiredMatches = Math.min(clusteringMinMatches, group.size());
                     boolean passMultiPoint = !clusteringRequireMultiPoint || matchCount >= requiredMatches;
                     if (!clusteringRequireStats) {
                         canJoin = passMultiPoint && avgSim >= strictThreshold;
                     } else {
+                        double medianSim = quantile(similarities, 0.5);
                         boolean passAvg = avgSim >= strictThreshold;
                         boolean passMedian = medianSim >= strictThreshold;
-                        boolean passQ75 = q75Sim >= strictThreshold;
                         boolean passMin = minSim >= (strictThreshold - clusteringMinSimSlackLarge);
-                        canJoin = passMultiPoint && passAvg && passMedian && passQ75 && passMin;
+                        // 放宽条件：avg+median通过 或 max-match很高
+                        canJoin = passMultiPoint && ((passAvg && passMedian && passMin) ||
+                                  maxSim >= strictThreshold + 0.05);
                     }
                 }
 
-                if (canJoin) {
-                    // 选择平均相似度最高的组
-                    if (avgSim > bestAvgSimilarity) {
-                        bestAvgSimilarity = avgSim;
-                        bestGroup = g;
-                    }
+                if (canJoin && maxSim > bestMaxSimilarity) {
+                    bestMaxSimilarity = maxSim;
+                    bestGroup = g;
                 }
             }
 
             if (bestGroup != null) {
-                // 加入现有组
                 groups.get(bestGroup).add(candidate);
             } else {
-                // 创建新组（只有无法加入任何现有组时才创建）
                 List<Face> newGroup = new ArrayList<>();
                 newGroup.add(candidate);
                 groups.add(newGroup);
             }
         }
 
-        // 后处理：对每个组进行离群值清理
+        // ==================== 阶段2: 组间合并（修复同人拆分） ====================
+        final double mergeThreshold = strictThreshold - 0.03;
+        boolean merged = true;
+        while (merged) {
+            merged = false;
+            for (int i = 0; i < groups.size(); i++) {
+                if (groups.get(i).isEmpty()) continue;
+                for (int j = i + 1; j < groups.size(); j++) {
+                    if (groups.get(j).isEmpty()) continue;
+
+                    // 物种隔离检查
+                    double avgConfI = groups.get(i).stream()
+                        .mapToDouble(f -> f.getConfidence() != null ? f.getConfidence() : 0.5)
+                        .average().orElse(0.5);
+                    double avgConfJ = groups.get(j).stream()
+                        .mapToDouble(f -> f.getConfidence() != null ? f.getConfidence() : 0.5)
+                        .average().orElse(0.5);
+                    if ((avgConfI >= 0.75 && avgConfJ < 0.55) || (avgConfI < 0.55 && avgConfJ >= 0.75)) {
+                        continue;
+                    }
+
+                    // 计算两组之间的最大互相似度和达标对数
+                    int crossMatches = 0;
+                    double bestCrossSim = -1;
+                    int sampleLimit = Math.min(groups.get(i).size(), 8);
+                    int sampleLimitJ = Math.min(groups.get(j).size(), 8);
+
+                    for (int ii = 0; ii < sampleLimit; ii++) {
+                        float[] vecI = embeddingCache.get(groups.get(i).get(ii).getId());
+                        if (vecI == null) continue;
+                        for (int jj = 0; jj < sampleLimitJ; jj++) {
+                            float[] vecJ = embeddingCache.get(groups.get(j).get(jj).getId());
+                            if (vecJ == null) continue;
+                            double sim = cosine(vecI, vecJ);
+                            if (sim > bestCrossSim) bestCrossSim = sim;
+                            if (sim >= mergeThreshold) crossMatches++;
+                        }
+                    }
+
+                    // 合并条件：有足够多的跨组高相似度配对
+                    int requiredCross = Math.max(1, Math.min(
+                        Math.min(groups.get(i).size(), groups.get(j).size()),
+                        2));
+                    if (crossMatches >= requiredCross && bestCrossSim >= mergeThreshold) {
+                        groups.get(i).addAll(groups.get(j));
+                        groups.get(j).clear();
+                        merged = true;
+                    }
+                }
+            }
+        }
+        groups.removeIf(List::isEmpty);
+
+        // ==================== 阶段3: 离群点清理（最近邻法） ====================
         List<FaceClusterDTO> clusters = new ArrayList<>();
         for (List<Face> group : groups) {
             if (group.size() < 1) continue;
 
-            // 计算组中心向量
-            float[] centroid = updateCentroid(group);
-            if (centroid == null) continue;
-
-            List<Face> cleanedGroup = new ArrayList<>();
-            for (Face face : group) {
-                float[] vec = getEmbedding(face);
-                if (vec == null) continue;
-                double sim = cosine(centroid, vec);
-                // 使用稍微宽松的阈值进行清理（比加入阈值低0.02）
-                if (sim >= (strictThreshold - 0.02)) {
-                    cleanedGroup.add(face);
+            List<Face> cleanedGroup;
+            if (group.size() <= 2) {
+                cleanedGroup = new ArrayList<>(group);
+            } else {
+                cleanedGroup = new ArrayList<>();
+                for (Face face : group) {
+                    float[] vec = embeddingCache.get(face.getId());
+                    if (vec == null) continue;
+                    // 计算与组内其他成员的最大相似度（最近邻）
+                    double maxNeighborSim = -1;
+                    for (Face other : group) {
+                        if (other.getId().equals(face.getId())) continue;
+                        float[] otherVec = embeddingCache.get(other.getId());
+                        if (otherVec == null) continue;
+                        double sim = cosine(vec, otherVec);
+                        if (sim > maxNeighborSim) maxNeighborSim = sim;
+                    }
+                    // 只要有一个足够相似的邻居就保留
+                    if (maxNeighborSim >= (strictThreshold - 0.05)) {
+                        cleanedGroup.add(face);
+                    }
                 }
             }
 
-            if (cleanedGroup.isEmpty()) {
-                continue;
-            }
+            if (cleanedGroup.isEmpty()) continue;
 
-            // 转换为DTO
             FaceClusterDTO cluster = new FaceClusterDTO();
             List<FaceDTO> faceDTOs = cleanedGroup.stream()
                 .map(this::toDTO)
@@ -1291,7 +1348,6 @@ public class FaceService {
             cluster.setFaces(faceDTOs);
             cluster.setCount(cleanedGroup.size());
 
-            // 计算平均置信度并找到代表脸
             double sumConf = 0;
             Face bestFace = null;
             double bestConf = -1;
@@ -1310,12 +1366,10 @@ public class FaceService {
             clusters.add(cluster);
         }
 
-        // 按人脸数量降序排序
         clusters.sort((a, b) -> Integer.compare(b.getCount(), a.getCount()));
 
-        log.info("保守聚类完成: 共 {} 个未分配人脸，聚合成 {} 个组（用户阈值: {}，实际阈值: {}）", 
-            withEmbedding.size(), clusters.size(), threshold, strictThreshold);
-        // 写入缓存（不可变拷贝）
+        log.info("聚类完成: {} 个人脸 → {} 个组（阈值: {} → {}，合并阈值: {}）", 
+            withEmbedding.size(), clusters.size(), threshold, strictThreshold, mergeThreshold);
         clusterCache.put(cacheKey, new ArrayList<>(clusters));
         return clusters;
     }
@@ -1948,14 +2002,28 @@ public class FaceService {
     private float[] parseEmbedding(String json) {
         if (json == null || json.isEmpty()) return null;
         try {
-            String s = json.trim();
-            if (s.startsWith("[")) s = s.substring(1);
-            if (s.endsWith("]")) s = s.substring(0, s.length() - 1);
-            if (s.isEmpty()) return null;
-            String[] parts = s.split(",");
-            float[] v = new float[parts.length];
-            for (int i = 0; i < parts.length; i++) {
-                v[i] = Float.parseFloat(parts[i]);
+            int start = json.indexOf('[');
+            int end = json.lastIndexOf(']');
+            if (start < 0 || end <= start) return null;
+            // 预分配 512 维数组，避免动态扩容
+            float[] v = new float[512];
+            int idx = 0;
+            int pos = start + 1;
+            int len = end;
+            while (pos < len && idx < v.length) {
+                // 跳过空白
+                while (pos < len && json.charAt(pos) <= ' ') pos++;
+                if (pos >= len) break;
+                int numStart = pos;
+                while (pos < len && json.charAt(pos) != ',') pos++;
+                v[idx++] = Float.parseFloat(json.substring(numStart, pos).trim());
+                pos++; // skip comma
+            }
+            if (idx != 512) {
+                // 非标准长度，回退到精确解析
+                float[] result = new float[idx];
+                System.arraycopy(v, 0, result, 0, idx);
+                return result;
             }
             return v;
         } catch (Exception e) {
@@ -1978,25 +2046,27 @@ public class FaceService {
 
     private double cosine(float[] a, float[] b) {
         if (a == null || b == null || a.length != b.length) return -1;
+        // 嵌入向量已 L2 归一化，cosine = dot product
+        // 仍保留范数计算作为防御，但对已归一化向量几乎零开销
         double dot = 0, na = 0, nb = 0;
         for (int i = 0; i < a.length; i++) {
             dot += a[i] * b[i];
             na += a[i] * a[i];
             nb += b[i] * b[i];
         }
-        double denom = Math.sqrt(na) * Math.sqrt(nb);
+        double denom = Math.sqrt(na * nb);
         if (denom < 1e-6) return -1;
         return dot / denom;
     }
 
     private String toJson(float[] arr) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
+        StringBuilder sb = new StringBuilder(arr.length * 10);
+        sb.append('[');
         for (int i = 0; i < arr.length; i++) {
-            if (i > 0) sb.append(",");
-            sb.append(String.format(java.util.Locale.US, "%.6f", arr[i]));
+            if (i > 0) sb.append(',');
+            sb.append(arr[i]);
         }
-        sb.append("]");
+        sb.append(']');
         return sb.toString();
     }
 
@@ -2253,9 +2323,18 @@ public class FaceService {
             return null;
         }
 
-        // 计算平均值
         for (int i = 0; i < vectorSize; i++) {
             avgVector[i] /= validFaces;
+        }
+
+        // L2 归一化，确保 cosine 计算正确
+        double norm = 0;
+        for (float v : avgVector) norm += v * v;
+        norm = Math.sqrt(norm);
+        if (norm > 1e-6) {
+            for (int i = 0; i < vectorSize; i++) {
+                avgVector[i] /= (float) norm;
+            }
         }
 
         return avgVector;

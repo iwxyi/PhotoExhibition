@@ -59,15 +59,34 @@
             />
           </div>
         </div>
+        <!-- 人物/聚类 tab 切换 -->
+        <div class="flex gap-1 mb-2">
+          <button
+            @click="leftPanelTab = 'confirmed'"
+            class="flex-1 px-2 py-1 rounded text-xs transition-colors"
+            :class="leftPanelTab === 'confirmed' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+          >
+            人物 ({{ confirmedPersons.length }})
+          </button>
+          <button
+            @click="leftPanelTab = 'cluster'"
+            class="flex-1 px-2 py-1 rounded text-xs transition-colors"
+            :class="leftPanelTab === 'cluster' ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+          >
+            聚类 ({{ clusterPersons.length }})
+          </button>
+        </div>
+        <!-- 已确认人物列表 -->
         <div
-          ref="personListContainer"
+          v-show="leftPanelTab === 'confirmed'"
+          ref="confirmedListContainer"
           class="flex-1 overflow-y-auto overflow-x-hidden"
           :style="{ display: 'grid', gridTemplateColumns: `repeat(${personColumns}, 1fr)`, gap: '8px', alignContent: 'start', gridAutoFlow: 'row' }"
         >
-          <!-- 已认领人物 -->
           <div
             v-for="p in visibleConfirmedPersons"
             :key="`confirmed-${p.id}`"
+            :data-person-key="`confirmed-${p.id}`"
             class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/70 hover:bg-gray-700/80"
             :class="[
               isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : '',
@@ -92,11 +111,20 @@
               <div class="text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
             </div>
           </div>
-          
-          <!-- 未确认聚类 -->
+          <div v-if="!visibleConfirmedPersons.length && !loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">暂无人物</div>
+          <div v-if="loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
+        </div>
+        <!-- 聚类列表 -->
+        <div
+          v-show="leftPanelTab === 'cluster'"
+          ref="clusterListContainer"
+          class="flex-1 overflow-y-auto overflow-x-hidden"
+          :style="{ display: 'grid', gridTemplateColumns: `repeat(${personColumns}, 1fr)`, gap: '8px', alignContent: 'start', gridAutoFlow: 'row' }"
+        >
           <div
             v-for="p in visibleClusterPersons"
             :key="`cluster-${p.id}`"
+            :data-person-key="`cluster-${p.id}`"
             class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/60 hover:bg-gray-700/70"
             :class="isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : ''"
             @click="selectPerson(p)"
@@ -117,13 +145,9 @@
               <div class="text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
             </div>
           </div>
-          
-          <div v-if="!persons.length && !loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">暂无人物</div>
-          <div v-if="loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
+          <div v-if="!visibleClusterPersons.length && !loadingPersons && !loadingClusters" class="col-span-full text-gray-500 text-xs text-center py-4">暂无聚类</div>
+          <div v-if="loadingPersons || loadingClusters" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
         </div>
-          <div class="mt-3 text-[11px] text-gray-300">
-            <div>共 {{ persons.length }} 个</div>
-          </div>
 
         <!-- 选中人物的姓名 / 备注 / 删除按钮 -->
         <div v-if="selectedItem" class="mt-3 pt-3 border-t border-gray-700 space-y-2">
@@ -1148,6 +1172,10 @@ const personContextMenu = ref({
   y: 0,
   person: null as PersonListItem | null
 })
+// 左侧面板 tab 切换
+const leftPanelTab = ref<'confirmed' | 'cluster'>('confirmed')
+const confirmedListContainer = ref<HTMLElement | null>(null)
+const clusterListContainer = ref<HTMLElement | null>(null)
 
 // 聚类分页
 const clusterPage = ref(0)
@@ -1472,8 +1500,9 @@ const stopResizeAlbums = () => {
 }
 
 const updateContainerWidth = () => {
-  if (personListContainer.value) {
-    containerWidth.value = personListContainer.value.clientWidth
+  const el = confirmedListContainer.value || clusterListContainer.value || personListContainer.value
+  if (el) {
+    containerWidth.value = el.clientWidth
   }
 }
 
@@ -1684,6 +1713,22 @@ const isSelected = (p: PersonListItem) => {
   return selectedItem.value.type === p.type && selectedItem.value.id === p.id
 }
 
+const scrollToSelectedPerson = (p: PersonListItem) => {
+  const container = p.type === 'confirmed' ? confirmedListContainer.value : clusterListContainer.value
+  if (!container) return
+  const key = `${p.type}-${p.id}`
+  const el = container.querySelector(`[data-person-key="${key}"]`) as HTMLElement
+  if (el) {
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+}
+
+const getActiveListContainer = () => {
+  return leftPanelTab.value === 'confirmed'
+    ? confirmedListContainer.value
+    : clusterListContainer.value
+}
+
 const selectPerson = (p: PersonListItem) => {
   // 取消之前的请求
   if (abortController) {
@@ -1818,7 +1863,7 @@ const refreshPersonsAfterFaceChange = async () => {
     : null
 
   // 保存滚动位置和已加载的聚类页数
-  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
 
   await loadPersons({ restoreClusterPages: savedClusterPage })
@@ -2323,7 +2368,7 @@ const savePersonName = async (p: PersonListItem) => {
   
   savingPerson.value = true
   try {
-    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
     const savedClusterPage = clusterPage.value
 
     console.debug('[Persons] savePersonName request', {
@@ -2338,8 +2383,9 @@ const savePersonName = async (p: PersonListItem) => {
     cancelEdit()
 
     await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+    const activeContainer = getActiveListContainer()
+    if (activeContainer) {
+      activeContainer.scrollTop = savedScrollTop
     }
   } catch (e: any) {
     alert('保存失败: ' + (e.response?.data?.error || e.message))
@@ -2358,7 +2404,7 @@ const saveSelectedPersonName = async () => {
   }
   savingPerson.value = true
   try {
-    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
     const savedClusterPage = clusterPage.value
 
     await api.put(`/admin/persons/${selectedItem.value.id}`, {
@@ -2376,8 +2422,9 @@ const saveSelectedPersonName = async () => {
     }
 
     await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+    const activeContainer = getActiveListContainer()
+    if (activeContainer) {
+      activeContainer.scrollTop = savedScrollTop
     }
   } catch (e: any) {
     alert('保存姓名失败: ' + (e.response?.data?.error || e.message))
@@ -2397,8 +2444,6 @@ const createPersonFromSelectedCluster = async () => {
   if (!name) return
   savingPerson.value = true
   try {
-    // 保存滚动位置和已加载的聚类页数，以便创建后恢复
-    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
     const savedClusterPage = clusterPage.value
 
     // 获取当前聚类的人脸ID
@@ -2414,7 +2459,7 @@ const createPersonFromSelectedCluster = async () => {
       description: ''
     })
 
-    // 重新加载人物列表（恢复之前的聚类页数），并选中新建或合并后的人物
+    // 重新加载人物列表（恢复聚类页数保持聚类 tab 滚动位置）
     const createdId = resCreate?.data?.id
     await loadPersons({ restoreClusterPages: savedClusterPage })
     let created: PersonListItem | undefined
@@ -2425,13 +2470,13 @@ const createPersonFromSelectedCluster = async () => {
       created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
     }
     if (created) {
+      // 切换到人物 tab 并选中新建的人物
+      leftPanelTab.value = 'confirmed'
       selectPerson(created)
-    }
 
-    // 恢复滚动位置
-    await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+      // 滚动人物列表到新建的人物位置
+      await nextTick()
+      scrollToSelectedPerson(created)
     }
   } catch (e: any) {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
@@ -2472,7 +2517,7 @@ const createPersonFromName = async (p: PersonListItem) => {
   savingPerson.value = true
   try {
     // 保存滚动位置和已加载的聚类页数
-    const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+    const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
     const savedClusterPage = clusterPage.value
 
     const res = await api.get(`/admin/clusters/${selectedClusterIndex.value}/faces`, {
@@ -2489,7 +2534,6 @@ const createPersonFromName = async (p: PersonListItem) => {
     const createdId = resCreate?.data?.id
     await loadPersons({ restoreClusterPages: savedClusterPage })
     cancelEdit()
-    // Prefer selecting by returned id, fallback to name or first entry
     let created: PersonListItem | undefined
     if (createdId) {
       created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
@@ -2497,12 +2541,11 @@ const createPersonFromName = async (p: PersonListItem) => {
     if (!created) {
       created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
     }
-    if (created) selectPerson(created)
-
-    // 恢复滚动位置
-    await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+    if (created) {
+      leftPanelTab.value = 'confirmed'
+      selectPerson(created)
+      await nextTick()
+      scrollToSelectedPerson(created)
     }
   } catch (e: any) {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
@@ -2522,7 +2565,7 @@ const savePersonDescription = async () => {
   const newDesc = editingDescription.value.trim()
   if (newDesc === originalDescription.value) return
 
-  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
   
   try {
@@ -2534,8 +2577,9 @@ const savePersonDescription = async () => {
     await loadPersons({ restoreClusterPages: savedClusterPage })
 
     await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+    const activeContainer = getActiveListContainer()
+    if (activeContainer) {
+      activeContainer.scrollTop = savedScrollTop
     }
   } catch (e: any) {
     alert('保存备注失败: ' + (e.response?.data?.error || e.message))
@@ -2987,7 +3031,7 @@ const restoreFace = async (faceId: number) => {
 // 将人脸设为人物头像
 const setAsPersonAvatar = async (face: any) => {
   if (!selectedPersonId.value) return
-  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
   try {
     await personApi.setSamplePhoto(selectedPersonId.value, face.id)
@@ -3002,8 +3046,9 @@ const setAsPersonAvatar = async (face: any) => {
     // 刷新人物卡片
     await loadPersons({ restoreClusterPages: savedClusterPage })
     await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+    const activeContainer = getActiveListContainer()
+    if (activeContainer) {
+      activeContainer.scrollTop = savedScrollTop
     }
   } catch (error) {
     console.error('设置头像失败:', error)
@@ -4699,11 +4744,12 @@ onMounted(() => {
   nextTick(() => {
     updateContainerWidth()
     recalcFacePageSize()
-    if (personListContainer.value && 'ResizeObserver' in window) {
+    const widthObserveTarget = confirmedListContainer.value || personListContainer.value
+    if (widthObserveTarget && 'ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(() => {
         updateContainerWidth()
       })
-      resizeObserver.observe(personListContainer.value)
+      resizeObserver.observe(widthObserveTarget)
     }
     if (tabScrollContainer.value && 'ResizeObserver' in window) {
       faceResizeObserver = new ResizeObserver(() => {
@@ -4731,9 +4777,9 @@ onMounted(() => {
     window.addEventListener('resize', recalcFacePageSize)
     window.addEventListener('keydown', handleGlobalKeydown)
 
-    // 添加人物列表滚动监听器
-    if (personListContainer.value) {
-      personListContainer.value.addEventListener('scroll', handlePersonScroll, { passive: true })
+    // 添加聚类列表滚动监听器（用于无限加载）
+    if (clusterListContainer.value) {
+      clusterListContainer.value.addEventListener('scroll', handlePersonScroll, { passive: true })
     }
   })
 })
@@ -4759,7 +4805,7 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
   if (!selectedItem.value || selectedItem.value.type !== 'cluster') return
 
   // 保存滚动位置和已加载的聚类页数
-  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
 
   try {
@@ -4783,17 +4829,13 @@ const mergeToExistingPerson = async (targetPerson: PersonListItem) => {
     await loadPersons({ restoreClusterPages: savedClusterPage })
     const found = persons.value.find(p => p.type === 'confirmed' && p.id === targetPerson.id)
     if (found) {
+      leftPanelTab.value = 'confirmed'
       selectPerson(found)
+      await nextTick()
+      scrollToSelectedPerson(found)
     } else {
-      // fallback: clear selection
       selectedItem.value = null
       selectedClusterIndex.value = null
-    }
-
-    // 恢复滚动位置
-    await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
     }
   } catch (error) {
     console.error('合并到现有人物失败:', error)
@@ -5015,7 +5057,7 @@ const handleCreatePersonFromClaimDialog = async () => {
   }
 
   // 保存滚动位置和已加载的聚类页数
-  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
 
   try {
@@ -5032,16 +5074,13 @@ const handleCreatePersonFromClaimDialog = async () => {
     // 刷新人物列表（恢复之前的聚类页数）
     await loadPersons({ restoreClusterPages: savedClusterPage })
 
-    // 选中新创建的人物
+    // 选中新创建的人物，切换到人物tab
     const found = persons.value.find(p => p.type === 'confirmed' && p.id === newPersonId)
     if (found) {
+      leftPanelTab.value = 'confirmed'
       selectPerson(found)
-    }
-
-    // 恢复滚动位置
-    await nextTick()
-    if (personListContainer.value) {
-      personListContainer.value.scrollTop = savedScrollTop
+      await nextTick()
+      scrollToSelectedPerson(found)
     }
 
     // 如果是从聚类tab来的，刷新聚类人脸列表
@@ -5081,7 +5120,7 @@ const confirmClaimToPerson = async () => {
   }
 
   // 保存滚动位置和已加载的聚类页数
-  const savedScrollTop = personListContainer.value?.scrollTop ?? 0
+  const savedScrollTop = getActiveListContainer()?.scrollTop ?? 0
   const savedClusterPage = clusterPage.value
   
   try {
@@ -5192,9 +5231,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', recalcFacePageSize)
   window.removeEventListener('keydown', handleGlobalKeydown)
 
-  // 移除人物列表滚动监听器
-  if (personListContainer.value) {
-    personListContainer.value.removeEventListener('scroll', handlePersonScroll)
+  // 移除聚类列表滚动监听器
+  if (clusterListContainer.value) {
+    clusterListContainer.value.removeEventListener('scroll', handlePersonScroll)
   }
 })
 

@@ -9,6 +9,7 @@ import ai.onnxruntime.*;
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.awt.RenderingHints;
 import java.awt.image.RasterFormatException;
 import java.io.File;
 import java.nio.FloatBuffer;
@@ -30,12 +31,22 @@ public class FaceEmbeddingService implements AutoCloseable {
      */
     public float[] extract(File imageFile, Face face) {
         try {
-            ensureSession();
-            if (session == null) {
-                return null;
-            }
             BufferedImage img = ImageIO.read(imageFile);
             if (img == null) return null;
+            return extractFromImage(img, face);
+        } catch (Exception e) {
+            log.warn("人脸向量提取失败: {}", imageFile.getName(), e);
+        }
+        return null;
+    }
+
+    /**
+     * 从已加载的图片提取人脸向量（避免重复磁盘 I/O）
+     */
+    public float[] extractFromImage(BufferedImage img, Face face) {
+        try {
+            ensureSession();
+            if (session == null) return null;
 
             BufferedImage crop = cropFace(img, face);
             if (crop == null) return null;
@@ -55,7 +66,7 @@ public class FaceEmbeddingService implements AutoCloseable {
                 input.close();
             }
         } catch (Exception e) {
-            log.warn("人脸向量提取失败: {}", imageFile.getName(), e);
+            log.warn("人脸向量提取失败", e);
         }
         return null;
     }
@@ -95,10 +106,10 @@ public class FaceEmbeddingService implements AutoCloseable {
     }
 
     private BufferedImage resize(BufferedImage src, int w, int h) {
-        Image tmp = src.getScaledInstance(w, h, Image.SCALE_SMOOTH);
         BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D g2d = out.createGraphics();
-        g2d.drawImage(tmp, 0, 0, null);
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2d.drawImage(src, 0, 0, w, h, null);
         g2d.dispose();
         return out;
     }
