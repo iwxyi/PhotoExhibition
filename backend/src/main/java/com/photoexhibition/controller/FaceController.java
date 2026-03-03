@@ -535,12 +535,9 @@ public class FaceController {
         }
 
         log.info("批量绑定人脸调用 - personId: {}, confirmed: {}, 数量: {}", personId, confirmed, faceIds.size());
-        log.debug("批量绑定人脸 ID 列表: {}", faceIds);
-        for (Long fid : faceIds) {
-            faceService.assignFaceToPerson(fid, personId, confirmed);
-        }
-        log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, faceIds.size());
-        return ResponseEntity.ok(Map.of("message", "已批量绑定 " + faceIds.size() + " 个人脸"));
+        int count = faceService.batchAssignFacesToPerson(faceIds, personId, confirmed);
+        log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, count);
+        return ResponseEntity.ok(Map.of("message", "已批量绑定 " + count + " 个人脸"));
     }
 
     /**
