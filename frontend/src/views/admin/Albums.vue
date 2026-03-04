@@ -435,7 +435,10 @@
         <div class="glass-dialog rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-6 pb-4">
-            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册【{{ currentAlbum?.displayTitle || currentAlbum?.name }}】特效</h3>
+            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
+            <p class="text-sm text-gray-400 mb-4">
+              为相册 <strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong> 设置氛围特效
+            </p>
           </div>
 
           <!-- 可滚动内容区域 -->
@@ -1199,6 +1202,7 @@ const availableEffects = ref([
   { type: 'meteor', name: '流星', description: '划过夜空 · 带拖尾光迹', imageMode: true },
   { type: 'firefly', name: '萤火虫', description: '夜间发光飘动的萤火虫', imageMode: true },
   { type: 'rain', name: '雨滴', description: '倾斜飘落的雨丝', imageMode: true },
+  { type: 'rain_on_containers', name: '雨落图片', description: '雨滴落在照片上并沿边缘流淌', imageMode: false },
   { type: 'bubble', name: '气泡', description: '缓缓上升的透明气泡', imageMode: true },
   { type: 'dandelion', name: '蒲公英', description: '随风飘散的蒲公英种子', imageMode: true },
   { type: 'hearts', name: '爱心', description: '缓缓上升的爱心 · 脉动效果', imageMode: true },

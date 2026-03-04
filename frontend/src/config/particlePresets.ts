@@ -57,6 +57,12 @@ export const effectParamDefs: Record<string, EffectParamDef[]> = {
     { key: 'wind', label: '风力' },
     { key: 'opacity', label: '透明度' },
   ],
+  rain_on_containers: [
+    { key: 'count', label: '雨量' },
+    { key: 'speed', label: '下落速度' },
+    { key: 'size', label: '雨滴大小' },
+    { key: 'opacity', label: '透明度' },
+  ],
   bubble: [
     { key: 'count', label: '气泡数量' },
     { key: 'speed', label: '上升速度' },

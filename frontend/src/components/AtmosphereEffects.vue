@@ -18,12 +18,24 @@
     :layer="eff.layer"
     :interaction="interaction"
   />
+  <RainOnContainers
+    v-for="eff in containerRainEffects"
+    :key="eff.key"
+    :count="eff.count"
+    :layer="eff.layer"
+    :opacity="eff.opacity"
+    :speed-multiplier="eff.speedMul"
+    :size-multiplier="eff.sizeMul"
+    :intensity="eff.intensity"
+    :interaction="interaction"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount } from 'vue'
 import CanvasParticleRenderer from './CanvasParticleRenderer.vue'
 import CanvasShaderEffect from './CanvasShaderEffect.vue'
+import RainOnContainers from './RainOnContainers.vue'
 import { hasImagePreset, getPreset, getParticleCount } from '@/config/particlePresets'
 import { isShaderEffect } from '@/config/shaderEffects'
 import { useEffectInteraction, type ClickEvent } from '@/composables/useEffectInteraction'
@@ -93,6 +105,34 @@ const shaderEffectList = computed(() => {
       if (!params.intensity) params.intensity = presetVal
       if (!params.speed) params.speed = presetVal
       return { type: e.type, params, layer, key: 'shader-' + e.type + '-' + layer }
+    })
+})
+
+// Special effect: rain drops on photo containers with water flow
+const containerRainEffects = computed(() => {
+  if (!props.effects) return []
+  return props.effects
+    .filter(e => e.type === 'rain_on_containers')
+    .map(e => {
+      const layer = (e.config?.layer || e.layer || 'above') as 'above' | 'background'
+      const custom = e.config?.custom || {}
+      const intensity = e.intensity || 'medium'
+      const presetVal = intensity === 'low' ? 3 : intensity === 'high' ? 8 : 5
+
+      const count = custom.count !== undefined ? Math.round(custom.count * 20) : presetVal * 20
+      const speedMul = custom.speed !== undefined ? custom.speed / 5 : 1
+      const sizeMul = custom.size !== undefined ? custom.size / 5 : 1
+      const opacity = custom.opacity !== undefined ? custom.opacity / 10 : 0.7
+
+      return {
+        count,
+        layer,
+        speedMul,
+        sizeMul,
+        opacity,
+        intensity,
+        key: 'rain-on-containers-' + layer
+      }
     })
 })
 </script>

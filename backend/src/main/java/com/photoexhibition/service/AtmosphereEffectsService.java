@@ -38,6 +38,15 @@ public class AtmosphereEffectsService {
         TAG_EFFECTS.put("冬雪", new AtmosphereEffectConfig("snow", "medium"));
         TAG_EFFECTS.put("雪地", new AtmosphereEffectConfig("snow", "low"));
 
+        // 雨天相关 - 雨滴落在图片容器上并流淌
+        TAG_EFFECTS.put("雨天", new AtmosphereEffectConfig("rain_on_containers", "medium"));
+        TAG_EFFECTS.put("下雨", new AtmosphereEffectConfig("rain_on_containers", "high"));
+        TAG_EFFECTS.put("雨", new AtmosphereEffectConfig("rain_on_containers", "medium"));
+        TAG_EFFECTS.put("暴雨", new AtmosphereEffectConfig("rain_on_containers", "high"));
+        TAG_EFFECTS.put("阵雨", new AtmosphereEffectConfig("rain_on_containers", "low"));
+        TAG_EFFECTS.put("rainy", new AtmosphereEffectConfig("rain_on_containers", "medium"));
+        TAG_EFFECTS.put("rain", new AtmosphereEffectConfig("rain_on_containers", "medium"));
+
         // 樱花相关
         TAG_EFFECTS.put("樱花", new AtmosphereEffectConfig("cherry_blossom", "high"));
         TAG_EFFECTS.put("樱花树", new AtmosphereEffectConfig("cherry_blossom", "high"));
@@ -280,6 +289,16 @@ public class AtmosphereEffectsService {
                 config.put("fallSpeed", intensity.equals("high") ? 1.5 : intensity.equals("medium") ? 1.0 : 0.7);
                 config.put("sway", true);
                 config.put("colors", Arrays.asList("#d2691e", "#daa520", "#cd853f", "#deb887"));
+                config.put("layer", layer != null ? layer : "above");
+                if (!isManual) config.put("source", "auto");
+                break;
+
+            case "rain_on_containers":
+                // 雨滴落在图片容器上并流淌的效果
+                config.put("count", intensity.equals("high") ? 8 : intensity.equals("medium") ? 5 : 3);
+                config.put("speed", intensity.equals("high") ? 2.0 : intensity.equals("medium") ? 1.5 : 1.0);
+                config.put("size", intensity.equals("high") ? 6 : intensity.equals("medium") ? 4 : 3);
+                config.put("opacity", intensity.equals("high") ? 9 : intensity.equals("medium") ? 7 : 5);
                 config.put("layer", layer != null ? layer : "above");
                 if (!isManual) config.put("source", "auto");
                 break;
