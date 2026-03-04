@@ -1920,6 +1920,25 @@ public class FaceService {
     }
 
     /**
+     * 根据名称搜索人物（用于短链接）
+     * 返回匹配的第一个可见人物
+     */
+    public PersonSummaryDTO searchPersonByName(String name) {
+        List<PersonProfile> persons = personProfileRepository.searchByNameList(name);
+        // 优先返回可见的人物
+        for (PersonProfile person : persons) {
+            if (person.getHidden() == null || !person.getHidden()) {
+                return toSummaryDTO(person);
+            }
+        }
+        // 如果没有可见的，返回第一个匹配的
+        if (!persons.isEmpty()) {
+            return toSummaryDTO(persons.get(0));
+        }
+        return null;
+    }
+
+    /**
      * 获取人物的样例照片（统一逻辑）
      * 1. 优先返回已设置的样例照片
      * 2. 如果未设置或文件不存在，返回动态计算的最高置信度人脸

@@ -256,11 +256,12 @@ export const personApi = {
   // 获取人物的所有照片（人脸所在照片）
   getPersonPhotos: (personId: number, page = 0, size = 20) => api.get(`/public/persons/${personId}/photos?page=${page}&size=${size}`),
 
-  // 获取指定相册中的人物列表（按人脸数量倒序）
-  getAlbumPersons: (albumId: number) => api.get<PersonSummary[]>(`/public/albums/${albumId}/persons`),
-
   // 设置人物的样例照片
-  setSamplePhoto: (personId: number, faceId: number) => api.post<Person>(`/admin/persons/${personId}/set-sample`, { faceId })
+  setSamplePhoto: (personId: number, faceId: number) => api.post<Person>(`/admin/persons/${personId}/set-sample`, { faceId }),
+
+  // 根据名称搜索人物
+  searchByName: (name: string) =>
+    api.get<PersonSummary>(`/public/persons/search?name=${encodeURIComponent(name)}`)
 }
 
 // AI增强分析相关API
@@ -290,7 +291,15 @@ export const aiApi = {
 export const albumApi = {
   // 设置相册自定义封面
   setAlbumCover: (albumId: number, coverImageIds: number[]) =>
-    api.put(`/albums/${albumId}/cover`, { coverImageIds })
+    api.put(`/albums/${albumId}/cover`, { coverImageIds }),
+
+  // 根据名称搜索相册
+  searchByName: (name: string) =>
+    api.get<AlbumDTO>(`/albums/search?name=${encodeURIComponent(name)}`),
+
+  // 搜索相册和人物
+  searchAll: (q: string) =>
+    api.get<{ albums: AlbumDTO[]; persons: PersonSummary[] }>(`/public/search?q=${encodeURIComponent(q)}`)
 }
 
 // 背景移除相关API

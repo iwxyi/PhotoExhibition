@@ -26,5 +26,17 @@ public interface PersonProfileRepository extends JpaRepository<PersonProfile, Lo
      */
     @Query("SELECT p FROM PersonProfile p LEFT JOIN p.faces f WHERE p.hidden = false OR p.hidden IS NULL GROUP BY p ORDER BY COUNT(f) DESC")
     Page<PersonProfile> findVisibleOrderByFaceCountDesc(Pageable pageable);
+
+    /**
+     * 根据名称模糊搜索人物（用于短链接）
+     */
+    @Query("SELECT p FROM PersonProfile p WHERE p.name LIKE %:name% ORDER BY SIZE(p.faces) DESC")
+    Optional<PersonProfile> searchByName(@Param("name") String name);
+
+    /**
+     * 根据名称模糊搜索人物列表（返回多个结果用于匹配）
+     */
+    @Query("SELECT p FROM PersonProfile p WHERE p.name LIKE %:name% ORDER BY SIZE(p.faces) DESC")
+    java.util.List<PersonProfile> searchByNameList(@Param("name") String name);
 }
 

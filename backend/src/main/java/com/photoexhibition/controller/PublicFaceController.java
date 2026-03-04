@@ -3,9 +3,12 @@ package com.photoexhibition.controller;
 import com.photoexhibition.dto.FaceDTO;
 import com.photoexhibition.dto.PersonSummaryDTO;
 import com.photoexhibition.dto.AlbumRecommendationDTO;
+import com.photoexhibition.dto.AlbumDTO;
 import com.photoexhibition.entity.PersonProfile;
+import com.photoexhibition.entity.Album;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.FaceService;
+import com.photoexhibition.service.AlbumService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -15,6 +18,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/public")
@@ -25,6 +32,7 @@ public class PublicFaceController {
 
     private final FaceService faceService;
     private final PersonProfileRepository personProfileRepository;
+    private final AlbumService albumService;
 
     /**
      * 获取人物列表（含代表头像）- 公开API
@@ -83,5 +91,56 @@ public class PublicFaceController {
     @GetMapping("/albums/{albumId}/persons")
     public ResponseEntity<List<PersonSummaryDTO>> getPersonsInAlbum(@PathVariable Long albumId) {
         return ResponseEntity.ok(faceService.getPersonsInAlbum(albumId, true));
+    }
+
+    /**
+     * 根据名称搜索人物（用于短链接）
+     */
+    @GetMapping("/persons/search")
+    public ResponseEntity<PersonSummaryDTO> searchPersonByName(@RequestParam String name) {
+        PersonSummaryDTO person = faceService.searchPersonByName(name);
+        if (person == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(person);
+    }
+
+    /**
+     * 通用搜索（搜索相册和人物）
+     * 返回匹配的结果列表
+     */
+    @GetMapping("/search")
+    public ResponseEntity<Map<String, Object>> globalSearch(@RequestParam String q) {
+        Map<String, Object> result = new HashMap<>();
+
+        // 搜索相册
+        List<AlbumDTO> albums = new ArrayList<>();
+        try {
+            List<Album> albumList = albumService.searchAlbumsByName(q);
+            albums = albumList.stream()
+                .limit(10)
+                .map(albumService::convertToDTO)
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("搜索相册失败: {}", e.getMessage());
+        }
+        result.put("albums", albums);
+
+        // 搜索人物
+        List<PersonSummaryDTO> persons = new ArrayList<>();
+        try {
+            List<PersonProfile> personList = personProfileRepository.searchByNameList(q);
+            for (PersonProfile p : personList) {
+                if (persons.size() >= 10) break;
+                if (p.getHidden() == null || !p.getHidden()) {
+                    persons.add(faceService.toSummaryDTO(p));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("搜索人物失败: {}", e.getMessage());
+        }
+        result.put("persons", persons);
+
+        return ResponseEntity.ok(result);
     }
 }

@@ -77,6 +77,18 @@ public class AlbumController {
     }
 
     /**
+     * 根据名称搜索相册（用于短链接）
+     */
+    @GetMapping("/search")
+    public ResponseEntity<AlbumDTO> searchAlbumByName(@RequestParam String name) {
+        AlbumDTO album = albumService.searchAlbumByName(name);
+        if (album == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(album);
+    }
+
+    /**
      * 获取相册的封面图片组合
      */
     @GetMapping("/{id}/cover")

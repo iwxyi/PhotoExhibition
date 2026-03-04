@@ -40,6 +40,24 @@ const routes = [
     component: () => import('@/views/PersonDetail.vue'),
     meta: { transitionName: 'none' } // 禁用页面过渡动画，只使用FLIP动画
   },
+  // 短路由：/a/关键词 -> 相册
+  {
+    path: '/a/:keyword',
+    name: 'AlbumShort',
+    component: () => import('@/views/ShortLink.vue')
+  },
+  // 短路由：/p/关键词 -> 人物
+  {
+    path: '/p/:keyword',
+    name: 'PersonShort',
+    component: () => import('@/views/ShortLink.vue')
+  },
+  // 短路由：/s/关键词 -> 搜索
+  {
+    path: '/s/:keyword',
+    name: 'SearchShort',
+    component: () => import('@/views/Search.vue')
+  },
   {
     path: '/admin/login',
     name: 'AdminLogin',

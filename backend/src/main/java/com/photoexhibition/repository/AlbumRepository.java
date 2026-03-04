@@ -116,5 +116,11 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
     @EntityGraph(attributePaths = "tags")
     @Query("SELECT a FROM Album a WHERE a.aggregateSubAlbums = true")
     List<Album> findAlbumsWithAggregationEnabled();
+
+    /**
+     * 根据名称模糊搜索相册（用于短链接）
+     */
+    @Query("SELECT a FROM Album a WHERE a.name LIKE %:name% ORDER BY a.photoCount DESC")
+    List<Album> searchByName(@Param("name") String name);
 }
 

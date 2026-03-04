@@ -188,6 +188,37 @@ public class AlbumService {
     }
 
     /**
+     * 根据名称模糊搜索相册（用于短链接）
+     * 返回匹配的第一个有照片的相册
+     */
+    public AlbumDTO searchAlbumByName(String name) {
+        List<Album> albums = albumRepository.searchByName(name);
+        // 优先返回有照片的相册
+        for (Album album : albums) {
+            if (album.getPhotoCount() != null && album.getPhotoCount() > 0) {
+                return convertToDTO(album);
+            }
+        }
+        // 如果没有有照片的，返回第一个匹配的
+        if (!albums.isEmpty()) {
+            return convertToDTO(albums.get(0));
+        }
+        return null;
+    }
+
+    /**
+     * 根据名称模糊搜索相册列表（用于全局搜索）
+     * 返回匹配的有照片的相册列表
+     */
+    public List<Album> searchAlbumsByName(String name) {
+        List<Album> albums = albumRepository.searchByName(name);
+        // 只返回有照片的相册
+        return albums.stream()
+            .filter(album -> album.getPhotoCount() != null && album.getPhotoCount() > 0)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * 更新相册基础信息（名称/描述）
      */
     public AlbumDTO updateAlbum(Long id, AlbumDTO dto) {
