@@ -16,6 +16,7 @@
         <div class="flex flex-wrap gap-4">
           <input v-model="keyword" placeholder="搜索名称/路径" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <button v-on:click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
+          <span v-if="loading && albums.length === 0" class="text-sm text-gray-400 py-2">加载中...</span>
         </div>
       </div>
 
@@ -434,10 +435,7 @@
         <div class="glass-dialog rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-6 pb-4">
-            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
-            <p class="text-sm text-gray-400 mb-4">
-              为相册 <strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong> 设置氛围特效
-            </p>
+            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册【{{ currentAlbum?.displayTitle || currentAlbum?.name }}】特效</h3>
           </div>
 
           <!-- 可滚动内容区域 -->
@@ -1128,6 +1126,7 @@ const router = useRouter()
 
 const albums = ref<any[]>([])
 const loading = ref(false)
+const isDataLoaded = ref(false)  // 标记数据是否已加载（用于缓存）
 const keyword = ref('')
 const showMenuForAlbum = ref<any>(null)
 const menuPosition = ref({ x: 0, y: 0 })
@@ -1260,6 +1259,7 @@ const load = async () => {
       hasMoreData = content.length === PAGE_SIZE
       currentPage = 0
     }
+    isDataLoaded.value = true  // 标记数据已加载
   } finally {
     loading.value = false
   }
@@ -2648,13 +2648,17 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 
 onMounted(async () => {
   console.log('相册管理页面加载')
-  await Promise.all([
-    loadAllTags(),
-    loadAlbumSortOrder()
-  ])
-  await load()
-  isInitialized = true // 标记初始化完成，后续的排序设置变化才会触发重新加载
-  console.log('相册管理页面加载完成，相册数:', albums.value.length, '标签数:', allTags.value.length)
+  // 先获取排序设置（这是加载相册的必要前提）
+  await loadAlbumSortOrder()
+  // 排序设置获取完成后，在后台加载其他初始化数据
+  loadAllTags().then(() => {
+    isInitialized = true
+  })
+  // 只在首次进入时加载数据，后续进入使用缓存
+  if (!isDataLoaded.value) {
+    load()  // 移除 await，允许页面先渲染
+  }
+  console.log('相册管理页面已启动')
   window.addEventListener('keydown', handleGlobalKeydown)
   initScrollObserver()
 })

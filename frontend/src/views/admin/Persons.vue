@@ -62,14 +62,14 @@
         <!-- 人物/聚类 tab 切换 -->
         <div class="flex gap-1 mb-2">
           <button
-            @click="leftPanelTab = 'confirmed'"
+            @click="leftPanelTab = 'confirmed'; nextTick(() => updateContainerWidth())"
             class="flex-1 px-2 py-1 rounded text-xs transition-colors"
             :class="leftPanelTab === 'confirmed' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
           >
             人物 ({{ confirmedPersons.length }})
           </button>
           <button
-            @click="leftPanelTab = 'cluster'"
+            @click="leftPanelTab = 'cluster'; nextTick(() => updateContainerWidth())"
             class="flex-1 px-2 py-1 rounded text-xs transition-colors"
             :class="leftPanelTab === 'cluster' ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
           >
@@ -137,7 +137,7 @@
             </div>
             <div class="text-center w-full">
               <div
-                v-if="p.name"
+                v-if="p.name && p.name !== '未命名'"
                 class="font-medium text-xs truncate"
                 :class="(p as any).convertedFromClusterId ? 'text-blue-400' : 'text-yellow-400'"
                 :title="p.name"
@@ -1194,6 +1194,8 @@ const loadingClusters = ref(false)
 const selectedPersonId = ref<number | null>(null)
 const selectedClusterIndex = ref<number | null>(null)
 const loadingPersons = ref(false)
+// 标记人脸是否被修改（用于套图推荐tab刷新判断）
+const facesChanged = ref(false)
 // 各tab的独立加载状态
 const loadingConfirmedFaces = ref(false)
 const loadingSimilarFaces = ref(false)
@@ -1532,7 +1534,13 @@ const stopResizeAlbums = () => {
 }
 
 const updateContainerWidth = () => {
-  const el = confirmedListContainer.value || clusterListContainer.value || personListContainer.value
+  // 根据当前 tab 获取对应容器的宽度
+  let el = null
+  if (leftPanelTab.value === 'confirmed') {
+    el = confirmedListContainer.value || personListContainer.value
+  } else if (leftPanelTab.value === 'cluster') {
+    el = clusterListContainer.value
+  }
   if (el) {
     containerWidth.value = el.clientWidth
   }
@@ -1777,6 +1785,9 @@ const selectPerson = (p: PersonListItem) => {
   }
   abortController = new AbortController()
 
+  // 重置人脸变更标记（切换人物时）
+  facesChanged.value = false
+  
   selectedItem.value = p
   // 切换人物时清空未分配tab的数据，避免遗留上一个人物的数据
   unassignedFaces.value = []
@@ -2776,6 +2787,7 @@ const assignFace = async (faceId: number, confirmed: boolean = true) => {
     // 本地更新状态，避免刷新列表打断用户操作
     markFaceAssignedLocally(faceId, selectedPersonId.value)
     // 更新人物统计数字
+    facesChanged.value = true
     await refreshPersonsAfterFaceChange()
   } finally {
     const s2 = new Set(isAssigningFaceIds.value)
@@ -2803,13 +2815,12 @@ const confirmSelectedAuto = async () => {
       })
 
   selectedAuto.value.clear()
+  facesChanged.value = true
   await loadAllFaces()
   await refreshPersonsAfterFaceChange()
   } finally {
     isBatchAssigning.value = false
   }
-
-  // 移除自动切换逻辑，让用户自己选择要查看的tab
 }
 
 const removeSelectedAuto = async () => {
@@ -2817,6 +2828,7 @@ const removeSelectedAuto = async () => {
   const ids = Array.from(selectedAuto.value)
   await api.post('/admin/faces/batch-unassign', { faceIds: ids })
   selectedAuto.value.clear()
+  facesChanged.value = true
   await loadAllFaces()
   await refreshPersonsAfterFaceChange()
 }
@@ -2853,6 +2865,7 @@ const assignSelectedSimilar = async () => {
       })
 
     selectedSimilar.value.clear()
+    facesChanged.value = true
     await loadAllFaces()
     await refreshPersonsAfterFaceChange()
   } finally {
@@ -2946,6 +2959,7 @@ const assignSelectedAlbumFaces = async () => {
     selectedAlbumFaces.value.clear()
     // 更新相册统计
     updateAlbumClaimedCounts()
+    facesChanged.value = true
     await refreshPersonsAfterFaceChange()
   } finally {
     isBatchAssigning.value = false
@@ -2999,6 +3013,7 @@ const unassignPhotoOrFace = async (f: any) => {
       } catch (e) {
         console.error('unassignPhotoOrFace 本地标记错误', e)
       }
+      facesChanged.value = true
     }
 
     // 刷新数据
@@ -3041,6 +3056,7 @@ const assignSelectedAlbumPhotos = async () => {
   try {
     await api.post('/admin/photos/batch-assign', { photoIds, personId: selectedPersonId.value })
     selectedAlbumFaces.value.clear()
+    facesChanged.value = true
     if (selectedAlbum.value?.albumId) {
       await loadAlbumPhotos(selectedAlbum.value.albumId)
     }
@@ -3066,6 +3082,7 @@ const assignSelectedUnassigned = async () => {
       confirmed: true
     })
   selectedUnassigned.value.clear()
+  facesChanged.value = true
   await refreshPersonsAfterFaceChange()
   } finally {
     isBatchAssigning.value = false
@@ -3089,6 +3106,7 @@ const restoreFace = async (faceId: number) => {
   markFaceRestoredLocally(faceId)
   console.info('恢复人脸认领完成', { faceId })
   // 刷新人物统计
+  facesChanged.value = true
   await refreshPersonsAfterFaceChange()
 }
 
@@ -3145,6 +3163,7 @@ const unassignPhoto = async (photoId: number) => {
   // update locally immediately so UI reflects change
   markPhotoUnassignedLocally(photoId)
   console.info('移除图片认领完成', { photoId, remainingAssigned: assignedPhotos.value.length })
+  facesChanged.value = true
   await refreshPersonsAfterFaceChange()
 }
 
@@ -3823,6 +3842,7 @@ const removeSelectedConfirmed = async () => {
   const ids = Array.from(selectedConfirmed.value)
   await api.post('/admin/faces/batch-unassign', { faceIds: ids })
   selectedConfirmed.value.clear()
+  facesChanged.value = true
   await loadAllFaces()
   await refreshPersonsAfterFaceChange()
 }
@@ -3835,6 +3855,7 @@ const removeSelectedClusterFaces = async () => {
   const ids = Array.from(selectedClusterFaces.value)
   await api.post('/admin/faces/batch-unassign', { faceIds: ids })
   selectedClusterFaces.value.clear()
+  facesChanged.value = true
   await loadClusterFaces()
   await refreshPersonsAfterFaceChange()
 }
@@ -3858,6 +3879,7 @@ const handleRemoveSelected = async () => {
         console.info('批量解绑已确认人脸', { faceIds: ids })
         await api.post('/admin/faces/batch-unassign', { faceIds: ids })
         selection.value.clear()
+        facesChanged.value = true
         await loadConfirmedFaces()
         break
 
@@ -3866,6 +3888,7 @@ const handleRemoveSelected = async () => {
         console.info('批量解绑相似推荐人脸', { faceIds: ids })
         await api.post('/admin/faces/batch-unassign', { faceIds: ids })
         selection.value.clear()
+        facesChanged.value = true
         await loadSimilarFaces()
         break
 
@@ -3906,6 +3929,7 @@ const handleRemoveSelected = async () => {
         console.info('批量解绑相册内人脸（通过人脸ID）', { uniqueFaceIds })
         if (uniqueFaceIds.length > 0) {
           await api.post('/admin/faces/batch-unassign', { faceIds: uniqueFaceIds })
+          facesChanged.value = true
         } else {
           console.info('批量解绑相册内人脸：没有找到属于当前人物的人脸 ID')
           alert('没有找到属于当前人物的人脸用于移除')
@@ -3923,6 +3947,7 @@ const handleRemoveSelected = async () => {
         console.info('批量解绑未分配人脸', { faceIds: ids })
         await api.post('/admin/faces/batch-unassign', { faceIds: ids })
         selection.value.clear()
+        facesChanged.value = true
         await loadContextualUnassigned()
         break
 
@@ -3931,6 +3956,7 @@ const handleRemoveSelected = async () => {
         console.info('批量解绑聚类人脸', { faceIds: ids })
         await api.post('/admin/faces/batch-unassign', { faceIds: ids })
         selection.value.clear()
+        facesChanged.value = true
         await loadClusterFaces()
         break
     }
@@ -4300,6 +4326,8 @@ const claimSelectedAlbumFaces = async () => {
       personId: selectedPersonId.value,
       confirmed: true
     })
+
+    facesChanged.value = true
 
     // 重新加载相册数据以反映认领结果
     if (selectedAlbum.value) {
@@ -4758,18 +4786,20 @@ watch(tab, (v) => {
       if (!loadingPersonFaces.value && personFaces.value.length === 0) loadClusterFaces()
     }
   } else if (v === 'albums' && selectedPersonId.value) {
-    // 切换到套图推荐 tab：只在必要时加载相册列表，并在未选中相册时选中第一个
-    const selectFirstAlbum = async () => {
-      if (albumRecommendations.value.length === 0) {
+    // 切换到套图推荐 tab：如果人脸有变更则刷新相册列表，否则只在必要时加载
+    const refreshAlbumsIfNeeded = async () => {
+      if (facesChanged.value) {
+        // 人脸有变更，强制刷新相册列表
+        albumRecommendations.value = []
+        selectedAlbum.value = null
         await loadAlbumRecommendations()
+        facesChanged.value = false
       }
       if (!selectedAlbum.value && albumRecommendations.value.length > 0) {
         await selectAlbum(albumRecommendations.value[0])
       }
     }
-    if (!selectedAlbum.value) {
-      selectFirstAlbum()
-    }
+    refreshAlbumsIfNeeded()
   }
 })
 
@@ -4808,12 +4838,23 @@ onMounted(() => {
   nextTick(() => {
     updateContainerWidth()
     recalcFacePageSize()
-    const widthObserveTarget = confirmedListContainer.value || personListContainer.value
-    if (widthObserveTarget && 'ResizeObserver' in window) {
+    // 观察人物列表容器
+    const confirmedObserveTarget = confirmedListContainer.value || personListContainer.value
+    if (confirmedObserveTarget && 'ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(() => {
         updateContainerWidth()
       })
-      resizeObserver.observe(widthObserveTarget)
+      resizeObserver.observe(confirmedObserveTarget)
+    }
+    // 观察聚类列表容器
+    const clusterObserveTarget = clusterListContainer.value
+    if (clusterObserveTarget && 'ResizeObserver' in window) {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(() => {
+          updateContainerWidth()
+        })
+      }
+      resizeObserver.observe(clusterObserveTarget)
     }
     if (tabScrollContainer.value && 'ResizeObserver' in window) {
       faceResizeObserver = new ResizeObserver(() => {
