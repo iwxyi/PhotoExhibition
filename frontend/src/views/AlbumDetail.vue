@@ -80,7 +80,11 @@
         </div>
 
         <!-- 人物列表 - 横向可滚动 -->
-        <div v-if="albumPersons.length > 0" class="album-persons-section">
+        <div
+          v-if="albumPersons.length > 0"
+          class="album-persons-section"
+          :class="{ 'album-persons-section--dark': atmosphereEnabled && album?.backgroundColor }"
+        >
           <div class="album-persons-scroll">
             <div
               v-for="person in albumPersons"
@@ -218,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, nextTick, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useUiSettings } from '@/composables/useUiSettings'
@@ -317,6 +321,17 @@ const loadingMore = ref(false)
 const hasMore = ref(true)
 const pageSize = 30 // 每次加载30张照片
 const isInitialLoading = ref(true) // 初始加载状态，用于避免显示旧数据
+
+// 关键：进入详情页的 setup 阶段就同步清空上一相册数据，避免首帧闪现旧标题/备注
+// （相册详情页不在 KeepAlive include 列表中，因此不能依赖 onDeactivated）
+photoStore.currentAlbum = null
+photoStore.photos = []
+commentCount.value = 0
+albumPersons.value = []
+albumPersonsLoading.value = false
+imagesLoaded.value = false
+loadedImagesCount.value = 0
+totalImages.value = 0
 
 const { atmosphereEnabled, previewSize } = useUiSettings()
 
@@ -1599,22 +1614,8 @@ const startBackTransitionAndNavigate = () => {
   }
 }
 
-onMounted(async () => {
-  // 获取全局下载权限设置
-  try {
-    const response = await api.get('/admin/config/global-download-allowed')
-    globalDownloadAllowed.value = response.data.globalDownloadAllowed !== false
-  } catch (error) {
-    console.warn('获取全局下载权限设置失败:', error)
-    globalDownloadAllowed.value = false // 默认禁止
-  }
-
-  // 确保页面从顶部开始显示
-  window.scrollTo(0, 0)
-
-  // 添加窗口大小监听（实时响应）
-  window.addEventListener('resize', handleResize)
-
+// 加载相册数据的主要函数（onMounted 和 onActivated 都会调用）
+const loadAlbumData = async () => {
   // 解析相册 ID（支持 ID 或名称）
   const targetAlbumId = await resolveAlbumId()
   if (!targetAlbumId) {
@@ -1625,112 +1626,74 @@ onMounted(async () => {
 
   const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  
-  // 如果有需要动画的图片，且是从正常导航来的，立即隐藏它们（在数据加载前）
-  // 检查导航时间戳，确保只有最近的导航才能触发动画
-  const navigationTimestamp = sessionStorage.getItem('album-navigation-active')
-  const isFromNavigation = navigationTimestamp && (Date.now() - parseInt(navigationTimestamp)) < 5000 // 5秒内
 
-  // 获取并保存来源页面（用于返回导航）
-  // 优先级：URL 参数 > sessionStorage 已有值 > document.referrer > 空（直接 URL 访问）
+  // 如果有需要动画的图片，且是从正常导航来的，立即隐藏它们（在数据加载前）
+  const navigationTimestamp = sessionStorage.getItem('album-navigation-active')
+  const isFromNavigation = navigationTimestamp && (Date.now() - parseInt(navigationTimestamp)) < 5000
+
+  // 获取来源页面
   const fromParam = route.query.from as string
   let savedEntryPage = sessionStorage.getItem('album-entry-page')
-  
-  console.log('[AlbumDetail] onMounted - fromParam:', fromParam, 'referrer:', document.referrer, 'savedEntryPage:', savedEntryPage)
-  
-  // URL 参数优先
+
+  console.log('[AlbumDetail] loadAlbumData - fromParam:', fromParam, 'savedEntryPage:', savedEntryPage)
+
   if (fromParam) {
     sessionStorage.setItem('album-entry-page', fromParam)
-    console.log('[AlbumDetail] onMounted - saved from URL param:', fromParam)
   } else if (!savedEntryPage) {
-    // 只有在没有 sessionStorage 时，才从 referrer 获取
     if (document.referrer && document.referrer.includes(window.location.origin)) {
       try {
         const referrerUrl = new URL(document.referrer)
         const referrerPath = referrerUrl.pathname
-        // 只保存有效来源（不是当前页面或其他详情页）
         if (referrerPath && referrerPath !== route.path && !referrerPath.match(/^\/(album|person|photo|a|p)\/\d+$/)) {
           savedEntryPage = referrerPath
           sessionStorage.setItem('album-entry-page', savedEntryPage)
-          console.log('[AlbumDetail] onMounted - saved from referrer:', savedEntryPage)
+          console.log('[AlbumDetail] loadAlbumData - saved from referrer:', savedEntryPage)
         }
       } catch {
         // ignore
       }
     }
-  } else {
-    console.log('[AlbumDetail] onMounted - keep existing entry page:', savedEntryPage)
-  }
-
-  if (isFromNavigation) {
-    // 从正常导航来，保持动画状态
-  } else {
-    // 如果不是从导航来的（比如刷新），清除之前的动画状态标志
-    // 但不要在这里清除，因为返回动画还需要用到它
   }
 
   if (storedData && isFromNavigation) {
     try {
       const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
       const photoIdsToHide = coverRects.map(r => r.photoId)
-
-      // 在数据加载前，先标记需要隐藏的图片
       transitionPhotoIds.value = photoIdsToHide
       isTransitioning.value = true
     } catch (e) {
-      // 忽略解析错误
+      // ignore
     }
   }
-  
-  // 清除可能遗留的上一相册图片，避免在加载新相册前闪现旧内容
-  photoStore.photos = []
-  photoStore.currentAlbum = null
 
+  // 注意：数据已在 onDeactivated 中清空，此处直接加载新数据
   await photoStore.fetchAlbumById(targetAlbumId)
 
-  // 根据相册类型决定加载策略
   const album = photoStore.currentAlbum
 
-  // 初始加载第一页照片（分页加载，优化性能）
-  const initialLoadSize = 50 // 初始加载50张照片
+  // 初始加载第一页照片
+  const initialLoadSize = 50
   const result = await photoStore.fetchPhotosByAlbum(targetAlbumId, 0, initialLoadSize)
-  hasMore.value = !result.last // 检查是否还有更多数据
+  hasMore.value = !result.last
 
-  // 设置图片总数
   totalImages.value = photos.value.length
 
-  // 标记初始加载完成，隐藏 loading 显示内容
   isInitialLoading.value = false
 
-  // 添加滚动监听器，用于分页加载
   window.addEventListener('scroll', handleScroll, { passive: true })
 
-  // 重置图片加载状态
   resetImageLoading()
 
-  // 获取评论数量
   await loadCommentCount(targetAlbumId)
-
-  // 获取相册中的人物列表
   await loadAlbumPersons(targetAlbumId)
 
-  // 延迟显示评论区域，即使图片还没完全加载也给用户提供功能
-  setTimeout(() => {
-    if (!imagesLoaded.value) {
-      console.log('延迟时间到，强制显示评论区域')
-      imagesLoaded.value = true
-    }
-  }, 2000) // 2秒后强制显示评论
-
+  // 只在图片真正加载完成时显示评论区，不做超时强制展示
   window.addEventListener('keydown', handleKeydown)
-  // reference backButtonRef to satisfy linter (it's bound in template)
-  void backButtonRef.value
-  
+
   // 等待照片元素渲染完成
   await nextTick()
 
   if (isFromNavigation && transitionPhotoIds.value.length > 0) {
-    // 如果有需要隐藏的图片，立即隐藏它们
     transitionPhotoIds.value.forEach(photoId => {
       const photoElement = photoRefs.value.get(photoId)
       if (photoElement) {
@@ -1743,7 +1706,7 @@ onMounted(async () => {
   // 再等待一帧，确保所有图片都已渲染
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 
-  // 在开始封面动画之前，先准备剩余图片的动画数据
+  // 准备剩余图片的动画数据
   let remainingIndex = 0
   photos.value.forEach((photo) => {
     if (!transitionPhotoIds.value.includes(photo.id)) {
@@ -1751,13 +1714,12 @@ onMounted(async () => {
     }
   })
 
+  // 执行封面动画
   const hasCoverTransition = isFromNavigation ? await performCoverTransition() : false
   console.log('[详情页] 展开动画结果:', { isFromNavigation, hasCoverTransition })
 
-  // 如果成功执行了封面动画，标记动画已执行
   if (hasCoverTransition) {
     sessionStorage.setItem('album-animation-performed', 'true')
-    console.log('[详情页] 已设置 album-animation-performed')
   }
 
   // 如果没有封面动画，直接开始剩余图片动画
@@ -1766,15 +1728,59 @@ onMounted(async () => {
   }
 
   // 动画完成后清理上一个相册的动画缓存
-  // 注意：不要清理 storageKey（album-cover-rects），因为返回动画还需要用到它
   await nextTick()
   sessionStorage.removeItem('album-back-transition')
+}
 
-  // 确保页面滚动到顶部
+onMounted(async () => {
+  // 获取全局下载权限设置
+  try {
+    const response = await api.get('/admin/config/global-download-allowed')
+    globalDownloadAllowed.value = response.data.globalDownloadAllowed !== false
+  } catch (error) {
+    console.warn('获取全局下载权限设置失败:', error)
+    globalDownloadAllowed.value = false
+  }
+
+  // 确保页面从顶部开始显示
   window.scrollTo(0, 0)
+
+  // 添加窗口大小监听（实时响应）
+  window.addEventListener('resize', handleResize)
+
+  // 加载相册数据
+  await loadAlbumData()
+})
+
+// KeepAlive 激活时重新加载数据（解决缓存后数据残留问题）
+onActivated(async () => {
+  // 检查当前相册 ID 是否与路由匹配
+  const currentAlbumId = await resolveAlbumId()
+  const storeAlbum = photoStore.currentAlbum
+
+  // 如果没有数据或 ID 不匹配，需要重新加载
+  if (!storeAlbum || storeAlbum.id !== currentAlbumId) {
+    console.log('[AlbumDetail] onActivated - 需要重新加载数据')
+    await loadAlbumData()
+  } else {
+    // 即使数据匹配，也重置滚动位置
+    window.scrollTo(0, 0)
+    console.log('[AlbumDetail] onActivated - 数据已存在，使用缓存')
+  }
 })
 
 onUnmounted(() => {
+  // 离开详情页（包括按 ESC / 浏览器返回）时清空，避免下次进入时闪现旧信息
+  photoStore.currentAlbum = null
+  photoStore.photos = []
+  commentCount.value = 0
+  albumPersons.value = []
+  albumPersonsLoading.value = false
+  imagesLoaded.value = false
+  loadedImagesCount.value = 0
+  totalImages.value = 0
+  isInitialLoading.value = true
+
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('scroll', handleScroll)

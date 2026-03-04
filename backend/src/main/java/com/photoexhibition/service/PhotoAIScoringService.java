@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -387,21 +386,9 @@ public class PhotoAIScoringService implements AutoCloseable {
     /**
      * 从数据库加载完整的Photo对象（包括faces和tags），避免懒加载问题
      */
-    @Transactional(readOnly = true)
     private Photo loadCompletePhoto(Long photoId) {
-        // 这里我们需要一个自定义查询来加载完整的Photo对象
-        // 由于PhotoRepository没有现成的方法，我们使用findById然后强制加载
-        return photoRepository.findById(photoId).map(photo -> {
-            // 强制加载faces集合
-            if (photo.getFaces() != null) {
-                photo.getFaces().size();
-            }
-            // 强制加载tags集合（虽然它是EAGER的，但保险起见）
-            if (photo.getTags() != null) {
-                photo.getTags().size();
-            }
-            return photo;
-        }).orElse(null);
+        // 通过 join fetch 一次性加载关联集合，避免在非事务/异步线程里触发懒加载
+        return photoRepository.findByIdWithFacesAndTags(photoId).orElse(null);
     }
 
     /**

@@ -1495,22 +1495,6 @@ public class PhotoScanService {
 
             log.info("相册 {}: {} 张图片", albumRelativePath, imageFiles.size());
 
-            // 如果当前目录没有图片，递归处理子目录
-            if (imageFiles.isEmpty()) {
-                File[] subDirs = albumPath.toFile().listFiles(File::isDirectory);
-                if (subDirs != null) {
-                    for (File subDir : subDirs) {
-                        if (!subDir.getName().equals(".thumbnails")) {
-                            List<File> subDirImages = findImageFiles(subDir);
-                            imageFiles.addAll(subDirImages);
-                        }
-                    }
-                }
-                if (!imageFiles.isEmpty()) {
-                    log.info("相册 {} 从子目录找到 {} 张图片", albumRelativePath, imageFiles.size());
-                }
-            }
-
             int processedCount = 0;
             int skippedCount = 0;
             for (File imageFile : imageFiles) {

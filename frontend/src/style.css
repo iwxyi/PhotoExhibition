@@ -590,6 +590,25 @@
   padding: 0 0.5rem;
 }
 
+/* 当开启相册氛围且背景为深色时的人物列表样式优化 */
+.album-persons-section--dark .album-person-card {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.album-persons-section--dark .album-person-card:hover {
+  background: rgba(30, 64, 175, 0.85);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
+.album-persons-section--dark .person-name {
+  color: #e5e7eb;
+}
+
+.album-persons-section--dark .person-count {
+  color: #9ca3af;
+}
+
 .album-persons-scroll {
   display: flex;
   gap: 1rem;

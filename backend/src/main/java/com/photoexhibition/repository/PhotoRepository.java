@@ -16,6 +16,17 @@ import java.util.Optional;
 
 @Repository
 public interface PhotoRepository extends JpaRepository<Photo, Long> {
+    /**
+     * 一次性加载 Photo 及其关联集合，避免在非事务/异步线程里触发懒加载异常。
+     *
+     * 注意：faces/tags 同时 join fetch 会造成行数膨胀，因此使用 DISTINCT 去重。
+     */
+    @Query("SELECT DISTINCT p FROM Photo p " +
+           "LEFT JOIN FETCH p.faces " +
+           "LEFT JOIN FETCH p.tags " +
+           "WHERE p.id = :id")
+    Optional<Photo> findByIdWithFacesAndTags(@Param("id") Long id);
+
     Optional<Photo> findByOriginalPath(String originalPath);
 
     @Query("SELECT p FROM Photo p WHERE p.originalPath = :originalPath ORDER BY p.id")
