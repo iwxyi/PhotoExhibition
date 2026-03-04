@@ -292,22 +292,14 @@ const updateWaterFlow = (flow: WaterFlow, dt: number): boolean => {
 
   // 超过图片底部后继续往下流
   if (flow.progress >= 1) {
-    // 额外往下流的距离（像素）
+    // 额外往下流的距离（像素），允许流更长的距离
     const extraFlow = (flow.progress - 1) * rect.height
-    flow.flowProgress = 1 + extraFlow / 100 // 归一化，每100px算1个进度
-
-    // 到达底部后产生滴落（只产生一次）
-    if (flow.progress >= 1 && flow.progress < 1 + dtSec * currentSpeed) {
-      const edgeX = flow.side === 'left' ? rect.left : rect.right
-      if (Math.random() < 0.5) {
-        dripDrops.push(spawnDripDrop(edgeX, rect.bottom))
-      }
-    }
+    flow.flowProgress = 1 + extraFlow / 80 // 归一化，每80px算1个进度，允许流到图片底部往下300-400px
   }
 
   // 超过时间限制或透明度太低
-  const maxFlowProgress = 2.5 // 最多流到图片底部往下150px
-  if (flow.age > 8000 || flow.flowProgress > maxFlowProgress) {
+  const maxFlowProgress = 11 // 最多流到图片底部往下约800px
+  if (flow.age > 10000 || flow.flowProgress > maxFlowProgress) {
     return false
   }
 
@@ -391,18 +383,18 @@ const render = (timestamp: number) => {
       // 在图片内部
       currentY = rect.top + flow.flowProgress * rectHeight
       currentOpacity = flow.opacity * (1 - flow.flowProgress * 0.4)
-      // 宽度逐渐变宽
-      const topWidth = flow.width * 1.5
-      const bottomWidth = flow.width * 5
+      // 宽度逐渐变宽，顶部窄底部宽
+      const topWidth = flow.width * 1.2
+      const bottomWidth = flow.width * 2.5
       currentWidth = topWidth + (bottomWidth - topWidth) * flow.flowProgress
     } else {
-      // 流出图片底部，继续往下并逐渐变淡消失
-      const extraProgress = (flow.flowProgress - 1) * 100 // 每100px
+      // 流出图片底部，继续往下流动
+      const extraProgress = (flow.flowProgress - 1) * 80
       currentY = rect.bottom + extraProgress
-      // 透明度快速衰减
-      currentOpacity = flow.opacity * 0.6 * Math.max(0, 1 - extraProgress / 150)
-      // 宽度逐渐变窄然后消失
-      currentWidth = flow.width * 5 * Math.max(0.3, 1 - extraProgress / 200)
+      // 透明度逐渐衰减，但保持较长距离
+      currentOpacity = flow.opacity * 0.6 * Math.max(0, 1 - extraProgress / 850)
+      // 宽度逐渐变窄然后消失，但保持较长的水流形态
+      currentWidth = flow.width * 2.5 * Math.max(0.5, 1 - extraProgress / 900)
     }
 
     if (currentOpacity < 0.02) continue
@@ -421,59 +413,50 @@ const render = (timestamp: number) => {
       gradient.addColorStop(0.5, `rgba(170, 195, 225, ${currentOpacity * 0.9})`)
       gradient.addColorStop(1, `rgba(175, 200, 230, ${currentOpacity * 0.7})`)
     } else {
-      // 流出底部：快速变淡
-      gradient.addColorStop(0, `rgba(170, 195, 225, ${currentOpacity * 0.8})`)
-      gradient.addColorStop(1, `rgba(180, 205, 235, ${currentOpacity * 0.3})`)
+      // 流出底部：缓慢衰减，保持水流形态更久
+      const extraProgress = (flow.flowProgress - 1) * 80
+      gradient.addColorStop(0, `rgba(170, 195, 225, ${currentOpacity * 0.9})`)
+      gradient.addColorStop(0.5, `rgba(175, 200, 230, ${currentOpacity * 0.5})`)
+      gradient.addColorStop(1, `rgba(180, 205, 235, 0)`)
     }
 
     ctx.globalAlpha = currentOpacity
     ctx.fillStyle = gradient
 
-    // 绘制流线型水滴形状
+    // 绘制水流 - 简单矩形，顶部固定在图片顶部，底部根据进度延伸
     ctx.beginPath()
     if (side === 'left') {
       // 左边：从左边缘向外流
       const baseX = edgeX - currentWidth / 2
       ctx.moveTo(baseX, rect.top)
       ctx.lineTo(baseX + currentWidth, rect.top)
-      // 底部收窄
-      ctx.quadraticCurveTo(
-        baseX + currentWidth, currentY - 5,
-        edgeX, currentY
-      )
-      ctx.quadraticCurveTo(
-        baseX, currentY - 5,
-        baseX, rect.top
-      )
+      // 底部延伸到 currentY
+      ctx.lineTo(edgeX, currentY)
+      ctx.lineTo(baseX, currentY)
     } else {
       // 右边：从右边缘向外流
       const baseX = edgeX + currentWidth / 2
       ctx.moveTo(baseX, rect.top)
       ctx.lineTo(baseX - currentWidth, rect.top)
-      ctx.quadraticCurveTo(
-        baseX - currentWidth, currentY - 5,
-        edgeX, currentY
-      )
-      ctx.quadraticCurveTo(
-        baseX, currentY - 5,
-        baseX, rect.top
-      )
+      // 底部延伸到 currentY
+      ctx.lineTo(edgeX, currentY)
+      ctx.lineTo(baseX, currentY)
     }
     ctx.closePath()
     ctx.fill()
 
-    // 添加高光
-    if (flow.flowProgress <= 1.2) {
+    // 添加高光 - 延伸到水流底部
+    if (flow.flowProgress <= 10) {
       ctx.globalAlpha = currentOpacity * 0.3
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
       ctx.lineWidth = 1.5
       ctx.beginPath()
       if (side === 'left') {
         ctx.moveTo(edgeX - 2, rect.top + 5)
-        ctx.lineTo(edgeX - 2, currentY - 10)
+        ctx.lineTo(edgeX - 1, currentY - 5)
       } else {
         ctx.moveTo(edgeX + 2, rect.top + 5)
-        ctx.lineTo(edgeX + 2, currentY - 10)
+        ctx.lineTo(edgeX + 1, currentY - 5)
       }
       ctx.stroke()
     }

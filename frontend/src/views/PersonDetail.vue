@@ -34,18 +34,18 @@
         <div class="flex items-center pl-12 lg:pl-14">
           <!-- 头像和名字靠左排列，留出空间给悬浮返回按钮 -->
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full overflow-hidden shadow-md ring-2 ring-white/50 dark:ring-gray-700/50">
+            <div
+              class="w-10 h-10 rounded-full overflow-hidden shadow-md ring-2 ring-white/50 dark:ring-gray-700/50 bg-transparent transition-opacity duration-300"
+              :class="avatarEnterComplete ? 'opacity-100' : 'opacity-0'"
+            >
               <img
                 v-if="person?.sampleThumbnailPath"
                 :src="convertImagePath(person.sampleThumbnailPath)"
                 :alt="person.name"
                 class="w-full h-full object-cover"
+                :class="avatarEnterComplete ? 'avatar-scale-in' : 'avatar-hidden'"
+                @load="onAvatarLoad"
               />
-              <div v-else class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
-                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
             </div>
             <span class="text-lg font-medium text-gray-900 dark:text-white tracking-wide">
               {{ person?.name || '加载中...' }}
@@ -77,19 +77,22 @@
           >
             <div class="relative">
               <!-- 头像光晕效果 - 带脉动动画，使用温暖色调 -->
-              <div class="absolute -inset-1 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-rose-500/30 rounded-full blur-xl opacity-60 animate-pulse-slow"></div>
-              <div class="relative w-36 h-36 md:w-44 md:h-44 lg:w-52 lg:h-52 rounded-full bg-gradient-to-br from-white to-gray-100 dark:from-gray-800 dark:to-gray-900 shadow-2xl overflow-hidden ring-4 ring-white/50 dark:ring-gray-800/50">
+              <div
+                class="absolute -inset-1 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-rose-500/30 rounded-full blur-xl opacity-0 animate-pulse-slow transition-opacity duration-300"
+                :class="avatarEnterComplete ? 'opacity-60' : 'opacity-0'"
+              ></div>
+              <div
+                class="relative w-36 h-36 md:w-44 md:h-44 lg:w-52 lg:h-52 rounded-full bg-transparent shadow-2xl overflow-hidden ring-4 ring-white/50 dark:ring-gray-800/50 opacity-0 transition-opacity duration-300"
+                :class="avatarEnterComplete ? 'avatar-enter-active' : 'opacity-0'"
+              >
                 <img
                   v-if="person?.sampleThumbnailPath"
                   :src="convertImagePath(person.sampleThumbnailPath)"
                   :alt="person.name"
                   class="w-full h-full object-cover"
+                  :class="avatarEnterComplete ? 'avatar-scale-in' : 'avatar-hidden'"
+                  @load="onAvatarLoad"
                 />
-                <div v-else class="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
-                  <svg class="w-20 h-20 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
               </div>
             </div>
           </div>
@@ -403,7 +406,7 @@ const finalPersonId = computed(() => {
 
 const person = ref<PersonSummary | null>(null)
 const loadingPerson = ref(true)
-const avatarLoaded = ref(false)
+const avatarEnterComplete = ref(false)
 const activeTab = ref<'albums' | 'photos'>('albums')
 const albumRecommendations = ref<AlbumRecommendation[]>([])
 const personPhotos = ref<FaceFace[]>([])
@@ -651,6 +654,11 @@ const convertImagePath = (path: string) => {
   return path
 }
 
+// 头像图片加载完成后的动画
+const onAvatarLoad = () => {
+  avatarEnterComplete.value = true
+}
+
 // 解析人物 ID（支持 ID 或名称）
 const resolvePersonId = async (): Promise<number | null> => {
   // 如果是数字 ID，直接返回并存储
@@ -861,6 +869,42 @@ onUnmounted(() => {
 
 .animate-pulse-slow {
   animation: pulse-slow 3s ease-in-out infinite;
+}
+
+/* 头像隐藏状态 */
+.avatar-hidden {
+  opacity: 0;
+}
+
+/* 头像展开动画 */
+.avatar-enter-active {
+  animation: avatarScaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.avatar-scale-in {
+  animation: avatarImageReveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes avatarScaleIn {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes avatarImageReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes slideInRight {

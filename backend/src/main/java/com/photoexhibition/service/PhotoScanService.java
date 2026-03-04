@@ -299,7 +299,7 @@ public class PhotoScanService {
             // 获取所有有背景移除路径的照片
             List<Photo> photosWithBg = photoRepository.findAll().stream()
                 .filter(p -> p.getBackgroundRemovedPath() != null && !p.getBackgroundRemovedPath().isEmpty())
-                .toList();
+                .collect(Collectors.toList());
             
             ts.total = photosWithBg.size();
             ts.logs.add("共找到 " + ts.total + " 个抠图文件");
@@ -1494,6 +1494,22 @@ public class PhotoScanService {
             processedFiles.add(albumKey);
 
             log.info("相册 {}: {} 张图片", albumRelativePath, imageFiles.size());
+
+            // 如果当前目录没有图片，递归处理子目录
+            if (imageFiles.isEmpty()) {
+                File[] subDirs = albumPath.toFile().listFiles(File::isDirectory);
+                if (subDirs != null) {
+                    for (File subDir : subDirs) {
+                        if (!subDir.getName().equals(".thumbnails")) {
+                            List<File> subDirImages = findImageFiles(subDir);
+                            imageFiles.addAll(subDirImages);
+                        }
+                    }
+                }
+                if (!imageFiles.isEmpty()) {
+                    log.info("相册 {} 从子目录找到 {} 张图片", albumRelativePath, imageFiles.size());
+                }
+            }
 
             int processedCount = 0;
             int skippedCount = 0;
