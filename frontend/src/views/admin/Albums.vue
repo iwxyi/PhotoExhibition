@@ -219,9 +219,10 @@
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
               </button>
               <!-- 移动至子菜单 - 使用绝对定位和 JS 控制显示，移除间隙避免鼠标移出隐藏 -->
-              <div 
+              <div
                 v-show="showMoveMenu"
-                class="absolute left-full top-0 w-56 glass-menu rounded-lg shadow-2xl z-20"
+                class="absolute glass-menu rounded-lg shadow-2xl z-20"
+                :style="subMenuStyle"
               >
                 <div class="py-1">
                   <!-- 分类 -->
@@ -231,9 +232,10 @@
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                     </button>
                     <!-- 分类子菜单 -->
-                    <div 
+                    <div
                       v-show="showCatMenu"
-                      class="absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      class="absolute glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      :style="subSubMenuStyle"
                     >
                       <div class="py-1">
                         <button
@@ -266,9 +268,10 @@
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                     </button>
                     <!-- 下一级子菜单 -->
-                    <div 
+                    <div
                       v-show="showChildMenu"
-                      class="absolute left-full top-0 w-48 glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      class="absolute glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      :style="subSubMenuStyle"
                     >
                       <div class="py-1">
                         <button
@@ -286,6 +289,35 @@
                   </div>
                   <!-- 分割线 -->
                   <div class="border-t border-gray-600 my-1"></div>
+                  <!-- 合并至同级 -->
+                  <div class="relative" @mouseenter="showMergeMenu = true" @mouseleave="showMergeMenu = false">
+                    <button
+                      class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+                      @mouseenter="loadSiblingDirs(showMenuForAlbum)"
+                    >
+                      <span>合并至同级</span>
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                    <!-- 合并至同级子菜单 -->
+                    <div
+                      v-show="showMergeMenu"
+                      class="absolute glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      :style="subSubMenuStyle"
+                    >
+                      <div class="py-1">
+                        <button
+                          v-for="dir in mergeSiblingDirs"
+                          :key="dir.path"
+                          @click="doMergeToSibling(showMenuForAlbum, dir)"
+                          class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                          :title="dir.name"
+                        >
+                          {{ dir.name }}
+                        </button>
+                        <div v-if="mergeSiblingDirs.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无同级目录</div>
+                      </div>
+                    </div>
+                  </div>
                   <!-- 指定路径 -->
                   <button
                     @click="openPathPicker(showMenuForAlbum)"
@@ -1133,6 +1165,7 @@ const isDataLoaded = ref(false)  // 标记数据是否已加载（用于缓存�
 const keyword = ref('')
 const showMenuForAlbum = ref<any>(null)
 const menuPosition = ref({ x: 0, y: 0 })
+const menuNearRight = ref(false) // 标记菜单是否靠近右边缘
 
 // 相册排序设置
 const albumSortOrder = ref('name_asc')
@@ -1175,10 +1208,12 @@ const currentNameAlbum = ref<any>(null)
 // 移动相关
 const moveCategories = ref<any[]>([])
 const moveChildDirs = ref<any[]>([])
+const mergeSiblingDirs = ref<any[]>([]) // 合并至同级的同级目录列表
 // 移动至子菜单显示状态（使用 JS 控制，解决鼠标移动间隙问题）
 const showMoveMenu = ref(false)
 const showCatMenu = ref(false)
 const showChildMenu = ref(false)
+const showMergeMenu = ref(false) // 合并至同级子菜单显示状态
 const moveConflictDialogVisible = ref(false)
 const moveConflictInfo = ref<any>({})
 const moveConflictAlbum = ref<any>(null)
@@ -1886,22 +1921,44 @@ const editName = async (album: any) => {
 
 const saveName = async () => {
   if (!currentNameAlbum.value || !nameInput.value.trim()) return
-  
-  try {
-    const newName = nameInput.value.trim()
-    await api.put(`/albums/${currentNameAlbum.value.id}`, {
-      name: newName,
-      description: currentNameAlbum.value.description || ''
-    })
-    // 直接更新本地数据，避免重新加载导致滚动丢失
-    updateAlbumData(currentNameAlbum.value.id, {
-      name: newName,
-      displayTitle: newName // 同时更新显示标题
-    })
+
+  const oldName = currentNameAlbum.value.name
+  const newName = nameInput.value.trim()
+
+  // 如果名称没变，直接关闭对话框
+  if (oldName === newName) {
     renameDialogVisible.value = false
     currentNameAlbum.value = null
+    return
+  }
+
+  try {
+    // 调用重命名API，同时重命名文件夹和数据库记录
+    const res = await api.post(`/albums/${currentNameAlbum.value.id}/rename`, {
+      newName: newName
+    })
+    const result = res.data
+
+    if (result.success) {
+      // 直接更新本地数据，避免重新加载导致滚动丢失
+      // 使用后端返回的完整数据（包括正确计算的 displayTitle）
+      const updatedAlbum = result.album
+      if (updatedAlbum) {
+        updateAlbumData(currentNameAlbum.value.id, {
+          name: updatedAlbum.name,
+          displayTitle: updatedAlbum.displayTitle,
+          relativePath: updatedAlbum.relativePath,
+          path: updatedAlbum.path
+        })
+      }
+      renameDialogVisible.value = false
+      currentNameAlbum.value = null
+      // 不弹窗
+    } else {
+      alert('重命名失败: ' + (result.message || '未知错误'))
+    }
   } catch (e: any) {
-    alert('修改名称失败: ' + (e.response?.data?.error || e.message))
+    alert('重命名失败: ' + (e.response?.data?.message || e.response?.data?.error || e.message))
   }
 }
 
@@ -1938,6 +1995,41 @@ const loadChildDirs = async (album: any) => {
   } catch (e) {
     console.error('加载子目录失败:', e)
     moveChildDirs.value = []
+  }
+}
+
+// 加载同级目录列表（用于合并至同级）
+const loadSiblingDirs = async (album: any) => {
+  if (!album) return
+  try {
+    const res = await api.get(`/albums/${album.id}/move/siblings`)
+    mergeSiblingDirs.value = res.data || []
+  } catch (e) {
+    console.error('加载同级目录失败:', e)
+    mergeSiblingDirs.value = []
+  }
+}
+
+// 合并相册到同级目录
+const doMergeToSibling = async (album: any, sibling: any) => {
+  if (!album || !sibling) return
+
+  try {
+    const res = await api.post(`/albums/${album.id}/merge`, {
+      targetPath: sibling.path
+    })
+    const result = res.data
+
+    if (result.success) {
+      closeAllMenus()
+      // 不刷新整个列表，而是移除被合并的相册并显示成功
+      // 由于源相册已被删除，需要通知前端刷新
+      await load()
+    } else {
+      alert('合并失败: ' + (result.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('合并失败: ' + (e.response?.data?.message || e.response?.data?.error || e.message))
   }
 }
 
@@ -2040,31 +2132,58 @@ const confirmPathPicker = () => {
 const openMenu = (event: MouseEvent, album: any) => {
   event.stopPropagation()
   showMenuForAlbum.value = album
-  
+
   // 计算菜单位置，防止超出屏幕
   const menuWidth = 224 // w-56 = 14rem = 224px
   const menuHeight = 500 // 估算菜单最大高度
   const padding = 16 // 屏幕边缘留白
-  
+
   let x = event.clientX
   let y = event.clientY
-  
+
   // 如果右边空间不够，往左显示
   if (x + menuWidth + padding > window.innerWidth) {
     x = window.innerWidth - menuWidth - padding
+    menuNearRight.value = true // 标记菜单靠近右边缘
+  } else {
+    menuNearRight.value = false
   }
-  
+
   // 如果底部空间不够往上显示
   if (y + menuHeight + padding > window.innerHeight) {
     y = window.innerHeight - menuHeight - padding
   }
-  
+
   // 确保不超出顶部和左边
   x = Math.max(padding, x)
   y = Math.max(padding, y)
-  
+
   menuPosition.value = { x, y }
 }
+
+// 计算子菜单样式（根据主菜单位置调整）
+const subMenuStyle = computed(() => {
+  const baseLeft = menuNearRight.value ? 'auto' : '100%'
+  const rightOffset = menuNearRight.value ? '100%' : 'auto'
+  return {
+    left: baseLeft,
+    right: rightOffset,
+    top: '0',
+    width: '224px' // w-56
+  }
+})
+
+// 计算三级子菜单样式（根据二级菜单位置调整）
+const subSubMenuStyle = computed(() => {
+  const baseLeft = menuNearRight.value ? 'auto' : '100%'
+  const rightOffset = menuNearRight.value ? '100%' : 'auto'
+  return {
+    left: baseLeft,
+    right: rightOffset,
+    top: '0',
+    width: '192px' // w-48
+  }
+})
 
 // 计算菜单位置的样式
 const menuStyle = computed(() => {
@@ -2082,10 +2201,12 @@ const closeAllMenus = () => {
   descriptionDialogVisible.value = false
   renameDialogVisible.value = false
   moveChildDirs.value = []
+  mergeSiblingDirs.value = [] // 重置合并至同级目录列表
   // 重置移动至子菜单状态
   showMoveMenu.value = false
   showCatMenu.value = false
   showChildMenu.value = false
+  showMergeMenu.value = false
 }
 
 const hasSubAlbums = (album: any) => {

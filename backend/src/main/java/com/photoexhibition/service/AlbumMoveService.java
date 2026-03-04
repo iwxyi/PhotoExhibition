@@ -62,6 +62,115 @@ public class AlbumMoveService {
     }
 
     /**
+     * 获取相册的同级目录（同一父目录下的其他目录，用于合并至同级）
+     */
+    public List<Map<String, String>> getSiblingDirectories(Long albumId) {
+        Album album = albumRepository.findById(albumId)
+                .orElseThrow(() -> new RuntimeException("相册不存在"));
+        Path albumPath = Paths.get(album.getPath()).toAbsolutePath().normalize();
+        Path parentPath = albumPath.getParent();
+
+        List<Map<String, String>> dirs = new ArrayList<>();
+        if (parentPath == null || !Files.isDirectory(parentPath)) return dirs;
+
+        try (Stream<Path> stream = Files.list(parentPath)) {
+            stream.filter(Files::isDirectory)
+                  .filter(p -> !p.getFileName().toString().startsWith("."))
+                  .filter(p -> !p.equals(albumPath)) // 排除自身
+                  .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                  .forEach(p -> {
+                      Map<String, String> dir = new HashMap<>();
+                      dir.put("name", p.getFileName().toString());
+                      dir.put("path", p.toString());
+                      dirs.add(dir);
+                  });
+        } catch (IOException e) {
+            log.error("列出同级目录失败: {}", parentPath, e);
+        }
+        return dirs;
+    }
+
+    /**
+     * 合并相册到同级目录（将源相册的所有照片移动到目标目录）
+     */
+    @Transactional
+    public Map<String, Object> mergeAlbum(Long albumId, String targetPathStr) {
+        Map<String, Object> result = new HashMap<>();
+
+        Album sourceAlbum = albumRepository.findById(albumId)
+                .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        Path sourcePath = Paths.get(sourceAlbum.getPath()).toAbsolutePath().normalize();
+        Path targetPath = Paths.get(targetPathStr).toAbsolutePath().normalize();
+
+        // 验证
+        if (!Files.isDirectory(sourcePath)) {
+            result.put("success", false);
+            result.put("message", "源目录不存在: " + sourcePath);
+            return result;
+        }
+        if (!Files.isDirectory(targetPath)) {
+            result.put("success", false);
+            result.put("message", "目标目录不存在: " + targetPath);
+            return result;
+        }
+        if (sourcePath.equals(targetPath)) {
+            result.put("success", false);
+            result.put("message", "源路径与目标路径相同");
+            return result;
+        }
+
+        // 获取源相册的所有照片
+        List<Photo> sourcePhotos = photoRepository.findByAlbumId(albumId, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+        int photoCount = sourcePhotos.size();
+
+        if (photoCount == 0) {
+            result.put("success", false);
+            result.put("message", "源相册中没有照片");
+            return result;
+        }
+
+        try {
+            // 1. 将源相册的所有文件移动到目标目录
+            moveDirectoryContents(sourcePath, targetPath);
+
+            // 2. 删除空的源目录
+            Files.deleteIfExists(sourcePath);
+
+            // 3. 更新数据库中的路径（从源路径改为目标路径）
+            String oldPrefix = sourcePath.toString();
+            String newPrefix = targetPath.toString();
+
+            for (Photo p : sourcePhotos) {
+                p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                p.setPathHash(computeSha256(p.getOriginalPath()));
+                p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
+                p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
+                p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
+                p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
+                p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
+                p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+            }
+            photoRepository.saveAll(sourcePhotos);
+            log.info("合并相册: 更新了 {} 张照片路径", photoCount);
+
+            // 4. 删除源相册记录（照片已移走，保留空相册记录没意义）
+            albumRepository.delete(sourceAlbum);
+            log.info("合并相册: 删除了源相册记录 {}", albumId);
+
+            result.put("success", true);
+            result.put("message", String.format("已合并 %d 张照片到 %s", photoCount, targetPath.getFileName()));
+
+        } catch (IOException e) {
+            log.error("合并相册失败", e);
+            result.put("success", false);
+            result.put("message", "合并失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
      * 获取相册的下一级子目录（文件系统中的子目录，不只是数据库中有记录的）
      */
     public List<Map<String, String>> getChildDirectories(Long albumId) {

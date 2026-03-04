@@ -2084,10 +2084,9 @@ const loadAlbumPhotos = async (albumId: number, signal?: AbortSignal) => {
     const faces = facesRes.data || []
 
     // 为每张图片关联其人脸数据（如果有的话）
+    // 注意：不过滤已认领的图片，因为用户需要看到这些图片（只是排在后面）
     let photosWithFaces = photos
-      .filter((photo: any) => photo.assignedPersonId !== selectedPersonId.value) // 过滤掉已经被当前人物认领的图片
-
-    photosWithFaces = photosWithFaces.map((photo: any) => {
+      .map((photo: any) => {
         const photoFaces = faces.filter((face: any) => face.photoId === photo.id)
 
         // 判断是否已被当前人物认领
@@ -2106,35 +2105,49 @@ const loadAlbumPhotos = async (albumId: number, signal?: AbortSignal) => {
         }
     })
 
-    // 排序：已认领的排最后按拍摄时间，未认领的按相似度从高到低，相似度为0的按拍摄时间
+    // 排序：
+    // 1. 未认领的图片 - 按相似度从高到低（相似度为0按拍摄时间）
+    // 2. 认领人脸的图片 - 按拍摄时间排序（新到旧）
+    // 3. 认领图片（但没有人脸）的 - 按拍摄时间排序（新到旧）
     photosWithFaces.sort((a, b) => {
-      // 判断是否已被当前人物认领
-      const isAssignedA = (a.photoId && a.assignedPersonId === selectedPersonId.value) || (a.faces && a.faces.some((face: any) => face.personId === selectedPersonId.value))
-      const isAssignedB = (b.photoId && b.assignedPersonId === selectedPersonId.value) || (b.faces && b.faces.some((face: any) => face.personId === selectedPersonId.value))
+      // 判断认领类型
+      const hasFaceAssignedA = a.faces && a.faces.some((face: any) => face.personId === selectedPersonId.value)
+      const hasFaceAssignedB = b.faces && b.faces.some((face: any) => face.personId === selectedPersonId.value)
+      const isPhotoAssignedA = a.assignedPersonId === selectedPersonId.value
+      const isPhotoAssignedB = b.assignedPersonId === selectedPersonId.value
 
-      // 已认领的排在最后
-      if (isAssignedA !== isAssignedB) {
-        return isAssignedA ? 1 : -1
+      // 0: 未认领, 1: 认领人脸, 2: 认领图片
+      const getAssignType = (hasFace: boolean, isPhoto: boolean) => {
+        if (hasFace) return 1 // 认领人脸
+        if (isPhoto) return 2 // 认领图片
+        return 0 // 未认领
+      }
+      const typeA = getAssignType(hasFaceAssignedA, isPhotoAssignedA)
+      const typeB = getAssignType(hasFaceAssignedB, isPhotoAssignedB)
+
+      // 不同类型按优先级排序
+      if (typeA !== typeB) {
+        return typeA - typeB
       }
 
-      // 已认领的图片之间按拍摄时间排序（新到旧）
-      if (isAssignedA && isAssignedB) {
+      // 同类型内排序
+      if (typeA === 0) {
+        // 未认领：按相似度从高到低
+        const similarityA = a.similarity || 0
+        const similarityB = b.similarity || 0
+        if (similarityA !== similarityB) {
+          return similarityB - similarityA
+        }
+        // 相似度相同或都为0时，按拍摄时间从新到旧排序
+        const timeA = a.takenAt ? new Date(a.takenAt).getTime() : 0
+        const timeB = b.takenAt ? new Date(b.takenAt).getTime() : 0
+        return timeB - timeA
+      } else {
+        // 认领人脸或认领图片：按拍摄时间排序（新到旧）
         const timeA = a.takenAt ? new Date(a.takenAt).getTime() : 0
         const timeB = b.takenAt ? new Date(b.takenAt).getTime() : 0
         return timeB - timeA
       }
-
-      // 未认领的图片按相似度从高到低排序
-      const similarityA = a.similarity || 0
-      const similarityB = b.similarity || 0
-      if (similarityA !== similarityB) {
-        return similarityB - similarityA
-      }
-
-      // 相似度相同或都为0时，按拍摄时间从新到旧排序
-      const timeA = a.takenAt ? new Date(a.takenAt).getTime() : 0
-      const timeB = b.takenAt ? new Date(b.takenAt).getTime() : 0
-      return timeB - timeA
     })
 
     // 计算已认领图片的数量

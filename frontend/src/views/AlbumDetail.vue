@@ -182,9 +182,9 @@
         </div>
       </div>
 
-      <!-- 评论区域 - 只有当图片加载完成后才显示 -->
+      <!-- 评论区域 - 只有当图片加载完成并延迟一段时间后才显示，避免闪烁 -->
       <CommentSection
-        v-show="imagesLoaded"
+        v-show="showComments"
         :album-id="album?.id || 0"
         :text-color="textStyle.color"
         :background-color="commentBackgroundColor"
@@ -222,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useUiSettings } from '@/composables/useUiSettings'
@@ -315,6 +315,10 @@ const imagesLoaded = ref(false)
 const totalImages = ref(0)
 const loadedImagesCount = ref(0)
 
+// 评论显示延迟：图片加载完成后再延迟一段时间显示评论区
+const showComments = ref(false)
+let showCommentsTimer: ReturnType<typeof setTimeout> | null = null
+
 // 分页加载状态
 const currentPage = ref(0)
 const loadingMore = ref(false)
@@ -346,6 +350,13 @@ const handleResize = () => {
   windowWidth.value = window.innerWidth
 }
 
+onUnmounted(() => {
+  if (showCommentsTimer) {
+    clearTimeout(showCommentsTimer)
+    showCommentsTimer = null
+  }
+})
+
 // 加载更多照片的分页函数
 const loadMorePhotos = async () => {
   if (loadingMore.value || !hasMore.value) return
@@ -365,6 +376,24 @@ const loadMorePhotos = async () => {
     loadingMore.value = false
   }
 }
+
+// 监听图片加载完成状态，控制评论区的延迟显示
+watch(imagesLoaded, (loaded) => {
+  if (showCommentsTimer) {
+    clearTimeout(showCommentsTimer)
+    showCommentsTimer = null
+  }
+
+  if (loaded) {
+    // 图片全部加载后，延迟 2 秒再显示评论，避免图片和评论同时抖动
+    showCommentsTimer = setTimeout(() => {
+      showComments.value = true
+    }, 2000)
+  } else {
+    // 切换相册或重新加载时，立即隐藏评论区
+    showComments.value = false
+  }
+})
 
 // 滚动监听器，用于自动加载更多照片
 let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null

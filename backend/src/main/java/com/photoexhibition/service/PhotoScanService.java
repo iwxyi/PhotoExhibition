@@ -1474,8 +1474,13 @@ public class PhotoScanService {
                     newAlbum.setName(albumPath.getFileName().toString());
                     newAlbum.setPath(albumPathStr);
                     newAlbum.setPathHash(albumPathHash);
-                    // 从路径中解析相册名日期（用于排序）- 使用简单的方式
-                    newAlbum.setAlbumNameDate(parseDateFromFolderName(albumPath.getFileName().toString()));
+                    // 从路径中解析相册名日期（用于排序）- 优先当前文件夹名，如果没有则向上查找父目录
+                    LocalDateTime albumNameDate = parseDateFromAlbumPath(albumPathStr);
+                    if (albumNameDate == null) {
+                        // 兼容旧逻辑：如果路径解析失败，尝试只用文件夹名
+                        albumNameDate = parseDateFromFolderName(albumPath.getFileName().toString());
+                    }
+                    newAlbum.setAlbumNameDate(albumNameDate);
                     return albumRepository.save(newAlbum);
                 });
 
@@ -1515,6 +1520,13 @@ public class PhotoScanService {
 
             // 更新相册照片数量
             album.setPhotoCount(photoRepository.countByAlbumId(album.getId()).intValue());
+
+            // 如果相册名日期为空，尝试从照片中获取（EXIF时间 > 文件修改时间）
+            if (album.getAlbumNameDate() == null) {
+                LocalDateTime calculatedDate = calculateAlbumDateFromPhotos(album.getId());
+                album.setAlbumNameDate(calculatedDate);
+            }
+
             albumRepository.save(album);
 
             // 增量分析相册氛围（如果需要）
@@ -3329,6 +3341,77 @@ public class PhotoScanService {
         }
 
         return null;  // 没有找到匹配的时间格式
+    }
+
+    /**
+     * 从相册路径中解析时间（优先当前文件夹名，向上查找父目录）
+     * 用于新建相册时设置 albumNameDate
+     */
+    private LocalDateTime parseDateFromAlbumPath(String albumPath) {
+        if (albumPath == null || albumPath.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            // 获取相对于base-path的路径部分
+            String relativePath = getRelativeFilePath(albumPath);
+            if (relativePath == null || relativePath.isEmpty()) {
+                return null;
+            }
+
+            // 分割路径为各级目录
+            String[] pathParts = relativePath.split("[/\\\\]");
+            if (pathParts.length == 0) {
+                return null;
+            }
+
+            // 从最深层开始向上查找（优先使用当前相册名称的时间）
+            for (int i = pathParts.length - 1; i >= 0; i--) {
+                String folderName = pathParts[i].trim();
+                if (!folderName.isEmpty()) {
+                    LocalDateTime parsedTime = parseDateFromFolderName(folderName);
+                    if (parsedTime != null) {
+                        return parsedTime;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            log.debug("从相册路径解析时间失败: {}", albumPath, e);
+        }
+
+        return null;  // 没有找到匹配的时间格式
+    }
+
+    /**
+     * 计算相册的日期：优先最晚EXIF时间，否则用最晚文件修改时间
+     * 用于当路径解析不出日期时
+     */
+    private LocalDateTime calculateAlbumDateFromPhotos(Long albumId) {
+        try {
+            // 优先使用最晚的EXIF拍摄时间
+            Optional<Photo> photoWithMaxTakenAt = photoRepository.findTopByAlbumIdOrderByTakenAtDesc(albumId);
+            if (photoWithMaxTakenAt.isPresent()) {
+                Photo photo = photoWithMaxTakenAt.get();
+                if (photo.getTakenAt() != null) {
+                    log.debug("相册 {} 使用最晚EXIF时间: {}", albumId, photo.getTakenAt());
+                    return photo.getTakenAt();
+                }
+            }
+
+            // 没有EXIF时间，使用最晚的文件修改时间
+            Optional<Photo> photoWithMaxCreatedAt = photoRepository.findTopByAlbumIdOrderByCreatedAtDesc(albumId);
+            if (photoWithMaxCreatedAt.isPresent()) {
+                Photo photo = photoWithMaxCreatedAt.get();
+                if (photo.getCreatedAt() != null) {
+                    log.debug("相册 {} 使用最晚文件修改时间: {}", albumId, photo.getCreatedAt());
+                    return photo.getCreatedAt();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("计算相册 {} 日期失败: {}", albumId, e.getMessage());
+        }
+        return null;
     }
 
     /**

@@ -152,6 +152,16 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     Optional<Photo> findTopByAlbumIdOrderByTakenAtAsc(Long albumId);
 
     /**
+     * 获取相册中最晚的拍摄时间（EXIF时间）
+     */
+    Optional<Photo> findTopByAlbumIdOrderByTakenAtDesc(Long albumId);
+
+    /**
+     * 获取相册中最晚的文件修改时间
+     */
+    Optional<Photo> findTopByAlbumIdOrderByCreatedAtDesc(Long albumId);
+
+    /**
      * 路径前缀查询
      */
     @Query("SELECT p FROM Photo p WHERE p.originalPath LIKE CONCAT(:pathPrefix, '%')")

@@ -33,8 +33,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -232,6 +235,128 @@ public class AlbumService {
         }
         Album saved = albumRepository.save(album);
         return convertToDTO(saved);
+    }
+
+    /**
+     * 重命名相册（同时重命名文件夹和更新数据库记录）
+     */
+    @Transactional
+    public Map<String, Object> renameAlbum(Long id, String newName) {
+        Map<String, Object> result = new java.util.HashMap<>();
+
+        Album album = albumRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+
+        Path sourcePath = Paths.get(album.getPath()).toAbsolutePath().normalize();
+        Path parentPath = sourcePath.getParent();
+        Path targetPath = parentPath.resolve(newName);
+
+        // 验证
+        if (!Files.isDirectory(sourcePath)) {
+            result.put("success", false);
+            result.put("message", "相册文件夹不存在: " + sourcePath);
+            return result;
+        }
+        if (Files.exists(targetPath)) {
+            result.put("success", false);
+            result.put("message", "目标名称已存在: " + newName);
+            return result;
+        }
+
+        try {
+            String oldPrefix = sourcePath.toString();
+            String newPrefix = targetPath.toString();
+
+            // 1. 重命名文件系统中的文件夹
+            Files.move(sourcePath, targetPath);
+
+            // 2. 更新数据库中所有相关路径
+            // 2.1 更新所有子相册的路径
+            List<Album> albums = albumRepository.findByPathStartingWith(oldPrefix);
+            for (Album a : albums) {
+                a.setPath(a.getPath().replace(oldPrefix, newPrefix));
+                a.setPathHash(computeSha256(a.getPath()));
+            }
+            if (!albums.isEmpty()) {
+                albumRepository.saveAll(albums);
+                log.info("重命名相册: 更新了 {} 个相册路径", albums.size());
+            }
+
+            // 2.2 更新所有照片的路径
+            List<Photo> photos = photoRepository.findByOriginalPathStartingWith(oldPrefix);
+            for (Photo p : photos) {
+                p.setOriginalPath(replacePathPrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                p.setPathHash(computeSha256(p.getOriginalPath()));
+                if (p.getThumbnailPath() != null) {
+                    p.setThumbnailPath(replacePathPrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
+                }
+                if (p.getWebpPath() != null) {
+                    p.setWebpPath(replacePathPrefix(p.getWebpPath(), oldPrefix, newPrefix));
+                }
+                if (p.getSmallThumbPath() != null) {
+                    p.setSmallThumbPath(replacePathPrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
+                }
+                if (p.getMediumThumbPath() != null) {
+                    p.setMediumThumbPath(replacePathPrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
+                }
+                if (p.getLargeThumbPath() != null) {
+                    p.setLargeThumbPath(replacePathPrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
+                }
+                if (p.getBackgroundRemovedPath() != null) {
+                    p.setBackgroundRemovedPath(replacePathPrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+                }
+            }
+            if (!photos.isEmpty()) {
+                photoRepository.saveAll(photos);
+                log.info("重命名相册: 更新了 {} 张照片路径", photos.size());
+            }
+
+            // 2.3 更新当前相册的名称并重新获取DTO
+            album.setName(newName);
+            Album savedAlbum = albumRepository.save(album);
+
+            // 重新获取完整的DTO（包括重新计算的displayTitle）
+            AlbumDTO updatedDto = convertToDTO(savedAlbum);
+            result.put("success", true);
+            result.put("message", "相册重命名成功");
+            result.put("album", updatedDto);
+
+        } catch (Exception e) {
+            log.error("重命名相册失败", e);
+            result.put("success", false);
+            result.put("message", "重命名失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 替换路径前缀
+     */
+    private String replacePathPrefix(String path, String oldPrefix, String newPrefix) {
+        if (path == null) return null;
+        if (path.startsWith(oldPrefix)) {
+            return newPrefix + path.substring(oldPrefix.length());
+        }
+        return path;
+    }
+
+    /**
+     * 计算SHA256哈希
+     */
+    private String computeSha256(String input) {
+        if (input == null) return null;
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -1639,17 +1764,27 @@ public class AlbumService {
     @Transactional
     public void updateAlbumTimeFields() {
         List<Album> allAlbums = albumRepository.findAll();
+        log.info("开始更新相册时间字段，总相册数: {}", allAlbums.size());
+
+        int changedCount = 0;
         for (Album album : allAlbums) {
-            updateSingleAlbumTimeFields(album);
+            boolean changed = updateSingleAlbumTimeFields(album);
+            if (changed) {
+                changedCount++;
+            }
         }
-        log.info("已更新 {} 个相册的时间字段", allAlbums.size());
+
+        log.info("相册时间字段更新完成，共处理 {} 个相册，其中 {} 个相册的时间发生变化", allAlbums.size(), changedCount);
     }
 
     /**
      * 更新单个相册的时间字段
      */
     @Transactional
-    public void updateSingleAlbumTimeFields(Album album) {
+    public boolean updateSingleAlbumTimeFields(Album album) {
+        LocalDateTime oldLatestTakenAt = album.getLatestPhotoTakenAt();
+        LocalDateTime oldAlbumNameDate = album.getAlbumNameDate();
+
         // 获取相册的所有照片（如果是聚合相册，需要递归获取所有子相册的照片）
         List<Photo> photos = getAllPhotosForAlbum(album);
 
@@ -1659,11 +1794,42 @@ public class AlbumService {
         // 计算相册名时间（从相册路径解析时间，支持向上查找）
         LocalDateTime albumNameDate = parseDateFromAlbumPath(album.getPath());
 
+        // 如果路径和父路径都不包含时间名，则按规则回退：
+        // 1) 使用相册（含子相册）中最晚的 EXIF 拍摄时间
+        // 2) 如果也没有 EXIF 时间，则使用最晚的文件创建时间（createdAt）
+        if (albumNameDate == null) {
+            if (latestPhotoTakenAt != null) {
+                albumNameDate = latestPhotoTakenAt;
+            } else if (!photos.isEmpty()) {
+                albumNameDate = photos.stream()
+                    .map(Photo::getCreatedAt)
+                    .filter(Objects::nonNull)
+                    .max(Comparator.naturalOrder())
+                    .orElse(null);
+            }
+        }
 
-        // 更新相册
-        album.setLatestPhotoTakenAt(latestPhotoTakenAt);
-        album.setAlbumNameDate(albumNameDate);
-        albumRepository.save(album);
+        boolean changed =
+            !Objects.equals(oldLatestTakenAt, latestPhotoTakenAt) ||
+            !Objects.equals(oldAlbumNameDate, albumNameDate);
+
+        // 更新相册并打印变化信息
+        if (changed) {
+            album.setLatestPhotoTakenAt(latestPhotoTakenAt);
+            album.setAlbumNameDate(albumNameDate);
+            albumRepository.save(album);
+
+            log.info("相册时间更新: id={}, name='{}', latestPhotoTakenAt: {} -> {}, albumNameDate: {} -> {}",
+                album.getId(),
+                album.getName(),
+                oldLatestTakenAt,
+                latestPhotoTakenAt,
+                oldAlbumNameDate,
+                albumNameDate
+            );
+        }
+
+        return changed;
     }
 
     /**

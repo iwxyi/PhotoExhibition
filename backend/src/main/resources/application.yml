@@ -78,7 +78,7 @@ logging:
     com.photoexhibition: DEBUG
     com.photoexhibition.service.SubjectDetectionService: DEBUG
     com.photoexhibition.service.PhotoScanService: DEBUG
-    com.photoexhibition.service.AlbumService: WARN
+    com.photoexhibition.service.AlbumService: INFO
     org.springframework: WARN
     org.springframework.web: INFO
     org.hibernate: WARN

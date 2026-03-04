@@ -106,6 +106,24 @@ public class AlbumController {
     }
 
     /**
+     * 重命名相册（同时重命名文件夹和数据库记录）
+     */
+    @PostMapping("/{id}/rename")
+    public ResponseEntity<Map<String, Object>> renameAlbum(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request) {
+        String newName = request.get("newName");
+        if (newName == null || newName.trim().isEmpty()) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("message", "新名称不能为空");
+            return ResponseEntity.badRequest().body(error);
+        }
+        Map<String, Object> result = albumService.renameAlbum(id, newName.trim());
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * 设置相册聚合下级相册
      */
     @PutMapping("/{id}/aggregate-sub-albums")
@@ -235,6 +253,32 @@ public class AlbumController {
     @GetMapping("/{id}/move/children")
     public ResponseEntity<List<Map<String, String>>> getMoveChildren(@PathVariable Long id) {
         return ResponseEntity.ok(albumMoveService.getChildDirectories(id));
+    }
+
+    /**
+     * 获取相册的同级目录（用于合并至同级）
+     */
+    @GetMapping("/{id}/move/siblings")
+    public ResponseEntity<List<Map<String, String>>> getMoveSiblings(@PathVariable Long id) {
+        return ResponseEntity.ok(albumMoveService.getSiblingDirectories(id));
+    }
+
+    /**
+     * 合并相册到同级目录
+     */
+    @PostMapping("/{id}/merge")
+    public ResponseEntity<Map<String, Object>> mergeAlbum(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request) {
+        String targetPath = request.get("targetPath");
+        if (targetPath == null || targetPath.isEmpty()) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("message", "目标路径不能为空");
+            return ResponseEntity.badRequest().body(error);
+        }
+        Map<String, Object> result = albumMoveService.mergeAlbum(id, targetPath);
+        return ResponseEntity.ok(result);
     }
 
     /**
