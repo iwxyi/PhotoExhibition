@@ -86,7 +86,7 @@
               v-for="person in albumPersons"
               :key="person.id"
               class="album-person-card"
-              @click="router.push({ path: `/person/${person.id}`, query: { from: route.fullPath } })"
+              @click="router.push({ path: `/p/${person.id}`, query: { from: route.fullPath } })"
             >
               <div class="person-avatar-wrapper">
                 <img
@@ -227,7 +227,7 @@ import PhotoViewer from '@/components/PhotoViewer.vue'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import MasonryLayout from '@/components/MasonryLayout.vue'
 import CommentSection from '@/components/CommentSection.vue'
-import { commentApi, api, personApi } from '@/api'
+import { commentApi, api, personApi, albumApi } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -235,6 +235,45 @@ const photoStore = usePhotoStore()
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
+
+// 从路由参数获取相册 ID（支持 /album/:id 和 /a/:id 两种路由）
+const albumId = computed(() => {
+  const id = route.params.id || route.params.keyword
+  if (!id) return null
+  const parsed = parseInt(id as string)
+  return isNaN(parsed) ? null : parsed
+})
+
+// 用于存储按名称搜索找到的相册 ID（当路由参数是名称时）
+const resolvedAlbumId = ref<number | null>(null)
+
+// 最终使用的相册 ID（优先使用路由 ID，否则使用搜索结果）
+const finalAlbumId = computed(() => {
+  return albumId.value || resolvedAlbumId.value
+})
+
+// 解析相册 ID（支持 ID 或名称）
+const resolveAlbumId = async (): Promise<number | null> => {
+  // 如果是数字 ID，直接返回
+  if (albumId.value) {
+    return albumId.value
+  }
+
+  // 否则尝试按名称搜索
+  const keyword = route.params.id || route.params.keyword
+  if (keyword) {
+    try {
+      const searchResponse = await albumApi.searchByName(decodeURIComponent(keyword as string))
+      if (searchResponse.data && searchResponse.data.id) {
+        resolvedAlbumId.value = searchResponse.data.id
+        return searchResponse.data.id
+      }
+    } catch (error) {
+      console.error('按名称搜索相册失败:', error)
+    }
+  }
+  return null
+}
 
 // 全局下载权限设置
 const globalDownloadAllowed = ref(false)
@@ -300,7 +339,7 @@ const loadMorePhotos = async () => {
     loadingMore.value = true
     currentPage.value++
 
-    const result = await photoStore.fetchPhotosByAlbum(albumId, currentPage.value, pageSize)
+    const result = await photoStore.fetchPhotosByAlbum(albumId.value, currentPage.value, pageSize)
     hasMore.value = !result.last
 
     // 更新总数
@@ -1185,8 +1224,10 @@ const downloadProgress = ref(0)
 
 // 执行从封面到详情页的 FLIP 动画
 const performCoverTransition = async (): Promise<boolean> => {
-  const albumId = parseInt(route.params.id as string)
-  const storageKey = `album-cover-rects-${albumId}`
+  const targetAlbumId = albumId.value
+  if (!targetAlbumId) return false
+
+  const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
 
   if (!storedData || photos.value.length === 0) {
@@ -1370,9 +1411,13 @@ const performCoverTransition = async (): Promise<boolean> => {
 
 // 启动返回相册列表时的克隆动画（真正的缩回动画在 Home 页执行）
 const startBackTransitionAndNavigate = () => {
+  const targetAlbumId = albumId.value
+  if (!targetAlbumId) {
+    router.push('/')
+    return
+  }
 
-  const albumId = parseInt(route.params.id as string)
-  const storageKey = `album-cover-rects-${albumId}`
+  const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
   const isFromDirectUrl = sessionStorage.getItem('album-navigation-active') !== 'true'
 
@@ -1421,7 +1466,7 @@ const startBackTransitionAndNavigate = () => {
 
     // 在返回前，保存 coverRects 数据到 backTransitionData（因为详情页会在动画完成后清理它）
     const backTransitionData = {
-      albumId,
+      albumId: targetAlbumId,
       photoIds: [],  // 稍后填充
       scrollTop: currentScrollTop,
       scrollLeft: currentScrollLeft,
@@ -1459,7 +1504,7 @@ const startBackTransitionAndNavigate = () => {
         clone.style.transition = 'all 340ms cubic-bezier(0.34, 1.4, 0.63, 1)'
         clone.style.willChange = 'transform, width, height, top, left'
         clone.classList.add('album-back-clone')
-        clone.dataset.albumId = String(albumId)
+        clone.dataset.albumId = String(targetAlbumId)
         clone.dataset.photoId = String(photoId)
 
         document.body.appendChild(clone)
@@ -1485,7 +1530,7 @@ const startBackTransitionAndNavigate = () => {
           overlayClone.style.transition = 'all 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease-out'
           overlayClone.style.willChange = 'transform, width, height, top, left'
           overlayClone.classList.add('album-back-overlay-clone')
-          overlayClone.dataset.albumId = String(albumId)
+          overlayClone.dataset.albumId = String(targetAlbumId)
           overlayClone.dataset.photoId = String(photoId)
 
           document.body.appendChild(overlayClone)
@@ -1570,8 +1615,15 @@ onMounted(async () => {
   // 添加窗口大小监听（实时响应）
   window.addEventListener('resize', handleResize)
 
-  const albumId = parseInt(route.params.id as string)
-  const storageKey = `album-cover-rects-${albumId}`
+  // 解析相册 ID（支持 ID 或名称）
+  const targetAlbumId = await resolveAlbumId()
+  if (!targetAlbumId) {
+    console.error('[AlbumDetail] 无效的相册 ID')
+    router.push('/')
+    return
+  }
+
+  const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
   
   // 如果有需要动画的图片，且是从正常导航来的，立即隐藏它们（在数据加载前）
@@ -1597,7 +1649,7 @@ onMounted(async () => {
         const referrerUrl = new URL(document.referrer)
         const referrerPath = referrerUrl.pathname
         // 只保存有效来源（不是当前页面或其他详情页）
-        if (referrerPath && referrerPath !== route.path && !referrerPath.match(/^\/(album|person|photo)\/\d+$/)) {
+        if (referrerPath && referrerPath !== route.path && !referrerPath.match(/^\/(album|person|photo|a|p)\/\d+$/)) {
           savedEntryPage = referrerPath
           sessionStorage.setItem('album-entry-page', savedEntryPage)
           console.log('[AlbumDetail] onMounted - saved from referrer:', savedEntryPage)
@@ -1634,14 +1686,14 @@ onMounted(async () => {
   photoStore.photos = []
   photoStore.currentAlbum = null
 
-  await photoStore.fetchAlbumById(albumId)
+  await photoStore.fetchAlbumById(targetAlbumId)
 
   // 根据相册类型决定加载策略
   const album = photoStore.currentAlbum
 
   // 初始加载第一页照片（分页加载，优化性能）
   const initialLoadSize = 50 // 初始加载50张照片
-  const result = await photoStore.fetchPhotosByAlbum(albumId, 0, initialLoadSize)
+  const result = await photoStore.fetchPhotosByAlbum(targetAlbumId, 0, initialLoadSize)
   hasMore.value = !result.last // 检查是否还有更多数据
 
   // 设置图片总数
@@ -1657,10 +1709,10 @@ onMounted(async () => {
   resetImageLoading()
 
   // 获取评论数量
-  await loadCommentCount(albumId)
+  await loadCommentCount(targetAlbumId)
 
   // 获取相册中的人物列表
-  await loadAlbumPersons(albumId)
+  await loadAlbumPersons(targetAlbumId)
 
   // 延迟显示评论区域，即使图片还没完全加载也给用户提供功能
   setTimeout(() => {

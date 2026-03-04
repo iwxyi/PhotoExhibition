@@ -40,17 +40,19 @@ const routes = [
     component: () => import('@/views/PersonDetail.vue'),
     meta: { transitionName: 'none' } // 禁用页面过渡动画，只使用FLIP动画
   },
-  // 短路由：/a/关键词 -> 相册
+  // 短路由：/a/关键词 -> 相册（直接渲染，无需重定向）
   {
     path: '/a/:keyword',
     name: 'AlbumShort',
-    component: () => import('@/views/ShortLink.vue')
+    component: () => import('@/views/AlbumDetail.vue'),
+    meta: { transitionName: 'none' }
   },
-  // 短路由：/p/关键词 -> 人物
+  // 短路由：/p/关键词 -> 人物（直接渲染，无需重定向）
   {
     path: '/p/:keyword',
     name: 'PersonShort',
-    component: () => import('@/views/ShortLink.vue')
+    component: () => import('@/views/PersonDetail.vue'),
+    meta: { transitionName: 'none' }
   },
   // 短路由：/s/关键词 -> 搜索
   {

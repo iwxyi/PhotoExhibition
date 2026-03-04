@@ -112,6 +112,11 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     List<Long> findDistinctAlbumIdsByPersonId(@Param("personId") Long personId);
 
     /**
+     * 统计某人物的人脸数量
+     */
+    long countByPersonId(Long personId);
+
+    /**
      * 获取指定相册中所有已确认的人物及其人脸数量（按人脸数量倒序）
      * 返回: [personId, faceCount]
      */

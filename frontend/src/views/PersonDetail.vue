@@ -328,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { personApi, PersonSummary, AlbumRecommendation, FaceFace, backgroundRemovalApi } from '@/api'
@@ -386,8 +386,24 @@ const handleScroll = () => {
   handleBackButtonScroll()
 }
 
-const personId = ref<number>(parseInt(route.params.id as string))
+const personId = computed(() => {
+  const id = route.params.id || route.params.keyword
+  if (!id) return null
+  const parsed = parseInt(id as string)
+  return isNaN(parsed) ? null : parsed
+})
+
+// 用于存储按人名搜索找到的人物 ID（当路由参数是人名时）
+const resolvedPersonId = ref<number | null>(null)
+
+// 最终使用的人物 ID（优先使用路由 ID，否则使用搜索结果）
+const finalPersonId = computed(() => {
+  return personId.value || resolvedPersonId.value
+})
+
 const person = ref<PersonSummary | null>(null)
+const loadingPerson = ref(true)
+const avatarLoaded = ref(false)
 const activeTab = ref<'albums' | 'photos'>('albums')
 const albumRecommendations = ref<AlbumRecommendation[]>([])
 const personPhotos = ref<FaceFace[]>([])
@@ -620,7 +636,7 @@ const goBack = () => {
 }
 
 const goToAlbum = (albumId: number) => {
-  window.open(`/album/${albumId}`, '_blank')
+  window.open(`/a/${albumId}`, '_blank')
 }
 
 const goToPhoto = (photoId: number) => {
@@ -635,19 +651,52 @@ const convertImagePath = (path: string) => {
   return path
 }
 
-const loadPerson = async () => {
+// 解析人物 ID（支持 ID 或名称）
+const resolvePersonId = async (): Promise<number | null> => {
+  // 如果是数字 ID，直接返回并存储
+  if (personId.value) {
+    resolvedPersonId.value = personId.value
+    return personId.value
+  }
+
+  // 否则尝试按名称搜索
+  const keyword = route.params.id || route.params.keyword
+  if (keyword) {
+    try {
+      const searchResponse = await personApi.searchByName(decodeURIComponent(keyword as string))
+      if (searchResponse.data && searchResponse.data.id) {
+        resolvedPersonId.value = searchResponse.data.id
+        return searchResponse.data.id
+      }
+    } catch (error) {
+      console.error('按名称搜索人物失败:', error)
+    }
+  }
+  return null
+}
+
+const loadPerson = async (personIdToLoad: number) => {
+  loadingPerson.value = true
+  if (!personIdToLoad) {
+    loadingPerson.value = false
+    console.error('[PersonDetail] 无法确定人物 ID')
+    return
+  }
+
   try {
-    const response = await personApi.getPerson(personId.value)
+    const response = await personApi.getPerson(personIdToLoad)
     person.value = response.data
   } catch (error) {
     console.error('加载人物信息失败:', error)
+  } finally {
+    loadingPerson.value = false
   }
 }
 
-const loadAlbumRecommendations = async () => {
+const loadAlbumRecommendations = async (personIdToLoad: number) => {
   loadingAlbums.value = true
   try {
-    const response = await personApi.getPersonAlbumRecommendations(personId.value)
+    const response = await personApi.getPersonAlbumRecommendations(personIdToLoad)
     albumRecommendations.value = response.data
   } catch (error) {
     console.error('加载相册推荐失败:', error)
@@ -657,11 +706,11 @@ const loadAlbumRecommendations = async () => {
   }
 }
 
-const loadPersonPhotos = async () => {
+const loadPersonPhotos = async (personIdToLoad: number) => {
   loadingPhotos.value = true
   try {
     currentPhotoPage.value = 0
-    const response = await personApi.getPersonPhotos(personId.value, currentPhotoPage.value, photoPageSize)
+    const response = await personApi.getPersonPhotos(personIdToLoad, currentPhotoPage.value, photoPageSize)
     const photos = response.data.content || []
     totalPhotoCount.value = person.value?.faceCount || response.data.totalElements || 0
     hasMorePhotos.value = !response.data.last
@@ -676,13 +725,13 @@ const loadPersonPhotos = async () => {
 }
 
 const loadMorePersonPhotos = async () => {
-  if (loadingMorePhotos.value || !hasMorePhotos.value) return
+  if (loadingMorePhotos.value || !hasMorePhotos.value || !resolvedPersonId.value) return
 
   try {
     loadingMorePhotos.value = true
     currentPhotoPage.value++
 
-    const response = await personApi.getPersonPhotos(personId.value, currentPhotoPage.value, photoPageSize)
+    const response = await personApi.getPersonPhotos(resolvedPersonId.value, currentPhotoPage.value, photoPageSize)
     const newPhotos = response.data.content || []
     hasMorePhotos.value = !response.data.last
 
@@ -695,20 +744,40 @@ const loadMorePersonPhotos = async () => {
   }
 }
 
-const loadTabContent = () => {
+const loadTabContent = (personIdToLoad: number) => {
   if (activeTab.value === 'albums') {
-    loadAlbumRecommendations()
+    loadAlbumRecommendations(personIdToLoad)
   } else if (activeTab.value === 'photos') {
-    loadPersonPhotos()
+    loadPersonPhotos(personIdToLoad)
   }
 }
 
 watch(activeTab, () => {
-  loadTabContent()
+  if (resolvedPersonId.value) {
+    loadTabContent(resolvedPersonId.value)
+  }
 })
 
-onMounted(() => {
-  // 获取并保存来源页面（用于返回导航）
+onMounted(async () => {
+  // 确保页面从顶部开始显示
+  window.scrollTo(0, 0)
+
+  // 解析人物 ID（支持 ID 或名称）- 异步等待搜索结果
+  const targetPersonId = await resolvePersonId()
+
+  // 检查人物 ID 是否有效
+  if (!targetPersonId) {
+    console.error('[PersonDetail] 无法确定人物 ID')
+    router.push('/persons')
+    return
+  }
+
+  // 加载人物数据和标签内容（并行加载以提高速度）
+  await Promise.all([
+    loadPerson(targetPersonId),
+    loadTabContent(targetPersonId)
+  ])
+
   // 优先级：URL query 参数 > document.referrer > 默认当前路径
   const fromParam = route.query.from as string
   let entryPage = ''
@@ -737,11 +806,6 @@ onMounted(() => {
 
   sessionStorage.setItem('person-entry-page', entryPage)
 
-  // 确保页面从顶部开始显示
-  window.scrollTo(0, 0)
-
-  loadPerson()
-  loadTabContent()
   window.addEventListener('scroll', handleScroll, { passive: true })
   window.addEventListener('scroll', handlePhotoScroll, { passive: true })
   window.addEventListener('keydown', handleKeydown)

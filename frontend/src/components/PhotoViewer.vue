@@ -1762,7 +1762,8 @@ const router = useRouter()
 
 const openAlbum = () => {
   if (!currentPhoto.value) return
-  const route = router.resolve({ path: `/album/${currentPhoto.value.albumId}` })
+  // 使用短路由 /a/ID
+  const route = router.resolve({ path: `/a/${currentPhoto.value.albumId}` })
   window.open(route.href, '_blank')
 }
 

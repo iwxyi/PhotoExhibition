@@ -117,10 +117,10 @@ public class PublicFaceController {
         List<AlbumDTO> albums = new ArrayList<>();
         try {
             List<Album> albumList = albumService.searchAlbumsByName(q);
-            albums = albumList.stream()
-                .limit(10)
-                .map(albumService::convertToDTO)
-                .collect(Collectors.toList());
+            for (Album album : albumList) {
+                if (albums.size() >= 10) break;
+                albums.add(albumService.getAlbumById(album.getId()));
+            }
         } catch (Exception e) {
             log.warn("搜索相册失败: {}", e.getMessage());
         }

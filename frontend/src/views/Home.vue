@@ -210,7 +210,8 @@ const goToAlbum = (id: number) => {
   sessionStorage.setItem('album-entry-page', window.location.pathname)
   // 设置导航标志和时间戳，确保只有立即导航才能检测到
   sessionStorage.setItem('album-navigation-active', Date.now().toString())
-  router.push(`/album/${id}`)
+  // 使用短路由 /a/ID
+  router.push(`/a/${id}`)
 }
 
 // 从相册详情返回时，让三张封面原图在列表页缩回到封面

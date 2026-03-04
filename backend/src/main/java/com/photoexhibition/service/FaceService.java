@@ -1991,18 +1991,12 @@ public class FaceService {
         dto.setCreatedAt(person.getCreatedAt());
         dto.setUpdatedAt(person.getUpdatedAt());
 
-        // 计算人脸数量（即照片数量）
-        long faceCount = faceRepository.findByPersonId(person.getId(), PageRequest.of(0, 1)).getTotalElements();
+        // 使用 count 优化人脸数量查询
+        long faceCount = faceRepository.countByPersonId(person.getId());
         dto.setFaceCount((int) faceCount);
 
-        // 计算相册数量（从该人物的所有照片中提取唯一相册ID的数量）
-        List<Long> albumIds = faceRepository.findByPersonId(person.getId(), PageRequest.of(0, Integer.MAX_VALUE))
-            .getContent()
-            .stream()
-            .filter(face -> face.getPhoto() != null)
-            .map(face -> face.getPhoto().getAlbumId())
-            .distinct()
-            .collect(Collectors.toList());
+        // 使用 distinct 查询优化相册数量
+        List<Long> albumIds = faceRepository.findDistinctAlbumIdsByPersonId(person.getId());
         dto.setAlbumCount(albumIds.size());
 
         // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）

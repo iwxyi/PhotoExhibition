@@ -123,7 +123,7 @@ const getAlbumCoverUrl = (album: AlbumDTO) => {
             <router-link
               v-for="person in persons"
               :key="person.id"
-              :to="`/person/${person.id}`"
+              :to="`/p/${person.id}`"
               class="block group"
             >
               <div class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">
@@ -167,7 +167,7 @@ const getAlbumCoverUrl = (album: AlbumDTO) => {
             <router-link
               v-for="album in albums"
               :key="album.id"
-              :to="`/album/${album.id}`"
+              :to="`/a/${album.id}`"
               class="block group"
             >
               <div class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">

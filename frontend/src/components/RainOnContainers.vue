@@ -36,7 +36,7 @@ interface RainDrop {
   vy: number
   size: number
   opacity: number
-  state: 'falling' | 'splashing' | 'done'
+  state: 'falling' | 'splashing'
   splashParticles: SplashParticle[]
   age: number
 }
@@ -52,15 +52,18 @@ interface SplashParticle {
   age: number
 }
 
-// 从边缘流下的水流
-interface WaterStream {
-  x: number
-  y: number
-  targetRect: DOMRect
+// 在图片上流淌的水流
+interface WaterFlow {
+  id: number
   side: 'left' | 'right'
-  progress: number // 0-1, 沿图片边缘下行的进度
-  opacity: number
+  hitX: number // 原始落点相对于图片宽度的位置
+  // 动态计算的位置（每一帧重新获取）
+  getRect: () => DOMRect | null
+  progress: number // 0-1, 沿图片表面下行的进度
+  flowProgress: number // >1 时表示已经流到图片底部继续往下
   width: number
+  opacity: number
+  speed: number
   age: number
 }
 
@@ -80,19 +83,20 @@ let ctx: CanvasRenderingContext2D | null = null
 let animId = 0
 let lastTime = 0
 let rainDrops: RainDrop[] = []
-let waterStreams: WaterStream[] = []
+let waterFlows: WaterFlow[] = []
 let dripDrops: DripDrop[] = []
 let isActive = false
 let width = 0
 let height = 0
-let topRowContainers: DOMRect[] = [] // 只存储第一行的容器
+let topRowContainers: Array<{ rect: DOMRect; element: Element }> = []
+let flowIdCounter = 0
 
 const getIntensityConfig = () => {
   const intensity = props.intensity || 'medium'
-  const configMap: Record<string, { dropCount: number; speed: number; splashChance: number; streamChance: number }> = {
-    low: { dropCount: 40, speed: 1.5, splashChance: 0.6, streamChance: 0.4 },
-    medium: { dropCount: 70, speed: 2.5, splashChance: 0.7, streamChance: 0.5 },
-    high: { dropCount: 100, speed: 4, splashChance: 0.8, streamChance: 0.6 }
+  const configMap: Record<string, { dropCount: number; baseSpeed: number; flowSpeed: number; splashChance: number }> = {
+    low: { dropCount: 50, baseSpeed: 1.2, flowSpeed: 0.8, splashChance: 0.7 },
+    medium: { dropCount: 80, baseSpeed: 2.0, flowSpeed: 1.2, splashChance: 0.8 },
+    high: { dropCount: 120, baseSpeed: 3.5, flowSpeed: 2.0, splashChance: 0.9 }
   }
   return configMap[intensity] || configMap.medium
 }
@@ -100,29 +104,25 @@ const getIntensityConfig = () => {
 // 收集第一行（最上面一行）的图片容器
 const collectTopRowContainers = () => {
   const photoCards = document.querySelectorAll('.photo-card')
-  const allRects: Array<{ rect: DOMRect; top: number }> = []
+  const allRects: Array<{ rect: DOMRect; element: Element; top: number }> = []
 
   photoCards.forEach(card => {
     const rect = card.getBoundingClientRect()
     if (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < height) {
-      allRects.push({ rect, top: rect.top })
+      allRects.push({ rect, element: card, top: rect.top })
     }
   })
 
   // 按top位置排序，找出最上面的一排
   allRects.sort((a, b) => a.top - b.top)
 
-  // 找出第一行的高度范围（允许10px误差）
+  // 找出第一行
   if (allRects.length > 0) {
     const firstRowTop = allRects[0].top
-    const firstRowBottom = firstRowTop + allRects[0].rect.height
-
     // 只保留第一行的容器
     topRowContainers = allRects
-      .filter(({ rect, top }) => {
-        return Math.abs(top - firstRowTop) < 15 || (top >= firstRowTop && top < firstRowBottom)
-      })
-      .map(({ rect }) => rect)
+      .filter(({ top }) => Math.abs(top - firstRowTop) < 12)
+      .map(({ rect, element }) => ({ rect, element }))
   } else {
     topRowContainers = []
   }
@@ -130,14 +130,14 @@ const collectTopRowContainers = () => {
 
 const spawnRainDrop = (initialSpawn: boolean): RainDrop => {
   const config = getIntensityConfig()
-  const baseSpeed = config.speed * props.speedMultiplier
-  const size = (2 + Math.random() * 2) * props.sizeMultiplier
+  const baseSpeed = config.baseSpeed * props.speedMultiplier
+  const size = (2 + Math.random() * 2.5) * props.sizeMultiplier
 
   let x: number, y: number
 
   if (initialSpawn) {
     x = Math.random() * width
-    y = Math.random() * height * 0.3
+    y = Math.random() * height * 0.4
   } else {
     x = Math.random() * width
     y = -size * 2
@@ -146,7 +146,7 @@ const spawnRainDrop = (initialSpawn: boolean): RainDrop => {
   return {
     x,
     y,
-    vx: (Math.random() - 0.5) * 10,
+    vx: (Math.random() - 0.5) * 15,
     vy: baseSpeed + Math.random() * baseSpeed * 0.5,
     size,
     opacity: 0,
@@ -157,15 +157,15 @@ const spawnRainDrop = (initialSpawn: boolean): RainDrop => {
 }
 
 const spawnSplashParticle = (x: number, y: number): SplashParticle => {
-  const angle = Math.random() * Math.PI // 向上的半圆
-  const speed = 30 + Math.random() * 50
+  const angle = Math.random() * Math.PI
+  const speed = 40 + Math.random() * 60
   return {
     x,
     y,
     vx: Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1),
     vy: -Math.sin(angle) * speed,
-    size: 1 + Math.random() * 2,
-    opacity: 0.8,
+    size: 1.5 + Math.random() * 2.5,
+    opacity: 0.9,
     age: 0
   }
 }
@@ -174,10 +174,34 @@ const spawnDripDrop = (x: number, y: number): DripDrop => {
   return {
     x,
     y,
-    vx: (Math.random() - 0.5) * 3,
+    vx: (Math.random() - 0.5) * 4,
     vy: 0,
-    size: 2 + Math.random() * 2,
-    opacity: 0.7,
+    size: 2.5 + Math.random() * 2.5,
+    opacity: 0.75,
+    age: 0
+  }
+}
+
+// 创建新的水流 - 使用 getter 函数来动态获取容器位置
+const createWaterFlow = (element: Element, side: 'left' | 'right', hitX: number): WaterFlow => {
+  const config = getIntensityConfig()
+  return {
+    id: flowIdCounter++,
+    side,
+    hitX,
+    getRect: () => {
+      const rect = element.getBoundingClientRect()
+      // 检查容器是否仍然在可视区域内
+      if (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < height) {
+        return rect
+      }
+      return null
+    },
+    progress: 0,
+    flowProgress: 0,
+    width: 2 + Math.random() * 2,
+    opacity: props.opacity * 0.8,
+    speed: config.flowSpeed * props.speedMultiplier,
     age: 0
   }
 }
@@ -188,7 +212,7 @@ const updateRainDrop = (drop: RainDrop, dt: number): boolean => {
 
   if (drop.state === 'falling') {
     drop.opacity = Math.min(drop.opacity + dt * 0.003, props.opacity)
-    drop.vy += 80 * dtSec // 重力
+    drop.vy += 100 * dtSec
     drop.x += drop.vx * dtSec
     drop.y += drop.vy * dtSec
 
@@ -198,103 +222,92 @@ const updateRainDrop = (drop: RainDrop, dt: number): boolean => {
     }
 
     // 检测是否落在第一行容器的上边缘
-    for (const rect of topRowContainers) {
-      // 检查是否碰到容器的上边缘区域（允许一点误差）
-      const hitZoneTop = rect.top - 5
-      const hitZoneBottom = rect.top + 8
+    for (const { rect, element } of topRowContainers) {
+      const hitZoneTop = rect.top - 3
+      const hitZoneBottom = rect.top + 10
 
       if (drop.x >= rect.left && drop.x <= rect.right &&
           drop.y >= hitZoneTop && drop.y <= hitZoneBottom) {
-        // 碰撞！开始溅起
         drop.state = 'splashing'
-        drop.y = rect.top // 修正位置到上边缘
+        drop.y = rect.top
 
         const config = getIntensityConfig()
+        const hitX = (drop.x - rect.left) / rect.width
 
         // 生成溅起的水花
-        const splashCount = Math.floor(3 + Math.random() * 4)
+        const splashCount = Math.floor(4 + Math.random() * 5)
         for (let i = 0; i < splashCount; i++) {
           drop.splashParticles.push(spawnSplashParticle(drop.x, rect.top))
         }
 
-        // 决定是否产生水流（从左边或右边流下）
-        if (Math.random() < config.streamChance) {
-          const side: 'left' | 'right' = drop.x < rect.left + rect.width / 2 ? 'left' : 'right'
-          waterStreams.push({
-            x: side === 'left' ? rect.left : rect.right,
-            y: rect.top,
-            targetRect: rect,
-            side,
-            progress: 0,
-            opacity: props.opacity * 0.8,
-            width: 2 + Math.random() * 2,
-            age: 0
-          })
+        // 根据落点位置决定水流方向
+        const flowSide: 'left' | 'right' = hitX < 0.5 ? 'left' : 'right'
+
+        // 创建水流
+        if (Math.random() < config.splashChance) {
+          waterFlows.push(createWaterFlow(element, flowSide, hitX))
         }
+
         return true
       }
     }
   } else if (drop.state === 'splashing') {
-    // 更新溅起的水花
     for (let i = drop.splashParticles.length - 1; i >= 0; i--) {
       const p = drop.splashParticles[i]
       p.age += dt
-      p.vy += 100 * dtSec // 重力
+      p.vy += 120 * dtSec
       p.x += p.vx * dtSec
       p.y += p.vy * dtSec
-      p.opacity *= 0.96
+      p.opacity *= 0.94
 
       if (p.opacity < 0.05 || p.y > height) {
         drop.splashParticles.splice(i, 1)
       }
     }
 
-    // 溅起结束后移除
     if (drop.splashParticles.length === 0) {
       return false
     }
   }
 
-  return drop.age < 12000
+  return drop.age < 10000
 }
 
-const updateWaterStream = (stream: WaterStream, dt: number): boolean => {
+const updateWaterFlow = (flow: WaterFlow, dt: number): boolean => {
   const dtSec = dt * 0.001
-  stream.age += dt
+  flow.age += dt
 
-  const flowSpeed = 50 * dtSec // 沿边缘下行的速度
-  const rect = stream.targetRect
-
-  // 检查容器是否仍然有效
-  if (!rect || rect.width === 0) {
+  // 动态获取当前容器位置
+  const rect = flow.getRect()
+  if (!rect) {
     return false
   }
 
-  // 更新进度（从顶部到底部）
-  stream.progress += flowSpeed / rect.height
-  stream.y = rect.top + stream.progress * rect.height
+  const flowAcceleration = Math.min(flow.age / 2000, 1.5)
+  const currentSpeed = flow.speed * (1 + flowAcceleration * 0.5)
 
-  // 计算x坐标（沿左或右边缘）
-  // 边缘会稍微向内弯曲一点，模拟水流沿着边缘的效果
-  const edgeOffset = Math.sin(stream.progress * Math.PI) * 3
-  if (stream.side === 'left') {
-    stream.x = rect.left + edgeOffset
-  } else {
-    stream.x = rect.right - edgeOffset
-  }
+  const flowPixelSpeed = currentSpeed * 60 * dtSec
+  flow.progress += flowPixelSpeed / rect.height
+  flow.flowProgress = flow.progress
 
-  stream.opacity *= 0.997 // 缓慢消失
+  // 超过图片底部后继续往下流
+  if (flow.progress >= 1) {
+    // 额外往下流的距离（像素）
+    const extraFlow = (flow.progress - 1) * rect.height
+    flow.flowProgress = 1 + extraFlow / 100 // 归一化，每100px算1个进度
 
-  // 如果水流到达底部
-  if (stream.progress >= 1) {
-    // 在底部角落产生滴落
-    if (Math.random() < 0.5) {
-      dripDrops.push(spawnDripDrop(stream.x, rect.bottom))
+    // 到达底部后产生滴落（只产生一次）
+    if (flow.progress >= 1 && flow.progress < 1 + dtSec * currentSpeed) {
+      const edgeX = flow.side === 'left' ? rect.left : rect.right
+      if (Math.random() < 0.5) {
+        dripDrops.push(spawnDripDrop(edgeX, rect.bottom))
+      }
     }
-    return false
   }
 
-  if (stream.opacity < 0.03 || stream.age > 8000) {
+  // 超过时间限制或透明度太低
+  const maxFlowProgress = 2.5 // 最多流到图片底部往下150px
+  if (flow.age > 8000 || flow.flowProgress > maxFlowProgress) {
     return false
   }
 
@@ -305,18 +318,16 @@ const updateDripDrop = (drop: DripDrop, dt: number): boolean => {
   const dtSec = dt * 0.001
   drop.age += dt
 
-  drop.vy += 120 * dtSec // 重力，稍大一点
+  drop.vy += 150 * dtSec
   drop.x += drop.vx * dtSec
   drop.y += drop.vy * dtSec
-
-  // 拉长效果
-  drop.opacity *= 0.992
+  drop.opacity *= 0.99
 
   if (drop.y > height + 20 || drop.opacity < 0.02) {
     return false
   }
 
-  return drop.age < 4000
+  return drop.age < 3000
 }
 
 const render = (timestamp: number) => {
@@ -327,27 +338,24 @@ const render = (timestamp: number) => {
 
   ctx.clearRect(0, 0, width, height)
 
-  // 收集第一行容器
   collectTopRowContainers()
 
-  // 更新所有粒子
   rainDrops = rainDrops.filter(drop => updateRainDrop(drop, dt))
-  waterStreams = waterStreams.filter(stream => updateWaterStream(stream, dt))
+  waterFlows = waterFlows.filter(flow => updateWaterFlow(flow, dt))
   dripDrops = dripDrops.filter(drop => updateDripDrop(drop, dt))
 
   const targetCount = Math.floor(getIntensityConfig().dropCount * props.sizeMultiplier)
   while (rainDrops.length < targetCount) rainDrops.push(spawnRainDrop(false))
 
-  // 绘制落下的雨滴（细长的雨丝）
-  ctx.strokeStyle = 'rgba(180, 200, 230, 0.5)'
+  // 绘制雨滴
+  ctx.strokeStyle = 'rgba(170, 190, 220, 0.5)'
   ctx.lineWidth = 1.2
   for (const drop of rainDrops) {
     if (drop.state === 'falling') {
-      ctx.globalAlpha = drop.opacity * 0.7
+      ctx.globalAlpha = drop.opacity * 0.6
       ctx.beginPath()
       ctx.moveTo(drop.x, drop.y)
-      // 雨滴是拉长的
-      ctx.lineTo(drop.x - drop.vx * 0.08, drop.y - drop.size * 3)
+      ctx.lineTo(drop.x - drop.vx * 0.06, drop.y - drop.size * 2.5)
       ctx.stroke()
     }
   }
@@ -356,8 +364,8 @@ const render = (timestamp: number) => {
   for (const drop of rainDrops) {
     if (drop.state === 'splashing') {
       for (const p of drop.splashParticles) {
-        ctx.globalAlpha = p.opacity * 0.8
-        ctx.fillStyle = 'rgba(200, 220, 240, 0.8)'
+        ctx.globalAlpha = p.opacity * 0.85
+        ctx.fillStyle = 'rgba(200, 220, 240, 0.85)'
         ctx.beginPath()
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
         ctx.fill()
@@ -365,25 +373,118 @@ const render = (timestamp: number) => {
     }
   }
 
-  // 绘制沿边缘流下的水流
-  ctx.strokeStyle = 'rgba(160, 180, 210, 0.6)'
-  ctx.lineWidth = 2
-  ctx.lineCap = 'round'
-  for (const stream of waterStreams) {
-    ctx.globalAlpha = stream.opacity
+  // 绘制水流 - 单层连续的水流，更自然
+  for (const flow of waterFlows) {
+    const rect = flow.getRect()
+    if (!rect) continue
+
+    const side = flow.side
+    const edgeX = side === 'left' ? rect.left : rect.right
+    const rectHeight = rect.height
+
+    // 计算当前进度（可能超过1）
+    let currentY: number
+    let currentOpacity: number
+    let currentWidth: number
+
+    if (flow.flowProgress <= 1) {
+      // 在图片内部
+      currentY = rect.top + flow.flowProgress * rectHeight
+      currentOpacity = flow.opacity * (1 - flow.flowProgress * 0.4)
+      // 宽度逐渐变宽
+      const topWidth = flow.width * 1.5
+      const bottomWidth = flow.width * 5
+      currentWidth = topWidth + (bottomWidth - topWidth) * flow.flowProgress
+    } else {
+      // 流出图片底部，继续往下并逐渐变淡消失
+      const extraProgress = (flow.flowProgress - 1) * 100 // 每100px
+      currentY = rect.bottom + extraProgress
+      // 透明度快速衰减
+      currentOpacity = flow.opacity * 0.6 * Math.max(0, 1 - extraProgress / 150)
+      // 宽度逐渐变窄然后消失
+      currentWidth = flow.width * 5 * Math.max(0.3, 1 - extraProgress / 200)
+    }
+
+    if (currentOpacity < 0.02) continue
+
+    // 绘制连续的水流带 - 单层渐变，更自然
+    const gradient = ctx.createLinearGradient(
+      side === 'left' ? edgeX - currentWidth : edgeX,
+      rect.top,
+      side === 'left' ? edgeX : edgeX + currentWidth,
+      currentY
+    )
+
+    if (flow.flowProgress <= 1) {
+      // 在图片内部：从上到下渐变
+      gradient.addColorStop(0, `rgba(165, 190, 220, ${currentOpacity})`)
+      gradient.addColorStop(0.5, `rgba(170, 195, 225, ${currentOpacity * 0.9})`)
+      gradient.addColorStop(1, `rgba(175, 200, 230, ${currentOpacity * 0.7})`)
+    } else {
+      // 流出底部：快速变淡
+      gradient.addColorStop(0, `rgba(170, 195, 225, ${currentOpacity * 0.8})`)
+      gradient.addColorStop(1, `rgba(180, 205, 235, ${currentOpacity * 0.3})`)
+    }
+
+    ctx.globalAlpha = currentOpacity
+    ctx.fillStyle = gradient
+
+    // 绘制流线型水滴形状
     ctx.beginPath()
-    ctx.moveTo(stream.x - stream.width / 2, stream.y)
-    ctx.lineTo(stream.x + stream.width / 2, stream.y)
-    ctx.stroke()
+    if (side === 'left') {
+      // 左边：从左边缘向外流
+      const baseX = edgeX - currentWidth / 2
+      ctx.moveTo(baseX, rect.top)
+      ctx.lineTo(baseX + currentWidth, rect.top)
+      // 底部收窄
+      ctx.quadraticCurveTo(
+        baseX + currentWidth, currentY - 5,
+        edgeX, currentY
+      )
+      ctx.quadraticCurveTo(
+        baseX, currentY - 5,
+        baseX, rect.top
+      )
+    } else {
+      // 右边：从右边缘向外流
+      const baseX = edgeX + currentWidth / 2
+      ctx.moveTo(baseX, rect.top)
+      ctx.lineTo(baseX - currentWidth, rect.top)
+      ctx.quadraticCurveTo(
+        baseX - currentWidth, currentY - 5,
+        edgeX, currentY
+      )
+      ctx.quadraticCurveTo(
+        baseX, currentY - 5,
+        baseX, rect.top
+      )
+    }
+    ctx.closePath()
+    ctx.fill()
+
+    // 添加高光
+    if (flow.flowProgress <= 1.2) {
+      ctx.globalAlpha = currentOpacity * 0.3
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      if (side === 'left') {
+        ctx.moveTo(edgeX - 2, rect.top + 5)
+        ctx.lineTo(edgeX - 2, currentY - 10)
+      } else {
+        ctx.moveTo(edgeX + 2, rect.top + 5)
+        ctx.lineTo(edgeX + 2, currentY - 10)
+      }
+      ctx.stroke()
+    }
   }
 
-  // 绘制底部滴落的水滴（拉长的椭圆）
-  ctx.fillStyle = 'rgba(180, 200, 230, 0.7)'
+  // 绘制底部滴落的水滴
   for (const drop of dripDrops) {
     ctx.globalAlpha = drop.opacity
+    ctx.fillStyle = 'rgba(180, 205, 235, 0.75)'
     ctx.beginPath()
-    // 拉长的水滴形状
-    ctx.ellipse(drop.x, drop.y, drop.size * 0.4, drop.size * 1.5, 0, 0, Math.PI * 2)
+    ctx.ellipse(drop.x, drop.y, drop.size * 0.35, drop.size * 1.3, 0, 0, Math.PI * 2)
     ctx.fill()
   }
 
@@ -409,12 +510,13 @@ const start = () => {
   isActive = true
   lastTime = 0
   rainDrops = []
-  waterStreams = []
+  waterFlows = []
   dripDrops = []
+  flowIdCounter = 0
   resizeCanvas()
 
   const targetCount = Math.floor(getIntensityConfig().dropCount * props.sizeMultiplier)
-  const initialCount = Math.min(targetCount, Math.floor(targetCount * 0.4))
+  const initialCount = Math.min(targetCount, Math.floor(targetCount * 0.35))
   for (let i = 0; i < initialCount; i++) rainDrops.push(spawnRainDrop(true))
 
   animId = requestAnimationFrame(render)
@@ -424,7 +526,7 @@ const stop = () => {
   isActive = false
   if (animId) { cancelAnimationFrame(animId); animId = 0 }
   rainDrops = []
-  waterStreams = []
+  waterFlows = []
   dripDrops = []
   if (ctx) ctx.clearRect(0, 0, width, height)
 }
@@ -439,7 +541,6 @@ onMounted(() => {
 
   scrollHandler = () => {
     if (isActive) {
-      // 滚动时更新容器位置
       collectTopRowContainers()
     }
   }
