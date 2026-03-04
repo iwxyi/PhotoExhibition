@@ -6,6 +6,7 @@ import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
 import com.photoexhibition.dto.PersonSimilarityDTO;
 import com.photoexhibition.dto.AlbumRecommendationDTO;
+import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.entity.Photo;
@@ -66,8 +67,8 @@ public class FaceService {
     private double detectionConfidenceThreshold;
 
     // 以下过滤参数可通过 application.yml 调整
-    @Value("${face.filters.min-area:0.002}")
-    private double minArea;          // 最小面积（相对整图）
+    @Value("${face.filters.min-area:0.001}")
+    private double minArea;          // 最小面积（相对整图），降低以支持小人脸
     @Value("${face.filters.max-area:0.35}")
     private double maxArea;          // 最大面积（相对整图）
     @Value("${face.filters.max-width:0.5}")
@@ -1720,10 +1721,19 @@ public class FaceService {
     public List<FaceDTO> findSimilarFaces(Long faceId, int top, double threshold) {
         Face base = faceRepository.findById(faceId).orElseThrow(() -> new RuntimeException("人脸不存在"));
         float[] baseVec = getEmbedding(base);
-        if (baseVec == null) return List.of();
 
         List<Face> all = faceRepository.findAllWithEmbedding();
         List<FaceDTO> result = new ArrayList<>();
+
+        // 如果基础人脸没有embedding，至少返回自己
+        if (baseVec == null) {
+            log.warn("人脸 {} 没有embedding向量", faceId);
+            FaceDTO dto = toDTO(base);
+            dto.setSimilarity(1.0);
+            result.add(dto);
+            return result;
+        }
+
         for (Face f : all) {
             if (f.getId().equals(faceId)) continue;
             float[] vec = getEmbedding(f);
@@ -1741,6 +1751,19 @@ public class FaceService {
             return result.subList(0, top);
         }
         return result;
+    }
+
+    /**
+     * 根据人脸ID获取照片列表
+     */
+    @Transactional(readOnly = true)
+    public List<PhotoDTO> getPhotosByFaceId(Long faceId) {
+        Face face = faceRepository.findById(faceId).orElseThrow(() -> new RuntimeException("人脸不存在"));
+        Photo photo = face.getPhoto();
+        if (photo == null) {
+            return List.of();
+        }
+        return List.of(photoService.toPhotoDTO(photo));
     }
 
     /**
@@ -2422,9 +2445,12 @@ public class FaceService {
                 continue;
             }
 
-            // 获取相册信息
-            com.photoexhibition.entity.Album album = albumRepository.findById(albumId)
-                .orElseThrow(() -> new RuntimeException("相册不存在: " + albumId));
+            // 获取相册信息（容错处理：相册可能已被合并删除）
+            com.photoexhibition.entity.Album album = albumRepository.findById(albumId).orElse(null);
+            if (album == null) {
+                log.warn("人物 {} 的相册 {} 已被删除或不存在，跳过", personId, albumId);
+                continue;
+            }
 
             AlbumRecommendationDTO dto = new AlbumRecommendationDTO();
             dto.setAlbumId(album.getId());

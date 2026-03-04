@@ -373,6 +373,15 @@
                   >
                     认领为<template v-if="selectedUnassigned.size > 0"> ({{ selectedUnassigned.size }})</template>
                   </button>
+              <!-- 管理员新建人物按钮 -->
+              <button
+                v-if="tab === 'unassigned' && authStore.isAuthenticated"
+                @click="showCreatePersonPanel = !showCreatePersonPanel"
+                :disabled="selectedUnassigned.size === 0"
+                class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-[10px] disabled:opacity-50"
+              >
+                新建人物<template v-if="selectedUnassigned.size > 0"> ({{ selectedUnassigned.size }})</template>
+              </button>
               <button
                 v-if="tab === 'confirmed'"
                     @click="removeSelectedConfirmed"
@@ -766,6 +775,38 @@
 
             <!-- 未分配照片 -->
             <div v-if="tab === 'unassigned'">
+              <!-- 新建人物面板（仅管理员可见） -->
+              <div v-if="showCreatePersonPanel && authStore.isAuthenticated" class="mb-3 p-3 bg-gray-800 rounded-lg border border-green-600/50">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm text-green-400 font-medium">新建人物</span>
+                  <span class="text-xs text-gray-400">(将选中的人脸合并为新人物)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model="newPersonName"
+                    type="text"
+                    placeholder="输入人物名称"
+                    class="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                    @keyup.enter="createPersonFromSelectedUnassigned"
+                  />
+                  <button
+                    @click="createPersonFromSelectedUnassigned"
+                    :disabled="createPersonLoading || !newPersonName.trim() || selectedUnassigned.size === 0"
+                    class="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {{ createPersonLoading ? '创建中...' : '创建' }}
+                  </button>
+                  <button
+                    @click="showCreatePersonPanel = false"
+                    class="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 rounded text-sm"
+                  >
+                    取消
+                  </button>
+                </div>
+                <div v-if="selectedUnassigned.size > 0" class="mt-2 text-xs text-gray-400">
+                  已选择 {{ selectedUnassigned.size }} 张人脸
+                </div>
+              </div>
               <div class="mb-2">
                 <span class="text-xs text-gray-400">所有未分配的照片</span>
                 <span v-if="loadingUnassignedFaces" class="ml-2 text-xs text-gray-400">加载中...</span>
@@ -1110,13 +1151,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { api, personApi } from '@/api'
 import { usePhotoStore } from '@/stores/photo'
+import { useAuthStore } from '@/stores/auth'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
 const router = useRouter()
+const route = useRoute()
 const photoStore = usePhotoStore()
+const authStore = useAuthStore()
 
 interface PersonListItem {
   type: 'confirmed' | 'cluster'
@@ -1232,6 +1276,15 @@ const loadingClaimDialogPersons = ref(false)
 const selectedClaimPersonId = ref<number | null>(null)
 const claimDialogSearchInput = ref<HTMLInputElement | null>(null)
 const claimDialogSourceTab = ref<'cluster' | 'unassigned' | null>(null) // 记录弹窗来源tab
+
+// 查找相似人脸相关状态（从PhotoViewer跳转过来时使用）
+const findSimilarFaceId = ref<number | null>(null)
+const findSimilarLoading = ref(false)
+
+// 新建人物相关状态（仅管理员可见）
+const showCreatePersonPanel = ref(false)
+const newPersonName = ref('')
+const createPersonLoading = ref(false)
 
 // 是否可以使用新建人物按钮
 const canCreatePersonFromClaimDialog = computed(() => {
@@ -2046,6 +2099,16 @@ const loadAlbumRecommendations = async (signal?: AbortSignal, keepSelection = fa
       facePlaceholderCounts.albums = 0
     }
 
+    // 如果没有推荐相册，清空右侧图片列表
+    if (albumRecommendations.value.length === 0) {
+      if (selectedAlbum.value) {
+        selectedAlbum.value.albumPhotos = []
+        selectedAlbum.value.similarFaces = []
+      }
+      selectedAlbum.value = null
+      visibleFacesMap.albums.value = []
+    }
+
     // 加载选中相册的所有图片（包括无脸图片）
     if (selectedAlbum.value) {
       await loadAlbumPhotos(selectedAlbum.value.albumId, signal)
@@ -2545,7 +2608,7 @@ const createPersonFromSelectedCluster = async () => {
       convertedClusterIds.value.add(originalClusterId)
       // 存储聚类ID到人物ID的映射
       clusterToPersonMap.value.set(originalClusterId, created)
-      
+
       // 保持在聚类 tab，选中这个人物（使用 confirmed 类型）
       leftPanelTab.value = 'cluster'
       selectPerson({
@@ -2565,6 +2628,59 @@ const createPersonFromSelectedCluster = async () => {
     alert('创建人物失败: ' + (e.response?.data?.error || e.message))
   } finally {
     savingPerson.value = false
+  }
+}
+
+// 从选中的未分配人脸创建人物（用于查找相似人脸后的新建人物功能）
+const createPersonFromSelectedUnassigned = async () => {
+  const faceIds = Array.from(selectedUnassigned.value)
+  if (faceIds.length === 0) {
+    alert('请先选择要包含的人脸')
+    return
+  }
+
+  const name = newPersonName.value.trim()
+  if (!name) {
+    alert('请输入人物名称')
+    return
+  }
+
+  createPersonLoading.value = true
+  try {
+    const resCreate = await api.post('/admin/persons/from-faces', {
+      faceIds,
+      name,
+      description: ''
+    })
+
+    const createdId = resCreate?.data?.id
+    if (createdId) {
+      // 重新加载人物列表
+      await loadPersons()
+
+      // 清除选中和新建面板
+      selectedUnassigned.value.clear()
+      showCreatePersonPanel.value = false
+      newPersonName.value = ''
+
+      // 选中新创建的人物
+      const created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
+      if (created) {
+        selectPerson({
+          ...created,
+          type: 'confirmed'
+        })
+      }
+
+      // 刷新未分配人脸列表（已创建人物的会被移除）
+      if (tab.value === 'unassigned') {
+        await loadContextualUnassigned()
+      }
+    }
+  } catch (e: any) {
+    alert('创建人物失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    createPersonLoading.value = false
   }
 }
 
@@ -4847,6 +4963,15 @@ let albumResizeObserver: ResizeObserver | null = null
 let confirmedGridResizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
+  // 检查路由参数中是否有查找相似人脸的请求
+  const findSimilarFaceParam = route.query.findSimilarFace as string
+  if (findSimilarFaceParam) {
+    const faceId = parseInt(findSimilarFaceParam, 10)
+    if (!isNaN(faceId)) {
+      findSimilarFaceId.value = faceId
+    }
+  }
+
   loadPersons()
   nextTick(() => {
     updateContainerWidth()
@@ -5001,7 +5126,9 @@ const openClaimDialog = async (sourceTab: 'cluster' | 'unassigned') => {
   try {
     // 获取所有已确认人物（使用with-sample端点获取完整信息）
     const res = await api.get('/admin/persons/with-sample')
-    const allPersons = res.data || []
+    // with-sample 返回的是 Page 对象，需要取 content
+    const pageData = res.data
+    const allPersons = (pageData?.content || pageData || [])
     
     if (selectedFaceIds.length === 0) {
       // 如果没有选中人脸，只显示人物列表
@@ -5095,7 +5222,8 @@ const openClaimDialogForSingleFace = async (faceId: number) => {
 
     // 获取人物列表
     const personsRes = await api.get('/admin/persons/with-sample')
-    let allPersons = personsRes.data || []
+    const pageData = personsRes.data
+    let allPersons = (pageData?.content || pageData || [])
 
     // 转换为PersonListItem格式并添加相似度
     claimDialogPersons.value = allPersons.map((person: any) => ({
@@ -5393,6 +5521,38 @@ watch(clusterThreshold, (v) => {
       await loadClusterFaces()
     }
   }, 200)
+})
+
+// 监听查找相似人脸ID变化，自动加载相似人脸
+watch(findSimilarFaceId, async (faceId) => {
+  if (!faceId) return
+
+  findSimilarLoading.value = true
+  try {
+    // 调用后端API获取与该人脸相似的所有人脸
+    const response = await api.get(`/admin/faces/${faceId}/similar`, {
+      params: { top: 200, threshold: clusterThreshold.value }
+    })
+
+    const similarFacesData = response.data || []
+
+    if (similarFacesData.length > 0) {
+      // 将相似人脸数据加载到 unassignedFaces 中
+      unassignedFaces.value = similarFacesData
+      unassignedLoadedOnce.value = true
+      // 切换到未分配tab显示
+      tab.value = 'unassigned'
+    } else {
+      alert('未找到相似人脸')
+    }
+  } catch (error) {
+    console.error('加载相似人脸失败:', error)
+    alert('加载相似人脸失败')
+  } finally {
+    findSimilarLoading.value = false
+    // 清除路由参数，避免刷新时重复触发
+    router.replace({ query: {} })
+  }
 })
 </script>
 

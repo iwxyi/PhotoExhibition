@@ -163,13 +163,13 @@ face:
   detection:
     enabled: true  # 重新启用ONNX人脸检测，现在有ARM64支持了
     model-path: ./models/face_detection.onnx  # 检测模型路径
-    confidence-threshold: 0.6  # 检测置信度阈值
+    confidence-threshold: 0.4  # 检测置信度阈值，降低以检测更多小人脸
     nms-threshold: 0.4  # 非极大值抑制阈值
     input-size: 640  # 模型输入尺寸（RetinaFace 常用 640）
     allow-simple-fallback: false  # 是否允许回退到简单肤色检测（建议准确率优先时关闭）
   # 人脸过滤配置（用于FaceService二次筛选），可按需要调整
   filters:
-    min-area: 0.0025   # 最小面积（相对整图），默认 0.25%，也就是1/20*1/20
+    min-area: 0.001   # 最小面积（相对整图），降低到0.1%以支持小人脸检测
     max-area: 0.8    # 最大面积（相对整图），默认 50%
     max-width: 0.75    # 最大宽度占比，默认 50%
     max-height: 0.75   # 最大高度占比，默认 50%

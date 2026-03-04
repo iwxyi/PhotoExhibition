@@ -70,6 +70,28 @@
 
       <!-- 主要图片显示区域 -->
       <div class="flex-1 relative min-h-0" :style="mainContentStyle" ref="mainContentArea">
+        <!-- 移动端左右切换按钮 - 只在手机上显示 -->
+        <button
+          v-if="currentIndex > 0"
+          class="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-all duration-200 md:hidden touch-manipulation"
+          @click.stop="prev"
+          title="上一张"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <button
+          v-if="currentIndex < photos.length - 1"
+          class="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-all duration-200 md:hidden touch-manipulation"
+          @click.stop="next"
+          title="下一张"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+
         <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
         <div 
           class="absolute flex items-center justify-center" 
@@ -325,8 +347,8 @@
                   v-for="(f, idx) in visibleFaceList"
                   :key="f.id || idx"
                   class="flex items-center gap-2 p-2 rounded transition-colors min-w-0 flex-shrink-0"
-                  :class="f.isConfirmed && f.personId && f.personName ? 'cursor-pointer hover:bg-white/10' : ''"
-                  @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : null"
+                  :class="(f.isConfirmed && f.personId && f.personName) || (!f.personId || !f.personName) ? 'cursor-pointer hover:bg-white/10' : ''"
+                  @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : (!f.personId || !f.personName) ? findSimilarFaces(f) : null"
                 >
                   <div
                     class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 overflow-hidden"
@@ -1780,6 +1802,18 @@ const openPersonByFace = (face: { personId?: number; personName?: string }) => {
     query: {
       personId: face.personId,
       personName: face.personName
+    }
+  })
+  window.open(route.href, '_blank')
+}
+
+// 跳转到搜索结果页面，搜索该人脸的相似人脸
+const findSimilarFaces = (face: { id?: number }) => {
+  if (!face.id) return
+  const route = router.resolve({
+    path: '/search',
+    query: {
+      faceId: face.id.toString()
     }
   })
   window.open(route.href, '_blank')

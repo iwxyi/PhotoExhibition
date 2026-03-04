@@ -6,6 +6,7 @@ import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
 import com.photoexhibition.dto.PersonSimilarityDTO;
 import com.photoexhibition.dto.AlbumRecommendationDTO;
+import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.service.FaceService;
@@ -112,6 +113,14 @@ public class FaceController {
             @RequestParam(defaultValue = "10") int top,
             @RequestParam(defaultValue = "0.6") double threshold) {
         return ResponseEntity.ok(faceService.findSimilarFaces(faceId, top, threshold));
+    }
+
+    /**
+     * 根据人脸ID获取照片
+     */
+    @GetMapping("/faces/{faceId}/photos")
+    public ResponseEntity<List<PhotoDTO>> getPhotosByFaceId(@PathVariable Long faceId) {
+        return ResponseEntity.ok(faceService.getPhotosByFaceId(faceId));
     }
 
     /**
@@ -552,6 +561,52 @@ public class FaceController {
         int count = faceService.batchAssignFacesToPerson(faceIds, personId, confirmed);
         log.info("批量绑定人脸完成 - 为人物 {} 绑定了 {} 个人脸", personId, count);
         return ResponseEntity.ok(Map.of("message", "已批量绑定 " + count + " 个人脸"));
+    }
+
+    /**
+     * 批量绑定人脸到人物（按名称，自动创建或合并）
+     * payload: { faceIds: [...], personName: "xxx" }
+     */
+    @PostMapping("/faces/assign-to-person")
+    public ResponseEntity<Map<String, Object>> assignFacesToPerson(@RequestBody Map<String, Object> payload) {
+        Object idsObj = payload.get("faceIds");
+        if (!(idsObj instanceof List)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "faceIds 必须是数组"));
+        }
+        List<?> rawIds = (List<?>) idsObj;
+        List<Long> faceIds = new ArrayList<>();
+        for (Object o : rawIds) {
+            if (o == null) continue;
+            if (o instanceof Number) {
+                faceIds.add(((Number) o).longValue());
+            } else if (o instanceof String) {
+                faceIds.add(Long.parseLong((String) o));
+            }
+        }
+
+        String personName = (String) payload.get("personName");
+        if (personName == null || personName.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "personName 不能为空"));
+        }
+
+        // 查找或创建人物
+        PersonProfile person = personProfileRepository.findByName(personName.trim())
+            .orElseGet(() -> {
+                PersonProfile p = new PersonProfile();
+                p.setName(personName.trim());
+                return personProfileRepository.save(p);
+            });
+
+        // 绑定所有人脸到该人物
+        int count = faceService.batchAssignFacesToPerson(faceIds, person.getId(), true);
+        log.info("批量绑定人脸完成 - 为人物 {} (ID: {}) 绑定了 {} 个人脸", person.getName(), person.getId(), count);
+
+        return ResponseEntity.ok(Map.of(
+            "message", "已绑定 " + count + " 张人脸到人物 " + person.getName(),
+            "personId", person.getId(),
+            "personName", person.getName(),
+            "count", count
+        ));
     }
 
     /**

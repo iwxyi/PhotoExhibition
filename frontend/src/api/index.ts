@@ -259,6 +259,10 @@ export const personApi = {
   // 设置人物的样例照片
   setSamplePhoto: (personId: number, faceId: number) => api.post<Person>(`/admin/persons/${personId}/set-sample`, { faceId }),
 
+  // 创建人物
+  createPerson: (name: string, description?: string) =>
+    api.post<PersonSummary>('/admin/persons', { name, description }),
+
   // 根据名称搜索人物
   searchByName: (name: string) =>
     api.get<PersonSummary>(`/public/persons/search?name=${encodeURIComponent(name)}`)
@@ -284,7 +288,20 @@ export const aiApi = {
     success: boolean
     data: SimilarPhotoResult[]
     total: number
-  }>(`/admin/photos/${photoId}/similar?limit=${limit}`)
+  }>(`/admin/photos/${photoId}/similar?limit=${limit}`),
+
+  // 根据人脸ID查找包含该人脸的照片
+  findPhotosByFaceId: (faceId: number) => api.get<{
+    success: boolean
+    data: any[]
+  }>(`/admin/faces/${faceId}/photos`),
+
+  // 查找相似人脸
+  findSimilarFaces: (faceId: number, top = 20, threshold = 0.6) => api.get<any[]>(`/admin/faces/${faceId}/similar?top=${top}&threshold=${threshold}`),
+
+  // 绑定多个脸到人物（如果人物不存在则创建）
+  assignFacesToPerson: (faceIds: number[], personName: string) =>
+    api.post('/admin/faces/assign-to-person', { faceIds, personName })
 }
 
 // 相册相关API

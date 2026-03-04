@@ -247,7 +247,8 @@ public class AlbumService {
         Album album = albumRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("相册不存在"));
 
-        Path sourcePath = Paths.get(album.getPath()).toAbsolutePath().normalize();
+        String oldPath = album.getPath();
+        Path sourcePath = Paths.get(oldPath).toAbsolutePath().normalize();
         Path parentPath = sourcePath.getParent();
         Path targetPath = parentPath.resolve(newName);
 
@@ -264,26 +265,40 @@ public class AlbumService {
         }
 
         try {
-            String oldPrefix = sourcePath.toString();
-            String newPrefix = targetPath.toString();
+            String oldPrefix = oldPath.replace("\\", "/");
+            String newPrefix = targetPath.toString().replace("\\", "/");
 
             // 1. 重命名文件系统中的文件夹
             Files.move(sourcePath, targetPath);
 
             // 2. 更新数据库中所有相关路径
-            // 2.1 更新所有子相册的路径
-            List<Album> albums = albumRepository.findByPathStartingWith(oldPrefix);
-            for (Album a : albums) {
-                a.setPath(a.getPath().replace(oldPrefix, newPrefix));
-                a.setPathHash(computeSha256(a.getPath()));
+            // 2.1 更新当前相册的路径
+            album.setPath(targetPath.toString());
+            album.setPathHash(computeSha256(album.getPath()));
+            album.setName(newName);
+
+            // 2.2 更新所有子相册的路径（路径以旧路径开头的）
+            List<Album> allAlbums = albumRepository.findAll();
+            List<Album> subAlbumsToUpdate = new java.util.ArrayList<>();
+            for (Album a : allAlbums) {
+                if (a.getPath() != null) {
+                    // 使用标准化后的路径进行比较
+                    String normalizedDbPath = a.getPath().replace("\\", "/");
+                    if (normalizedDbPath.startsWith(oldPrefix)) {
+                        a.setPath(replacePathPrefix(a.getPath(), oldPrefix, newPrefix));
+                        a.setPathHash(computeSha256(a.getPath()));
+                        subAlbumsToUpdate.add(a);
+                    }
+                }
             }
-            if (!albums.isEmpty()) {
-                albumRepository.saveAll(albums);
-                log.info("重命名相册: 更新了 {} 个相册路径", albums.size());
+            if (!subAlbumsToUpdate.isEmpty()) {
+                albumRepository.saveAll(subAlbumsToUpdate);
+                log.info("重命名相册: 更新了 {} 个子相册路径", subAlbumsToUpdate.size());
             }
 
-            // 2.2 更新所有照片的路径
-            List<Photo> photos = photoRepository.findByOriginalPathStartingWith(oldPrefix);
+            // 2.3 更新当前相册下所有照片的路径
+            // 使用 albumId 查询更可靠
+            List<Photo> photos = photoRepository.findByAlbumId(id, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
             for (Photo p : photos) {
                 p.setOriginalPath(replacePathPrefix(p.getOriginalPath(), oldPrefix, newPrefix));
                 p.setPathHash(computeSha256(p.getOriginalPath()));
@@ -311,8 +326,7 @@ public class AlbumService {
                 log.info("重命名相册: 更新了 {} 张照片路径", photos.size());
             }
 
-            // 2.3 更新当前相册的名称并重新获取DTO
-            album.setName(newName);
+            // 2.4 保存当前相册
             Album savedAlbum = albumRepository.save(album);
 
             // 重新获取完整的DTO（包括重新计算的displayTitle）
@@ -331,12 +345,20 @@ public class AlbumService {
     }
 
     /**
-     * 替换路径前缀
+     * 替换路径前缀（兼容不同路径分隔符）
      */
     private String replacePathPrefix(String path, String oldPrefix, String newPrefix) {
         if (path == null) return null;
-        if (path.startsWith(oldPrefix)) {
-            return newPrefix + path.substring(oldPrefix.length());
+
+        // 标准化路径分隔符（统一用 / 比较）
+        String normalizedPath = path.replace("\\", "/");
+        String normalizedOld = oldPrefix.replace("\\", "/");
+        String normalizedNew = newPrefix.replace("\\", "/");
+
+        if (normalizedPath.startsWith(normalizedOld)) {
+            // 保持原始分隔符风格
+            String suffix = path.substring(oldPrefix.length());
+            return newPrefix + suffix;
         }
         return path;
     }

@@ -287,18 +287,20 @@ public class FaceDetectionService implements AutoCloseable {
     /**
      * 为 RetinaFace 风格模型生成先验框
      * 约定：strides=[8,16,32]，每个位置2个 anchor，对应 min_sizes：
-     * [16,32] / [64,128] / [256,512]
+     * [8,16,32] / [32,64] / [128,256]
+     * 注：添加了更小的先验框 [8, 16] 以支持检测小人脸
      */
     private void ensurePriors(int input) {
         if (priors != null && priorsInputSize == input) return;
 
         List<double[]> result = new ArrayList<>();
 
-        int[] strides = new int[]{8, 16, 32};
+        int[] strides = new int[]{8, 16, 32, 64};
         int[][] minSizes = new int[][]{
-            {16, 32},
-            {64, 128},
-            {256, 512}
+            {8, 16, 32},      // 8x8 和 16x16 和 32x32 的小框，检测小人脸
+            {32, 64},         // 32x32 和 64x64
+            {128, 256},       // 128x128 和 256x256
+            {256, 384}        // 256x256 和 384x384，检测大人脸
         };
 
         for (int idx = 0; idx < strides.length; idx++) {

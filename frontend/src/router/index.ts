@@ -60,6 +60,12 @@ const routes = [
     name: 'SearchShort',
     component: () => import('@/views/Search.vue')
   },
+  // 搜索页面（支持查询参数）
+  {
+    path: '/search',
+    name: 'Search',
+    component: () => import('@/views/Search.vue')
+  },
   {
     path: '/admin/login',
     name: 'AdminLogin',

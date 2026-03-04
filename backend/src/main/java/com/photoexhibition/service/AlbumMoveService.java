@@ -131,6 +131,21 @@ public class AlbumMoveService {
         }
 
         try {
+            // 0. 标准化路径（统一使用 / 分隔符）
+            String normalizedSourcePath = sourcePath.toString().replace("\\", "/");
+            String normalizedTargetPath = targetPath.toString().replace("\\", "/");
+
+            // 先获取目标相册（用于更新照片的albumId）
+            Album targetAlbum = albumRepository.findAll().stream()
+                .filter(a -> {
+                    if (a.getPath() == null) return false;
+                    String normalizedDbPath = a.getPath().replace("\\", "/");
+                    return normalizedDbPath.equals(normalizedTargetPath);
+                })
+                .findFirst()
+                .orElse(null);
+            Long targetAlbumId = targetAlbum != null ? targetAlbum.getId() : null;
+
             // 1. 将源相册的所有文件移动到目标目录
             moveDirectoryContents(sourcePath, targetPath);
 
@@ -138,8 +153,8 @@ public class AlbumMoveService {
             Files.deleteIfExists(sourcePath);
 
             // 3. 更新数据库中的路径（从源路径改为目标路径）
-            String oldPrefix = sourcePath.toString();
-            String newPrefix = targetPath.toString();
+            String oldPrefix = normalizedSourcePath;
+            String newPrefix = normalizedTargetPath;
 
             for (Photo p : sourcePhotos) {
                 p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
@@ -150,16 +165,38 @@ public class AlbumMoveService {
                 p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
                 p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
                 p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+                // 更新照片的albumId到目标相册
+                if (targetAlbumId != null) {
+                    p.setAlbumId(targetAlbumId);
+                }
             }
             photoRepository.saveAll(sourcePhotos);
-            log.info("合并相册: 更新了 {} 张照片路径", photoCount);
+            log.info("合并相册: 更新了 {} 张照片路径和albumId", photoCount);
 
             // 4. 删除源相册记录（照片已移走，保留空相册记录没意义）
             albumRepository.delete(sourceAlbum);
             log.info("合并相册: 删除了源相册记录 {}", albumId);
 
+            // 5. 如果找到目标相册，更新其 photoCount 并重新获取
+            if (targetAlbum != null) {
+                targetAlbum = albumRepository.findById(targetAlbumId).orElse(null);
+                if (targetAlbum != null) {
+                    // 更新目标相册的照片数量（加上合并过来的照片数量）
+                    // 需要减去因文件名冲突被覆盖的照片数量
+                    int mergedPhotoCount = photoRepository.findByAlbumId(targetAlbumId, PageRequest.of(0, Integer.MAX_VALUE)).getContent().size();
+                    targetAlbum.setPhotoCount(mergedPhotoCount);
+                    albumRepository.save(targetAlbum);
+                    log.info("合并相册: 更新目标相册 {} 的照片数量为 {}", targetAlbumId, mergedPhotoCount);
+                }
+            }
+
             result.put("success", true);
             result.put("message", String.format("已合并 %d 张照片到 %s", photoCount, targetPath.getFileName()));
+            result.put("sourceAlbumId", albumId); // 源相册ID，用于前端移除
+            if (targetAlbum != null) {
+                result.put("targetAlbumId", targetAlbum.getId()); // 目标相册ID，用于前端刷新
+                result.put("targetAlbumPhotoCount", targetAlbum.getPhotoCount());
+            }
 
         } catch (IOException e) {
             log.error("合并相册失败", e);
@@ -353,33 +390,56 @@ public class AlbumMoveService {
     // ======================== 路径更新 ========================
 
     private void updateAllPaths(String oldPrefix, String newPrefix) {
-        // 更新相册路径和pathHash
-        List<Album> albums = albumRepository.findByPathStartingWith(oldPrefix);
-        for (Album a : albums) {
-            String newPath = replacePrefix(a.getPath(), oldPrefix, newPrefix);
-            a.setPath(newPath);
-            a.setPathHash(computeSha256(newPath));
+        // 标准化前缀
+        String normalizedOldPrefix = oldPrefix.replace("\\", "/");
+        String normalizedNewPrefix = newPrefix.replace("\\", "/");
+
+        // 更新相册路径和pathHash（使用标准化路径比较）
+        List<Album> allAlbums = albumRepository.findAll();
+        List<Album> albumsToUpdate = new ArrayList<>();
+        for (Album a : allAlbums) {
+            if (a.getPath() != null) {
+                String normalizedDbPath = a.getPath().replace("\\", "/");
+                if (normalizedDbPath.startsWith(normalizedOldPrefix)) {
+                    String newPath = replacePrefix(a.getPath(), oldPrefix, newPrefix);
+                    a.setPath(newPath);
+                    a.setPathHash(computeSha256(newPath));
+                    albumsToUpdate.add(a);
+                }
+            }
         }
-        if (!albums.isEmpty()) {
-            albumRepository.saveAll(albums);
-            log.info("更新了 {} 个相册路径", albums.size());
+        if (!albumsToUpdate.isEmpty()) {
+            albumRepository.saveAll(albumsToUpdate);
+            log.info("更新了 {} 个相册路径", albumsToUpdate.size());
         }
 
-        // 更新照片的所有路径字段和pathHash
-        List<Photo> photos = photoRepository.findByOriginalPathStartingWith(oldPrefix);
-        for (Photo p : photos) {
-            p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
-            p.setPathHash(computeSha256(p.getOriginalPath()));
-            p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
-            p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
-            p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
-            p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
-            p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
-            p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+        // 更新照片的所有路径字段和pathHash（使用标准化路径比较）
+        // 需要查询所有相册，然后检查哪些照片的路径需要更新
+        List<Photo> allPhotos = photoRepository.findAll();
+        List<Photo> photosToUpdate = new ArrayList<>();
+        for (Photo p : allPhotos) {
+            boolean needsUpdate = false;
+            if (p.getOriginalPath() != null) {
+                String normalizedPath = p.getOriginalPath().replace("\\", "/");
+                if (normalizedPath.startsWith(normalizedOldPrefix)) {
+                    needsUpdate = true;
+                    p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                    p.setPathHash(computeSha256(p.getOriginalPath()));
+                }
+            }
+            if (needsUpdate || (p.getThumbnailPath() != null && p.getThumbnailPath().replace("\\", "/").startsWith(normalizedOldPrefix))) {
+                p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
+                p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
+                p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
+                p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
+                p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
+                p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+                photosToUpdate.add(p);
+            }
         }
-        if (!photos.isEmpty()) {
-            photoRepository.saveAll(photos);
-            log.info("更新了 {} 张照片路径", photos.size());
+        if (!photosToUpdate.isEmpty()) {
+            photoRepository.saveAll(photosToUpdate);
+            log.info("更新了 {} 张照片路径", photosToUpdate.size());
         }
     }
 
@@ -389,7 +449,21 @@ public class AlbumMoveService {
      * 清理目标路径下的所有相册和照片数据（包括人脸、标签、AI评分等关联）
      */
     private void cleanupTargetAlbumData(String targetPathStr) {
-        List<Album> targetAlbums = albumRepository.findByPathStartingWith(targetPathStr);
+        // 标准化路径
+        String normalizedTargetPath = targetPathStr.replace("\\", "/");
+
+        // 使用标准化路径匹配
+        List<Album> allAlbums = albumRepository.findAll();
+        List<Album> targetAlbums = new ArrayList<>();
+        for (Album a : allAlbums) {
+            if (a.getPath() != null) {
+                String normalizedDbPath = a.getPath().replace("\\", "/");
+                if (normalizedDbPath.startsWith(normalizedTargetPath)) {
+                    targetAlbums.add(a);
+                }
+            }
+        }
+
         if (targetAlbums.isEmpty()) return;
 
         List<Long> albumIds = targetAlbums.stream().map(Album::getId).collect(Collectors.toList());
@@ -488,8 +562,16 @@ public class AlbumMoveService {
 
     private String replacePrefix(String path, String oldPrefix, String newPrefix) {
         if (path == null) return null;
-        if (path.startsWith(oldPrefix)) {
-            return newPrefix + path.substring(oldPrefix.length());
+
+        // 标准化路径分隔符（统一用 / 比较）
+        String normalizedPath = path.replace("\\", "/");
+        String normalizedOld = oldPrefix.replace("\\", "/");
+        String normalizedNew = newPrefix.replace("\\", "/");
+
+        if (normalizedPath.startsWith(normalizedOld)) {
+            // 保持原始分隔符风格
+            String suffix = path.substring(oldPrefix.length());
+            return newPrefix + suffix;
         }
         return path;
     }

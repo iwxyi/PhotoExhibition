@@ -67,28 +67,43 @@ public class FolderService {
         Files.createDirectories(target.getParent());
         Files.move(source, target);
 
-        String oldPrefix = source.toString();
-        String newPrefix = target.toString();
+        // 标准化路径前缀
+        String oldPrefix = source.toString().replace("\\", "/");
+        String newPrefix = target.toString().replace("\\", "/");
 
-        // 更新相册路径
-        List<Album> albums = albumRepository.findByPathStartingWith(oldPrefix);
-        for (Album a : albums) {
-            a.setPath(a.getPath().replaceFirst(oldPrefix, newPrefix));
+        // 更新相册路径（使用标准化路径匹配）
+        List<Album> allAlbums = albumRepository.findAll();
+        List<Album> albumsToUpdate = new ArrayList<>();
+        for (Album a : allAlbums) {
+            if (a.getPath() != null) {
+                String normalizedPath = a.getPath().replace("\\", "/");
+                if (normalizedPath.startsWith(oldPrefix)) {
+                    a.setPath(replacePrefix(a.getPath(), oldPrefix, newPrefix));
+                    albumsToUpdate.add(a);
+                }
+            }
         }
-        albumRepository.saveAll(albums);
+        albumRepository.saveAll(albumsToUpdate);
 
         // 更新照片路径
-        List<Photo> photos = photoRepository.findByOriginalPathStartingWith(oldPrefix);
-        for (Photo p : photos) {
-            p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
-            if (p.getThumbnailPath() != null) {
-                p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
-            }
-            if (p.getWebpPath() != null) {
-                p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
+        List<Photo> allPhotos = photoRepository.findAll();
+        List<Photo> photosToUpdate = new ArrayList<>();
+        for (Photo p : allPhotos) {
+            if (p.getOriginalPath() != null) {
+                String normalizedPath = p.getOriginalPath().replace("\\", "/");
+                if (normalizedPath.startsWith(oldPrefix)) {
+                    p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                    p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
+                    p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
+                    p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
+                    p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
+                    p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
+                    p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+                    photosToUpdate.add(p);
+                }
             }
         }
-        photoRepository.saveAll(photos);
+        photoRepository.saveAll(photosToUpdate);
     }
 
     /**
@@ -104,17 +119,28 @@ public class FolderService {
             throw new IllegalArgumentException("路径不是目录: " + dir);
         }
 
-        String prefix = dir.toString();
+        // 标准化路径前缀
+        String prefix = dir.toString().replace("\\", "/");
 
-        // 找到匹配的相册，删除其照片与相册记录
-        List<Album> albums = albumRepository.findByPathStartingWith(prefix);
+        // 找到匹配的相册（使用标准化路径匹配）
+        List<Album> allAlbums = albumRepository.findAll();
+        List<Album> albumsToDelete = new ArrayList<>();
+        for (Album a : allAlbums) {
+            if (a.getPath() != null) {
+                String normalizedPath = a.getPath().replace("\\", "/");
+                if (normalizedPath.startsWith(prefix)) {
+                    albumsToDelete.add(a);
+                }
+            }
+        }
+
         List<Long> albumIds = new ArrayList<>();
-        for (Album a : albums) {
+        for (Album a : albumsToDelete) {
             albumIds.add(a.getId());
         }
         if (!albumIds.isEmpty()) {
             photoRepository.deleteByAlbumIdIn(albumIds);
-            albumRepository.deleteAll(albums);
+            albumRepository.deleteAll(albumsToDelete);
         }
 
         // 删除文件系统目录
@@ -313,26 +339,43 @@ public class FolderService {
         
         // 如果是目录，更新数据库中的路径
         if (Files.isDirectory(target)) {
-            String oldPrefix = source.toString();
-            String newPrefix = target.toString();
-            
-            List<Album> albums = albumRepository.findByPathStartingWith(oldPrefix);
-            for (Album a : albums) {
-                a.setPath(a.getPath().replace(oldPrefix, newPrefix));
-            }
-            albumRepository.saveAll(albums);
-            
-            List<Photo> photos = photoRepository.findByOriginalPathStartingWith(oldPrefix);
-            for (Photo p : photos) {
-                p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
-                if (p.getThumbnailPath() != null) {
-                    p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
-                }
-                if (p.getWebpPath() != null) {
-                    p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
+            // 标准化路径前缀
+            String oldPrefix = source.toString().replace("\\", "/");
+            String newPrefix = target.toString().replace("\\", "/");
+
+            // 更新相册路径
+            List<Album> allAlbums = albumRepository.findAll();
+            List<Album> albumsToUpdate = new ArrayList<>();
+            for (Album a : allAlbums) {
+                if (a.getPath() != null) {
+                    String normalizedPath = a.getPath().replace("\\", "/");
+                    if (normalizedPath.startsWith(oldPrefix)) {
+                        a.setPath(replacePrefix(a.getPath(), oldPrefix, newPrefix));
+                        albumsToUpdate.add(a);
+                    }
                 }
             }
-            photoRepository.saveAll(photos);
+            albumRepository.saveAll(albumsToUpdate);
+
+            // 更新照片路径
+            List<Photo> allPhotos = photoRepository.findAll();
+            List<Photo> photosToUpdate = new ArrayList<>();
+            for (Photo p : allPhotos) {
+                if (p.getOriginalPath() != null) {
+                    String normalizedPath = p.getOriginalPath().replace("\\", "/");
+                    if (normalizedPath.startsWith(oldPrefix)) {
+                        p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                        p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
+                        p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
+                        p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
+                        p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
+                        p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
+                        p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+                        photosToUpdate.add(p);
+                    }
+                }
+            }
+            photoRepository.saveAll(photosToUpdate);
         }
     }
 
@@ -405,7 +448,18 @@ public class FolderService {
 
     private String replacePrefix(String path, String oldPrefix, String newPrefix) {
         if (path == null) return null;
-        return path.replaceFirst(oldPrefix, newPrefix);
+
+        // 标准化路径分隔符（统一用 / 比较）
+        String normalizedPath = path.replace("\\", "/");
+        String normalizedOld = oldPrefix.replace("\\", "/");
+        String normalizedNew = newPrefix.replace("\\", "/");
+
+        if (normalizedPath.startsWith(normalizedOld)) {
+            // 保持原始分隔符风格
+            String suffix = path.substring(oldPrefix.length());
+            return newPrefix + suffix;
+        }
+        return path;
     }
 
     /**

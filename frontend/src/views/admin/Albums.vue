@@ -2022,9 +2022,29 @@ const doMergeToSibling = async (album: any, sibling: any) => {
 
     if (result.success) {
       closeAllMenus()
-      // 不刷新整个列表，而是移除被合并的相册并显示成功
-      // 由于源相册已被删除，需要通知前端刷新
-      await load()
+      // 本地更新：移除被合并的相册，刷新目标相册
+      const sourceAlbumId = result.sourceAlbumId
+      const targetAlbumId = result.targetAlbumId
+
+      // 1. 移除被合并的相册
+      albums.value = albums.value.filter(a => a.id !== sourceAlbumId)
+
+      // 2. 刷新目标相册的数据（通过调用API获取最新信息）
+      if (targetAlbumId) {
+        try {
+          const albumRes = await api.get(`/albums/${targetAlbumId}`)
+          const updatedAlbum = albumRes.data
+          if (updatedAlbum) {
+            // 更新目标相册的信息
+            const idx = albums.value.findIndex(a => a.id === targetAlbumId)
+            if (idx !== -1) {
+              albums.value[idx] = { ...albums.value[idx], ...updatedAlbum }
+            }
+          }
+        } catch (e) {
+          console.error('刷新目标相册失败:', e)
+        }
+      }
     } else {
       alert('合并失败: ' + (result.message || '未知错误'))
     }

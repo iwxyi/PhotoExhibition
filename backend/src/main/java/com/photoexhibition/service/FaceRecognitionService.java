@@ -121,7 +121,8 @@ public class FaceRecognitionService {
             int[][] label = new int[h][w];
             int currentLabel = 0;
             List<ComponentBox> components = new ArrayList<>();
-            int minArea = Math.max(40, (w * h) / 500); // 过滤过小区域
+            // 降低最小面积阈值，允许检测更小的人脸
+            int minArea = Math.max(20, (w * h) / 800); // 从 1/500 改为 1/800
 
             for (int y = 0; y < h; y++) {
                 for (int x = 0; x < w; x++) {
@@ -150,9 +151,9 @@ public class FaceRecognitionService {
                 double ratio = height > 0 ? width / height : 1.0;
                 if (ratio < 0.5 || ratio > 1.6) continue; // 放宽到0.5-1.6
 
-                // 面积检查：确保区域足够大（至少占图片的0.5%）
+                // 面积检查：确保区域足够大（至少占图片的0.2%），放宽以检测小人脸
                 double area = width * height;
-                if (area < 0.005) continue;
+                if (area < 0.002) continue; // 从 0.005 降低到 0.002
 
                 results.add(new DetectedFace(x, y, width, height, confidence));
             }
