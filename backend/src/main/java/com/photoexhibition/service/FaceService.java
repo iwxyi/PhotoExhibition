@@ -17,6 +17,7 @@ import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoAssignmentRepository;
+import com.photoexhibition.service.PhotoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -59,6 +60,7 @@ public class FaceService {
     private final AlbumRepository albumRepository;
     private final PhotoAssignmentRepository photoAssignmentRepository;
     private final AlbumService albumService;
+    private final PhotoService photoService;
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
     @Value("${photo.scan.base-path}")
@@ -1763,7 +1765,7 @@ public class FaceService {
         if (photo == null) {
             return List.of();
         }
-        return List.of(photoService.toPhotoDTO(photo));
+        return List.of(photoService.getPhotoById(photo.getId()));
     }
 
     /**

@@ -47,6 +47,7 @@ import { commentApi, CommentDTO } from '@/api'
 
 interface Props {
   albumId: number
+  visible?: boolean
   textColor?: string
   backgroundColor?: string
   borderColor?: string
@@ -56,6 +57,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  visible: false,
   textColor: '#1a1a1a',
   backgroundColor: 'rgba(255, 255, 255, 0.8)',
   borderColor: 'rgba(229, 231, 235, 0.5)',
@@ -83,12 +85,17 @@ const inputBorderColor = computed(() => props.inputBorderColor)
 
 // 加载评论
 const loadComments = async (page = 0) => {
+  // 如果组件不可见，不加载评论
+  if (!props.visible) return
   if (loading.value) return
 
   loading.value = true
   try {
     const response = await commentApi.getAlbumComments(props.albumId, page, pageSize)
     const newComments = response.data.content || []
+
+    // 组件不可见时，丢弃加载结果
+    if (!props.visible) return
 
     if (page === 0) {
       comments.value = newComments
@@ -264,17 +271,36 @@ const handleReplyAdded = (newReply: CommentDTO, parentId: number) => {
 }
 
 onMounted(() => {
-  loadComments(0)
+  // 只有当父组件要求可见时，才延迟显示评论区域
+  if (props.visible) {
+    setTimeout(() => {
+      commentSectionVisible.value = true
+    }, 300)
+  }
+})
 
-  // 延迟显示评论区域，避免闪烁
-  setTimeout(() => {
-    commentSectionVisible.value = true
-  }, 300)
+// 监听 visible 变化，只有当可见时才加载评论
+watch(() => props.visible, (newVisible, oldVisible) => {
+  if (newVisible && !oldVisible) {
+    // 从不可见变为可见时，加载评论
+    loadComments(0)
+  } else if (!newVisible && oldVisible) {
+    // 从可见变为不可见时，清空评论数据
+    comments.value = []
+    currentPage.value = 0
+    hasMore.value = true
+    hasCommentedToday.value = false
+    replyStatusMap.value = new Map()
+    commentSectionVisible.value = false
+  }
 })
 
 // 监听albumId变化，当相册切换时重新加载评论
 watch(() => props.albumId, (newAlbumId, oldAlbumId) => {
   if (newAlbumId !== oldAlbumId && newAlbumId) {
+    // 只有在可见时才加载评论
+    if (!props.visible) return
+
     // 重置状态
     comments.value = []
     currentPage.value = 0

@@ -185,6 +185,7 @@
       <!-- 评论区域 - 只有当图片加载完成并延迟一段时间后才显示，避免闪烁 -->
       <CommentSection
         v-show="showComments"
+        :visible="showComments"
         :album-id="album?.id || 0"
         :text-color="textStyle.color"
         :background-color="commentBackgroundColor"

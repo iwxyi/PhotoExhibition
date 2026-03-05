@@ -467,92 +467,89 @@
         <div class="glass-dialog rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-6 pb-4">
-            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效</h3>
-            <p class="text-sm text-gray-400 mb-4">
-              为相册 <strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong> 设置氛围特效
-            </p>
+            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效： <span class="text-sm text-gray-400 mb-4"><strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong></span></h3>
           </div>
 
           <!-- 可滚动内容区域 -->
           <div class="flex-1 overflow-y-auto px-6">
 
-          <!-- 当前特效列表 -->
-          <div class="mb-4">
-            <h4 class="text-sm font-medium text-gray-300 mb-2">当前特效</h4>
-            <div v-if="currentEffects.length === 0" class="text-sm text-gray-500 italic">
-              暂无特效，可从下方添加
-            </div>
-            <div v-else class="space-y-2">
-              <div
-                v-for="(effect, index) in currentEffects"
-                :key="index"
-                class="bg-gray-700/50 rounded p-3"
-              >
-                <div class="flex items-center justify-between mb-2">
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium">{{ getEffectName(effect.type) }}</span>
-                    <span class="text-xs text-gray-400">({{ getIntensityDisplay(effect.intensity || 'medium') }})</span>
-                  </div>
-                  <button
-                    @click="removeEffect(index)"
-                    class="text-red-400 hover:text-red-300 text-sm"
-                    title="移除特效"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <!-- 预设强度选择 -->
-                <div class="flex items-center gap-4 mb-3">
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-gray-400">预设强度:</label>
-                    <select
-                      :value="effect.intensity || 'medium'"
-                      @change="updateEffectIntensity(index, ($event.target as HTMLSelectElement).value)"
-                      class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+            <!-- 当前特效列表 -->
+            <div class="mb-4">
+              <h4 class="text-sm font-medium text-gray-300 mb-2">当前特效</h4>
+              <div v-if="currentEffects.length === 0" class="text-sm text-gray-500 italic">
+                暂无特效，可从下方添加
+              </div>
+              <div v-else class="space-y-2">
+                <div
+                  v-for="(effect, index) in currentEffects"
+                  :key="index"
+                  class="bg-gray-700/50 rounded p-3"
+                >
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-medium">{{ getEffectName(effect.type) }}</span>
+                      <span class="text-xs text-gray-400">({{ getIntensityDisplay(effect.intensity || 'medium') }})</span>
+                    </div>
+                    <button
+                      @click="removeEffect(index)"
+                      class="text-red-400 hover:text-red-300 text-sm"
+                      title="移除特效"
                     >
-                      <option value="low">低</option>
-                      <option value="medium">中</option>
-                      <option value="high">高</option>
-                      <option value="custom">自定义</option>
-                    </select>
+                      ✕
+                    </button>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-gray-400">层级:</label>
-                    <select
-                      :value="effect.layer || 'above'"
-                      @change="updateEffectLayer(index, ($event.target as HTMLSelectElement).value)"
-                      class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
-                    >
-                      <option value="above">图片上方</option>
-                      <option value="background">背景层</option>
-                    </select>
+                  <!-- 预设强度选择 -->
+                  <div class="flex items-center gap-4 mb-3">
+                    <div class="flex items-center gap-2">
+                      <label class="text-xs text-gray-400">预设强度:</label>
+                      <select
+                        :value="effect.intensity || 'medium'"
+                        @change="updateEffectIntensity(index, ($event.target as HTMLSelectElement).value)"
+                        class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+                      >
+                        <option value="low">低</option>
+                        <option value="medium">中</option>
+                        <option value="high">高</option>
+                        <option value="custom">自定义</option>
+                      </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <label class="text-xs text-gray-400">层级:</label>
+                      <select
+                        :value="effect.layer || 'above'"
+                        @change="updateEffectLayer(index, ($event.target as HTMLSelectElement).value)"
+                        class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+                      >
+                        <option value="above">图片上方</option>
+                        <option value="background">背景层</option>
+                      </select>
+                    </div>
                   </div>
-                </div>
 
-                <!-- 按类型显示对应参数 -->
-                <div class="space-y-2">
-                  <div class="text-xs text-gray-400 mb-2">自定义参数 (1-10):</div>
-                  <div class="grid grid-cols-2 gap-3">
-                    <div
-                      v-for="param in getEffectParams(effect.type)"
-                      :key="param.key"
-                      class="flex flex-col"
-                    >
-                      <label class="text-xs text-gray-400 mb-1">{{ param.label }}: {{ getCustomValue(effect, param.key) }}</label>
-                      <input
-                        type="range"
-                        :min="param.min || 1"
-                        :max="param.max || 10"
-                        :value="getCustomValue(effect, param.key)"
-                        @input="updateCustomParam(index, param.key, parseInt(($event.target as HTMLInputElement).value))"
-                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
-                      />
+                  <!-- 按类型显示对应参数 -->
+                  <div class="space-y-2">
+                    <div class="text-xs text-gray-400 mb-2">自定义参数 (1-10):</div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div
+                        v-for="param in getEffectParams(effect.type)"
+                        :key="param.key"
+                        class="flex flex-col"
+                      >
+                        <label class="text-xs text-gray-400 mb-1">{{ param.label }}: {{ getCustomValue(effect, param.key) }}</label>
+                        <input
+                          type="range"
+                          :min="param.min || 1"
+                          :max="param.max || 10"
+                          :value="getCustomValue(effect, param.key)"
+                          @input="updateCustomParam(index, param.key, parseInt(($event.target as HTMLInputElement).value))"
+                          class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
             <!-- 添加特效 -->
             <div class="mb-6">
@@ -908,17 +905,19 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closePhotoModal"
       >
-        <div class="glass-dialog rounded-lg w-full max-w-5xl max-h-[90vh] flex flex-col text-gray-100">
+        <div class="glass-dialog rounded-lg w-full sm:max-w-5xl max-h-[90vh] sm:max-h-[85vh] flex flex-col text-gray-100">
           <!-- Header -->
-          <div class="flex items-center justify-between p-4 border-b border-gray-600/50 flex-shrink-0">
-            <div class="flex items-center gap-3">
-              <h3 class="text-lg font-medium">{{ photoModalAlbum?.displayTitle || photoModalAlbum?.name }}</h3>
-              <span class="text-xs text-gray-400">{{ photoModalPhotos.length }} 张照片</span>
-              <span v-if="photoModalSelected.size > 0" class="text-xs text-blue-400">
-                已选 {{ photoModalSelected.size }} 张
-              </span>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border-b border-gray-600/50 flex-shrink-0 gap-2">
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base sm:text-lg font-medium truncate">{{ photoModalAlbum?.displayTitle || photoModalAlbum?.name }}</h3>
+              <div class="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                <span>{{ photoModalPhotos.length }} 张照片</span>
+                <span v-if="photoModalSelected.size > 0" class="text-blue-400">
+                  已选 {{ photoModalSelected.size }} 张
+                </span>
+              </div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-shrink-0">
               <!-- Select all -->
               <button
                 v-if="photoModalPhotos.length > 0"
@@ -966,7 +965,7 @@
           <div class="flex-1 overflow-y-auto p-4 min-h-0">
             <div v-if="photoModalLoading" class="text-center py-8 text-gray-400">加载中...</div>
             <div v-else-if="photoModalPhotos.length === 0" class="text-center py-8 text-gray-500">暂无照片</div>
-            <div v-else class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2">
+            <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-1 sm:gap-2">
               <div
                 v-for="photo in photoModalPhotos"
                 :key="photo.id"
