@@ -11,6 +11,7 @@ import com.photoexhibition.service.DataCleanupService;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.service.FilterOptionService;
+import com.photoexhibition.service.PhotoManageService;
 import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.service.PhotoAIScoringService;
 import com.photoexhibition.service.SimilarPhotoSearchService;
@@ -51,6 +52,7 @@ import java.io.File;
 public class AdminController {
 
     private final PhotoScanService photoScanService;
+    private final PhotoManageService photoManageService;
     private final AdminUserRepository adminUserRepository;
     private final DataCleanupService dataCleanupService;
     private final AlbumService albumService;
@@ -1090,14 +1092,40 @@ public class AdminController {
     }
 
     /**
-     * 批量操作
+     * 批量操作（移动到、删除、隐藏/显示照片）
      */
     @PostMapping("/photos/batch")
-    public ResponseEntity<String> batchOperation(
+    public ResponseEntity<Map<String, Object>> batchOperation(
             @RequestParam String operation,
             @RequestBody List<Long> photoIds) {
-        // 实现批量操作逻辑
-        return ResponseEntity.ok("批量操作完成");
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            int count = 0;
+            switch (operation) {
+                case "hide":
+                    count = photoManageService.hidePhotos(photoIds);
+                    resp.put("message", "已隐藏 " + count + " 张照片");
+                    break;
+                case "show":
+                    count = photoManageService.showPhotos(photoIds);
+                    resp.put("message", "已显示 " + count + " 张照片");
+                    break;
+                case "delete":
+                    count = photoManageService.deletePhotosReturningCount(photoIds);
+                    resp.put("message", "已删除 " + count + " 张照片");
+                    break;
+                default:
+                    resp.put("error", "未知操作: " + operation);
+                    return ResponseEntity.badRequest().body(resp);
+            }
+            resp.put("success", true);
+            resp.put("count", count);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "操作失败");
+            resp.put("success", false);
+            return ResponseEntity.status(500).body(resp);
+        }
     }
 
     /**

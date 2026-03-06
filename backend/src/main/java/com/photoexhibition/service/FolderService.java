@@ -207,8 +207,8 @@ public class FolderService {
                             Album album = albumOpt.get();
                             item.put("photoCount", album.getPhotoCount() != null ? album.getPhotoCount() : 0);
                             
-                            // 获取封面图片（最多3张）
-                            List<Photo> photos = photoRepository.findByAlbumId(album.getId(),
+                            // 获取封面图片（最多3张，排除隐藏）
+                            List<Photo> photos = photoRepository.findByAlbumIdAndIsHiddenFalse(album.getId(),
                                 org.springframework.data.domain.PageRequest.of(0, 20)).getContent();
                             
                             if (!photos.isEmpty()) {

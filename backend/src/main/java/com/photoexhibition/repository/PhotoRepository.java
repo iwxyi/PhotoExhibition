@@ -38,6 +38,18 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     Page<Photo> findByAlbumId(Long albumId, Pageable pageable);
 
+    /**
+     * 获取相册中未隐藏的照片（排除隐藏的照片）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.albumId = :albumId AND (p.isHidden IS NULL OR p.isHidden = false)")
+    Page<Photo> findByAlbumIdAndIsHiddenFalse(@Param("albumId") Long albumId, Pageable pageable);
+
+    /**
+     * 统计相册中未隐藏的照片数量
+     */
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.albumId = :albumId AND (p.isHidden IS NULL OR p.isHidden = false)")
+    Long countByAlbumIdAndIsHiddenFalse(@Param("albumId") Long albumId);
+
     Long countByAlbumId(Long albumId);
 
     /**
@@ -50,6 +62,19 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore ORDER BY RAND()")
     List<Photo> findRandomHighQualityPhotos(@Param("minScore") Double minScore, Pageable pageable);
+
+    /**
+     * 随机获取高质量且未隐藏的照片
+     */
+    @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore AND (p.isHidden IS NULL OR p.isHidden = false) ORDER BY RAND()")
+    List<Photo> findRandomHighQualityPhotosNotHidden(@Param("minScore") Double minScore, Pageable pageable);
+
+    @Query(
+        value = "SELECT * FROM photo WHERE (is_hidden = 0 OR is_hidden IS NULL) ORDER BY RAND()",
+        countQuery = "SELECT count(*) FROM photo WHERE is_hidden = 0 OR is_hidden IS NULL",
+        nativeQuery = true
+    )
+    Page<Photo> findAllRandomNotHidden(Pageable pageable);
 
     @Query(
         value = "SELECT * FROM photo ORDER BY RAND()",
@@ -102,15 +127,15 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     Page<Photo> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
     /**
-     * 按人物ID筛选照片（用于人物图墙）
+     * 按人物ID筛选照片（用于人物图墙，排除隐藏的照片）
      */
     @Query(
         value = "SELECT DISTINCT p.* FROM photo p " +
                 "INNER JOIN photo_face f ON p.id = f.photo_id " +
-                "WHERE f.person_id = :personId",
+                "WHERE f.person_id = :personId AND (p.is_hidden = 0 OR p.is_hidden IS NULL)",
         countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
                 "INNER JOIN photo_face f ON p.id = f.photo_id " +
-                "WHERE f.person_id = :personId",
+                "WHERE f.person_id = :personId AND (p.is_hidden = 0 OR p.is_hidden IS NULL)",
         nativeQuery = true
     )
     Page<Photo> findByPersonId(@Param("personId") Long personId, Pageable pageable);
@@ -128,7 +153,7 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                    @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                    Pageable pageable);
 
-    @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds")
+    @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds AND (p.isHidden IS NULL OR p.isHidden = false)")
     Page<Photo> findByAlbumIds(@Param("albumIds") List<Long> albumIds, Pageable pageable);
 
     // ---- 统计/聚合：用于过滤项（避免 photoRepository.findAll().stream() 全表加载） ----

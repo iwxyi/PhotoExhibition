@@ -458,7 +458,7 @@ public class AlbumService {
     }
     
     /**
-     * 自动生成相册封面图片组合
+     * 自动生成相册封面图片组合（排除隐藏的照片）
      */
     private CoverImagesDTO generateAutoCoverImages(Long albumId) {
         log.debug("generateAutoCoverImages - albumId: {}", albumId);
@@ -469,16 +469,16 @@ public class AlbumService {
 
         List<Photo> photos;
         if (albumIds.size() == 1) {
-            // 非聚合相册：从单个相册取前 10 张照片（按相册排序）
+            // 非聚合相册：从单个相册取前 10 张未隐藏的照片（按相册排序）
             org.springframework.data.domain.Sort sort = photoService.getPhotoSort(albumId);
-            photos = photoRepository.findByAlbumId(albumId,
+            photos = photoRepository.findByAlbumIdAndIsHiddenFalse(albumId,
                 org.springframework.data.domain.PageRequest.of(0, 10, sort))
                 .getContent();
         } else {
-            // 聚合相册：获取所有照片并按瀑布流排序，然后取前几张
+            // 聚合相册：获取所有照片并按瀑布流排序，然后取前几张（排除隐藏）
             photos = new java.util.ArrayList<>();
             for (Long id : albumIds) {
-                List<Photo> albumPhotos = photoRepository.findByAlbumId(id,
+                List<Photo> albumPhotos = photoRepository.findByAlbumIdAndIsHiddenFalse(id,
                     org.springframework.data.domain.PageRequest.of(0, 1000)) // 每个相册取1000张
                     .getContent();
                 photos.addAll(albumPhotos);
@@ -845,6 +845,7 @@ public class AlbumService {
         dto.setQualityScore(photo.getQualityScore());
         dto.setViewCount(photo.getViewCount());
         dto.setIsFeatured(photo.getIsFeatured());
+        dto.setIsHidden(photo.getIsHidden());
         dto.setCreatedAt(photo.getCreatedAt());
 
         return dto;
@@ -1866,10 +1867,10 @@ public class AlbumService {
             addSubAlbumIds(album.getPath(), albumIds, 0, 10);
         }
 
-        // 获取所有相关相册的照片
+        // 获取所有相关相册的照片（排除隐藏）
         List<Photo> allPhotos = new ArrayList<>();
         for (Long albumId : albumIds) {
-            Page<Photo> photoPage = photoRepository.findByAlbumId(albumId, PageRequest.of(0, Integer.MAX_VALUE));
+            Page<Photo> photoPage = photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, PageRequest.of(0, Integer.MAX_VALUE));
             allPhotos.addAll(photoPage.getContent());
         }
 

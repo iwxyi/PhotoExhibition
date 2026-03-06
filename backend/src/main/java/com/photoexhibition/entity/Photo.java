@@ -123,6 +123,13 @@ public class Photo {
     @Column(name = "is_featured")
     private Boolean isFeatured = false;
 
+    /**
+     * 是否隐藏：隐藏的照片不会在相册详情页、首页图墙等公开页面显示
+     * 但仍会显示在人物图片列表中
+     */
+    @Column(name = "is_hidden")
+    private Boolean isHidden = false;
+
     // 处理状态跟踪字段
     @Enumerated(EnumType.STRING)
     @Column(name = "processing_status", length = 50)

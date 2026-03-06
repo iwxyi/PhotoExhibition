@@ -262,6 +262,46 @@ public class PhotoManageService {
         return result;
     }
 
+    /**
+     * 批量删除照片（返回删除数量，用于批量操作接口）
+     */
+    @Transactional
+    public int deletePhotosReturningCount(List<Long> photoIds) {
+        if (photoIds == null || photoIds.isEmpty()) {
+            return 0;
+        }
+
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        if (photos.isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        for (Photo photo : photos) {
+            try {
+                deletePhotoFiles(photo);
+                deletePhotoDbRecords(photo);
+                count++;
+            } catch (Exception e) {
+                log.error("删除照片失败: {}", photo.getOriginalPath(), e);
+            }
+        }
+
+        // Update album photo counts
+        Set<Long> affectedAlbumIds = photos.stream()
+                .map(Photo::getAlbumId)
+                .collect(Collectors.toSet());
+        for (Long albumId : affectedAlbumIds) {
+            albumRepository.findById(albumId).ifPresent(album -> {
+                long c = photoRepository.countByAlbumId(album.getId());
+                album.setPhotoCount((int) c);
+                albumRepository.save(album);
+            });
+        }
+
+        return count;
+    }
+
     // ======================== Internal methods ========================
 
     private void movePhotoToDir(Photo photo, Path targetDir, Album targetAlbum, String conflictResolution) throws IOException {
@@ -408,6 +448,75 @@ public class PhotoManageService {
                 .ifPresent(photoAIScoringRepository::delete);
         // Delete photo
         photoRepository.delete(photo);
+    }
+
+    /**
+     * 批量隐藏照片
+     */
+    @Transactional
+    public int hidePhotos(List<Long> photoIds) {
+        int count = 0;
+        for (Long photoId : photoIds) {
+            Optional<Photo> opt = photoRepository.findById(photoId);
+            if (opt.isPresent()) {
+                Photo photo = opt.get();
+                if (photo.getIsHidden() == null || !photo.getIsHidden()) {
+                    photo.setIsHidden(true);
+                    photoRepository.save(photo);
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 批量显示照片（取消隐藏）
+     */
+    @Transactional
+    public int showPhotos(List<Long> photoIds) {
+        int count = 0;
+        for (Long photoId : photoIds) {
+            Optional<Photo> opt = photoRepository.findById(photoId);
+            if (opt.isPresent()) {
+                Photo photo = opt.get();
+                if (photo.getIsHidden() != null && photo.getIsHidden()) {
+                    photo.setIsHidden(false);
+                    photoRepository.save(photo);
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private void deletePhotoFile(Photo photo) throws IOException {
+        // Delete original file
+        if (photo.getOriginalPath() != null) {
+            Path originalPath = Paths.get(photo.getOriginalPath());
+            if (Files.exists(originalPath)) {
+                Files.delete(originalPath);
+            }
+        }
+        // Delete thumbnails
+        if (photo.getThumbnailPath() != null) {
+            Files.deleteIfExists(Paths.get(photo.getThumbnailPath()));
+        }
+        if (photo.getSmallThumbPath() != null) {
+            Files.deleteIfExists(Paths.get(photo.getSmallThumbPath()));
+        }
+        if (photo.getMediumThumbPath() != null) {
+            Files.deleteIfExists(Paths.get(photo.getMediumThumbPath()));
+        }
+        if (photo.getLargeThumbPath() != null) {
+            Files.deleteIfExists(Paths.get(photo.getLargeThumbPath()));
+        }
+        if (photo.getWebpPath() != null) {
+            Files.deleteIfExists(Paths.get(photo.getWebpPath()));
+        }
+        if (photo.getBackgroundRemovedPath() != null) {
+            Files.deleteIfExists(Paths.get(photo.getBackgroundRemovedPath()));
+        }
     }
 
     private Album findOrCreateAlbumForPath(String dirPath) {

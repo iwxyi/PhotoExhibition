@@ -594,7 +594,7 @@
                   :data-face-id="f.id"
                   :data-face-index="index"
                   class="bg-gray-700 rounded overflow-hidden border relative group select-none"
-                      :class="selectedAlbumFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50'"
+                      :class="[selectedAlbumFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50', f.isHidden ? 'opacity-50' : '']"
                       @click="handleFaceClick($event, f.id, 'albums')"
                 >
                       <div v-if="(f.similarity || 0) > 0" class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
@@ -3656,7 +3656,8 @@ const getCurrentFaceList = (tabType: string): FaceItem[] => {
       }),
       similarity: photo.similarity || 0,
       faces: photo.faces || [],
-      assignedPersonId: photo.assignedPersonId // 传递已分配人物信息
+      assignedPersonId: photo.assignedPersonId, // 传递已分配人物信息
+      isHidden: photo.isHidden // 传递隐藏状态
     })) || []
     case 'unassigned': return unassignedFaces.value
     case 'cluster': return personFaces.value

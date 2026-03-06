@@ -33,7 +33,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in photos" :key="p.id" class="border-t border-gray-700 hover:bg-gray-700/60">
+              <tr v-for="p in photos" :key="p.id" class="border-t border-gray-700 hover:bg-gray-700/60" :class="p.isHidden ? 'opacity-50' : ''">
                 <td class="py-2 pr-4">
                   <input type="checkbox" class="accent-blue-500" v-model="selectedIds" :value="p.id" />
                 </td>

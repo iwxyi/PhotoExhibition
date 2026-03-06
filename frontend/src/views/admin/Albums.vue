@@ -905,7 +905,7 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closePhotoModal"
       >
-        <div class="glass-dialog rounded-lg w-full sm:max-w-5xl max-h-[90vh] sm:max-h-[85vh] flex flex-col text-gray-100">
+        <div class="glass-dialog rounded-lg w-full sm:max-w-5xl max-h-[90vh] sm:max-h-[85vh] flex flex-col text-gray-100 overflow-hidden">
           <!-- Header -->
           <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border-b border-gray-600/50 flex-shrink-0 gap-2">
             <div class="flex-1 min-w-0">
@@ -926,30 +926,129 @@
               >
                 {{ photoModalSelected.size === photoModalPhotos.length ? '取消全选' : '全选' }}
               </button>
-              <!-- Move to button -->
-              <div v-if="photoModalSelected.size > 0" class="relative" ref="photoMoveMenuRef">
-                <button
-                  @click="togglePhotoMoveMenu"
-                  class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded text-xs transition-colors flex items-center gap-1"
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                  </svg>
-                  移动到
-                </button>
-                <!-- Move submenu - 使用 teleport 移到 body 避免被遮挡 -->
-              </div>
-              <!-- Delete button -->
-              <button
-                v-if="photoModalSelected.size > 0"
-                @click="deleteSelectedPhotos"
-                class="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors flex items-center gap-1"
+              <!-- Batch actions dropdown -->
+              <DropMenu
+                v-model:visible="photoMoveMenuVisible"
+                trigger="click"
+                :offset="4"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                删除 ({{ photoModalSelected.size }})
-              </button>
+                <template #trigger>
+                  <button class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded text-xs transition-colors flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                    </svg>
+                    更多操作
+                  </button>
+                </template>
+
+                <div class="w-56 glass-menu rounded-lg shadow-2xl py-1">
+                  <!-- 移动至 -->
+                  <DropMenu trigger="hover" placement="right" :offset="2" :teleport="false">
+                    <template #trigger>
+                      <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                          </svg>
+                          移动至
+                        </span>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </template>
+
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]">
+                      <!-- 上一级 -->
+                      <button
+                        v-if="photoMoveTargets.parentDir"
+                        @click="doMovePhotosTo(photoMoveTargets.parentDir.path)"
+                        class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                        :title="photoMoveTargets.parentDir.name"
+                      >
+                        ⬆️ 上一级 ({{ photoMoveTargets.parentDir.name }})
+                      </button>
+                      <!-- 同级目录 -->
+                      <DropMenu v-if="photoMoveTargets.siblingDirs?.length > 0" trigger="hover" placement="right" :offset="2" :teleport="false">
+                        <template #trigger>
+                          <button class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                            <span>📂 同级 ({{ photoMoveTargets.siblingDirs.length }})</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </template>
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                          <button
+                            v-for="dir in photoMoveTargets.siblingDirs"
+                            :key="'sibling-' + dir.path"
+                            @click="doMovePhotosTo(dir.path)"
+                            class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                            :title="dir.name"
+                          >
+                            📁 {{ dir.name }}
+                          </button>
+                        </div>
+                      </DropMenu>
+                      <!-- 下一级 -->
+                      <DropMenu v-if="photoMoveTargets.childDirs?.length > 0" trigger="hover" placement="right" :offset="2" :teleport="false">
+                        <template #trigger>
+                          <button class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                            <span>📂 下一级 ({{ photoMoveTargets.childDirs.length }})</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </template>
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                          <button
+                            v-for="dir in photoMoveTargets.childDirs"
+                            :key="'child-' + dir.path"
+                            @click="doMovePhotosTo(dir.path)"
+                            class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                            :title="dir.name"
+                          >
+                            📁 {{ dir.name }}
+                          </button>
+                        </div>
+                      </DropMenu>
+                      <!-- 无可移动位置 -->
+                      <div
+                        v-if="!photoMoveTargets.parentDir && !photoMoveTargets.siblingDirs?.length && !photoMoveTargets.childDirs?.length"
+                        class="px-3 py-2 text-xs text-gray-500"
+                      >
+                        暂无可移动位置
+                      </div>
+                    </div>
+                  </DropMenu>
+
+                  <!-- 分割线 -->
+                  <div class="border-t border-gray-600 my-1"></div>
+
+                  <!-- 隐藏/显示 -->
+                  <button
+                    @click="togglePhotoHidden"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    {{ hasHiddenPhotos ? '显示' : '隐藏' }} ({{ photoModalSelected.size }})
+                  </button>
+                  <!-- 删除 -->
+                  <button
+                    @click="deleteSelectedPhotos"
+                    class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    删除 ({{ photoModalSelected.size }})
+                  </button>
+                </div>
+              </DropMenu>
+
               <!-- Close -->
               <button
                 @click="closePhotoModal"
@@ -970,7 +1069,7 @@
                 v-for="photo in photoModalPhotos"
                 :key="photo.id"
                 class="relative aspect-square rounded overflow-hidden cursor-pointer group"
-                :class="photoModalSelected.has(photo.id) ? 'ring-2 ring-blue-500' : 'hover:ring-1 hover:ring-gray-500'"
+                :class="[photoModalSelected.has(photo.id) ? 'ring-2 ring-blue-500' : 'hover:ring-1 hover:ring-gray-500', photo.isHidden ? 'opacity-50' : '']"
                 @click="togglePhotoSelect(photo.id)"
               >
                 <img
@@ -1000,98 +1099,6 @@
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </teleport>
-
-    <!-- 照片移动菜单 - 使用 teleport 避免被遮挡 -->
-    <teleport to="body">
-      <div
-        v-if="photoMoveMenuVisible"
-        class="fixed z-[100] w-56 glass-menu rounded-lg shadow-2xl max-h-80 overflow-y-auto"
-        :style="photoMoveMenuStyle"
-        @click.stop
-      >
-        <div class="py-1">
-          <!-- 上一级 -->
-          <button
-            v-if="photoMoveTargets.parentDir"
-            @click="doMovePhotosTo(photoMoveTargets.parentDir.path)"
-            class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-            :title="photoMoveTargets.parentDir.name"
-          >
-            ⬆️ 上一级 ({{ photoMoveTargets.parentDir.name }})
-          </button>
-          
-          <!-- 同级目录 - 可展开菜单 -->
-          <div v-if="photoMoveTargets.siblingDirs?.length > 0" class="relative group/sibling">
-            <button
-              @click="photoMoveExpandedSiblings = !photoMoveExpandedSiblings"
-              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
-            >
-              <span>📂 同级目录 ({{ photoMoveTargets.siblingDirs.length }})</span>
-              <svg 
-                class="w-3 h-3 transition-transform" 
-                :class="photoMoveExpandedSiblings ? 'rotate-90' : ''" 
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <!-- 子菜单 -->
-            <div v-if="photoMoveExpandedSiblings" class="pl-2 border-l border-gray-600 ml-2">
-              <button
-                v-for="dir in photoMoveTargets.siblingDirs"
-                :key="'sibling-' + dir.path"
-                @click="doMovePhotosTo(dir.path)"
-                class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                :title="dir.name"
-              >
-                📁 {{ dir.name }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 下一级目录 - 可展开菜单 -->
-          <div v-if="photoMoveTargets.childDirs?.length > 0" class="relative group/child">
-            <button
-              @click="photoMoveExpandedChildren = !photoMoveExpandedChildren"
-              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
-            >
-              <span>📂 下一级 ({{ photoMoveTargets.childDirs.length }})</span>
-              <svg 
-                class="w-3 h-3 transition-transform" 
-                :class="photoMoveExpandedChildren ? 'rotate-90' : ''" 
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <!-- 子菜单 -->
-            <div v-if="photoMoveExpandedChildren" class="pl-2 border-l border-gray-600 ml-2">
-              <button
-                v-for="dir in photoMoveTargets.childDirs"
-                :key="'child-' + dir.path"
-                @click="doMovePhotosTo(dir.path)"
-                class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                :title="dir.name"
-              >
-                📁 {{ dir.name }}
-              </button>
-            </div>
-          </div>
-          
-          <!-- 没有下一级时显示置灰 -->
-          <div 
-            v-if="!photoMoveTargets.childDirs?.length" 
-            class="px-4 py-2 text-sm text-gray-500 italic"
-          >
-            📂 下一级 (无)
-          </div>
-
-          <div v-if="!photoMoveTargets.parentDir && !photoMoveTargets.siblingDirs?.length && !photoMoveTargets.childDirs?.length" class="px-4 py-2 text-xs text-gray-500">
-            暂无可移动位置
           </div>
         </div>
       </div>
@@ -1155,6 +1162,7 @@ import { api, albumApi } from '@/api'
 import { getEffectParamDefs } from '@/config/particlePresets'
 import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
 import CoverDisplay from '@/components/CoverDisplay.vue'
+import DropMenu from '@/components/DropMenu.vue'
 
 const router = useRouter()
 
@@ -2519,23 +2527,45 @@ const photoModalPhotos = ref<any[]>([])
 const photoModalSelected = ref<Set<number>>(new Set())
 const photoModalLoading = ref(false)
 const photoMoveMenuVisible = ref(false)
-const photoMoveMenuRef = ref<HTMLElement | null>(null)
 const photoMoveTargets = ref<any>({})
 // 菜单展开状态
 const photoMoveExpandedSiblings = ref(false)
 const photoMoveExpandedChildren = ref(false)
 
-// 计算移动菜单的位置
-const photoMoveMenuStyle = computed(() => {
-  if (!photoMoveMenuRef.value) {
-    return { top: '0px', left: '0px' }
-  }
-  const rect = photoMoveMenuRef.value.getBoundingClientRect()
-  return {
-    top: `${rect.bottom + 4}px`,
-    right: `${window.innerWidth - rect.right}px`
-  }
+// 检查选中的照片是否有隐藏的
+const hasHiddenPhotos = computed(() => {
+  return photoModalPhotos.value.some(
+    p => photoModalSelected.value.has(p.id) && p.isHidden
+  )
 })
+
+// 切换照片隐藏/显示状态
+const togglePhotoHidden = async () => {
+  if (photoModalSelected.value.size === 0) return
+
+  const operation = hasHiddenPhotos.value ? 'show' : 'hide'
+  const action = hasHiddenPhotos.value ? '显示' : '隐藏'
+  const count = photoModalSelected.value.size
+
+  if (!confirm(`确定${action}选中的 ${count} 张照片吗？`)) return
+
+  try {
+    const res = await api.post('/admin/photos/batch', {
+      operation,
+      photoIds: Array.from(photoModalSelected.value)
+    })
+    const result = res.data
+
+    if (result.success) {
+      alert('✅ ' + result.message)
+      await refreshPhotoModalAfterChange()
+    } else {
+      alert(`${action}失败: ` + (result.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert(`${action}失败: ` + (e.response?.data?.message || e.message))
+  }
+}
 
 const openPhotoManageModal = async (album: any) => {
   photoModalAlbum.value = album
@@ -2586,20 +2616,6 @@ const toggleSelectAllPhotos = () => {
     photoModalSelected.value = new Set()
   } else {
     photoModalSelected.value = new Set(photoModalPhotos.value.map((p: any) => p.id))
-  }
-}
-
-const togglePhotoMoveMenu = () => {
-  if (photoMoveMenuVisible.value) {
-    // 关闭时重置展开状态
-    photoMoveMenuVisible.value = false
-    photoMoveExpandedSiblings.value = false
-    photoMoveExpandedChildren.value = false
-  } else {
-    // 打开时重置展开状态
-    photoMoveExpandedSiblings.value = false
-    photoMoveExpandedChildren.value = false
-    photoMoveMenuVisible.value = true
   }
 }
 
