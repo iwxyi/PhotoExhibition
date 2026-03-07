@@ -753,6 +753,97 @@ public class PhotoService {
     }
 
     /**
+     * 根据关键词搜索照片（文件名）
+     */
+    public List<Photo> searchPhotosByFilename(String keyword) {
+        return photoRepository.searchByFilename(keyword);
+    }
+
+    /**
+     * 根据关键词搜索照片并按系统设置排序
+     * @param keyword 搜索关键词
+     * @return 按设置排序的照片列表
+     */
+    public List<Photo> searchPhotosByKeyword(String keyword) {
+        List<Photo> photos = photoRepository.searchByFilename(keyword);
+        if (photos == null || photos.isEmpty()) {
+            return photos;
+        }
+
+        // 获取相册ID列表
+        Set<Long> albumIds = photos.stream()
+            .map(Photo::getAlbumId)
+            .collect(Collectors.toSet());
+
+        // 获取所有涉及的相册的排序设置
+        Map<Long, String> albumSortOrders = new HashMap<>();
+        for (Album album : albumRepository.findAllById(albumIds)) {
+            if (album.getPhotoSortOrder() != null && !album.getPhotoSortOrder().trim().isEmpty()) {
+                albumSortOrders.put(album.getId(), album.getPhotoSortOrder());
+            }
+        }
+
+        // 获取系统默认排序
+        String systemSortOrder = systemConfigService.getPhotoSortOrder();
+
+        // 按各相册的设置排序
+        // 由于不同相册可能有不同排序，我们按相册分组后分别排序
+        Map<Long, List<Photo>> photosByAlbum = photos.stream()
+            .collect(Collectors.groupingBy(Photo::getAlbumId));
+
+        // 扁平化并按各相册的排序规则排序
+        List<Photo> sortedPhotos = new java.util.ArrayList<>();
+        for (Map.Entry<Long, List<Photo>> entry : photosByAlbum.entrySet()) {
+            List<Photo> albumPhotos = entry.getValue();
+            String sortOrder = albumSortOrders.getOrDefault(entry.getKey(), systemSortOrder);
+            Sort sort = getSortByOrderString(sortOrder);
+
+            // 使用 Stream API 进行排序
+            List<Photo> sorted = albumPhotos.stream()
+                .sorted((p1, p2) -> {
+                    String order = sortOrder != null ? sortOrder : SystemConfigService.SORT_BY_TAKEN_AT_DESC;
+                    int cmp = 0;
+                    switch (order) {
+                        case SystemConfigService.SORT_BY_TAKEN_AT_ASC:
+                            cmp = compareNullLast(p1.getTakenAt(), p2.getTakenAt(), true);
+                            break;
+                        case SystemConfigService.SORT_BY_FILENAME_ASC:
+                            cmp = compareNullLast(p1.getFilename(), p2.getFilename(), true);
+                            break;
+                        case SystemConfigService.SORT_BY_FILENAME_DESC:
+                            cmp = compareNullLast(p2.getFilename(), p1.getFilename(), true);
+                            break;
+                        case SystemConfigService.SORT_BY_CREATED_AT_ASC:
+                            cmp = compareNullLast(p1.getCreatedAt(), p2.getCreatedAt(), true);
+                            break;
+                        case SystemConfigService.SORT_BY_CREATED_AT_DESC:
+                            cmp = compareNullLast(p2.getCreatedAt(), p1.getCreatedAt(), true);
+                            break;
+                        case SystemConfigService.SORT_BY_TAKEN_AT_DESC:
+                        default:
+                            cmp = compareNullLast(p2.getTakenAt(), p1.getTakenAt(), true);
+                            break;
+                    }
+                    return cmp;
+                })
+                .collect(Collectors.toList());
+            sortedPhotos.addAll(sorted);
+        }
+
+        return sortedPhotos;
+    }
+
+    /**
+     * 比较两个可比较对象，处理null值
+     */
+    private <T extends Comparable<T>> int compareNullLast(T a, T b, boolean nullsLast) {
+        if (a == null && b == null) return 0;
+        if (a == null) return nullsLast ? 1 : -1;
+        if (b == null) return nullsLast ? -1 : 1;
+        return a.compareTo(b);
+    }
+
+    /**
      * 将实体属性名转换为数据库列名（用于原生查询的排序）
      */
     private String propertyToColumn(String property) {

@@ -1893,13 +1893,31 @@ public class FaceService {
             dto.setPersonDescription(face.getPerson().getDescription());
         }
         if (face.getPhoto() != null) {
-            dto.setPhotoId(face.getPhoto().getId());
-            dto.setPhotoFilename(face.getPhoto().getFilename());
-            dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
-            dto.setPhotoMediumThumbPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
-            dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
-            dto.setPhotoWidth(face.getPhoto().getWidth());
-            dto.setPhotoHeight(face.getPhoto().getHeight());
+            Photo photo = face.getPhoto();
+            dto.setPhotoId(photo.getId());
+            dto.setPhotoFilename(photo.getFilename());
+            dto.setPhotoThumbnailPath(convertToRelativePath(photo.getMediumThumbPath()));
+            dto.setPhotoMediumThumbPath(convertToRelativePath(photo.getMediumThumbPath()));
+            dto.setPhotoLargeThumbPath(convertToRelativePath(photo.getLargeThumbPath()));
+            dto.setPhotoWebpPath(convertToRelativePath(photo.getWebpPath()));
+            dto.setPhotoOriginalPath(convertToRelativePath(photo.getOriginalPath()));
+            dto.setPhotoWidth(photo.getWidth());
+            dto.setPhotoHeight(photo.getHeight());
+            dto.setPhotoTakenAt(photo.getTakenAt() != null ? photo.getTakenAt().toString() : null);
+            // 获取相册ID和路径
+            dto.setAlbumId(photo.getAlbumId());
+            if (photo.getAlbumId() != null) {
+                albumRepository.findById(photo.getAlbumId()).ifPresent(album ->
+                    dto.setPhotoFolderPath(album.getPath())
+                );
+            }
+            // EXIF 信息
+            dto.setPhotoCameraModel(photo.getCameraModel());
+            dto.setPhotoLensModel(photo.getLensModel());
+            dto.setPhotoAperture(photo.getAperture());
+            dto.setPhotoShutterSpeed(photo.getShutterSpeed());
+            dto.setPhotoIso(photo.getIso() != null ? photo.getIso().toString() : null);
+            dto.setPhotoFocalLength(photo.getFocalLength());
         }
         return dto;
     }

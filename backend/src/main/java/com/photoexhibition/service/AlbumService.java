@@ -34,12 +34,14 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -211,14 +213,70 @@ public class AlbumService {
 
     /**
      * 根据名称模糊搜索相册列表（用于全局搜索）
-     * 返回匹配的有照片的相册列表
+     * 返回匹配的相册列表：
+     * 1. 名称匹配的相册（优先有照片的）
+     * 2. 路径匹配但名称不匹配的相册的子相册（如果有照片）
      */
     public List<Album> searchAlbumsByName(String name) {
-        List<Album> albums = albumRepository.searchByName(name);
-        // 只返回有照片的相册
-        return albums.stream()
+        List<Album> nameMatches = albumRepository.searchByName(name);
+        
+        // 1. 先过滤有照片的名称匹配相册
+        List<Album> withPhotos = nameMatches.stream()
             .filter(album -> album.getPhotoCount() != null && album.getPhotoCount() > 0)
             .collect(Collectors.toList());
+        if (!withPhotos.isEmpty()) {
+            return withPhotos;
+        }
+        
+        // 2. 如果没有有照片的名称匹配相册，查找路径匹配但名称不匹配的相册
+        List<Album> pathMatches = albumRepository.searchByPath(name);
+        if (pathMatches.isEmpty()) {
+            return nameMatches;
+        }
+        
+        // 3. 对每个路径匹配，获取其有照片的子相册
+        Set<Long> resultIds = new java.util.HashSet<>();
+        List<Album> result = new java.util.ArrayList<>();
+        
+        for (Album pathMatch : pathMatches) {
+            // 跳过已有结果的相册
+            if (resultIds.contains(pathMatch.getId())) continue;
+            
+            // 如果路径匹配的相册本身有照片，加入结果
+            if (pathMatch.getPhotoCount() != null && pathMatch.getPhotoCount() > 0) {
+                result.add(pathMatch);
+                resultIds.add(pathMatch.getId());
+                continue;
+            }
+            
+            // 否则查找该相册路径下的所有有照片的子相册
+            String pathPrefix = pathMatch.getPath();
+            if (pathPrefix != null) {
+                // 标准化路径
+                pathPrefix = pathPrefix.replace("\\", "/");
+                if (!pathPrefix.endsWith("/")) {
+                    pathPrefix = pathPrefix + "/";
+                }
+                
+                // 查找以该路径为前缀的有照片相册
+                List<Album> subAlbums = albumRepository.findByPathPrefixWithPhotos(
+                    pathPrefix, 0);
+                for (Album sub : subAlbums) {
+                    if (!resultIds.contains(sub.getId()) && 
+                        sub.getPhotoCount() != null && sub.getPhotoCount() > 0) {
+                        result.add(sub);
+                        resultIds.add(sub.getId());
+                    }
+                }
+            }
+        }
+        
+        // 4. 如果还是没有，返回名称匹配的空相册
+        if (result.isEmpty()) {
+            return nameMatches;
+        }
+        
+        return result;
     }
 
     /**

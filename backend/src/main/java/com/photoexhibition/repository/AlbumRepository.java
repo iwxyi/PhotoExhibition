@@ -122,5 +122,17 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT a FROM Album a WHERE a.name LIKE %:name% ORDER BY a.photoCount DESC")
     List<Album> searchByName(@Param("name") String name);
+
+    /**
+     * 根据路径模糊搜索相册（用于全局搜索）
+     */
+    @Query("SELECT a FROM Album a WHERE a.path LIKE %:path% ORDER BY a.photoCount DESC")
+    List<Album> searchByPath(@Param("path") String path);
+
+    /**
+     * 查找以指定路径前缀开头且有照片的相册
+     */
+    @Query("SELECT a FROM Album a WHERE a.path LIKE :pathPrefix% AND a.photoCount > :minPhotoCount")
+    List<Album> findByPathPrefixWithPhotos(@Param("pathPrefix") String pathPrefix, @Param("minPhotoCount") int minPhotoCount);
 }
 

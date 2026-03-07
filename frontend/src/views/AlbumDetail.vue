@@ -369,8 +369,15 @@ const loadMorePhotos = async () => {
     const result = await photoStore.fetchPhotosByAlbum(albumId.value, currentPage.value, pageSize)
     hasMore.value = !result.last
 
-    // 更新总数
+    // 更新总数，并重置已加载计数（因为新增的图片需要重新加载）
+    const previousCount = totalImages.value
     totalImages.value = photos.value.length
+
+    // 如果有新图片加载，重置加载计数
+    if (totalImages.value > previousCount) {
+      loadedImagesCount.value = 0
+      imagesLoaded.value = false
+    }
   } catch (error) {
     console.error('加载更多照片失败:', error)
   } finally {

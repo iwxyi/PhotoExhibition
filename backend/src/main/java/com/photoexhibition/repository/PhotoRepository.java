@@ -318,5 +318,11 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
         nativeQuery = true
     )
     Page<Photo> findPhotosWithFaces(Pageable pageable);
+
+    /**
+     * 根据文件名模糊搜索照片
+     */
+    @Query("SELECT p FROM Photo p WHERE p.filename LIKE %:filename% AND (p.isHidden IS NULL OR p.isHidden = false)")
+    List<Photo> searchByFilename(@Param("filename") String filename);
 }
 

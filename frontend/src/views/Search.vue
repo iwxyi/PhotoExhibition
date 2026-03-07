@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { albumApi, aiApi, personApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import AlbumCard from '@/components/AlbumCard.vue'
 import type { Photo } from '@/stores/photo'
 
-// 用于模板中的全局 window 访问
-const globalWindow = typeof window !== 'undefined' ? window : null
+const route = useRoute()
+const router = useRouter()
 
 interface AlbumDTO {
   id: number
@@ -17,6 +18,11 @@ interface AlbumDTO {
   coverImageId?: number
   coverImagePath?: string
   photoCount?: number
+  coverImages?: {
+    cover1?: any
+    cover2?: any
+    cover3?: any
+  }
 }
 
 interface PersonSummary {
@@ -39,6 +45,23 @@ interface FaceFace {
   originalPath?: string
   mediumThumbPath?: string
   thumbnailPath?: string
+  // 照片详细信息
+  photoFilename?: string
+  photoLargeThumbPath?: string
+  photoWebpPath?: string
+  photoWidth?: number
+  photoHeight?: number
+  photoTakenAt?: string
+  photoFolderPath?: string
+  albumId?: number
+  // EXIF 信息
+  photoLocation?: string
+  photoCameraModel?: string
+  photoLensModel?: string
+  photoAperture?: string
+  photoShutterSpeed?: string
+  photoIso?: string
+  photoFocalLength?: string
 }
 
 interface FacePhoto {
@@ -53,8 +76,25 @@ interface FacePhoto {
   takenAt?: string
 }
 
-const route = useRoute()
+interface PhotoDTO {
+  id: number
+  filename: string
+  thumbnailPath?: string
+  mediumThumbPath?: string
+  largeThumbPath?: string
+  originalPath?: string
+  webpPath?: string
+  width?: number
+  height?: number
+  takenAt?: string
+  albumId?: number
+  folderPath?: string
+}
+
 const authStore = useAuthStore()
+
+// 用于模板中的全局 window 访问
+const globalWindow = typeof window !== 'undefined' ? window : null
 
 // PhotoViewer 相关状态
 const viewerVisible = ref(false)
@@ -67,14 +107,38 @@ const viewerPhotos = computed<Photo[]>(() => {
     .filter(face => face.photoId)
     .map((face) => ({
       id: face.photoId!,
-      filename: face.personName || '未命名',
-      thumbnailPath: face.photoThumbnailPath,
-      mediumThumbPath: face.photoMediumThumbPath,
-      width: 0,
-      height: 0,
-      takenAt: '',
-      albumId: 0,
-      folderPath: ''
+      filename: face.photoFilename || face.personName || '未命名',
+      originalPath: face.photoOriginalPath || face.originalPath || '',
+      thumbnailPath: face.photoThumbnailPath || face.thumbnailPath,
+      webpPath: face.photoWebpPath,
+      smallThumbPath: undefined,
+      mediumThumbPath: face.photoMediumThumbPath || face.mediumThumbPath,
+      largeThumbPath: face.photoLargeThumbPath,
+      width: face.photoWidth || 0,
+      height: face.photoHeight || 0,
+      takenAt: face.photoTakenAt || '',
+      albumId: face.albumId || 0,
+      // EXIF 信息
+      cameraMake: undefined,
+      cameraModel: face.photoCameraModel || '',
+      lensModel: face.photoLensModel || '',
+      focalLength: face.photoFocalLength || '',
+      aperture: face.photoAperture || '',
+      shutterSpeed: face.photoShutterSpeed || '',
+      iso: face.photoIso ? parseInt(face.photoIso) : undefined,
+      // 其他
+      location: face.photoLocation || '',
+      format: undefined,
+      colorCategory: undefined,
+      colorPalette: undefined,
+      exifData: undefined,
+      fileSize: undefined,
+      qualityScore: undefined,
+      focusX: undefined,
+      focusY: undefined,
+      focalLengthMm: undefined,
+      apertureValue: undefined,
+      shutterSpeedSeconds: undefined
     }))
 })
 
@@ -102,13 +166,15 @@ const faceId = ref<number | null>(null)
 const loading = ref(true)
 const albums = ref<AlbumDTO[]>([])
 const persons = ref<PersonSummary[]>([])
+const photos = ref<PhotoDTO[]>([])
 const facePhotos = ref<FacePhoto[]>([])
 const similarFaces = ref<FaceFace[]>([])
 const hasSearched = ref(false)
 const searchMode = ref<'keyword' | 'face'>('keyword')
 
 onMounted(async () => {
-  keyword.value = (route.params.keyword as string) || ''
+  // 从查询参数获取关键词
+  keyword.value = (route.query.q as string) || (route.params.keyword as string) || ''
   faceId.value = route.query.faceId ? parseInt(route.query.faceId as string, 10) : null
 
   if (faceId.value && !isNaN(faceId.value)) {
@@ -122,6 +188,33 @@ onMounted(async () => {
   }
 })
 
+// 监听路由变化，支持 /search?q=xxx 和 /s/xxx 之间的切换
+watch(
+  () => [route.query.q, route.params.keyword, route.query.faceId],
+  async ([newQ, newKeyword, newFaceId]) => {
+    const newKeywordValue = (newQ as string) || (newKeyword as string) || ''
+    const newFaceIdValue = newFaceId ? parseInt(newFaceId as string, 10) : null
+
+    keyword.value = newKeywordValue
+    faceId.value = newFaceIdValue && !isNaN(newFaceIdValue) ? newFaceIdValue : null
+
+    if (faceId.value && !isNaN(faceId.value)) {
+      searchMode.value = 'face'
+      await searchSimilarFaces()
+    } else if (newKeywordValue) {
+      searchMode.value = 'keyword'
+      await search()
+    } else {
+      loading.value = false
+      hasSearched.value = false
+      albums.value = []
+      persons.value = []
+      photos.value = []
+      similarFaces.value = []
+    }
+  }
+)
+
 const search = async () => {
   loading.value = true
   hasSearched.value = true
@@ -131,10 +224,12 @@ const search = async () => {
     const response = await albumApi.searchAll(decodedKeyword)
     albums.value = response.data.albums || []
     persons.value = response.data.persons || []
+    photos.value = response.data.photos || []
   } catch (e) {
     console.error('搜索失败:', e)
     albums.value = []
     persons.value = []
+    photos.value = []
   } finally {
     loading.value = false
   }
@@ -166,7 +261,7 @@ const hasResults = computed(() => {
   if (searchMode.value === 'face') {
     return similarFaces.value.length > 0
   }
-  return albums.value.length > 0 || persons.value.length > 0
+  return albums.value.length > 0 || persons.value.length > 0 || photos.value.length > 0
 })
 
 const getPersonPhotoUrl = (person: PersonSummary) => {
@@ -176,10 +271,25 @@ const getPersonPhotoUrl = (person: PersonSummary) => {
   return ''
 }
 
+const goToAlbum = (albumId: number) => {
+  window.open(`/a/${albumId}`, '_blank')
+}
+
 const getAlbumCoverUrl = (album: AlbumDTO) => {
-  if (album.coverImagePath) {
-    return `/api/photos/${album.coverImagePath.replace(/^\/+/, '')}`
+  // 优先使用 coverImages
+  if (album.coverImages) {
+    const cover = album.coverImages.cover1 || album.coverImages.cover2 || album.coverImages.cover3
+    if (cover?.thumbnailPath) {
+      return `/api/files${cover.thumbnailPath}`
+    }
+    if (cover?.mediumThumbPath) {
+      return `/api/files${cover.mediumThumbPath}`
+    }
+    if (cover?.originalPath) {
+      return `/api/files${cover.originalPath}`
+    }
   }
+  // 降级使用 coverImageId
   if (album.coverImageId) {
     return `/api/photos/thumbnail/${album.coverImageId}`
   }
@@ -194,6 +304,25 @@ const getFacePhotoUrl = (photo: FacePhoto) => {
     return `/api/photos/${photo.thumbnailPath.replace(/^\/+/, '')}`
   }
   return ''
+}
+
+const getPhotoUrl = (photo: PhotoDTO) => {
+  if (photo.largeThumbPath) {
+    return `/api/files${photo.largeThumbPath}`
+  }
+  if (photo.webpPath) return `/api/files${photo.webpPath}`
+  if (photo.mediumThumbPath) {
+    return `/api/photos/${photo.mediumThumbPath.replace(/^\/+/, '')}`
+  }
+  if (photo.originalPath) return `/api/files${photo.originalPath}`
+  return ''
+}
+
+const getPhotoThumbUrl = (photo: PhotoDTO) => {
+  if (photo.thumbnailPath) {
+    return `/api/files${photo.thumbnailPath}`
+  }
+  return getPhotoUrl(photo)
 }
 
 const getFaceUrl = (face: FaceFace) => {
@@ -282,6 +411,48 @@ const assignToConfirmedPerson = async () => {
   } catch (e: any) {
     console.error('合并人脸失败:', e)
   }
+}
+
+// 照片列表 PhotoViewer 相关状态
+const photoViewerVisible = ref(false)
+const photoViewerIndex = ref(0)
+const photoViewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+
+// 转换为 PhotoViewer 需要的 Photo 格式（用于照片搜索结果）
+const photoViewerPhotos = computed<Photo[]>(() => {
+  return photos.value.map((photo) => ({
+    id: photo.id,
+    filename: photo.filename,
+    thumbnailPath: photo.thumbnailPath,
+    mediumThumbPath: photo.mediumThumbPath,
+    largeThumbPath: photo.largeThumbPath,
+    originalPath: photo.originalPath,
+    webpPath: photo.webpPath,
+    width: photo.width || 0,
+    height: photo.height || 0,
+    takenAt: photo.takenAt || '',
+    albumId: photo.albumId || 0,
+    folderPath: photo.folderPath || ''
+  }))
+})
+
+// 打开照片 PhotoViewer
+const openPhotoViewer = (index: number, e: MouseEvent) => {
+  photoViewerIndex.value = index
+  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
+  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  if (rectSource) {
+    const rect = rectSource.getBoundingClientRect()
+    photoViewerOriginRect.value = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    }
+  } else {
+    photoViewerOriginRect.value = null
+  }
+  photoViewerVisible.value = true
 }
 </script>
 
@@ -434,6 +605,46 @@ const assignToConfirmedPerson = async () => {
           </div>
         </div>
 
+        <!-- 照片结果 -->
+        <div v-if="searchMode === 'keyword' && photos.length > 0" class="mb-10">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
+            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            照片 ({{ photos.length }})
+          </h2>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <div
+              v-for="(photo, index) in photos"
+              :key="photo.id"
+              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group"
+              @click="openPhotoViewer(index, $event)"
+            >
+              <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
+                <img
+                  v-if="getPhotoThumbUrl(photo)"
+                  :src="getPhotoThumbUrl(photo)"
+                  :alt="photo.filename"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+              </div>
+              <div class="p-2">
+                <p class="text-sm font-medium text-gray-800 dark:text-white truncate">
+                  {{ photo.filename }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 相册结果 -->
         <div v-if="searchMode === 'keyword' && albums.length > 0">
           <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
@@ -444,41 +655,13 @@ const assignToConfirmedPerson = async () => {
             相册 ({{ albums.length }})
           </h2>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            <router-link
+            <AlbumCard
               v-for="album in albums"
               :key="album.id"
-              :to="`/a/${album.id}`"
-              class="block group"
-            >
-              <div class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">
-                <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
-                  <img
-                    v-if="getAlbumCoverUrl(album)"
-                    :src="getAlbumCoverUrl(album)"
-                    :alt="album.name"
-                    class="w-full h-full object-cover"
-                  />
-                  <div v-else class="w-full h-full flex items-center justify-center">
-                    <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <!-- 照片数量标签 -->
-                  <div class="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-                    {{ album.photoCount || 0 }}
-                  </div>
-                </div>
-                <div class="p-3">
-                  <h3 class="font-medium text-gray-800 dark:text-white truncate group-hover:text-blue-500 transition-colors">
-                    {{ album.name }}
-                  </h3>
-                  <p v-if="album.description" class="text-sm text-gray-500 dark:text-gray-400 truncate">
-                    {{ album.description }}
-                  </p>
-                </div>
-              </div>
-            </router-link>
+              :album="album as any"
+              size="md"
+              @click="goToAlbum(album.id)"
+            />
           </div>
         </div>
       </div>
@@ -492,6 +675,15 @@ const assignToConfirmedPerson = async () => {
       :start-index="viewerIndex"
       :origin-rect="viewerOriginRect"
       @update:visible="viewerVisible = $event"
+    />
+    <!-- 照片搜索结果的 PhotoViewer -->
+    <PhotoViewer
+      v-if="photoViewerPhotos.length > 0"
+      :photos="photoViewerPhotos"
+      :visible="photoViewerVisible"
+      :start-index="photoViewerIndex"
+      :origin-rect="photoViewerOriginRect"
+      @update:visible="photoViewerVisible = $event"
     />
   </div>
 </template>

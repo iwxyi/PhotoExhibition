@@ -1,5 +1,6 @@
 <template>
   <div>
+    <!-- 筛选按钮 -->
     <button
       @click="onTogglePanel"
       class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
@@ -9,8 +10,10 @@
       </svg>
       <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
     </button>
+  </div>
 
-    <Teleport to="body">
+  <!-- Teleport 弹窗 -->
+  <Teleport to="body">
       <!-- 标签弹窗背景遮罩 -->
       <div v-if="showTagSelector" class="fixed inset-0 z-40 bg-black/5 cursor-pointer" @click="closeTagSelector"></div>
 
@@ -109,16 +112,55 @@
           >
           <!-- 头部区域 -->
           <div class="flex justify-between items-center p-6 pb-4">
-              <h2 class="text-2xl font-light">高级筛选</h2>
+            <div class="flex items-center gap-4 flex-shrink-0">
+              <h2 class="text-2xl font-light whitespace-nowrap">高级筛选</h2>
+            </div>
+            <!-- 搜索区域和关闭按钮 - 紧贴排列 -->
+            <div class="flex items-center gap-2">
+              <!-- 搜索按钮 - 小方形 -->
               <button
-              @click="closePanel"
-                class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                @click="toggleSearch"
+                class="p-2 w-9 h-9 flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-300 hover:scale-110 hover:rotate-12 group"
+                :class="searchExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100'"
+                title="搜索"
               >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </button>
+              <!-- 搜索输入框 - 展开动画 -->
+              <div
+                class="flex items-center transition-all duration-300 ease-out overflow-hidden"
+                :class="searchExpanded ? 'w-64 opacity-100' : 'w-0 opacity-0'"
+              >
+                <div class="relative mr-2 flex-shrink-0">
+                  <div class="absolute inset-0 bg-blue-500/30 rounded-full animate-ping opacity-75"></div>
+                  <svg class="w-5 h-5 text-blue-500 relative" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  ref="searchInputRef"
+                  v-model="searchKeyword"
+                  type="text"
+                  placeholder="搜索相册、人物... (回车搜索)"
+                  class="w-full px-4 py-2 text-sm border-2 border-blue-400 dark:border-blue-500 rounded-xl bg-white dark:bg-gray-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 focus:border-blue-500 shadow-lg transition-all duration-300"
+                  @keyup.enter="doSearch"
+                  @keyup.escape="searchExpanded = false; searchKeyword = ''"
+                  @blur="onSearchBlur"
+                />
+              </div>
+              <!-- 关闭按钮 - 添加悬停动画 -->
+              <button
+                @click="closePanel"
+                class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-300 hover:rotate-90 hover:bg-red-50 dark:hover:bg-red-900/20 group"
+              >
+                <svg class="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-red-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
+          </div>
 
           <!-- 可滚动内容区域 -->
           <div class="flex-1 overflow-y-auto px-6">
@@ -516,7 +558,6 @@
         </div>
       </div>
     </Teleport>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -544,6 +585,44 @@ const animating = ref(false)
 const isAnimating = ref(false) // 防止动画冲突
 const panelRef = ref<HTMLElement>()
 const shouldResetOnOpen = ref(false)
+
+// 搜索相关状态
+const searchExpanded = ref(false)
+const searchKeyword = ref('')
+const searchInputRef = ref<HTMLInputElement>()
+
+// 搜索相关函数
+const toggleSearch = () => {
+  if (!searchExpanded.value) {
+    // 展开搜索框
+    searchExpanded.value = true
+    nextTick(() => {
+      searchInputRef.value?.focus()
+    })
+  } else if (searchKeyword.value) {
+    // 执行搜索
+    doSearch()
+  }
+}
+
+const doSearch = () => {
+  if (searchKeyword.value.trim()) {
+    // 新标签页打开搜索页面
+    const searchUrl = `/search?q=${encodeURIComponent(searchKeyword.value.trim())}`
+    window.open(searchUrl, '_blank')
+    searchKeyword.value = ''
+    searchExpanded.value = false
+  }
+}
+
+const onSearchBlur = () => {
+  // 延迟收起，以便点击搜索按钮时能继续执行
+  setTimeout(() => {
+    // 失焦时始终收起搜索框
+    searchExpanded.value = false
+    searchKeyword.value = ''
+  }, 150)
+}
 
 // 筛选选项数据
 const filterOptions = ref({
@@ -1817,6 +1896,20 @@ defineExpose({
 </script>
 
 <style scoped>
+/* 慢速旋转动画 */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
+}
+
 /* 毛玻璃效果 - 从一开始就生效 */
 :deep(.filter-panel-glass) {
   border-radius: 16px;

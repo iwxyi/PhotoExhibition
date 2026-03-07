@@ -1,50 +1,28 @@
 <template>
   <div class="relative block" ref="containerRef">
-    <!-- 触发区域 -->
+    <!-- 触发按钮 -->
     <div
       ref="triggerEl"
       @click="handleClick"
       @mouseenter="handleMouseEnter"
-      @mouseleave="handleMouseLeave"
     >
       <slot name="trigger"></slot>
     </div>
 
-    <!-- teleport 模式：脱离 DOM 层级，用 JS 计算位置（用于顶层菜单逃脱 overflow/z-index 约束） -->
-    <template v-if="teleport">
-      <Teleport to="body">
-        <Transition name="menu-fade">
-          <div
-            v-if="visible"
-            ref="menuEl"
-            class="fixed z-[2000]"
-            :style="menuStyle"
-            @click.stop
-            @mouseenter="handleMenuMouseEnter"
-            @mouseleave="handleMenuMouseLeave"
-          >
-            <slot :close="close"></slot>
-          </div>
-        </Transition>
-      </Teleport>
-    </template>
-
-    <!-- 非 teleport 模式：保留在 DOM 层级内，用 CSS absolute 定位（用于嵌套子菜单，避免父子面板互相触发 mouseleave） -->
-    <template v-else>
+    <!-- 菜单面板 -->
+    <Teleport to="body">
       <Transition name="menu-fade">
         <div
           v-if="visible"
           ref="menuEl"
-          class="absolute z-50"
-          :class="localPlacementClass"
+          class="fixed z-[2000]"
+          :style="menuStyle"
           @click.stop
-          @mouseenter="handleMenuMouseEnter"
-          @mouseleave="handleMenuMouseLeave"
         >
           <slot :close="close"></slot>
         </div>
       </Transition>
-    </template>
+    </Teleport>
   </div>
 </template>
 
@@ -55,15 +33,12 @@ interface Props {
   trigger?: 'click' | 'hover'
   placement?: 'bottom' | 'right'
   offset?: number
-  /** 是否使用 Teleport 渲染面板。顶层菜单用 true（默认），嵌套子菜单用 false 避免 mouseleave 问题 */
-  teleport?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   trigger: 'hover',
   placement: 'bottom',
-  offset: 4,
-  teleport: true
+  offset: 4
 })
 
 const emit = defineEmits<{
@@ -75,7 +50,7 @@ const triggerEl = ref<HTMLElement>()
 const menuEl = ref<HTMLElement>()
 const visible = ref(false)
 
-// 用于触发 teleport 模式下 computed 重新计算的 tick 值
+// 用于触发 computed 重新计算的 tick 值
 const posTick = ref(0)
 
 // hover 菜单共享的关闭 timer，trigger 和面板共同维护
@@ -95,71 +70,75 @@ const scheduleClose = (delay = 300) => {
   }, delay)
 }
 
+// 监听 visible 变化
 watch(visible, (val) => {
   emit('update:visible', val)
-  if (val && props.teleport) {
-    posTick.value++
+  if (val) {
+    posTick.value++ // 触发菜单位置重新计算
   }
 })
 
-// ─── teleport 模式：JS 计算位置（自动适应屏幕边缘）──────────────────────────
+// 计算菜单位置（自动适应屏幕边缘）
 const menuStyle = computed(() => {
+  // 依赖 posTick 使 computed 响应式更新
   void posTick.value
-  if (!triggerEl.value) return { visibility: 'hidden', top: '0px', left: '0px' }
+  if (!triggerEl.value) {
+    return { visibility: 'hidden', top: '0px', left: '0px' }
+  }
 
   const rect = triggerEl.value.getBoundingClientRect()
   const vw = window.innerWidth
   const vh = window.innerHeight
 
   if (props.placement === 'right') {
+    // 判断右边是否有足够空间（估计菜单宽度180px）
     const menuW = 220
     const menuH = 200
-    const useLeft = (vw - rect.right) < menuW && rect.left > (vw - rect.right)
-    const top = Math.min(rect.top + rect.height / 2, vh - menuH)
+    const spaceRight = vw - rect.right
+    const spaceLeft = rect.left
+    const useLeft = spaceRight < menuW && spaceLeft > spaceRight
+
+    const top = rect.top + rect.height / 2
+    // 自动向上偏移防止底部溢出
+    const adjustedTop = Math.min(top, vh - menuH)
 
     if (useLeft) {
-      return { top: `${Math.max(0, top)}px`, right: `${vw - rect.left + props.offset}px`, left: 'auto' }
+      return {
+        top: `${Math.max(0, adjustedTop)}px`,
+        right: `${vw - rect.left + props.offset}px`,
+        left: 'auto'
+      }
     }
-    return { top: `${Math.max(0, top)}px`, left: `${rect.right + props.offset}px` }
+    return {
+      top: `${Math.max(0, adjustedTop)}px`,
+      left: `${rect.right + props.offset}px`
+    }
   }
 
-  // bottom
+  // bottom: 判断下方是否有足够空间
   const menuH = 300
+  const spaceBottom = vh - rect.bottom
+  const spaceTop = rect.top
+  const useTop = spaceBottom < menuH && spaceTop > spaceBottom
+
+  // 判断右边是否溢出
   const menuW = 224
-  const useTop = (vh - rect.bottom) < menuH && rect.top > (vh - rect.bottom)
-  const leftPos = Math.max(0, (rect.left + menuW > vw) ? vw - menuW - props.offset : rect.left)
+  const rightEdge = rect.left + menuW
+  const leftPos = rightEdge > vw ? vw - menuW - props.offset : rect.left
 
   if (useTop) {
-    return { bottom: `${vh - rect.top + props.offset}px`, top: 'auto', left: `${leftPos}px` }
-  }
-  return { top: `${rect.bottom + props.offset}px`, left: `${leftPos}px` }
-})
-
-// ─── 非 teleport 模式：CSS class 定位（自动检测空间翻转方向）────────────────
-const localPlacementClass = computed(() => {
-  if (!props.teleport) {
-    // 在挂载后根据 triggerEl 位置动态决定方向
-    void posTick.value
-    if (props.placement === 'right') {
-      const shouldFlip = triggerEl.value
-        ? (window.innerWidth - triggerEl.value.getBoundingClientRect().right) < 220
-        : false
-      return shouldFlip
-        ? `right-full top-0 mr-[${props.offset}px]`
-        : `left-full top-0 ml-[${props.offset}px]`
+    return {
+      bottom: `${vh - rect.top + props.offset}px`,
+      top: 'auto',
+      left: `${Math.max(0, leftPos)}px`
     }
-    // bottom
-    const shouldFlip = triggerEl.value
-      ? (window.innerHeight - triggerEl.value.getBoundingClientRect().bottom) < 200
-      : false
-    return shouldFlip
-      ? `bottom-full left-0 mb-[${props.offset}px]`
-      : `top-full left-0 mt-[${props.offset}px]`
   }
-  return ''
+  return {
+    top: `${rect.bottom + props.offset}px`,
+    left: `${Math.max(0, leftPos)}px`
+  }
 })
 
-// ─── 事件处理 ───────────────────────────────────────────────────────────────
 const close = () => {
   clearCloseTimer()
   visible.value = false
@@ -168,12 +147,11 @@ const close = () => {
 const open = () => {
   clearCloseTimer()
   visible.value = true
-  if (!props.teleport) posTick.value++
 }
 
 const handleClick = () => {
   if (props.trigger === 'click') {
-    visible.value ? close() : open()
+    visible.value = !visible.value
   }
 }
 
@@ -192,6 +170,7 @@ const handleMouseLeave = () => {
 
 const handleMenuMouseEnter = () => {
   if (props.trigger === 'hover') {
+    // 鼠标进入面板，取消关闭计时
     clearCloseTimer()
   }
 }
@@ -202,8 +181,9 @@ const handleMenuMouseLeave = () => {
   }
 }
 
-// ─── 点击外部关闭（仅 click 触发或 teleport 模式）───────────────────────────
+// 点击外部关闭
 const handleClickOutside = (event: MouseEvent) => {
+  // menuEl 通过 teleport 渲染在 body，需要额外检查
   if (
     containerRef.value &&
     !containerRef.value.contains(event.target as Node) &&
@@ -215,11 +195,16 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && visible.value) close()
+  if (event.key === 'Escape' && visible.value) {
+    close()
+  }
 }
 
+// 窗口 resize 时更新菜单位置
 const handleResize = () => {
-  if (visible.value) posTick.value++
+  if (visible.value) {
+    posTick.value++
+  }
 }
 
 onMounted(() => {
@@ -237,14 +222,19 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleResize, true)
 })
 
-defineExpose({ open, close, visible })
+defineExpose({
+  open,
+  close,
+  visible
+})
 </script>
 
 <style scoped>
 .menu-fade-enter-active,
 .menu-fade-leave-active {
-  transition: opacity 0.12s ease, transform 0.12s ease;
+  transition: opacity 0.1s ease, transform 0.1s ease;
 }
+
 .menu-fade-enter-from,
 .menu-fade-leave-to {
   opacity: 0;

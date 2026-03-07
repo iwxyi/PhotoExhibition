@@ -353,4 +353,42 @@ public class SystemConfigController {
             return ResponseEntity.status(500).body(resp);
         }
     }
+
+    /**
+     * 获取全局氛围特效开关
+     */
+    @GetMapping("/atmosphere-enabled")
+    public ResponseEntity<Map<String, Object>> getAtmosphereEnabled() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("atmosphereEnabled", systemConfigService.isAtmosphereEnabled());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 设置全局氛围特效开关
+     */
+    @PutMapping("/atmosphere-enabled")
+    public ResponseEntity<Map<String, Object>> setAtmosphereEnabled(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Boolean enabled = (Boolean) request.get("atmosphereEnabled");
+            if (enabled == null) {
+                resp.put("error", "atmosphereEnabled 参数不能为空");
+                return ResponseEntity.badRequest().body(resp);
+            }
+
+            systemConfigService.setAtmosphereEnabled(enabled);
+            resp.put("message", "全局氛围特效开关设置成功");
+            resp.put("atmosphereEnabled", enabled);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
 }

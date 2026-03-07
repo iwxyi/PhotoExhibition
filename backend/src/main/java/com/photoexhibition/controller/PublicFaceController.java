@@ -4,11 +4,14 @@ import com.photoexhibition.dto.FaceDTO;
 import com.photoexhibition.dto.PersonSummaryDTO;
 import com.photoexhibition.dto.AlbumRecommendationDTO;
 import com.photoexhibition.dto.AlbumDTO;
+import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.entity.Album;
+import com.photoexhibition.entity.Photo;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.service.FaceService;
 import com.photoexhibition.service.AlbumService;
+import com.photoexhibition.service.PhotoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -21,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.stream.Collectors;
 
 @RestController
@@ -33,6 +38,7 @@ public class PublicFaceController {
     private final FaceService faceService;
     private final PersonProfileRepository personProfileRepository;
     private final AlbumService albumService;
+    private final PhotoService photoService;
 
     /**
      * 获取人物列表（含代表头像）- 公开API
@@ -106,8 +112,9 @@ public class PublicFaceController {
     }
 
     /**
-     * 通用搜索（搜索相册和人物）
-     * 返回匹配的结果列表
+     * 通用搜索（搜索相册、人物、照片）
+     * 返回匹配的结果列表，支持去重（根据照片ID去重）
+     * 排序按设置的照片顺序
      */
     @GetMapping("/search")
     public ResponseEntity<Map<String, Object>> globalSearch(@RequestParam String q) {
@@ -140,6 +147,29 @@ public class PublicFaceController {
             log.warn("搜索人物失败: {}", e.getMessage());
         }
         result.put("persons", persons);
+
+        // 搜索照片（文件名）并按设置排序
+        List<PhotoDTO> photos = new ArrayList<>();
+        try {
+            // 获取按设置排序的照片列表
+            List<Photo> photoList = photoService.searchPhotosByKeyword(q);
+            // 用于去重
+            Set<Long> seenPhotoIds = new HashSet<>();
+            for (Photo photo : photoList) {
+                if (seenPhotoIds.contains(photo.getId())) {
+                    continue; // 跳过重复
+                }
+                if (photos.size() >= 20) break;
+                seenPhotoIds.add(photo.getId());
+                // 只返回未隐藏的照片
+                if (photo.getIsHidden() == null || !photo.getIsHidden()) {
+                    photos.add(photoService.getPhotoById(photo.getId()));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("搜索照片失败: {}", e.getMessage());
+        }
+        result.put("photos", photos);
 
         return ResponseEntity.ok(result);
     }

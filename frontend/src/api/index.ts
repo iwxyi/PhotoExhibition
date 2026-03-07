@@ -316,7 +316,7 @@ export const albumApi = {
 
   // 搜索相册和人物
   searchAll: (q: string) =>
-    api.get<{ albums: AlbumDTO[]; persons: PersonSummary[] }>(`/public/search?q=${encodeURIComponent(q)}`)
+    api.get<{ albums: AlbumDTO[]; persons: PersonSummary[]; photos: any[] }>(`/public/search?q=${encodeURIComponent(q)}`)
 }
 
 // 背景移除相关API

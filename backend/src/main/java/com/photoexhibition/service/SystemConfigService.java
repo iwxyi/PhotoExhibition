@@ -55,6 +55,10 @@ public class SystemConfigService {
     public static final String TAG_IGNORE_LIST_DEFAULT = "";
     public static final String TAG_IGNORE_LIST_DESCRIPTION = "标签忽略列表（用空格或逗号分隔，这些标签在筛选功能中不显示）";
 
+    public static final String ATMOSPHERE_ENABLED_KEY = "atmosphere_enabled";
+    public static final String ATMOSPHERE_ENABLED_DEFAULT = "false";
+    public static final String ATMOSPHERE_ENABLED_DESCRIPTION = "全局氛围特效开关";
+
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
     public static final String SORT_BY_TAKEN_AT_ASC = "taken_at_asc";
@@ -255,6 +259,19 @@ public class SystemConfigService {
     @Transactional
     public void setGlobalDownloadAllowed(boolean allowed) {
         setConfigValue(GLOBAL_DOWNLOAD_ALLOWED_KEY, String.valueOf(allowed), GLOBAL_DOWNLOAD_ALLOWED_DESCRIPTION);
+    }
+
+    public boolean isAtmosphereEnabled() {
+        String value = getConfigValueWithDefault(
+            ATMOSPHERE_ENABLED_KEY,
+            ATMOSPHERE_ENABLED_DEFAULT,
+            ATMOSPHERE_ENABLED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    public void setAtmosphereEnabled(boolean enabled) {
+        setConfigValue(ATMOSPHERE_ENABLED_KEY, String.valueOf(enabled), ATMOSPHERE_ENABLED_DESCRIPTION);
     }
 
     /**

@@ -943,7 +943,7 @@
 
                 <div class="w-56 glass-menu rounded-lg shadow-2xl py-1">
                   <!-- 移动至 -->
-                  <DropMenu trigger="hover" placement="right" :offset="2" :teleport="false">
+                  <DropMenu trigger="hover" placement="right" :offset="2">
                     <template #trigger>
                       <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                         <span class="flex items-center gap-2">
@@ -969,7 +969,7 @@
                         ⬆️ 上一级 ({{ photoMoveTargets.parentDir.name }})
                       </button>
                       <!-- 同级目录 -->
-                      <DropMenu v-if="photoMoveTargets.siblingDirs?.length > 0" trigger="hover" placement="right" :offset="2" :teleport="false">
+                      <DropMenu v-if="photoMoveTargets.siblingDirs?.length > 0" trigger="hover" placement="right" :offset="2">
                         <template #trigger>
                           <button class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                             <span>📂 同级 ({{ photoMoveTargets.siblingDirs.length }})</span>
@@ -991,7 +991,7 @@
                         </div>
                       </DropMenu>
                       <!-- 下一级 -->
-                      <DropMenu v-if="photoMoveTargets.childDirs?.length > 0" trigger="hover" placement="right" :offset="2" :teleport="false">
+                      <DropMenu v-if="photoMoveTargets.childDirs?.length > 0" trigger="hover" placement="right" :offset="2">
                         <template #trigger>
                           <button class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                             <span>📂 下一级 ({{ photoMoveTargets.childDirs.length }})</span>
@@ -2626,12 +2626,6 @@ const photoConflictTargetPath = ref('')
 
 const doMovePhotosTo = async (targetPath: string, conflictResolution?: string) => {
   if (photoModalSelected.value.size === 0) return
-  const count = photoModalSelected.value.size
-  const dirName = targetPath.split('/').pop() || targetPath.split('\\').pop() || targetPath
-
-  if (!conflictResolution) {
-    if (!confirm(`确定将 ${count} 张照片移动到「${dirName}」吗？`)) return
-  }
 
   photoMoveMenuVisible.value = false
   try {
@@ -2651,7 +2645,6 @@ const doMovePhotosTo = async (targetPath: string, conflictResolution?: string) =
 
     if (result.success) {
       photoConflictDialogVisible.value = false
-      alert('✅ ' + result.message)
       await refreshPhotoModalAfterChange()
     } else {
       alert('移动失败: ' + (result.message || '未知错误'))
