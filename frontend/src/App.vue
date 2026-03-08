@@ -14,29 +14,25 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
+import { useLanguageStore } from '@/stores/language'
 
 const themeStore = useThemeStore()
+const languageStore = useLanguageStore()
 const isDark = computed(() => themeStore.isDark)
 const route = useRoute()
 
-// 记录上一个路由，用于判断是否从 Album 返回
-const previousRoute = ref<string | null>(null)
-
-watch(() => route.name, (_newName, oldName) => {
-  previousRoute.value = oldName as string | null
-})
-
-const getTransitionName = (route: any) => {
-  // 如果路由有指定的 transitionName，使用它
-  if (route.meta.transitionName) {
-    return route.meta.transitionName
-  }
-
-  // 默认使用 page-fade-slide
-  return 'page-fade-slide'
+// 根据语言设置页面标题
+const updateTitle = () => {
+  const title = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+  document.title = title
 }
 
+// 监听语言变化
+watch(() => languageStore.language, updateTitle)
+
+// 初始化标题
 onMounted(() => {
+  updateTitle()
   // 初次挂载时，根据当前路由给 body 一个过渡友好的背景状态
   document.body.dataset.route = (route.name as string) || ''
 })

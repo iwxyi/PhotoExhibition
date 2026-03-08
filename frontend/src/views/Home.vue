@@ -8,19 +8,7 @@
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
-          <div class="flex items-center space-x-3">
-            <!-- 拍摄图标（深色背景、浅色图标） -->
-            <div class="w-8 h-8 rounded-lg bg-gray-900 dark:bg-white flex items-center justify-center shadow-md">
-              <svg class="w-5 h-5 text-white dark:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-            <router-link to="/" class="text-xl font-light tracking-wider text-gray-900 dark:text-white">
-              摄影展
-            </router-link>
-            <NavLinks v-if="!isMobile" />
-          </div>
+          <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
             <SettingsMenu />
           </div>
@@ -80,6 +68,7 @@ import { api } from '@/api'
 import AlbumCard from '@/components/AlbumCard.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'

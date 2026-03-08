@@ -3,10 +3,33 @@
     <!-- 筛选按钮 -->
     <button
       @click="onTogglePanel"
-      class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
+      class="filter-btn p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
+      @mouseenter="filterHover = true"
+      @mouseleave="filterHover = false"
     >
-      <svg class="w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+      <svg
+        class="filter-svg w-5 h-5 transition-all duration-300 group-hover:rotate-12 group-hover:scale-110"
+        :class="{ 'is-hovering': filterHover }"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <!-- 滤镜/漏斗主体 -->
+        <path
+          class="filter-body"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+        />
+        <!-- 竖线 -->
+        <path
+          class="filter-line"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M12 4v16"
+        />
       </svg>
       <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
     </button>
@@ -585,6 +608,9 @@ const animating = ref(false)
 const isAnimating = ref(false) // 防止动画冲突
 const panelRef = ref<HTMLElement>()
 const shouldResetOnOpen = ref(false)
+
+// 筛选按钮动画状态
+const filterHover = ref(false)
 
 // 搜索相关状态
 const searchExpanded = ref(false)
@@ -1896,6 +1922,51 @@ defineExpose({
 </script>
 
 <style scoped>
+/* 筛选按钮 SVG 动画样式 */
+.filter-svg {
+  @apply text-gray-700 dark:text-gray-200;
+}
+
+.filter-svg.is-hovering {
+  @apply text-yellow-500;
+}
+
+/* 漏斗主体 */
+.filter-body {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.filter-svg.is-hovering .filter-body {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: drawFilter 0.6s ease forwards;
+}
+
+/* 竖线 */
+.filter-line {
+  transition: all 0.3s ease;
+}
+
+.filter-svg.is-hovering .filter-line {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: drawLine 0.4s ease forwards 0.3s;
+}
+
+/* 绘制漏斗动画 */
+@keyframes drawFilter {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* 绘制竖线动画 */
+@keyframes drawLine {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 /* 慢速旋转动画 */
 @keyframes spin-slow {
   from {

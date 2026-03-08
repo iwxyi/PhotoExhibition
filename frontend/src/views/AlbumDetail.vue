@@ -144,8 +144,6 @@
                 :alt="photo.filename"
                 class="photo-image w-full h-full"
                 loading="lazy"
-                @load="$emit('image-loaded')"
-                @error="$emit('image-loaded')"
               />
               <!-- magnifier (shown in multiselect mode) -->
               <button
@@ -316,9 +314,17 @@ const imagesLoaded = ref(false)
 const totalImages = ref(0)
 const loadedImagesCount = ref(0)
 
-// 评论显示延迟：图片加载完成后再延迟一段时间显示评论区
+// 评论显示：照片加载完成后显示（API返回后即显示）
 const showComments = ref(false)
-let showCommentsTimer: ReturnType<typeof setTimeout> | null = null
+
+// 监听照片数量变化，API返回照片后显示评论区
+watch(() => photos.value.length, (newCount) => {
+  console.log('[AlbumDetail] photos.length 变化:', newCount)
+  if (newCount > 0) {
+    showComments.value = true
+    console.log('[AlbumDetail] showComments 设为 true')
+  }
+})
 
 // 分页加载状态
 const currentPage = ref(0)
@@ -337,6 +343,7 @@ albumPersonsLoading.value = false
 imagesLoaded.value = false
 loadedImagesCount.value = 0
 totalImages.value = 0
+showComments.value = false
 
 const { atmosphereEnabled, previewSize } = useUiSettings()
 
@@ -350,13 +357,6 @@ const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920
 const handleResize = () => {
   windowWidth.value = window.innerWidth
 }
-
-onUnmounted(() => {
-  if (showCommentsTimer) {
-    clearTimeout(showCommentsTimer)
-    showCommentsTimer = null
-  }
-})
 
 // 加载更多照片的分页函数
 const loadMorePhotos = async () => {
@@ -384,24 +384,6 @@ const loadMorePhotos = async () => {
     loadingMore.value = false
   }
 }
-
-// 监听图片加载完成状态，控制评论区的延迟显示
-watch(imagesLoaded, (loaded) => {
-  if (showCommentsTimer) {
-    clearTimeout(showCommentsTimer)
-    showCommentsTimer = null
-  }
-
-  if (loaded) {
-    // 图片全部加载后，延迟 2 秒再显示评论，避免图片和评论同时抖动
-    showCommentsTimer = setTimeout(() => {
-      showComments.value = true
-    }, 2000)
-  } else {
-    // 切换相册或重新加载时，立即隐藏评论区
-    showComments.value = false
-  }
-})
 
 // 滚动监听器，用于自动加载更多照片
 let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
@@ -1807,6 +1789,12 @@ onActivated(async () => {
 })
 
 onUnmounted(() => {
+  // 清理滚动节流定时器，防止组件卸载后定时器回调仍执行
+  if (scrollThrottleTimer) {
+    clearTimeout(scrollThrottleTimer)
+    scrollThrottleTimer = null
+  }
+
   // 离开详情页（包括按 ESC / 浏览器返回）时清空，避免下次进入时闪现旧信息
   photoStore.currentAlbum = null
   photoStore.photos = []
@@ -1817,6 +1805,7 @@ onUnmounted(() => {
   loadedImagesCount.value = 0
   totalImages.value = 0
   isInitialLoading.value = true
+  showComments.value = false
 
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
@@ -1884,10 +1873,14 @@ const hexToRgb = (hex: string) => {
 const handleImageLoaded = () => {
   // 图片加载完成后可能需要重新计算布局
   loadedImagesCount.value++
-  console.log(`图片加载完成: ${loadedImagesCount.value}/${totalImages.value}`)
+  console.log(`[CommentSection] 图片加载完成: ${loadedImagesCount.value}/${totalImages.value}`)
 
-  // 当所有图片都加载完成时，标记图片已加载
-  if (loadedImagesCount.value >= totalImages.value && totalImages.value > 0) {
+  // 使用更宽松的判断：当至少 80% 的图片加载完成时，或者超过 3 秒后，自动标记为已加载
+  // 这样可以避免 lazy loading 导致永远无法达到 100% 的问题
+  const loadedRatio = totalImages.value > 0 ? loadedImagesCount.value / totalImages.value : 0
+  console.log(`[CommentSection] loadedRatio: ${loadedRatio}, threshold: ${Math.min(20, totalImages.value)}`)
+  if (loadedRatio >= 0.8 || loadedImagesCount.value >= Math.min(20, totalImages.value)) {
+    console.log('[CommentSection] 设置 imagesLoaded = true')
     imagesLoaded.value = true
   }
 }
@@ -1896,6 +1889,7 @@ const handleImageLoaded = () => {
 const resetImageLoading = () => {
   loadedImagesCount.value = 0
   imagesLoaded.value = false
+  // 注意：showComments 由 watch 统一控制，不在这里重置
 }
 
 const getBrightness = (hex: string) => {

@@ -170,7 +170,18 @@ export const usePhotoStore = defineStore('photo', () => {
     loading.value = true
     try {
       const response = await api.get(`/photos/album/${albumId}`, { params: { page, size } })
-      photos.value = response.data.content
+      // 分页加载时追加数据，首页时覆盖
+      if (page === 0) {
+        photos.value = response.data.content
+      } else {
+        // 合并并去重（按 id），避免重复图片
+        const merged = [...photos.value, ...(response.data.content || [])]
+        const seen = new Map<number, Photo>()
+        merged.forEach(p => {
+          if (!seen.has(p.id)) seen.set(p.id, p)
+        })
+        photos.value = Array.from(seen.values())
+      }
       return response.data
     } finally {
       loading.value = false

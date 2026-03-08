@@ -1,6 +1,7 @@
 <template>
   <div v-show="commentSectionVisible" class="comment-section max-w-4xl mx-auto mt-12 px-4 transition-opacity duration-500 ease-in-out" :class="{ 'opacity-0': !commentSectionVisible, 'opacity-100': commentSectionVisible }">
     <h2 class="text-2xl font-light mb-8 text-white">评论</h2>
+    <pre v-if="!commentSectionVisible">debug: commentSectionVisible = {{ commentSectionVisible }}, visible = {{ visible }}</pre>
 
     <!-- 评论列表 -->
     <CommentList
@@ -271,9 +272,11 @@ const handleReplyAdded = (newReply: CommentDTO, parentId: number) => {
 }
 
 onMounted(() => {
+  console.log('[CommentSection] onMounted, props.visible:', props.visible, 'props.albumId:', props.albumId)
   // 只有当父组件要求可见时，才延迟显示评论区域
   if (props.visible) {
     setTimeout(() => {
+      console.log('[CommentSection] onMounted 300ms 后设置 commentSectionVisible = true')
       commentSectionVisible.value = true
     }, 300)
   }
@@ -281,11 +284,14 @@ onMounted(() => {
 
 // 监听 visible 变化，只有当可见时才加载评论
 watch(() => props.visible, (newVisible, oldVisible) => {
+  console.log('[CommentSection] visible 变化:', newVisible, oldVisible, 'commentSectionVisible:', commentSectionVisible.value)
   if (newVisible && !oldVisible) {
     // 从不可见变为可见时，加载评论
+    commentSectionVisible.value = true
     loadComments(0)
   } else if (!newVisible && oldVisible) {
     // 从可见变为不可见时，清空评论数据
+    console.log('[CommentSection] visible 从 true 变为 false，清空评论数据')
     comments.value = []
     currentPage.value = 0
     hasMore.value = true
@@ -297,6 +303,7 @@ watch(() => props.visible, (newVisible, oldVisible) => {
 
 // 监听albumId变化，当相册切换时重新加载评论
 watch(() => props.albumId, (newAlbumId, oldAlbumId) => {
+  console.log('[CommentSection] albumId 变化:', newAlbumId, oldAlbumId)
   if (newAlbumId !== oldAlbumId && newAlbumId) {
     // 只有在可见时才加载评论
     if (!props.visible) return

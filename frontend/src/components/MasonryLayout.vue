@@ -393,13 +393,6 @@ onMounted(() => {
   recalculate()
 })
 
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  if (resizeObserver) {
-    resizeObserver.disconnect()
-  }
-})
-
 // 处理图片加载完成事件
 const handleImageLoaded = () => {
   // 图片加载完成后延迟重新计算，确保DOM已更新
@@ -412,6 +405,68 @@ const handleImageLoaded = () => {
   // 向父组件发出图片加载完成事件
   emit('image-loaded')
 }
+
+// 使用 MutationObserver 监听 slot 中的图片加载事件
+let observer: MutationObserver | null = null
+
+onMounted(() => {
+  // 延迟初始化观察器，等待 DOM 完全渲染
+  nextTick(() => {
+    setTimeout(() => {
+      const container = containerRef.value
+      if (!container) return
+
+      // 监听 DOM 变化，检测新插入的图片
+      observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const el = node as HTMLElement
+              // 监听直接子元素中的图片加载
+              const imgs = el.querySelectorAll ? el.querySelectorAll('img') : []
+              imgs.forEach((img: HTMLImageElement) => {
+                if (!img.hasAttribute('data-loaded-listener')) {
+                  img.setAttribute('data-loaded-listener', 'true')
+                  img.addEventListener('load', handleImageLoaded)
+                  img.addEventListener('error', handleImageLoaded)
+                }
+              })
+              // 如果节点本身是图片
+              if (el.tagName === 'IMG' && !el.hasAttribute('data-loaded-listener')) {
+                el.setAttribute('data-loaded-listener', 'true')
+                el.addEventListener('load', handleImageLoaded)
+                el.addEventListener('error', handleImageLoaded)
+              }
+            }
+          })
+        })
+      })
+
+      observer.observe(container, { childList: true, subtree: true })
+
+      // 初始检查已存在的图片
+      const existingImgs = container.querySelectorAll('img')
+      existingImgs.forEach((img: HTMLImageElement) => {
+        if (!img.hasAttribute('data-loaded-listener')) {
+          img.setAttribute('data-loaded-listener', 'true')
+          img.addEventListener('load', handleImageLoaded)
+          img.addEventListener('error', handleImageLoaded)
+        }
+      })
+    }, 100)
+  })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+})
 
 const emit = defineEmits<{
   'image-loaded': []

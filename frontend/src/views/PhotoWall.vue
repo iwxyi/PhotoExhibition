@@ -7,17 +7,7 @@
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
-          <div class="flex items-center space-x-3">
-            <!-- 拍摄图标（深色背景、浅色图标） -->
-            <div class="w-8 h-8 rounded-lg bg-gray-900 dark:bg-white flex items-center justify-center shadow-md">
-              <svg class="w-5 h-5 text-white dark:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-            <router-link to="/" class="text-xl font-light tracking-wider">摄影展</router-link>
-            <NavLinks v-if="!isMobile" />
-          </div>
+          <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
             <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
@@ -62,13 +52,12 @@
             />
           </div>
           <!-- 曝光参数悬浮层 -->
-          <div v-if="photo.focalLength || photo.aperture || photo.iso || photo.shutterSpeed || photo.cameraModel" class="photo-info-overlay">
+          <div v-if="photo.focalLength || photo.aperture || photo.iso || photo.shutterSpeed" class="photo-info-overlay">
             <div class="params-row">
               <span v-if="photo.focalLength" class="param">{{ photo.focalLength }}mm</span>
               <span v-if="photo.aperture" class="param">f/{{ photo.aperture }}</span>
               <span v-if="photo.shutterSpeed" class="param">{{ photo.shutterSpeed }}</span>
               <span v-if="photo.iso" class="param">ISO {{ photo.iso }}</span>
-              <span v-if="photo.cameraModel" class="param camera-param">{{ photo.cameraModel }}</span>
             </div>
           </div>
           <!-- 点赞覆盖层 -->
@@ -130,6 +119,7 @@ import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
@@ -1077,27 +1067,25 @@ onDeactivated(() => {
 /* 曝光参数悬浮层 */
 .photo-info-overlay {
   position: absolute;
-  inset: 0;
+  bottom: 16px;
+  left: 8px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 12px;
+  padding: 8px 12px;
   opacity: 0;
   transition: opacity 0.3s ease, transform 0.3s ease;
   pointer-events: none;
-  transform: translateY(5px);
-  /* 模糊背景层 - 始终保持渲染 */
-  background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.3) 100%);
+  /* 无背景蒙版，参数悬浮显示 */
 }
 
 .masonry-item:hover .photo-info-overlay {
   opacity: 1;
-  transform: translateY(0);
 }
 
 .params-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 5px;
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
   font-size: 10px;

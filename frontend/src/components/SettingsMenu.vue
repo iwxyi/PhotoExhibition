@@ -3,14 +3,37 @@
     <button
       ref="buttonRef"
       @click="toggleSettings"
-      class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+      class="settings-btn p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 group relative overflow-hidden"
       title="设置"
       :class="{ 'text-blue-600 dark:text-blue-400': showSettings }"
+      @mouseenter="settingsHover = true"
+      @mouseleave="settingsHover = false"
     >
-      <svg class="w-6 h-6 transition-transform duration-200" :class="{ 'rotate-90': showSettings }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.072c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.072 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.072 2.573c.94 1.543-.827 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.072c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.072c-1.543.94-3.31-.827-2.37-2.37a1.724 1.724 0 00-1.072-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.072-2.573c-.94-1.543.827-3.31 2.37-2.37.964.587 2.203.138 2.573-1.072z" />
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <svg
+        class="settings-svg w-6 h-6 transition-transform duration-200"
+        :class="{ 'rotate-90': showSettings, 'is-hovering': settingsHover }"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <!-- 齿轮外圈 -->
+        <path
+          class="gear-outer"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.072c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.072 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.072 2.573c.94 1.543-.827 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.072c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.072c-1.543.94-3.31-.827-2.37-2.37a1.724 1.724 0 00-1.072-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.072-2.573c-.94-1.543.827-3.31 2.37-2.37.964.587 2.203.138 2.573-1.072z"
+        />
+        <!-- 中心圆点 -->
+        <path
+          class="gear-center"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+        />
       </svg>
+      <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
     </button>
 
   <!-- 菜单弹窗使用teleport移动到body级别 -->
@@ -207,6 +230,7 @@ import { useThemeStore } from '@/stores/theme'
 const router = useRouter()
 const route = useRoute()
 const showSettings = ref(false)
+const settingsHover = ref(false)
 const settingsRef = ref<HTMLElement>()
 const menuRef = ref<HTMLElement>()
 const buttonRef = ref<HTMLElement>()
@@ -308,4 +332,53 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
 })
 </script>
+
+<style scoped>
+/* 设置按钮 SVG 动画样式 */
+.settings-svg {
+  @apply text-gray-700 dark:text-gray-200;
+}
+
+.settings-svg.is-hovering {
+  @apply text-yellow-500;
+}
+
+/* 齿轮外圈 */
+.gear-outer {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: 12px 12px;
+}
+
+.settings-svg.is-hovering .gear-outer {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: drawGear 0.8s ease forwards;
+}
+
+/* 中心圆点 */
+.gear-center {
+  transition: all 0.3s ease;
+  transform-origin: 15px 12px;
+}
+
+.settings-svg.is-hovering .gear-center {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: drawCenter 0.4s ease forwards 0.4s;
+}
+
+/* 绘制齿轮外圈动画 */
+@keyframes drawGear {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* 绘制中心圆点动画 */
+@keyframes drawCenter {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+</style>
 
