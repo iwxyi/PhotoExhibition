@@ -5,6 +5,7 @@ import com.photoexhibition.dto.FaceClusterDTO;
 import com.photoexhibition.dto.PersonDTO;
 import com.photoexhibition.dto.PersonListItemDTO;
 import com.photoexhibition.dto.PersonSimilarityDTO;
+import com.photoexhibition.dto.PersonSummaryDTO;
 import com.photoexhibition.dto.AlbumRecommendationDTO;
 import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.repository.PersonProfileRepository;
@@ -167,6 +168,14 @@ public class FaceController {
     @GetMapping("/persons")
     public ResponseEntity<List<PersonDTO>> listPersons() {
         return ResponseEntity.ok(faceService.listPersons());
+    }
+
+    /**
+     * 搜索人物（模糊匹配名称）
+     */
+    @GetMapping("/persons/search")
+    public ResponseEntity<List<PersonSummaryDTO>> searchPersons(@RequestParam String q) {
+        return ResponseEntity.ok(faceService.searchPersons(q));
     }
 
     /**

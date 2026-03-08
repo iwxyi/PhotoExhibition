@@ -857,12 +857,12 @@ onDeactivated(() => {
 /* 曝光参数悬浮层 */
 .photo-info-overlay {
   position: absolute;
-  bottom: 16px;
-  left: 8px;
+  bottom: 6px;
+  left: 6px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 8px 12px;
+  padding: 6px 8px;
   opacity: 0;
   transition: opacity 0.3s ease, transform 0.3s ease;
   pointer-events: none;

@@ -301,7 +301,11 @@ export const aiApi = {
 
   // 绑定多个脸到人物（如果人物不存在则创建）
   assignFacesToPerson: (faceIds: number[], personName: string) =>
-    api.post('/admin/faces/assign-to-person', { faceIds, personName })
+    api.post('/admin/faces/assign-to-person', { faceIds, personName }),
+
+  // 批量分配人脸到已有人物
+  batchAssignFaces: (faceIds: number[], personId: number, confirmed: boolean = true) =>
+    api.post('/admin/faces/batch-assign', { faceIds, personId, confirmed })
 }
 
 // 相册相关API

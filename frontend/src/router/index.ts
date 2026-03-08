@@ -109,6 +109,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/admin/persons/batch-assign',
+    name: 'AdminPersonsBatchAssign',
+    component: () => import('@/views/admin/FaceBatchAssign.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/admin/faces',
     name: 'AdminFaces',
     component: () => import('@/views/admin/Faces.vue'),

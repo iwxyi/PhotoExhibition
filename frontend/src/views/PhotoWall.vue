@@ -1067,8 +1067,8 @@ onDeactivated(() => {
 /* 曝光参数悬浮层 */
 .photo-info-overlay {
   position: absolute;
-  bottom: 16px;
-  left: 8px;
+  bottom: 6px;
+  left: 6px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;

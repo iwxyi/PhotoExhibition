@@ -53,8 +53,9 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     /**
      * 批量获取所有已确认人物的人脸（用于相似度计算优化）
      * 返回: [personId, personName, embedding]
+     * 注意：不使用 DISTINCT，以获取人物的所有人脸来计算平均 embedding
      */
-    @Query("SELECT DISTINCT p.id, p.name, f.embedding FROM Face f JOIN f.person p WHERE f.isConfirmed = true AND f.embedding IS NOT NULL AND f.embedding <> ''")
+    @Query("SELECT p.id, p.name, f.embedding FROM Face f JOIN f.person p WHERE f.isConfirmed = true AND f.embedding IS NOT NULL AND f.embedding <> ''")
     List<Object[]> findAllConfirmedPersonFacesWithEmbedding();
 
     @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person IS NULL AND p.albumId IN :albumIds")

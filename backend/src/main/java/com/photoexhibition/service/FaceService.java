@@ -1717,7 +1717,7 @@ public class FaceService {
     }
 
     /**
-     * 查找相似人脸
+     * 查找相似人脸（包括自己）
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> findSimilarFaces(Long faceId, int top, double threshold) {
@@ -1727,17 +1727,19 @@ public class FaceService {
         List<Face> all = faceRepository.findAllWithEmbedding();
         List<FaceDTO> result = new ArrayList<>();
 
-        // 如果基础人脸没有embedding，至少返回自己
+        // 先添加自己
+        FaceDTO selfDto = toDTO(base);
+        selfDto.setSimilarity(1.0);
+        result.add(selfDto);
+
+        // 如果基础人脸没有embedding，只返回自己
         if (baseVec == null) {
             log.warn("人脸 {} 没有embedding向量", faceId);
-            FaceDTO dto = toDTO(base);
-            dto.setSimilarity(1.0);
-            result.add(dto);
             return result;
         }
 
         for (Face f : all) {
-            if (f.getId().equals(faceId)) continue;
+            if (f.getId().equals(faceId)) continue; // 跳过自己，避免重复
             float[] vec = getEmbedding(f);
             if (vec == null) continue;
             double sim = cosine(baseVec, vec);
@@ -1801,6 +1803,20 @@ public class FaceService {
     public List<PersonDTO> listPersons() {
         return personProfileRepository.findAll().stream()
             .map(this::toDTO)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 搜索人物（模糊匹配名称）
+     */
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> searchPersons(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<PersonProfile> persons = personProfileRepository.searchByNameList(query.trim());
+        return persons.stream()
+            .map(this::toSummaryDTO)
             .collect(Collectors.toList());
     }
 
@@ -2189,11 +2205,16 @@ public class FaceService {
 
     /**
      * 计算聚类与已确认人物的相似度（优化版：批量加载，预计算）
+     * @param clusterIndex 聚类索引
+     * @param similarityThreshold 相似度阈值，用于过滤推荐结果（只返回相似度 >= threshold 的人物）
      */
     @Transactional(readOnly = true)
-    public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double threshold) {
+    public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double similarityThreshold) {
+        // 使用固定的聚类阈值（0.7）来获取聚类人脸，与前端保持一致
+        final double CLUSTER_THRESHOLD = 0.7;
+        
         // 获取聚类中的人脸
-        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, threshold);
+        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, CLUSTER_THRESHOLD);
         if (clusterFaces.isEmpty()) {
             return new ArrayList<>();
         }
@@ -2292,16 +2313,27 @@ public class FaceService {
                 }
                 double similarity = dotProduct / (personNorm * clusterNorm);
                 
-                return new PersonSimilarityDTO(personId, personNameMap.get(personId), similarity);
+                return new PersonSimilarityDTO(personId, personNameMap.get(personId), similarity, null);
             })
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
 
-        // 按相似度降序排序，取前5个
-        return similarities.stream()
+        // 按相似度降序排序，取前5个（但只返回相似度 >= similarityThreshold 的结果）
+        List<PersonSimilarityDTO> results = similarities.stream()
             .sorted((a, b) -> Double.compare(b.getSimilarity(), a.getSimilarity()))
+            .filter(dto -> dto.getSimilarity() >= similarityThreshold)
             .limit(5)
             .collect(Collectors.toList());
+
+        // 补充每个推荐人物的缩略图
+        for (PersonSimilarityDTO dto : results) {
+            Object[] sampleData = getPersonSamplePhoto(dto.getPersonId());
+            if (sampleData[2] != null) {
+                dto.setSampleThumbnailPath((String) sampleData[2]);
+            }
+        }
+
+        return results;
     }
 
     /**
@@ -2343,14 +2375,24 @@ public class FaceService {
 
             if (personAvgEmbedding != null) {
                 double similarity = cosine(selectedAvgEmbedding, personAvgEmbedding);
-                similarities.add(new PersonSimilarityDTO(person.getId(), person.getName(), similarity));
+                similarities.add(new PersonSimilarityDTO(person.getId(), person.getName(), similarity, null));
             }
         }
 
         // 按相似度降序排序
-        return similarities.stream()
+        List<PersonSimilarityDTO> results = similarities.stream()
             .sorted((a, b) -> Double.compare(b.getSimilarity(), a.getSimilarity()))
             .collect(Collectors.toList());
+
+        // 补充每个推荐人物的缩略图
+        for (PersonSimilarityDTO dto : results) {
+            Object[] sampleData = getPersonSamplePhoto(dto.getPersonId());
+            if (sampleData[2] != null) {
+                dto.setSampleThumbnailPath((String) sampleData[2]);
+            }
+        }
+
+        return results;
     }
 
     /**

@@ -3,12 +3,17 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { albumApi, aiApi, personApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import AppHeader from '@/components/AppHeader.vue'
+import SettingsMenu from '@/components/SettingsMenu.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import AlbumCard from '@/components/AlbumCard.vue'
 import type { Photo } from '@/stores/photo'
 
 const route = useRoute()
 const router = useRouter()
+
+// 检测是否为移动端
+const isMobile = ref(window.innerWidth < 640)
 
 interface AlbumDTO {
   id: number
@@ -145,6 +150,7 @@ const viewerPhotos = computed<Photo[]>(() => {
 // 判断是否已登录
 const isAdmin = computed(() => authStore.isAuthenticated)
 
+
 // 获取已确认的人物（用于"是TA"按钮）
 const confirmedPerson = computed(() => {
   const confirmed = similarFaces.value.find(f => f.personId && f.personName)
@@ -243,6 +249,14 @@ const searchSimilarFaces = async () => {
 
   try {
     console.log('正在查询相似人脸, faceId:', faceId.value)
+
+    // 获取包含该人脸的照片
+    const photosResponse = await aiApi.findPhotosByFaceId(faceId.value!)
+    console.log('照片响应:', photosResponse)
+    facePhotos.value = photosResponse.data || []
+    console.log('facePhotos:', facePhotos.value)
+
+    // 获取相似人脸
     const response = await aiApi.findSimilarFaces(faceId.value!, 20, 0.5)
     console.log('API 响应:', response)
     console.log('response.data:', response.data)
@@ -259,7 +273,7 @@ const searchSimilarFaces = async () => {
 
 const hasResults = computed(() => {
   if (searchMode.value === 'face') {
-    return similarFaces.value.length > 0
+    return similarFaces.value.length > 0 || facePhotos.value.length > 0
   }
   return albums.value.length > 0 || persons.value.length > 0 || photos.value.length > 0
 })
@@ -352,6 +366,7 @@ const openViewer = (index: number, e: MouseEvent) => {
   }
   viewerVisible.value = true
 }
+
 
 // 新建人物（如果人物已存在则合并）
 const createNewPerson = async () => {
@@ -457,8 +472,24 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-100 dark:bg-gray-900">
-    <div class="container mx-auto px-4 py-8">
+  <div class="min-h-screen bg-white dark:bg-gray-900">
+    <!-- 导航栏 -->
+    <nav
+      class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
+      style="padding-top: env(safe-area-inset-top);"
+    >
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-12">
+          <AppHeader :show-nav-links="!isMobile" />
+          <div class="flex items-center space-x-4">
+            <SettingsMenu />
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 内容区域 -->
+    <main class="container mx-auto px-4 py-8" :class="{ 'pt-6 pb-12': true }">
       <!-- 搜索标题 -->
       <div class="mb-8">
         <h1 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">
@@ -493,6 +524,44 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
 
       <!-- 有结果 -->
       <div v-else>
+        <!-- 包含该人脸的照片 -->
+        <div v-if="searchMode === 'face' && facePhotos.length > 0" class="mb-10">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
+            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            包含此人的照片 ({{ facePhotos.length }})
+          </h2>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <a
+              v-for="photo in facePhotos"
+              :key="photo.id"
+              :href="`/photo/${photo.albumId}/${photo.id}`"
+              target="_blank"
+              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
+            >
+              <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
+                <img
+                  v-if="getFacePhotoUrl(photo)"
+                  :src="getFacePhotoUrl(photo)"
+                  :alt="photo.filename"
+                  class="w-full h-full object-cover"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+              </div>
+              <div class="p-2">
+                <p class="text-sm text-gray-600 dark:text-gray-400 truncate">
+                  {{ photo.filename }}
+                </p>
+              </div>
+            </a>
+          </div>
+        </div>
+
         <!-- 相似人脸结果 -->
         <div v-if="searchMode === 'face' && similarFaces.length > 0" class="mb-10">
           <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center justify-between">
@@ -665,7 +734,7 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
           </div>
         </div>
       </div>
-    </div>
+    </main>
 
     <!-- PhotoViewer -->
     <PhotoViewer
@@ -685,5 +754,16 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
       :origin-rect="photoViewerOriginRect"
       @update:visible="photoViewerVisible = $event"
     />
+    <!-- 人脸对应照片的 PhotoViewer（保留以便后续扩展） -->
+    <!--
+    <PhotoViewer
+      v-if="facePhotoViewerPhotos.length > 0"
+      :photos="facePhotoViewerPhotos"
+      :visible="viewerVisible"
+      :start-index="viewerIndex"
+      :origin-rect="viewerOriginRect"
+      @update:visible="viewerVisible = $event"
+    />
+    -->
   </div>
 </template>

@@ -11,4 +11,5 @@ public class PersonSimilarityDTO {
     private Long personId;
     private String personName;
     private double similarity;
+    private String sampleThumbnailPath;
 }

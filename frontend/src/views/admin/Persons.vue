@@ -5,7 +5,10 @@
         <div>
           <h1 class="text-xl font-light">人物管理</h1>
         </div>
-        <router-link to="/admin" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">返回</router-link>
+        <div class="flex items-center gap-2">
+          <router-link to="/admin/persons/batch-assign" class="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 rounded text-sm">批量分配</router-link>
+          <router-link to="/admin" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">返回</router-link>
+        </div>
       </div>
     </div>
 
@@ -186,7 +189,7 @@
                 class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs whitespace-nowrap"
                 :disabled="!selectedPersonName.trim() || savingPerson"
               >
-                新建人物
+                {{ getButtonTextForSelectedCluster() }}
               </button>
               <button
                 v-if="selectedItem.type === 'confirmed' || (selectedItem as any).convertedFromClusterId"
@@ -794,7 +797,7 @@
                     :disabled="createPersonLoading || !newPersonName.trim() || selectedUnassigned.size === 0"
                     class="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {{ createPersonLoading ? '创建中...' : '创建' }}
+                    {{ createPersonLoading ? '创建中...' : (existingPersonForNewName ? '加入人物' : '新建人物') }}
                   </button>
                   <button
                     @click="showCreatePersonPanel = false"
@@ -1044,11 +1047,11 @@
           class="flex-1 px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
         />
         <button
-          @click="handleCreatePersonFromClaimDialog"
-          :disabled="!canCreatePersonFromClaimDialog"
+          @click="handleClaimDialogAction"
+          :disabled="!canCreatePersonFromClaimDialog && selectedClaimPersonId === null"
           class="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          新建人物
+          {{ canCreatePersonFromClaimDialog ? '新建人物' : '加入人物' }}
         </button>
       </div>
 
@@ -1295,6 +1298,13 @@ const canCreatePersonFromClaimDialog = computed(() => {
     p => (p.name || '').toLowerCase() === keyword
   )
   return !hasSameName
+})
+
+// 检查新建人物面板中输入的名字是否已存在（用于显示按钮文字）
+const existingPersonForNewName = computed(() => {
+  const name = newPersonName.value.trim().toLowerCase()
+  if (!name) return null
+  return confirmedPersons.value.find(p => (p.name || '').toLowerCase() === name)
 })
 
 // 聚类阈值输入处理
@@ -2571,10 +2581,24 @@ const resetSelectedPersonName = () => {
   selectedPersonName.value = originalSelectedPersonName.value
 }
 
+// 获取左侧聚类面板中新建人物按钮的文字
+const getButtonTextForSelectedCluster = () => {
+  const name = selectedPersonName.value.trim().toLowerCase()
+  if (!name) return '新建人物'
+  const exists = confirmedPersons.value.some(p => (p.name || '').toLowerCase() === name)
+  return exists ? '加入人物' : '新建人物'
+}
+
 const createPersonFromSelectedCluster = async () => {
   if (!selectedItem.value || selectedItem.value.type !== 'cluster' || selectedClusterIndex.value === null) return
   const name = (selectedPersonName.value || '').trim()
   if (!name) return
+
+  // 检查是否存在同名人物
+  const existingPerson = confirmedPersons.value.find(
+    p => (p.name || '').toLowerCase() === name.toLowerCase()
+  )
+
   savingPerson.value = true
   try {
     const savedClusterPage = clusterPage.value
@@ -2587,23 +2611,37 @@ const createPersonFromSelectedCluster = async () => {
     const faces = facesRes.data || []
     const faceIds = faces.map((f: FaceItem) => f.id)
 
-    const resCreate = await api.post('/admin/persons/from-faces', {
-      faceIds,
-      name,
-      description: ''
-    })
+    let targetPersonId: number
+
+    if (existingPerson) {
+      // 已存在同名人物，将人脸添加到该人物
+      targetPersonId = existingPerson.id
+      await api.post('/admin/faces/batch-assign', {
+        faceIds,
+        personId: targetPersonId,
+        confirmed: true
+      })
+    } else {
+      // 不存在同名人物，创建新人物
+      const resCreate = await api.post('/admin/persons/from-faces', {
+        faceIds,
+        name,
+        description: ''
+      })
+
+      const createdId = resCreate?.data?.id
+      if (!createdId) {
+        throw new Error('创建人物失败')
+      }
+      targetPersonId = createdId
+    }
 
     // 重新加载人物列表（恢复聚类页数保持聚类 tab 滚动位置）
-    const createdId = resCreate?.data?.id
     await loadPersons({ restoreClusterPages: savedClusterPage, autoSelectFirst: false })
-    let created: PersonListItem | undefined
-    if (createdId) {
-      created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
-    }
-    if (!created) {
-      created = persons.value.find(p => p.type === 'confirmed' && (p.name || '未命名') === name)
-    }
-    if (created && createdId) {
+
+    // 选中目标人物
+    const created = persons.value.find(p => p.type === 'confirmed' && p.id === targetPersonId)
+    if (created) {
       // 将聚类ID添加到已转换集合
       convertedClusterIds.value.add(originalClusterId)
       // 存储聚类ID到人物ID的映射
@@ -2616,7 +2654,7 @@ const createPersonFromSelectedCluster = async () => {
         type: 'confirmed'  // 使用 confirmed 类型，选中时加载人物图片
       })
 
-      // 滚动人物列表到新建的人物位置
+      // 滚动人物列表到目标人物位置
       await nextTick()
       // 临时切换到人物tab进行滚动，滚动完再切回聚类tab
       leftPanelTab.value = 'confirmed'
@@ -2625,7 +2663,7 @@ const createPersonFromSelectedCluster = async () => {
       leftPanelTab.value = 'cluster'
     }
   } catch (e: any) {
-    alert('创建人物失败: ' + (e.response?.data?.error || e.message))
+    alert('操作失败: ' + (e.response?.data?.error || e.message))
   } finally {
     savingPerson.value = false
   }
@@ -2645,40 +2683,61 @@ const createPersonFromSelectedUnassigned = async () => {
     return
   }
 
+  // 检查是否存在同名人物
+  const existingPerson = confirmedPersons.value.find(
+    p => (p.name || '').toLowerCase() === name.toLowerCase()
+  )
+
   createPersonLoading.value = true
   try {
-    const resCreate = await api.post('/admin/persons/from-faces', {
-      faceIds,
-      name,
-      description: ''
-    })
+    let targetPersonId: number
 
-    const createdId = resCreate?.data?.id
-    if (createdId) {
-      // 重新加载人物列表
-      await loadPersons()
+    if (existingPerson) {
+      // 已存在同名人物，将人脸添加到该人物
+      targetPersonId = existingPerson.id
+      await api.post('/admin/faces/batch-assign', {
+        faceIds,
+        personId: targetPersonId,
+        confirmed: true
+      })
+    } else {
+      // 不存在同名人物，创建新人物
+      const resCreate = await api.post('/admin/persons/from-faces', {
+        faceIds,
+        name,
+        description: ''
+      })
 
-      // 清除选中和新建面板
-      selectedUnassigned.value.clear()
-      showCreatePersonPanel.value = false
-      newPersonName.value = ''
-
-      // 选中新创建的人物
-      const created = persons.value.find(p => p.type === 'confirmed' && p.id === createdId)
-      if (created) {
-        selectPerson({
-          ...created,
-          type: 'confirmed'
-        })
+      const createdId = resCreate?.data?.id
+      if (!createdId) {
+        throw new Error('创建人物失败')
       }
+      targetPersonId = createdId
+    }
 
-      // 刷新未分配人脸列表（已创建人物的会被移除）
-      if (tab.value === 'unassigned') {
-        await loadContextualUnassigned()
-      }
+    // 重新加载人物列表
+    await loadPersons()
+
+    // 清除选中和新建面板
+    selectedUnassigned.value.clear()
+    showCreatePersonPanel.value = false
+    newPersonName.value = ''
+
+    // 选中目标人物
+    const target = persons.value.find(p => p.type === 'confirmed' && p.id === targetPersonId)
+    if (target) {
+      selectPerson({
+        ...target,
+        type: 'confirmed'
+      })
+    }
+
+    // 刷新未分配人脸列表（已创建人物的会被移除）
+    if (tab.value === 'unassigned') {
+      await loadContextualUnassigned()
     }
   } catch (e: any) {
-    alert('创建人物失败: ' + (e.response?.data?.error || e.message))
+    alert('操作失败: ' + (e.response?.data?.error || e.message))
   } finally {
     createPersonLoading.value = false
   }
@@ -5292,6 +5351,19 @@ const filterClaimDialogPersons = () => {
 const handleClaimDialogEnter = () => {
   if (selectedClaimPersonId.value !== null) {
     confirmClaimToPerson()
+  } else if (canCreatePersonFromClaimDialog.value) {
+    handleCreatePersonFromClaimDialog()
+  }
+}
+
+// 从认领弹窗操作：根据是否有选中人物决定加入或新建
+const handleClaimDialogAction = async () => {
+  if (selectedClaimPersonId.value !== null) {
+    // 已有选中人物，加入
+    await confirmClaimToPerson()
+  } else if (canCreatePersonFromClaimDialog.value) {
+    // 没有选中人物且可新建，创建
+    await handleCreatePersonFromClaimDialog()
   }
 }
 

@@ -3,6 +3,7 @@
     <!-- 拍摄图标 - 可交互线条动画 -->
     <div
       class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden cursor-pointer"
+      @click="goToHome"
       @mouseenter="handleCameraHover"
       @mouseleave="handleCameraLeave"
       @mousedown="handleCameraClick"
@@ -80,9 +81,10 @@
 
     <!-- 标题文字区域 -->
     <div
-      class="relative flex items-center h-12"
+      class="relative flex items-center h-12 cursor-pointer"
       @mouseenter="handleMouseEnter"
       @mouseleave="handleMouseLeave"
+      @click.stop="goToHome"
     >
       <!-- 默认显示：紧凑的中文 -->
       <span
@@ -135,12 +137,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import NavLinks from './NavLinks.vue'
 
 defineProps<{
   showNavLinks?: boolean
   isDetailPage?: boolean
 }>()
+
+const router = useRouter()
 
 const isExpanded = ref(false)
 const expandedWidth = ref(0)
@@ -168,6 +173,11 @@ const handleCameraClick = () => {
 
 const handleCameraClickEnd = () => {
   cameraClicking.value = false
+}
+
+// 返回主页
+const goToHome = () => {
+  router.push('/')
 }
 
 // 测量文字宽度
