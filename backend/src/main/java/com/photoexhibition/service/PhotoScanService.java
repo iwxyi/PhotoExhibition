@@ -503,12 +503,20 @@ public class PhotoScanService {
     public void scheduledScan() {
         // 检查是否已有扫描在进行
         if (isScanning.get() || activeScanCount.get() > 0) {
-            log.info("定时扫描跳过：已有扫描任务正在执行 (activeScanCount={}, isScanning={})", 
+            log.info("定时扫描跳过：已有扫描任务正在执行 (activeScanCount={}, isScanning={})",
                     activeScanCount.get(), isScanning.get());
             return;
         }
-        
+
         log.info("定时扫描: {}", basePath);
+
+        // 先处理未完成的照片（确保之前跳过的照片能被重新处理）
+        int processedCount = processIncompletePhotosFirst();
+        if (processedCount > 0) {
+            log.info("定时扫描前已处理 {} 张未完成的照片", processedCount);
+        }
+
+        // 再执行完整的目录扫描
         scanDirectory(basePath);
     }
     
@@ -1521,10 +1529,16 @@ public class PhotoScanService {
             // 更新相册照片数量
             album.setPhotoCount(photoRepository.countByAlbumId(album.getId()).intValue());
 
-            // 如果相册名日期为空，尝试从照片中获取（EXIF时间 > 文件修改时间）
-            if (album.getAlbumNameDate() == null) {
+            // 如果相册名日期为空，或者有新增照片（processedCount > 0），则尝试从照片中获取日期
+            // 这样只在需要时（如新相册或添加了新照片）才计算日期，避免每次扫描都计算
+            if (album.getAlbumNameDate() == null || processedCount > 0) {
                 LocalDateTime calculatedDate = calculateAlbumDateFromPhotos(album.getId());
-                album.setAlbumNameDate(calculatedDate);
+                if (calculatedDate != null) {
+                    // 如果相册原来没有日期，或者新计算出的日期比现有日期更晚，则更新
+                    if (album.getAlbumNameDate() == null || calculatedDate.isAfter(album.getAlbumNameDate())) {
+                        album.setAlbumNameDate(calculatedDate);
+                    }
+                }
             }
 
             albumRepository.save(album);
