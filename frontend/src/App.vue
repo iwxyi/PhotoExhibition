@@ -3,7 +3,7 @@
     <div class="app-shell">
     <router-view v-slot="{ Component, route }">
       <KeepAlive include="Home,Wall,Random">
-        <component :is="Component" :key="route.fullPath" />
+        <component :is="Component" :key="componentKey" />
       </KeepAlive>
     </router-view>
     </div>
@@ -20,6 +20,18 @@ const themeStore = useThemeStore()
 const languageStore = useLanguageStore()
 const isDark = computed(() => themeStore.isDark)
 const route = useRoute()
+
+// 为 keep-alive 组件生成稳定的 key，避免路由参数变化导致组件重新创建
+const componentKey = computed(() => {
+  const name = route.name as string
+  // 对于需要缓存的页面（Home, Wall, Random），使用路由名称作为 key
+  // 这样可以保持组件状态，避免返回时重新刷新
+  if (['Home', 'Wall', 'Random'].includes(name)) {
+    return name
+  }
+  // 其他页面使用完整路径，确保参数变化时组件更新
+  return route.fullPath
+})
 
 // 根据语言设置页面标题
 const baseTitle = computed(() => {

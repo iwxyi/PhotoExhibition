@@ -1070,6 +1070,9 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
+  console.log('[PhotoWall] onActivated 触发')
+  // 标记组件已激活，用于路由参数变化监听
+  isActivatedFlag.value = true
   // 重置加载状态，确保可以继续加载更多
   hasMore.value = true
   isLoadingMore.value = false

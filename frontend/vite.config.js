@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',  // 允许外网访问
     port: 3030,
-    allowedHosts: ['photo.iwxyi.com', 'iwxyi.com', 'localhost', '127.0.0.1', '.iwxyi.com'],  // 允许的域名/IP（包括子域名）
+    allowedHosts: ['photo.iwxyi.com', 'iwxyi.com', 'localhost', '127.0.0.1', '.iwxyi.com', 'claw.iwxyi.com'],  // 允许的域名/IP（包括子域名）
     hmr: {
       overlay: true,
       clientPort: 3030,  // 强制使用相同端口

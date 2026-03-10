@@ -10,7 +10,7 @@ services:
       MYSQL_USER: photo_user
       MYSQL_PASSWORD: photo_pass
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
@@ -22,7 +22,7 @@ services:
     image: redis:7-alpine
     container_name: photo-exhibition-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -42,11 +42,12 @@ services:
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
       PHOTO_SCAN_BASE_PATH: /data/photos
+      LOGGING_LEVEL_COM_PHOTOEXHIBITION_SERVICE_PHOTOSCANSERVICE: DEBUG
     ports:
       - "6060:6060"
     volumes:
-      - ./data/photos:/data/photos:ro
-      - ./data/thumbnails:/data/photos/.thumbnails
+      - ./data/photos:/data/photos
+      - ./data/thumbnails:/data/thumbnails
     depends_on:
       - mysql
       - redis
@@ -60,7 +61,7 @@ services:
       dockerfile: Dockerfile
     container_name: photo-exhibition-frontend
     ports:
-      - "3000:80"
+      - "3030:80"
     depends_on:
       - backend
     networks:
