@@ -682,6 +682,12 @@ const loadInitial = async () => {
 }
 
 onMounted(async () => {
+  // 如果已经有数据（从其他页面返回），不重新加载
+  if (photos.value.length > 0) {
+    isActivatedFlag.value = true
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return
+  }
   // 声明当前活跃视图为 random（避免其他视图触发 random API）
   photoStore.setCurrentView && photoStore.setCurrentView('random')
   await loadInitial()

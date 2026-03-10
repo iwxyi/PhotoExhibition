@@ -903,6 +903,21 @@ onMounted(async () => {
     // 初始化点赞数据
     loadLikedFromStorage()
     hydrateFromRoute()
+
+    // 如果已经有数据（从其他页面返回），不重新加载
+    if (photos.value.length > 0) {
+      isActivatedFlag.value = true
+      window.addEventListener('scroll', handleScroll, { passive: true })
+      window.addEventListener('resize', handleResize)
+      // 等待图片加载后布局
+      nextTick(() => {
+        setTimeout(() => {
+          layoutItems()
+        }, 100)
+      })
+      return
+    }
+
     // 声明当前活跃视图为 wall（避免其他视图触发 wall API）
     photoStore.setCurrentView && photoStore.setCurrentView('wall')
     await loadInitial()
