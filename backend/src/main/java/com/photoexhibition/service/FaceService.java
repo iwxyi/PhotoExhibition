@@ -2205,25 +2205,37 @@ public class FaceService {
 
     /**
      * 计算聚类与已确认人物的相似度（优化版：批量加载，预计算）
+     * 注意：此方法现在使用聚类中所有原始人脸（未经过滤），与手动搜索逻辑保持一致
      * @param clusterIndex 聚类索引
-     * @param similarityThreshold 相似度阈值，用于过滤推荐结果（只返回相似度 >= threshold 的人物）
+     * @param clusterThreshold 聚类阈值，用于获取聚类中的人脸
+     * @param recommendThreshold 相似度阈值，用于过滤推荐结果（只返回相似度 >= threshold 的人物）
      */
     @Transactional(readOnly = true)
-    public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double similarityThreshold) {
-        // 使用固定的聚类阈值（0.7）来获取聚类人脸，与前端保持一致
-        final double CLUSTER_THRESHOLD = 0.7;
-        
-        // 获取聚类中的人脸
-        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, CLUSTER_THRESHOLD);
-        if (clusterFaces.isEmpty()) {
+    public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double clusterThreshold, double recommendThreshold) {
+        // 使用传入的聚类阈值来获取聚类人脸
+        final double CLUSTER_THRESHOLD = clusterThreshold;
+
+        // 获取聚类中的人脸（这里的人脸已经过聚类算法的质量过滤）
+        // 但为了与手动搜索逻辑保持一致，我们需要获取所有原始人脸
+        List<FaceClusterDTO> clusters = clusterSimilarFaces(CLUSTER_THRESHOLD);
+        if (clusterIndex < 0 || clusterIndex >= clusters.size()) {
             return new ArrayList<>();
         }
 
-        // 获取聚类中的Face实体（而不是DTO），因为需要embedding
-        List<Face> clusterFaceEntities = clusterFaces.stream()
+        FaceClusterDTO targetCluster = clusters.get(clusterIndex);
+        if (targetCluster.getFaces() == null || targetCluster.getFaces().isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 获取聚类中所有Face实体（从数据库重新获取，确保获取所有原始数据）
+        List<Face> clusterFaceEntities = targetCluster.getFaces().stream()
             .map(faceDto -> faceRepository.findById(faceDto.getId()).orElse(null))
-            .filter(face -> face != null)
+            .filter(face -> face != null && face.getEmbedding() != null && !face.getEmbedding().isEmpty())
             .collect(Collectors.toList());
+
+        if (clusterFaceEntities.isEmpty()) {
+            return new ArrayList<>();
+        }
 
         // 计算聚类平均特征向量
         float[] clusterAvgEmbedding = calculateAverageEmbeddingFromEntities(clusterFaceEntities);
@@ -2318,10 +2330,10 @@ public class FaceService {
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
 
-        // 按相似度降序排序，取前5个（但只返回相似度 >= similarityThreshold 的结果）
+        // 按相似度降序排序，取前5个（但只返回相似度 >= recommendThreshold 的结果）
         List<PersonSimilarityDTO> results = similarities.stream()
             .sorted((a, b) -> Double.compare(b.getSimilarity(), a.getSimilarity()))
-            .filter(dto -> dto.getSimilarity() >= similarityThreshold)
+            .filter(dto -> dto.getSimilarity() >= recommendThreshold)
             .limit(5)
             .collect(Collectors.toList());
 

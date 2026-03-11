@@ -298,12 +298,14 @@ public class FaceController {
 
     /**
      * 获取聚类相似的已确认人物
+     * 注意：此方法使用聚类算法返回的人脸（经过过滤），与手动搜索时的逻辑可能略有不同
      */
     @GetMapping("/clusters/{clusterIndex}/similar-persons")
     public ResponseEntity<List<PersonSimilarityDTO>> getSimilarPersonsForCluster(
             @PathVariable int clusterIndex,
-            @RequestParam(defaultValue = "0.6") double threshold) {
-        List<PersonSimilarityDTO> result = faceService.getSimilarPersonsForCluster(clusterIndex, threshold);
+            @RequestParam(defaultValue = "0.7") double clusterThreshold,
+            @RequestParam(defaultValue = "0.1") double recommendThreshold) {
+        List<PersonSimilarityDTO> result = faceService.getSimilarPersonsForCluster(clusterIndex, clusterThreshold, recommendThreshold);
         return ResponseEntity.ok(result);
     }
 

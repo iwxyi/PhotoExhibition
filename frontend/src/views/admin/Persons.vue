@@ -2382,7 +2382,7 @@ const loadSimilarPersonsForCluster = async (signal?: AbortSignal) => {
 
   try {
     const res = await api.get(`/admin/clusters/${selectedClusterIndex.value}/similar-persons`, {
-      params: { threshold: clusterThreshold.value },
+      params: { clusterThreshold: clusterThreshold.value },
       signal
     })
 

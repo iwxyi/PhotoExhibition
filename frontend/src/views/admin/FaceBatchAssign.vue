@@ -275,6 +275,11 @@ interface SearchPerson {
   similarity?: number
 }
 
+// 聚类阈值 - 与人物管理页面同步
+const CLUSTER_THRESHOLD_KEY = 'pe-cluster-threshold'
+const DEFAULT_CLUSTER_THRESHOLD = 0.7
+const clusterThreshold = ref<number>(parseFloat(localStorage.getItem(CLUSTER_THRESHOLD_KEY) || `${DEFAULT_CLUSTER_THRESHOLD}`))
+
 // 聚类数据
 const clusters = ref<ClusterFace[]>([])
 const currentPage = ref(0)
@@ -318,7 +323,7 @@ const loadClusterData = async (page: number) => {
   try {
     // 获取聚类列表
     const clustersResponse = await api.get<any[]>(
-      `/admin/faces/clusters?threshold=0.7`
+      `/admin/faces/clusters?threshold=${clusterThreshold.value}`
     )
     const allClusters = clustersResponse.data || []
     totalClusters.value = allClusters.length
@@ -329,15 +334,15 @@ const loadClusterData = async (page: number) => {
 
       // 获取该聚类的详细人脸
       const facesResponse = await api.get<{ faces: Face[] }>(
-        `/admin/clusters/${page}/faces?threshold=0.7`
+        `/admin/clusters/${page}/faces?threshold=${clusterThreshold.value}`
       )
       if (facesResponse.data.faces && facesResponse.data.faces.length > 0) {
         clusters.value[0].faces = facesResponse.data.faces
       }
 
-      // 获取推荐人物列表（相似度 > 10%）
+      // 获取推荐人物列表（使用聚类阈值来获取聚类人脸，筛选阈值固定为0.1）
       const similarPersonsResponse = await api.get<RecommendedPerson[]>(
-        `/admin/clusters/${page}/similar-persons?threshold=0.1`
+        `/admin/clusters/${page}/similar-persons?clusterThreshold=${clusterThreshold.value}&recommendThreshold=0.1`
       )
       recommendedPersons.value = similarPersonsResponse.data || []
 
