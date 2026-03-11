@@ -38,8 +38,7 @@ public class FaceController {
     private final PersonProfileRepository personProfileRepository;
     private final com.photoexhibition.repository.PhotoAssignmentRepository photoAssignmentRepository;
     private final PhotoService photoService;
-    @Value("${face.clustering.default-threshold:0.7}")
-    private double clusteringDefaultThreshold;
+    private final com.photoexhibition.service.SystemConfigService systemConfigService;
 
     /**
      * 人脸列表（分页）
@@ -112,8 +111,9 @@ public class FaceController {
     public ResponseEntity<List<FaceDTO>> similarFaces(
             @PathVariable Long faceId,
             @RequestParam(defaultValue = "10") int top,
-            @RequestParam(defaultValue = "0.6") double threshold) {
-        return ResponseEntity.ok(faceService.findSimilarFaces(faceId, top, threshold));
+            @RequestParam(required = false) Double threshold) {
+        double actualThreshold = threshold != null ? threshold : systemConfigService.getFaceClusterThreshold();
+        return ResponseEntity.ok(faceService.findSimilarFaces(faceId, top, actualThreshold));
     }
 
     /**
@@ -230,8 +230,9 @@ public class FaceController {
      */
     @GetMapping("/faces/clusters")
     public ResponseEntity<List<FaceClusterDTO>> clusterSimilarFaces(
-            @RequestParam(defaultValue = "0.6") double threshold) {
-        return ResponseEntity.ok(faceService.clusterSimilarFaces(threshold));
+            @RequestParam(required = false) Double threshold) {
+        double actualThreshold = threshold != null ? threshold : systemConfigService.getFaceClusterThreshold();
+        return ResponseEntity.ok(faceService.clusterSimilarFaces(actualThreshold));
     }
 
     /**
@@ -268,7 +269,7 @@ public class FaceController {
             @RequestParam(required = false) Double threshold,
             @RequestParam(required = false) Integer clusterPage,
             @RequestParam(required = false) Integer clusterSize) {
-        double t = threshold != null ? threshold : clusteringDefaultThreshold;
+        double t = threshold != null ? threshold : systemConfigService.getFaceClusterThreshold();
         int page = clusterPage != null ? clusterPage : 0;
         int size = clusterSize != null ? clusterSize : Integer.MAX_VALUE; // 默认返回所有
         return ResponseEntity.ok(faceService.listPersonItems(t, page, size));
@@ -282,7 +283,7 @@ public class FaceController {
             @PathVariable Long personId,
             @RequestParam(defaultValue = "50") int top,
             @RequestParam(required = false) Double threshold) {
-        double t = threshold != null ? threshold : clusteringDefaultThreshold;
+        double t = threshold != null ? threshold : systemConfigService.getFaceClusterThreshold();
         return ResponseEntity.ok(faceService.findSimilarUnassignedFaces(personId, top, t));
     }
 
@@ -292,8 +293,9 @@ public class FaceController {
     @GetMapping("/clusters/{clusterIndex}/faces")
     public ResponseEntity<List<FaceDTO>> getClusterFaces(
             @PathVariable int clusterIndex,
-            @RequestParam(defaultValue = "0.6") double threshold) {
-        return ResponseEntity.ok(faceService.getClusterFaces(clusterIndex, threshold));
+            @RequestParam(required = false) Double threshold) {
+        double actualThreshold = threshold != null ? threshold : systemConfigService.getFaceClusterThreshold();
+        return ResponseEntity.ok(faceService.getClusterFaces(clusterIndex, actualThreshold));
     }
 
     /**
@@ -303,9 +305,10 @@ public class FaceController {
     @GetMapping("/clusters/{clusterIndex}/similar-persons")
     public ResponseEntity<List<PersonSimilarityDTO>> getSimilarPersonsForCluster(
             @PathVariable int clusterIndex,
-            @RequestParam(defaultValue = "0.7") double clusterThreshold,
+            @RequestParam(required = false) Double clusterThreshold,
             @RequestParam(defaultValue = "0.1") double recommendThreshold) {
-        List<PersonSimilarityDTO> result = faceService.getSimilarPersonsForCluster(clusterIndex, clusterThreshold, recommendThreshold);
+        double actualThreshold = clusterThreshold != null ? clusterThreshold : systemConfigService.getFaceClusterThreshold();
+        List<PersonSimilarityDTO> result = faceService.getSimilarPersonsForCluster(clusterIndex, actualThreshold, recommendThreshold);
         return ResponseEntity.ok(result);
     }
 

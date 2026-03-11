@@ -59,6 +59,10 @@ public class SystemConfigService {
     public static final String ATMOSPHERE_ENABLED_DEFAULT = "false";
     public static final String ATMOSPHERE_ENABLED_DESCRIPTION = "全局氛围特效开关";
 
+    public static final String FACE_CLUSTER_THRESHOLD_KEY = "face_cluster_threshold";
+    public static final String FACE_CLUSTER_THRESHOLD_DEFAULT = "0.7";
+    public static final String FACE_CLUSTER_THRESHOLD_DESCRIPTION = "人脸聚类阈值（用于人脸识别和分组）";
+
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
     public static final String SORT_BY_TAKEN_AT_ASC = "taken_at_asc";
@@ -272,6 +276,35 @@ public class SystemConfigService {
 
     public void setAtmosphereEnabled(boolean enabled) {
         setConfigValue(ATMOSPHERE_ENABLED_KEY, String.valueOf(enabled), ATMOSPHERE_ENABLED_DESCRIPTION);
+    }
+
+    /**
+     * 获取人脸聚类阈值
+     */
+    public double getFaceClusterThreshold() {
+        String value = getConfigValueWithDefault(
+            FACE_CLUSTER_THRESHOLD_KEY,
+            FACE_CLUSTER_THRESHOLD_DEFAULT,
+            FACE_CLUSTER_THRESHOLD_DESCRIPTION
+        );
+        try {
+            double threshold = Double.parseDouble(value);
+            return Math.max(0.1, Math.min(0.9, threshold)); // 限制在 0.1-0.9 范围
+        } catch (NumberFormatException e) {
+            log.warn("无效的人脸聚类阈值配置: {}, 使用默认值 {}", value, FACE_CLUSTER_THRESHOLD_DEFAULT);
+            return Double.parseDouble(FACE_CLUSTER_THRESHOLD_DEFAULT);
+        }
+    }
+
+    /**
+     * 设置人脸聚类阈值
+     */
+    @Transactional
+    public void setFaceClusterThreshold(double threshold) {
+        if (threshold < 0.1 || threshold > 0.9) {
+            throw new IllegalArgumentException("人脸聚类阈值必须在 0.1-0.9 之间: " + threshold);
+        }
+        setConfigValue(FACE_CLUSTER_THRESHOLD_KEY, String.valueOf(threshold), FACE_CLUSTER_THRESHOLD_DESCRIPTION);
     }
 
     /**

@@ -391,4 +391,50 @@ public class SystemConfigController {
             return ResponseEntity.status(500).body(resp);
         }
     }
+
+    /**
+     * 获取人脸聚类阈值配置
+     */
+    @GetMapping("/face-cluster-threshold")
+    public ResponseEntity<Map<String, Object>> getFaceClusterThreshold() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("faceClusterThreshold", systemConfigService.getFaceClusterThreshold());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    /**
+     * 设置人脸聚类阈值
+     */
+    @PutMapping("/face-cluster-threshold")
+    public ResponseEntity<Map<String, Object>> setFaceClusterThreshold(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Object thresholdObj = request.get("faceClusterThreshold");
+            double threshold;
+            if (thresholdObj instanceof Number) {
+                threshold = ((Number) thresholdObj).doubleValue();
+            } else if (thresholdObj instanceof String) {
+                threshold = Double.parseDouble((String) thresholdObj);
+            } else {
+                resp.put("error", "faceClusterThreshold 参数不能为空");
+                return ResponseEntity.badRequest().body(resp);
+            }
+
+            systemConfigService.setFaceClusterThreshold(threshold);
+            resp.put("message", "人脸聚类阈值设置成功");
+            resp.put("faceClusterThreshold", threshold);
+            return ResponseEntity.ok(resp);
+        } catch (IllegalArgumentException e) {
+            resp.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 <template>
   <!-- 自定义PhotoViewer -->
-  <transition name="fade">
+  <transition name="modal">
     <div
       v-if="visible"
       class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
@@ -11,9 +11,9 @@
       ref="modalRoot"
     >
       <!-- 顶部栏 -->
-      <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
+      <div class="top-bar absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
         <div class="flex items-center gap-3">
-          <button class="p-2 hover:bg-white/10 rounded transition-colors" @click="close" title="关闭">
+          <button class="btn-icon" @click="close" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -24,7 +24,7 @@
           </div>
         </div>
         <div class="flex items-center gap-3">
-          <button class="p-2 hover:bg-white/10 rounded transition-colors" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏查看'">
+          <button class="btn-icon" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏查看'">
             <svg v-if="!isFullscreen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M4 4l6 6M20 16v4h-4m4 0l-6-6M16 4h4v4m0-4l-6 6M8 20H4v-4m0 4l6-6" />
             </svg>
@@ -36,7 +36,7 @@
           <!-- 查看原图按钮 -->
           <button
             v-if="viewOriginalEnabled && currentPhoto?.largeThumbPath && !viewingOriginal"
-            class="p-2 hover:bg-white/10 rounded text-xs px-3 py-1.5 bg-orange-600/80 hover:bg-orange-600 text-white font-medium transition-all duration-200"
+            class="btn-action bg-orange-600/80 hover:bg-orange-600"
             @click="viewingOriginal = true"
             title="查看原图"
           >
@@ -45,7 +45,7 @@
           <!-- 返回缩略图按钮 -->
           <button
             v-if="viewingOriginal"
-            class="p-2 hover:bg-white/10 rounded text-xs px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 text-white font-medium transition-all duration-200"
+            class="btn-action bg-blue-600/80 hover:bg-blue-600"
             @click="viewingOriginal = false"
             title="返回缩略图"
           >
@@ -53,7 +53,7 @@
           </button>
 
           <button
-            class="p-2 hover:bg-white/10 rounded transition-colors"
+            class="btn-icon"
             @click="toggleInfo"
             :aria-pressed="!infoCollapsed"
             title="信息面板"
@@ -73,7 +73,7 @@
         <!-- 移动端左右切换按钮 - 只在手机上显示 -->
         <button
           v-if="currentIndex > 0"
-          class="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-all duration-200 md:hidden touch-manipulation"
+          class="nav-button left-2"
           @click.stop="prev"
           title="上一张"
         >
@@ -83,7 +83,7 @@
         </button>
         <button
           v-if="currentIndex < photos.length - 1"
-          class="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-all duration-200 md:hidden touch-manipulation"
+          class="nav-button right-2"
           @click.stop="next"
           title="下一张"
         >
@@ -99,97 +99,109 @@
           @click="onImageContainerClick"
           ref="imageViewport"
         >
-          <!-- 图片包装容器 - 应用变换，使人脸框和焦点框跟随图片 -->
+          <!-- 图片包装容器 - 应用变换，使人脸框和 -->
           <div
             class="relative photo-viewer-img-wrapper"
             ref="imageWrapper"
             :style="imageTransformStyle"
           >
-            <img
-              v-if="currentPhoto"
-              ref="mainImage"
-              :src="getImageUrl(currentPhoto)"
-              :alt="currentPhoto.filename"
-              class="select-none cursor-grab active:cursor-grabbing"
-              :style="imageStyle"
-              @load="onImageLoad"
-              @error="onImageError"
-              @dblclick="onImageDoubleClick"
-              @mousedown="onImageMouseDown"
-              @mousemove="onImageMouseMove"
-              @mouseup="onImageMouseUp"
-              @mouseleave="onImageMouseUp"
-              @touchstart="onImageTouchStart"
-              @touchmove="onImageTouchMove"
-              @touchend="onImageTouchEnd"
-              @wheel="onImageWheel"
-            />
+            <transition name="image-fade">
+              <img
+                v-if="currentPhoto"
+                ref="mainImage"
+                :src="getImageUrl(currentPhoto)"
+                :alt="currentPhoto.filename"
+                class="select-none cursor-grab active:cursor-grabbing main-image"
+                :style="imageStyle"
+                @load="onImageLoad"
+                @error="onImageError"
+                @dblclick="onImageDoubleClick"
+                @mousedown="onImageMouseDown"
+                @mousemove="onImageMouseMove"
+                @mouseup="onImageMouseUp"
+                @mouseleave="onImageMouseUp"
+                @touchstart="onImageTouchStart"
+                @touchmove="onImageTouchMove"
+                @touchend="onImageTouchEnd"
+                @wheel="onImageWheel"
+              />
+            </transition>
 
             <!-- 人脸框 - 作为图片的子元素，会跟随图片变换 -->
-            <div
-              v-for="(face, idx) in currentPhoto?.faces || []"
-              :key="face.id"
-              v-show="showFaceBoxes"
-              class="absolute pointer-events-none"
-              :style="getFaceBoxStyle(face)"
+            <transition-group
+              :name="isSwitchingPhoto ? 'no-animation' : 'face-box'"
+              tag="div"
+              class="absolute inset-0"
             >
               <div
-                class="absolute inset-0 border-2 rounded-sm shadow-lg"
-                :class="[getFaceColor(idx).border, getFaceColor(idx).shadow]"
-              ></div>
-              <div
-                  class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
-                  :class="[getFaceColor(idx).text, 'bg-black/80']"
+                v-for="(face, idx) in currentPhoto?.faces || []"
+                :key="face.id"
+                v-show="showFaceBoxes"
+                class="absolute pointer-events-none"
+                :style="getFaceBoxStyle(face)"
               >
-                {{ face.personName || '未命名' }}
+                <div
+                  class="absolute inset-0 border-2 rounded-sm shadow-lg"
+                  :class="[getFaceColor(idx).border, getFaceColor(idx).shadow]"
+                ></div>
+                <div
+                    class="absolute -top-5 left-0 text-xs px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm"
+                    :class="[getFaceColor(idx).text, 'bg-black/80']"
+                >
+                  {{ face.personName || '未命名' }}
+                </div>
               </div>
-            </div>
+            </transition-group>
 
             <!-- 焦点框 - 作为图片的子元素，会跟随图片变换 -->
-            <div
-              v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
-              class="absolute pointer-events-none"
-              :style="getFocusBoxStyle()"
-            >
-              <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
-              <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/80 px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm">
-                焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
+            <transition :name="isSwitchingPhoto ? 'no-animation' : 'focus-box'">
+              <div
+                v-if="currentPhoto && showFocusBox && currentPhoto.focusX !== undefined && currentPhoto.focusY !== undefined"
+                class="absolute pointer-events-none"
+                :style="getFocusBoxStyle()"
+              >
+                <div class="absolute inset-0 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50 rounded-sm"></div>
+                <div class="absolute -top-6 left-0 text-xs text-yellow-400 bg-black/80 px-2 py-1 rounded whitespace-nowrap backdrop-blur-sm">
+                  焦点 ({{ currentPhoto.focusX.toFixed(1) }}%, {{ currentPhoto.focusY.toFixed(1) }}%)
+                </div>
               </div>
-            </div>
+            </transition>
           </div>
         </div>
 
           <!-- 拖拽切换指示器 -->
-          <div
-            v-if="isImageDragging && Math.abs(imageDragOffset) > 50"
-            class="absolute inset-0 flex items-center justify-center pointer-events-none"
+          <transition name="swipe-indicator">
+            <div
+              v-if="isImageDragging && Math.abs(imageDragOffset) > 50"
+              class="absolute inset-0 flex items-center justify-center pointer-events-none"
+                >
+                  <div
+                class="flex items-center gap-4 bg-black/50 backdrop-blur-sm rounded-full px-6 py-3 text-white"
               >
-                <div
-              class="flex items-center gap-4 bg-black/50 backdrop-blur-sm rounded-full px-6 py-3 text-white"
-            >
-              <svg
-                v-if="imageDragOffset > 0"
-                class="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-              </svg>
-              <span class="text-sm font-medium">
-                {{ imageDragOffset > 0 ? '上一张' : '下一张' }}
-              </span>
-              <svg
-                v-if="imageDragOffset < 0"
-                class="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
+                <svg
+                  v-if="imageDragOffset > 0"
+                  class="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                <span class="text-sm font-medium">
+                  {{ imageDragOffset > 0 ? '上一张' : '下一张' }}
+                </span>
+                <svg
+                  v-if="imageDragOffset < 0"
+                  class="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+                  </div>
                 </div>
-              </div>
+          </transition>
 
           <!-- 加载状态 -->
           <div v-if="!currentPhoto" class="text-white/50">加载中...</div>
@@ -200,13 +212,13 @@
       <transition name="slide-right">
         <div
           v-if="!infoCollapsed"
-          class="absolute top-12 right-0 text-white border-l border-white/10 flex flex-col overflow-auto pointer-events-auto z-10"
+          class="absolute top-12 right-0 text-white border-l border-white/10 flex flex-col overflow-auto pointer-events-auto z-10 info-panel"
           :class="infoTransparent ? 'bg-gray-900/30 backdrop-blur-sm' : 'bg-gray-900/90 backdrop-blur-md'"
           :style="{ maxHeight: infoPanelMaxHeight, width: infoPanelWidth + 'px' }"
         >
           <!-- 隐形调整把手（左边） -->
           <div
-            class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-white/20 transition-colors"
+            class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-white/20 transition-colors resize-handle"
             title="拖动调整宽度"
             @pointerdown.prevent="startResize"
             @pointermove="onResize"
@@ -219,7 +231,7 @@
               <!-- 人脸框切换按钮 -->
           <button
                 v-if="currentPhoto?.faces?.length"
-                class="p-1.5 hover:bg-white/10 rounded transition-colors"
+                class="btn-icon"
                 :class="showFaceBoxes ? 'text-blue-400' : 'text-gray-400'"
                 @click="toggleFaceBoxes"
                 :title="showFaceBoxes ? '隐藏人脸框' : '显示人脸框'"
@@ -232,7 +244,7 @@
               <!-- 聚焦框切换按钮 -->
           <button
                 v-if="currentPhoto?.focusX !== undefined && currentPhoto?.focusY !== undefined"
-                class="p-1.5 hover:bg-white/10 rounded transition-colors"
+                class="btn-icon"
                 :class="showFocusBox ? 'text-yellow-400' : 'text-gray-400'"
                 @click="toggleFocusBox"
                 :title="showFocusBox ? '隐藏聚焦框' : '显示聚焦框'"
@@ -244,7 +256,7 @@
           </button>
 
               <!-- 透明度切换按钮 -->
-              <button class="p-1.5 hover:bg-white/10 rounded transition-colors" @click="toggleInfoTransparency" :title="infoTransparent ? '切换到不透明' : '切换到透明'">
+              <button class="btn-icon" @click="toggleInfoTransparency" :title="infoTransparent ? '切换到不透明' : '切换到透明'">
                 <svg v-if="infoTransparent" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -252,8 +264,15 @@
                 <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
                 </svg>
-            </button>
-          </div>
+              </button>
+
+              <!-- 分享按钮 -->
+              <button class="btn-icon" @click="openPhotoPage" title="分享">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="flex-1 overflow-auto px-4 py-3 space-y-3 text-xs leading-relaxed">
             <!-- 基本信息 -->
@@ -341,7 +360,7 @@
                 <span
                   v-for="t in currentPhoto.tags.slice(0, 8)"
                   :key="t.id"
-                  class="px-2 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20 transition-colors"
+                  class="tag-item"
                   @click.stop="openTag(t)"
                 >
                   {{ t.name }}
@@ -356,7 +375,7 @@
                 <div
                   v-for="(f, idx) in visibleFaceList"
                   :key="f.id || idx"
-                  class="flex items-center gap-2 p-2 rounded transition-colors min-w-0 flex-shrink-0"
+                  class="flex items-center gap-2 p-2 rounded transition-all duration-200 min-w-0 flex-shrink-0 face-item"
                   :class="(f.isConfirmed && f.personId && f.personName) || (!f.personId || !f.personName) ? 'cursor-pointer hover:bg-white/10' : ''"
                   @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : (!f.personId || !f.personName) ? findSimilarFaces(f) : null"
                 >
@@ -412,8 +431,8 @@
               <span class="inline-flex items-center gap-2 ml-1">
               <span
                   v-for="(color, idx) in currentPhoto.colorPalette.slice(0, 8)"
-                :key="idx"
-                  class="inline-block w-4 h-4 rounded border border-white/10 cursor-pointer hover:border-white/30 hover:scale-110 transition-all duration-150"
+                  :key="idx"
+                  class="color-swatch"
                 :style="{ backgroundColor: color }"
                 :title="getColorTooltip(color)"
                 @mouseenter="displayedColor = getColorHex(color)"
@@ -425,11 +444,11 @@
 
             <!-- AI评分信息（卡片容器，增加层次感） -->
             <div v-if="currentPhoto?.aiOverallScore" class="mt-4 pt-3 border-t border-white/10">
-              <div class="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-lg p-3 border border-yellow-500/20">
+              <div class="ai-score-card">
                 <div class="flex items-center justify-between mb-3">
                   <span class="text-sm font-medium text-yellow-400">🤖 AI 智能评分</span>
                   <span class="text-xl font-bold text-yellow-400">{{ currentPhoto.aiOverallScore.toFixed(1) }}</span>
-              </div>
+                </div>
 
                 <!-- 分维度评分 -->
                 <div class="grid grid-cols-3 gap-3 text-xs mb-3">
@@ -460,7 +479,7 @@
                         <span
                           v-for="strength in currentPhoto.aiStrengths"
                           :key="strength"
-                          class="inline-flex items-center gap-1 text-xs px-3 py-1 bg-green-500/20 text-green-200 rounded-full whitespace-nowrap flex-shrink-0"
+                          class="badge-success"
                         >
                           {{ strength }}
                         </span>
@@ -479,7 +498,7 @@
                         <span
                           v-for="weakness in currentPhoto.aiWeaknesses"
                           :key="weakness"
-                          class="inline-flex items-center gap-1 text-xs px-3 py-1 bg-orange-500/20 text-orange-200 rounded-full whitespace-nowrap flex-shrink-0"
+                          class="badge-warning"
                         >
                           {{ weakness }}
                         </span>
@@ -508,14 +527,14 @@
       </transition>
 
       <!-- 底部缩略图横排 -->
-      <transition name="fade">
+      <transition name="thumbnail-bar">
         <div
           v-if="!isFullscreen"
-          class="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md border-t border-white/10 overflow-x-auto overflow-y-hidden select-none pointer-events-auto z-10"
+          class="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md border-t border-white/10 overflow-x-auto overflow-y-hidden select-none pointer-events-auto z-10 thumbnail-bar"
           :style="{ height: Math.max(thumbHeight, thumbSize + 20) + 'px' }"
         >
           <div
-            class="absolute inset-x-0 top-0 h-3 cursor-ns-resize border-b border-white/20 bg-black/40 z-20"
+            class="absolute inset-x-0 top-0 h-3 cursor-ns-resize border-b border-white/20 bg-black/40 z-20 drag-handle"
             @mousedown.prevent="startDrag"
             title="拖动调整高度"
           ></div>
@@ -527,9 +546,9 @@
             <div
               v-for="(p, idx) in photos"
               :key="p.id"
-              class="relative flex-shrink-0 cursor-pointer border-2 transition-all duration-200 rounded-sm overflow-hidden"
+              class="thumbnail-item"
               :style="{ width: thumbSize + 'px', height: thumbSize + 'px' }"
-              :class="idx === currentIndex ? 'border-white scale-105 shadow-lg shadow-white/20' : 'border-transparent opacity-70 hover:opacity-100 hover:scale-102'"
+              :class="idx === currentIndex ? 'active' : ''"
               @click="jump(idx)"
               :ref="el => (thumbItems[idx] = el)"
             >
@@ -548,7 +567,7 @@
       </transition>
 
       <!-- 相似照片模态框 -->
-        <transition name="fade">
+        <transition name="modal">
           <div
             v-if="similarPhotosVisible"
             class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -559,7 +578,7 @@
               <div class="flex items-center justify-between p-4 border-b border-white/10">
                 <h3 class="text-lg font-semibold text-white">相似照片</h3>
                 <button
-                  class="p-1 hover:bg-white/10 rounded transition-colors"
+                  class="btn-icon"
                   @click="similarPhotosVisible = false"
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -582,7 +601,7 @@
                   <div
                     v-for="item in similarPhotos"
                     :key="item.photoId"
-                    class="group cursor-pointer"
+                    class="similar-photo-item"
                     @click="jumpToPhoto(item.photoId)"
                   >
                     <div class="aspect-square bg-gray-800 rounded-lg overflow-hidden mb-2">
@@ -590,7 +609,7 @@
                         v-if="item.photo.thumbnailPath"
                         :src="`/api/files${item.photo.thumbnailPath}`"
                         :alt="item.photo.filename"
-                        class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        class="w-full h-full object-cover"
                       />
                       <div v-else class="w-full h-full bg-gray-700 flex items-center justify-center">
                         <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -657,6 +676,8 @@ const modalRoot = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const showFocusBox = ref(false)
 const showFaceBoxes = ref(false)
+// 标记是否正在切换图片（切换时禁用框体动画）
+const isSwitchingPhoto = ref(false)
 
 // 图片显示和交互状态
 const mainImage = ref<HTMLImageElement | null>(null)
@@ -791,17 +812,14 @@ const imageContainerStyle = computed(() => {
     const scale = Math.min(scaleX, scaleY)
     const displayWidth = imgWidth * scale
 
-    // 无信息栏时，图片在窗口中居中，左边位置 = (windowWidth - displayWidth) / 2
-    const leftNoInfo = (containerWidth - displayWidth) / 2
-
     // 显示信息栏后，图片在信息栏左边区域居中
     // 新的左边位置 = (windowWidth - currentInfoPanelWidth - displayWidth) / 2
     const leftWithInfo = (containerWidth - currentInfoPanelWidth - displayWidth) / 2
 
-    // 如果新位置 < 0，说明图片无法再往左移（左边已经到窗口边缘）
-    // 此时保持原位置，不移动
-    if (leftWithInfo < 0 && leftNoInfo <= 0) {
-      right = '0px'
+    // 如果新位置 < 0，说明图片在信息栏展开时会左边超出窗口
+    // 此时让左边=0，而不是强行居中导致溢出
+    if (leftWithInfo < 0) {
+      right = 'auto'
     }
   }
 
@@ -963,7 +981,8 @@ watch(() => props.visible, (newVisible) => {
     // 聚焦到PhotoViewer以接收键盘事件
     nextTick(() => {
       modalRoot.value?.focus()
-      // 人脸框现在直接绑定在图片内部，无需额外计算
+      // 滚动缩略图到当前图片（无动画，因为距离可能很长）
+      scrollThumbIntoView(false)
     })
     // 打开时应用信息栏偏移
     applyInfoPanelOffset(false)
@@ -1129,6 +1148,8 @@ const toggleFullscreen = () => {
 const prev = () => {
   if (!props.photos?.length) return
   const oldIndex = currentIndex.value
+  // 标记正在切换图片，禁用框体动画
+  isSwitchingPhoto.value = true
   currentIndex.value = (currentIndex.value - 1 + props.photos.length) % props.photos.length
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
@@ -1158,6 +1179,8 @@ const prev = () => {
 const next = () => {
   if (!props.photos?.length) return
   const oldIndex = currentIndex.value
+  // 标记正在切换图片，禁用框体动画
+  isSwitchingPhoto.value = true
   currentIndex.value = (currentIndex.value + 1) % props.photos.length
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
@@ -1183,6 +1206,8 @@ const next = () => {
 
 const jump = (idx: number) => {
   const oldIndex = currentIndex.value
+  // 标记正在切换图片，禁用框体动画
+  isSwitchingPhoto.value = true
   currentIndex.value = idx
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
@@ -1255,13 +1280,10 @@ const calculateInfoPanelOffset = (): number => {
   const centerInWindow = windowWidth / 2
   let offset = centerInAvailable - centerInWindow
 
-  // 判断是否溢出：如果图片宽度 > 可用宽度，居中后左边会超出
-  // 限制偏移确保左边不超过窗口左边
+  // 判断是否溢出：如果图片宽度 > 可用宽度，让左边=0而不是居中
   if (displayWidth > availableWidth) {
-    // 图片左边缘距离 = (windowWidth - displayWidth) / 2 + offset
-    // 左边不能 < 0，所以 offset >= 0 - (windowWidth - displayWidth) / 2
-    const maxOffset = (displayWidth - windowWidth) / 2
-    offset = Math.max(offset, maxOffset)
+    // 图片比可用空间宽时，左边贴着窗口左边
+    offset = 0
   }
 
   // 返回偏移量（负数表示向左移）
@@ -1417,6 +1439,8 @@ const onImageLoad = () => {
       applyInfoPanelOffset(false)
 
       imageLoaded.value = true
+      // 图片加载完成后，重置切换标记，允许框体动画
+      isSwitchingPhoto.value = false
 
       console.log('📸 PhotoViewer 图片加载完成:', {
         filename: currentPhoto.value?.filename,
@@ -1923,6 +1947,17 @@ const onImageWheel = (e: WheelEvent) => {
 
 // 键盘快捷键处理
 const onKeyDown = (e: KeyboardEvent) => {
+  // 左右键切换图片（始终可用，不受焦点限制）
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    prev()
+    return
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    next()
+    return
+  }
+
   // Ctrl + +/- 缩放
   if (e.ctrlKey && (e.key === '=' || e.key === '+' || e.key === '-')) {
     e.preventDefault()
@@ -1956,13 +1991,13 @@ const getTouchDistance = (touch1: Touch, touch2: Touch): number => {
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-const scrollThumbIntoView = () => {
+const scrollThumbIntoView = (animate = true) => {
   nextTick(() => {
     const el = thumbItems.value[currentIndex.value]
     const container = thumbContainer.value
     if (el && container) {
       el.scrollIntoView({
-        behavior: 'smooth',
+        behavior: animate ? 'smooth' : 'auto',
         inline: 'center',
         block: 'nearest'
       })
@@ -2003,6 +2038,13 @@ const openAlbum = () => {
   if (!currentPhoto.value) return
   // 使用短路由 /a/ID
   const route = router.resolve({ path: `/a/${currentPhoto.value.albumId}` })
+  window.open(route.href, '_blank')
+}
+
+// 打开照片详情页
+const openPhotoPage = () => {
+  if (!currentPhoto.value?.id) return
+  const route = router.resolve({ path: `/photo/${currentPhoto.value.id}` })
   window.open(route.href, '_blank')
 }
 
@@ -2251,15 +2293,259 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.15s ease;
+/* 模态框显示/隐藏动画 */
+.modal-enter-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.fade-enter-from,
-.fade-leave-to {
+.modal-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.modal-enter-from {
+  opacity: 0;
+}
+.modal-leave-to {
   opacity: 0;
 }
 
+/* 图片淡入动画 */
+.image-fade-enter-active {
+  transition: opacity 0.2s ease;
+}
+.image-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.image-fade-enter-from,
+.image-fade-leave-to {
+  opacity: 0;
+}
+
+/* 滑动指示器动画 */
+.swipe-indicator-enter-active,
+.swipe-indicator-leave-active {
+  transition: all 0.2s ease;
+}
+.swipe-indicator-enter-from,
+.swipe-indicator-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+/* 缩略图栏动画 */
+.thumbnail-bar-enter-active,
+.thumbnail-bar-leave-active {
+  transition: all 0.3s ease;
+}
+.thumbnail-bar-enter-from,
+.thumbnail-bar-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* 顶部栏动画 */
+.top-bar {
+  animation: slideDown 0.3s ease;
+}
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 导航按钮动画 */
+.nav-button {
+  @apply absolute top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-all duration-200 md:hidden touch-manipulation;
+}
+.nav-button:hover {
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+.nav-button:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+/* 图标按钮动画 */
+.btn-icon {
+  @apply p-2 rounded transition-all duration-200;
+}
+.btn-icon:hover {
+  @apply bg-white/10;
+  transform: scale(1.1);
+}
+.btn-icon:active {
+  transform: scale(0.9);
+}
+
+/* 操作按钮动画 */
+.btn-action {
+  @apply p-2 text-xs px-3 py-1.5 text-white font-medium transition-all duration-200 rounded;
+}
+.btn-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.btn-action:active {
+  transform: translateY(0);
+}
+
+/* 标签动画 */
+.tag-item {
+  @apply px-2 py-1 bg-white/10 rounded cursor-pointer transition-all duration-200;
+}
+.tag-item:hover {
+  @apply bg-white/20;
+  transform: translateY(-1px);
+}
+
+/* 人物项动画 */
+.face-item {
+  @apply rounded;
+}
+.face-item:hover {
+  transform: translateX(4px);
+}
+
+/* 颜色色卡动画 */
+.color-swatch {
+  @apply inline-block w-4 h-4 rounded border border-white/10 cursor-pointer transition-all duration-150;
+}
+.color-swatch:hover {
+  @apply border-white/30;
+  transform: scale(1.2) rotate(15deg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.color-swatch:active {
+  transform: scale(1.1);
+}
+
+/* AI评分卡片动画 */
+.ai-score-card {
+  @apply bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-lg p-3 border border-yellow-500/20;
+  animation: cardPulse 3s ease-in-out infinite;
+}
+@keyframes cardPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px 0 rgba(234, 179, 8, 0.1);
+  }
+}
+
+/* 徽章动画 */
+.badge-success {
+  @apply inline-flex items-center gap-1 text-xs px-3 py-1 bg-green-500/20 text-green-200 rounded-full whitespace-nowrap flex-shrink-0 transition-all duration-200;
+}
+.badge-success:hover {
+  @apply bg-green-500/30;
+  transform: translateY(-1px);
+}
+
+.badge-warning {
+  @apply inline-flex items-center gap-1 text-xs px-3 py-1 bg-orange-500/20 text-orange-200 rounded-full whitespace-nowrap flex-shrink-0 transition-all duration-200;
+}
+.badge-warning:hover {
+  @apply bg-orange-500/30;
+  transform: translateY(-1px);
+}
+
+/* 缩略图项动画 */
+.thumbnail-item {
+  @apply relative flex-shrink-0 cursor-pointer border-2 transition-all duration-200 rounded-sm overflow-hidden border-transparent;
+}
+.thumbnail-item:hover {
+  @apply opacity-100;
+  transform: scale(1.02);
+}
+.thumbnail-item.active {
+  @apply border-white;
+  transform: scale(1.05);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+}
+.thumbnail-item.active:hover {
+  transform: scale(1.07);
+}
+
+/* 相似照片项动画 */
+.similar-photo-item {
+  @apply cursor-pointer transition-all duration-200;
+}
+.similar-photo-item:hover {
+  transform: translateY(-4px);
+}
+.similar-photo-item:hover img {
+  transform: scale(1.05);
+}
+
+/* 信息面板调整把手动画 */
+.resize-handle {
+  @apply transition-all duration-200;
+}
+.resize-handle:hover {
+  @apply bg-white/40;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+/* 拖动把手动画 */
+.drag-handle {
+  @apply transition-all duration-200;
+}
+.drag-handle:hover {
+  @apply bg-white/30;
+  box-shadow: 0 -2px 10px rgba(255, 255, 255, 0.1);
+}
+
+/* 图片加载时的脉冲动画 */
+.main-image.loading {
+  animation: imagePulse 1.5s ease-in-out infinite;
+}
+@keyframes imagePulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* 人脸框显示动画 */
+.face-box-enter-active,
+.face-box-leave-active {
+  transition: all 0.3s ease;
+}
+.face-box-enter-from,
+.face-box-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+/* 无动画（切换图片时使用） */
+.no-animation-enter-active,
+.no-animation-leave-active {
+  transition: none;
+}
+.no-animation-enter-from,
+.no-animation-leave-to {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 焦点框显示动画 */
+.focus-box-enter-active,
+.focus-box-leave-active {
+  transition: all 0.3s ease;
+}
+.focus-box-enter-from,
+.focus-box-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+/* 滑入动画 (原有) */
 .slide-right-enter-active,
 .slide-right-leave-active {
   transition: transform 0.3s ease;
@@ -2269,5 +2555,15 @@ onBeforeUnmount(() => {
 }
 .slide-right-leave-to {
   transform: translateX(100%);
+}
+
+/* 淡入淡出动画 (原有) */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -57,7 +57,8 @@
               max="0.9"
               step="0.01"
               v-model.number="clusterThreshold"
-              @input="handleThresholdInput"
+              @change="applyThresholdFromInput"
+              @keyup.enter="applyThresholdFromInput"
               class="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -1155,7 +1156,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { api, personApi } from '@/api'
+import { api, personApi, configApi } from '@/api'
 import { usePhotoStore } from '@/stores/photo'
 import { useAuthStore } from '@/stores/auth'
 import PhotoViewer from '@/components/PhotoViewer.vue'
@@ -1257,9 +1258,24 @@ let tabLoadingOverlayTimer: number | null = null
 const showViewerLoadingOverlay = ref(false)
 // 取消令牌，用于取消之前的请求
 let abortController: AbortController | null = null
-const CLUSTER_THRESHOLD_KEY = 'pe-cluster-threshold'
+// 聚类阈值 - 从后端获取
 const DEFAULT_CLUSTER_THRESHOLD = 0.7
-const clusterThreshold = ref<number>(parseFloat(localStorage.getItem(CLUSTER_THRESHOLD_KEY) || `${DEFAULT_CLUSTER_THRESHOLD}`))
+const clusterThreshold = ref<number>(DEFAULT_CLUSTER_THRESHOLD)
+
+// 加载阈值配置
+const loadClusterThreshold = async () => {
+  try {
+    const response = await configApi.getFaceClusterThreshold()
+    clusterThreshold.value = response.data.faceClusterThreshold || DEFAULT_CLUSTER_THRESHOLD
+  } catch (e) {
+    console.error('加载聚类阈值失败:', e)
+    // 使用本地默认值
+    const saved = localStorage.getItem('pe-cluster-threshold')
+    if (saved) {
+      clusterThreshold.value = parseFloat(saved)
+    }
+  }
+}
 const snapPoints = computed(() => {
   const arr: number[] = []
   for (let v = 0.1; v <= 0.9001; v += 0.1) {
@@ -1312,8 +1328,15 @@ const handleThresholdInput = (event: Event) => {
   const target = event.target as HTMLInputElement
   const value = parseFloat(target.value)
   if (!isNaN(value)) {
-    clusterThreshold.value = value
+    // 只更新本地显示，不触发 watch
+    clusterThreshold.value = Math.max(0.1, Math.min(0.9, value))
   }
+}
+
+// 输入框失去焦点或回车时应用阈值
+const applyThresholdFromInput = () => {
+  // 强制触发 watch
+  clusterThreshold.value = parseFloat(Number(clusterThreshold.value).toFixed(2))
 }
 
 let thresholdTimer: number | null = null
@@ -5022,7 +5045,10 @@ let faceResizeObserver: ResizeObserver | null = null
 let albumResizeObserver: ResizeObserver | null = null
 let confirmedGridResizeObserver: ResizeObserver | null = null
 
-onMounted(() => {
+onMounted(async () => {
+  // 先加载聚类阈值配置
+  await loadClusterThreshold()
+
   // 检查路由参数中是否有查找相似人脸的请求
   const findSimilarFaceParam = route.query.findSimilarFace as string
   if (findSimilarFaceParam) {
@@ -5573,7 +5599,7 @@ onBeforeUnmount(() => {
   }
 })
 
-watch(clusterThreshold, (v) => {
+watch(clusterThreshold, async (v) => {
   // 限制范围，但不再强制吸附，保证 spin 输入的数值可以精确生效
   let val = v || DEFAULT_CLUSTER_THRESHOLD
   if (Number.isNaN(val as any)) {
@@ -5581,7 +5607,16 @@ watch(clusterThreshold, (v) => {
   }
   val = Math.max(0.1, Math.min(0.9, val))
   clusterThreshold.value = parseFloat(Number(val).toFixed(2))
-  localStorage.setItem(CLUSTER_THRESHOLD_KEY, String(clusterThreshold.value))
+
+  // 保存到后端
+  try {
+    await configApi.setFaceClusterThreshold(clusterThreshold.value)
+  } catch (e) {
+    console.error('保存聚类阈值失败:', e)
+    // 备用：保存到本地
+    localStorage.setItem('pe-cluster-threshold', String(clusterThreshold.value))
+  }
+
   // 清除聚类转人物的临时映射（阈值改变后聚类列表会重新加载）
   convertedClusterIds.value.clear()
   clusterToPersonMap.value.clear()

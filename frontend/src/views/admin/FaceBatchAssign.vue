@@ -229,7 +229,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { api, aiApi } from '@/api'
+import { api, aiApi, configApi } from '@/api'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 
 interface Face {
@@ -275,10 +275,24 @@ interface SearchPerson {
   similarity?: number
 }
 
-// 聚类阈值 - 与人物管理页面同步
-const CLUSTER_THRESHOLD_KEY = 'pe-cluster-threshold'
+// 聚类阈值 - 从后端获取
 const DEFAULT_CLUSTER_THRESHOLD = 0.7
-const clusterThreshold = ref<number>(parseFloat(localStorage.getItem(CLUSTER_THRESHOLD_KEY) || `${DEFAULT_CLUSTER_THRESHOLD}`))
+const clusterThreshold = ref<number>(DEFAULT_CLUSTER_THRESHOLD)
+
+// 加载阈值配置
+const loadClusterThreshold = async () => {
+  try {
+    const response = await configApi.getFaceClusterThreshold()
+    clusterThreshold.value = response.data.faceClusterThreshold || DEFAULT_CLUSTER_THRESHOLD
+  } catch (e) {
+    console.error('加载聚类阈值失败:', e)
+    // 使用本地默认值
+    const saved = localStorage.getItem('pe-cluster-threshold')
+    if (saved) {
+      clusterThreshold.value = parseFloat(saved)
+    }
+  }
+}
 
 // 聚类数据
 const clusters = ref<ClusterFace[]>([])
@@ -668,7 +682,8 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadClusterThreshold()
   loadClusterData(0)
   window.addEventListener('keydown', handleKeydown)
 })

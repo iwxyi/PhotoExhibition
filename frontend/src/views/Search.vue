@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { albumApi, aiApi, personApi } from '@/api'
+import { albumApi, aiApi, personApi, configApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import AppHeader from '@/components/AppHeader.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
@@ -169,6 +169,17 @@ const unconfirmedFaceIds = computed(() => {
 
 const keyword = ref('')
 const faceId = ref<number | null>(null)
+const clusterThreshold = ref<number>(0.7)
+
+// 加载聚类阈值配置
+const loadClusterThreshold = async () => {
+  try {
+    const response = await configApi.getFaceClusterThreshold()
+    clusterThreshold.value = response.data.faceClusterThreshold || 0.7
+  } catch (e) {
+    console.error('加载聚类阈值失败:', e)
+  }
+}
 const loading = ref(true)
 const albums = ref<AlbumDTO[]>([])
 const persons = ref<PersonSummary[]>([])
@@ -179,6 +190,9 @@ const hasSearched = ref(false)
 const searchMode = ref<'keyword' | 'face'>('keyword')
 
 onMounted(async () => {
+  // 先加载聚类阈值配置
+  await loadClusterThreshold()
+
   // 从查询参数获取关键词
   keyword.value = (route.query.q as string) || (route.params.keyword as string) || ''
   faceId.value = route.query.faceId ? parseInt(route.query.faceId as string, 10) : null
@@ -256,8 +270,8 @@ const searchSimilarFaces = async () => {
     facePhotos.value = photosResponse.data || []
     console.log('facePhotos:', facePhotos.value)
 
-    // 获取相似人脸
-    const response = await aiApi.findSimilarFaces(faceId.value!, 20, 0.5)
+    // 获取相似人脸，使用聚类阈值
+    const response = await aiApi.findSimilarFaces(faceId.value!, 20, clusterThreshold.value)
     console.log('API 响应:', response)
     console.log('response.data:', response.data)
     similarFaces.value = response.data || []

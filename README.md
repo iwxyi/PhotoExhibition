@@ -116,6 +116,36 @@ PhotoExhibition 集成了AI图像分析技术，为每张照片提供专业级�
 - **编辑功能**：就地编辑 + 颜色自定义 + 统计信息展示
 - **主题发现**：帮您发现照片中的共同主题和拍摄系列
 
+---
+
+## 图片预览
+![首页-相册列表](./screenshots/首页-相册列表.png)
+
+![首页-图墙列表](./screenshots/首页-图墙列表.png)
+
+![首页-随机列表](./screenshots/首页-随机列表.png)
+
+![首页-人物列表](./screenshots/首页-人物列表.png)
+
+![首页-相册管理-手机版](./screenshots/首页-相册管理-手机版.png)
+
+![人物详情](./screenshots/人物详情.png)
+
+![相册看图](./screenshots/相册看图.png)
+
+![条件筛选](./screenshots/条件筛选.png)
+
+![后台-首页](./screenshots/后台-首页.png)
+
+![后台-相册管理](./screenshots/后台-相册管理.png)
+
+![后台-人物管理](./screenshots/后台-人物管理.png)
+
+![后台-人物管理-套图推荐](./screenshots/后台-人物管理-套图推荐.png)
+
+![后台-图片管理](./screenshots/后台-图片管理.png)
+
+![后台-系统设置](./screenshots/后台-系统设置.png)
 
 ---
 

@@ -326,12 +326,12 @@ export const albumApi = {
 // 背景移除相关API
 export const backgroundRemovalApi = {
   // 检查功能是否可用
-  isAvailable: (photoId: number) => 
+  isAvailable: (photoId: number) =>
     api.get<{ enabled: boolean; photoExists: boolean }>(`/photos/${photoId}/background-removal/available`),
 
   // 获取移除背景后的图片URL（使用 api 的 baseURL）
   // quality: 'small' | 'medium' | 'large'，默认为 medium
-  getUrl: (photoId: number, quality: string = 'medium'): string => 
+  getUrl: (photoId: number, quality: string = 'medium'): string =>
     `${api.defaults.baseURL}/photos/${photoId}/remove-background?quality=${quality}`,
 
   // 触发异步背景移除任务
@@ -339,4 +339,13 @@ export const backgroundRemovalApi = {
     api.post<{ success: boolean; message: string; photoId: number }>(
       `/photos/${photoId}/remove-background/async`
     )
+}
+
+// 系统配置相关API
+export const configApi = {
+  // 获取人脸聚类阈值
+  getFaceClusterThreshold: () => api.get<{ faceClusterThreshold: number }>('/admin/config/face-cluster-threshold'),
+
+  // 设置人脸聚类阈值
+  setFaceClusterThreshold: (threshold: number) => api.put<{ message: string; faceClusterThreshold: number }>('/admin/config/face-cluster-threshold', { faceClusterThreshold: threshold })
 }
