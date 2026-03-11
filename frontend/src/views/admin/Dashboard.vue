@@ -121,17 +121,18 @@
               <div class="text-xs text-gray-400 text-center mt-0.5">{{ stats.tags }} 个</div>
             </router-link>
             <router-link
-              to="/admin/migration"
-            class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
-            >
-              数据迁移
-            </router-link>
-            <router-link
               to="/admin/file-browser"
             class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
             >
               文件浏览器
             </router-link>
+            <button
+              @click="cleanupOrphaned"
+              :disabled="isCleaningUp"
+              class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div class="text-center">{{ isCleaningUp ? '清理中...' : '清理删除残留' }}</div>
+            </button>
           <router-link
             to="/admin/theme"
             class="block px-3 py-2 bg-gray-900/60 hover:bg-gray-700 rounded-lg transition-colors text-center border border-white/10 text-sm"
@@ -285,6 +286,7 @@ const stats = ref({
 })
 
 const scanning = ref(false)
+const isCleaningUp = ref(false)
 const lastScanTime = ref<string | null>(null)
 const scanProgress = ref<{ current: number; total: number }>({ current: 0, total: 0 })
 const scanStatus = computed(() => (scanning.value ? '扫描中' : '空闲'))
@@ -383,6 +385,39 @@ const loadStats = async () => {
     }
   } catch (error) {
     console.error('加载统计信息失败:', error)
+  }
+}
+
+const cleanupOrphaned = async () => {
+  const confirmed = confirm(
+    '🧹 清理删除残留数据\n\n' +
+    '此操作将：\n' +
+    '• 扫描所有照片记录，检查文件是否还存在\n' +
+    '• 删除不存在文件的照片记录\n' +
+    '• 删除相关的人脸识别数据\n' +
+    '• 删除相关的标签关联\n' +
+    '• 删除没有照片的空相册\n' +
+    '• 删除文件夹路径不存在的相册\n\n' +
+    '⚠️ 此操作不可恢复，请谨慎使用！\n' +
+    '建议在删除大量文件或文件夹后执行此清理。\n\n' +
+    '确定要继续吗？'
+  )
+  if (!confirmed) return
+
+  isCleaningUp.value = true
+  try {
+    const response = await api.post('/admin/cleanup/orphaned')
+    apiResponse.value = response.data
+    await loadStats()
+    alert(response.data.message || '清理完成！')
+  } catch (error: any) {
+    apiResponse.value = {
+      error: true,
+      message: error.message,
+      response: error.response?.data
+    }
+  } finally {
+    isCleaningUp.value = false
   }
 }
 

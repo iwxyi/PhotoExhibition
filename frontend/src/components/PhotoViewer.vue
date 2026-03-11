@@ -93,15 +93,16 @@
         </button>
 
         <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
-        <div 
-          class="absolute flex items-center justify-center" 
+        <div
+          class="absolute flex items-center justify-center"
           :style="imageContainerStyle"
           @click="onImageContainerClick"
           ref="imageViewport"
         >
           <!-- 图片包装容器 - 应用变换，使人脸框和焦点框跟随图片 -->
           <div
-            class="relative"
+            class="relative photo-viewer-img-wrapper"
+            ref="imageWrapper"
             :style="imageTransformStyle"
           >
             <img
@@ -199,10 +200,19 @@
       <transition name="slide-right">
         <div
           v-if="!infoCollapsed"
-          class="absolute top-12 right-0 w-80 text-white border-l border-white/10 flex flex-col overflow-auto pointer-events-auto z-10"
+          class="absolute top-12 right-0 text-white border-l border-white/10 flex flex-col overflow-auto pointer-events-auto z-10"
           :class="infoTransparent ? 'bg-gray-900/30 backdrop-blur-sm' : 'bg-gray-900/90 backdrop-blur-md'"
-          :style="{ maxHeight: infoPanelMaxHeight }"
+          :style="{ maxHeight: infoPanelMaxHeight, width: infoPanelWidth + 'px' }"
         >
+          <!-- 隐形调整把手（左边） -->
+          <div
+            class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-white/20 transition-colors"
+            title="拖动调整宽度"
+            @pointerdown.prevent="startResize"
+            @pointermove="onResize"
+            @pointerup="endResize"
+            @pointercancel="endResize"
+          ></div>
           <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <span class="text-sm font-semibold">信息</span>
             <div class="flex items-center gap-2">
@@ -652,12 +662,28 @@ const showFaceBoxes = ref(false)
 const mainImage = ref<HTMLImageElement | null>(null)
 const mainContentArea = ref<HTMLElement | null>(null)
 const imageViewport = ref<HTMLElement | null>(null) // 图片可视区域（不受 transform 影响的参照系）
+const imageWrapper = ref<HTMLElement | null>(null) // 图片包装容器（用于控制动画）
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const isInitialLoad = ref(true) // 标记是否为初始加载
 const scale = ref(1)
 const translateX = ref(0)
 const translateY = ref(0)
+// 用户是否手动缩放过图片
+const userHasManuallyZoomed = ref(false)
+// 信息栏显示时的图片偏移
+const infoPanelOffsetX = ref(0)
+// 信息栏宽度（可调整）
+const infoPanelWidth = ref(320)
+// 上一次的信息栏偏移值（用于判断是否需要动画）
+const lastInfoPanelOffsetX = ref(0)
+// 是否正在动画信息栏（用于控制图片位置的动画）
+const isInfoPanelAnimating = ref(false)
+// 信息栏宽度调整状态
+const isResizingInfoPanel = ref(false)
+const resizeStartX = ref(0)
+const resizeStartWidth = ref(320)
+
 // 记录鼠标/指针最近位置（用于触控板 pinch 时以“鼠标所在位置”为中心缩放）
 const lastPointerPos = ref({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
 
@@ -684,6 +710,11 @@ const initialTranslateY = ref(0) // 触摸开始时的 translateY
 // 单指滑动切换照片相关
 const touchSwipeStartX = ref(0)
 const touchSwipeOffset = ref(0)
+
+// 空白区域滑动相关
+const backdropSwipeStartX = ref(0)
+const backdropSwipeOffset = ref(0)
+const isBackdropSwiping = ref(false)
 
 // 双击放大相关
 const lastTapTime = ref(0)
@@ -735,28 +766,62 @@ const mainContentStyle = computed(() => {
   }
 })
 
-// 图片容器样式 - 在图片区域内居中，避开顶部栏和底部缩略图
-// 但图片放大时可以延伸到这些区域（通过transform）
+// 图片容器样式 - 在信息栏左边的区域内居中
+// 当信息栏显示/隐藏时，容器宽度会变化，图片自动居中
 const imageContainerStyle = computed(() => {
   // 顶部栏高度约 48px
   const topBarHeight = 48
   // 底部缩略图高度
   const bottomThumbHeight = isFullscreen.value ? 0 : thumbHeight.value
-  
+  // 信息栏宽度（使用动态值）
+  const currentInfoPanelWidth = infoCollapsed.value ? 0 : infoPanelWidth.value
+
+  // 计算图片显示尺寸
+  let right = `${currentInfoPanelWidth}px`
+
+  if (!infoCollapsed.value && imageSize.value.width && imageSize.value.height) {
+    const imgWidth = imageSize.value.width
+    const imgHeight = imageSize.value.height
+    const containerWidth = window.innerWidth
+    const containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
+
+    // 计算图片显示宽度
+    const scaleX = containerWidth / imgWidth
+    const scaleY = containerHeight / imgHeight
+    const scale = Math.min(scaleX, scaleY)
+    const displayWidth = imgWidth * scale
+
+    // 无信息栏时，图片在窗口中居中，左边位置 = (windowWidth - displayWidth) / 2
+    const leftNoInfo = (containerWidth - displayWidth) / 2
+
+    // 显示信息栏后，图片在信息栏左边区域居中
+    // 新的左边位置 = (windowWidth - currentInfoPanelWidth - displayWidth) / 2
+    const leftWithInfo = (containerWidth - currentInfoPanelWidth - displayWidth) / 2
+
+    // 如果新位置 < 0，说明图片无法再往左移（左边已经到窗口边缘）
+    // 此时保持原位置，不移动
+    if (leftWithInfo < 0 && leftNoInfo <= 0) {
+      right = '0px'
+    }
+  }
+
   return {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
+    // 容器从左侧到信息栏之间
+    left: '0',
+    right,
     top: `${topBarHeight}px`,
     bottom: `${bottomThumbHeight}px`,
-    left: '0',
-    right: '0',
-    position: 'absolute' as const
+    position: 'absolute' as const,
+    // 只在信息栏展开/收起时启用动画
+    transition: isInfoPanelAnimating.value ? 'right 0.3s ease' : 'none'
   }
 })
 
-// 图片样式 - 根据图片尺寸和可用空间动态调整
+// 图片样式 - 根据窗口尺寸动态调整，确保图片完整显示
+// 宽度计算不减去信息栏（允许信息栏覆盖在图片上方）
 const imageStyle = computed(() => {
   if (!currentPhoto.value || !imageSize.value.width || !imageSize.value.height) {
     return {}
@@ -764,36 +829,16 @@ const imageStyle = computed(() => {
 
   const imgWidth = imageSize.value.width
   const imgHeight = imageSize.value.height
-  const imgRatio = imgWidth / imgHeight
 
-  // 获取图片容器的实际可用尺寸
-  // 图片默认避开顶部栏和底部缩略图，但放大时可以延伸到这些区域
   // 顶部栏高度约 48px
   const topBarHeight = 48
   // 底部缩略图高度
   const bottomThumbHeight = isFullscreen.value ? 0 : thumbHeight.value
-  // 图片容器的可用高度 = 窗口高度 - 顶部栏 - 底部缩略图
-  let containerWidth = window.innerWidth
-  let containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
-  
-  // 如果主内容区域 ref 存在，使用其宽度（可能更准确）
-  if (mainContentArea.value) {
-    const rect = mainContentArea.value.getBoundingClientRect()
-    containerWidth = rect.width
-    // 图片容器的高度 = 窗口高度 - 顶部栏 - 底部缩略图
-    containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
-  }
+  // 可用空间尺寸（使用整个窗口宽度，不减去信息栏）
+  const containerWidth = window.innerWidth
+  const containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
 
-  console.log('📐 PhotoViewer 空间计算:', {
-    container: `${containerWidth}x${containerHeight}`,
-    imageSize: `${imgWidth}x${imgHeight}`,
-    imageRatio: imgRatio.toFixed(3),
-    topBarHeight,
-    bottomThumbHeight,
-    windowHeight: window.innerHeight
-  })
-
-  // 计算缩放比例，确保图片完整显示
+  // 计算缩放比例，确保图片完整显示（取宽高缩放比例的最小值）
   const scaleX = containerWidth / imgWidth
   const scaleY = containerHeight / imgHeight
   const scale = Math.min(scaleX, scaleY)
@@ -801,18 +846,11 @@ const imageStyle = computed(() => {
   const finalWidth = imgWidth * scale
   const finalHeight = imgHeight * scale
 
-  console.log('🔍 PhotoViewer 缩放计算:', {
-    scaleX: scaleX.toFixed(3),
-    scaleY: scaleY.toFixed(3),
-    finalScale: scale.toFixed(3),
-    finalSize: `${finalWidth.toFixed(0)}x${finalHeight.toFixed(0)}`
-  })
-
   return {
     width: `${finalWidth}px`,
     height: `${finalHeight}px`,
-    maxWidth: '100%',
-    maxHeight: '100%',
+    maxWidth: 'none',
+    maxHeight: 'none',
     objectFit: 'contain'
   }
 })
@@ -821,7 +859,7 @@ const imageStyle = computed(() => {
 const imageTransformStyle = computed(() => {
   // 如果正在拖拽、缩放、平移或触摸操作，禁用过渡效果
   const isInteracting = isImageDragging.value || isZooming.value || isPanning.value || isPinching.value
-  
+
   if (scale.value > 1) {
     return {
       // transform 从右到左应用：translate(...) scale(...) 表示先 scale 后 translate
@@ -831,9 +869,13 @@ const imageTransformStyle = computed(() => {
       transition: isInteracting ? 'none' : 'transform 0.3s ease'
     }
   } else {
+    // 未缩放时，只需要拖拽切换的偏移
+    // 图片位置由 imageContainerStyle 控制，会自动跟随信息栏动画
+    const dragOffsetX = imageDragOffset.value * 0.3
     return {
-      transform: `translateX(${imageDragOffset.value * 0.3}px)`,
+      transform: `translateX(${dragOffsetX}px)`,
       transformOrigin: 'center center',
+      // 拖拽切换时禁用动画，信息栏动画由 imageContainerStyle 处理
       transition: isInteracting ? 'none' : 'transform 0.3s ease'
     }
   }
@@ -923,6 +965,8 @@ watch(() => props.visible, (newVisible) => {
       modalRoot.value?.focus()
       // 人脸框现在直接绑定在图片内部，无需额外计算
     })
+    // 打开时应用信息栏偏移
+    applyInfoPanelOffset(false)
     console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
       startIndex: props.startIndex,
       currentIndex: currentIndex.value,
@@ -943,6 +987,9 @@ watch(() => props.startIndex, (newStartIndex) => {
     scale.value = 1
     translateX.value = 0
     translateY.value = 0
+    // 重置用户缩放状态并重新应用信息栏偏移
+    userHasManuallyZoomed.value = false
+    applyInfoPanelOffset(false)
     // 重置图片加载状态，确保人脸框重新计算
     nextTick(() => {
       imageLoaded.value = false
@@ -1056,6 +1103,11 @@ const initializeBoxStates = () => {
 // 初始化状态
 infoCollapsed.value = localStorage.getItem('pe-info-collapsed') === '1'
 infoTransparent.value = localStorage.getItem(STORAGE_KEY) === '1'
+// 初始化信息栏宽度
+const savedWidth = localStorage.getItem('pe-info-panel-width')
+if (savedWidth) {
+  infoPanelWidth.value = parseInt(savedWidth, 10)
+}
 
 // 初始化框体状态已在上面声明
 
@@ -1084,6 +1136,10 @@ const prev = () => {
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
+  // 重置用户缩放状态和信息栏偏移
+  userHasManuallyZoomed.value = false
+  // 重新计算信息栏偏移（而不是直接重置为0）
+  applyInfoPanelOffset(false)
   // 重置图片加载状态
   nextTick(() => {
     imageLoaded.value = false
@@ -1109,6 +1165,10 @@ const next = () => {
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
+  // 重置用户缩放状态和信息栏偏移
+  userHasManuallyZoomed.value = false
+  // 重新计算信息栏偏移（而不是直接重置为0）
+  applyInfoPanelOffset(false)
   // 重置图片加载状态，确保人脸框重新计算
   nextTick(() => {
     imageLoaded.value = false
@@ -1130,6 +1190,10 @@ const jump = (idx: number) => {
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
+  // 重置用户缩放状态和信息栏偏移
+  userHasManuallyZoomed.value = false
+  // 重新计算信息栏偏移（而不是直接重置为0）
+  applyInfoPanelOffset(false)
   // 重置图片加载状态，确保人脸框重新计算
   nextTick(() => {
     imageLoaded.value = false
@@ -1142,14 +1206,143 @@ const jump = (idx: number) => {
   })
 }
 
+// 计算信息栏显示时的图片偏移（确保图片不被遮挡）
+// 返回值：负数表示向左移动，正数表示向右移动，0表示不需要移动
+const calculateInfoPanelOffset = (): number => {
+  // 如果用户手动缩放，不调整位置
+  if (userHasManuallyZoomed.value) {
+    return 0
+  }
+
+  // 图片显示尺寸
+  const imgWidth = imageSize.value.width
+  const imgHeight = imageSize.value.height
+
+  if (!imgWidth || !imgHeight) {
+    return 0
+  }
+
+  // 信息栏宽度（使用动态值）
+  const currentInfoPanelWidth = infoPanelWidth.value
+  // 顶部栏高度约 48px
+  const topBarHeight = 48
+  // 底部缩略图高度
+  const bottomThumbHeight = isFullscreen.value ? 0 : thumbHeight.value
+  // 可用容器高度
+  const containerHeight = window.innerHeight - topBarHeight - bottomThumbHeight
+  // 窗口宽度
+  const windowWidth = window.innerWidth
+
+  // 计算图片适应容器后的尺寸
+  const scaleX = windowWidth / imgWidth
+  const scaleY = containerHeight / imgHeight
+  const displayScale = Math.min(scaleX, scaleY)
+  const displayWidth = imgWidth * displayScale
+
+  // 如果信息栏已隐藏，不需要偏移（图片在容器内居中）
+  if (infoCollapsed.value) {
+    return 0
+  }
+
+  // 减去信息栏后的可用宽度
+  const availableWidth = windowWidth - currentInfoPanelWidth
+
+  // 计算图片在剩余空间中的居中位置
+  // 剩余空间的中心 = infoPanelWidth + (availableWidth - displayWidth) / 2
+  // 窗口中心 = windowWidth / 2
+  // 偏移 = 剩余空间中心 - 窗口中心
+  const centerInAvailable = currentInfoPanelWidth + (availableWidth - displayWidth) / 2
+  const centerInWindow = windowWidth / 2
+  let offset = centerInAvailable - centerInWindow
+
+  // 判断是否溢出：如果图片宽度 > 可用宽度，居中后左边会超出
+  // 限制偏移确保左边不超过窗口左边
+  if (displayWidth > availableWidth) {
+    // 图片左边缘距离 = (windowWidth - displayWidth) / 2 + offset
+    // 左边不能 < 0，所以 offset >= 0 - (windowWidth - displayWidth) / 2
+    const maxOffset = (displayWidth - windowWidth) / 2
+    offset = Math.max(offset, maxOffset)
+  }
+
+  // 返回偏移量（负数表示向左移）
+  return offset
+}
+
+// 应用信息栏偏移的函数
+// animate: 是否带动画（切换信息栏显示/隐藏时为true，打开/切换图片时为false）
+const applyInfoPanelOffset = (animate = false) => {
+  // 保存上一次的偏移值
+  lastInfoPanelOffsetX.value = infoPanelOffsetX.value
+  const offset = calculateInfoPanelOffset()
+  infoPanelOffsetX.value = offset
+
+  // 如果不动画，禁用过渡效果
+  if (!animate && imageWrapper.value) {
+    imageWrapper.value.style.transition = 'none'
+    requestAnimationFrame(() => {
+      if (imageWrapper.value) {
+        imageWrapper.value.style.transition = ''
+      }
+    })
+  }
+}
+
 const toggleInfo = () => {
+  const wasCollapsed = infoCollapsed.value
   infoCollapsed.value = !infoCollapsed.value
   localStorage.setItem('pe-info-collapsed', infoCollapsed.value ? '1' : '0')
+
+  // 如果用户手动缩放过，不再自动调整图片位置
+  if (userHasManuallyZoomed.value) {
+    return
+  }
+
+  // 设置动画标记（因为信息栏有动画）
+  isInfoPanelAnimating.value = true
+
+  // 应用偏移（带动画）
+  applyInfoPanelOffset(true)
+
+  // 动画结束后重置标记
+  setTimeout(() => {
+    isInfoPanelAnimating.value = false
+  }, 300)
 }
 
 const toggleInfoTransparency = () => {
   infoTransparent.value = !infoTransparent.value
   localStorage.setItem(STORAGE_KEY, infoTransparent.value ? '1' : '0')
+}
+
+// 开始调整信息栏宽度
+const startResize = (e: PointerEvent) => {
+  isResizingInfoPanel.value = true
+  resizeStartX.value = e.clientX
+  resizeStartWidth.value = infoPanelWidth.value
+  ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+}
+
+// 调整信息栏宽度中
+const onResize = (e: PointerEvent) => {
+  if (!isResizingInfoPanel.value) return
+
+  const deltaX = resizeStartX.value - e.clientX // 向左拖动时 deltaX > 0
+  const newWidth = Math.max(200, Math.min(600, resizeStartWidth.value + deltaX))
+  infoPanelWidth.value = newWidth
+
+  // 调整图片位置（不带动画）
+  applyInfoPanelOffset(false)
+}
+
+// 结束调整信息栏宽度
+const endResize = (e: PointerEvent) => {
+  if (!isResizingInfoPanel.value) return
+
+  isResizingInfoPanel.value = false
+  ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+
+  // 保存到 localStorage
+  localStorage.setItem('pe-info-panel-width', infoPanelWidth.value.toString())
 }
 
 const toggleFocusBox = () => {
@@ -1220,6 +1413,9 @@ const onImageLoad = () => {
       translateX.value = 0
       translateY.value = 0
 
+      // 应用信息栏偏移
+      applyInfoPanelOffset(false)
+
       imageLoaded.value = true
 
       console.log('📸 PhotoViewer 图片加载完成:', {
@@ -1263,6 +1459,8 @@ const onImageDoubleClick = (e: MouseEvent) => {
     translateX.value = centerX - clickX
     translateY.value = centerY - clickY
     scale.value = 2
+    // 标记用户手动缩放，之后信息栏不再自动调整图片位置
+    userHasManuallyZoomed.value = true
   }
 
   // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
@@ -1477,6 +1675,12 @@ const onImageTouchMove = (e: TouchEvent) => {
       const scaleRatio = currentDistance / touchStartDistance.value
       const newScale = Math.max(0.5, Math.min(5, initialScale.value * scaleRatio))
       scale.value = newScale
+      // 标记用户手动缩放
+      if (newScale > 1) {
+        userHasManuallyZoomed.value = true
+      } else if (newScale === 1) {
+        userHasManuallyZoomed.value = false
+      }
       
       // 计算缩放中心点（双指中心点），同样用 viewport 做参照，避免使用被 transform 影响的 boundingRect
       const viewportRect = imageViewport.value?.getBoundingClientRect()
@@ -1678,6 +1882,13 @@ const onImageWheel = (e: WheelEvent) => {
       // 更新缩放（放在最后，避免 q 用到新 scale）
       scale.value = newScale
 
+      // 标记用户手动缩放
+      if (newScale > 1) {
+        userHasManuallyZoomed.value = true
+      } else if (newScale === 1) {
+        userHasManuallyZoomed.value = false
+      }
+
       // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随变换
     }
     
@@ -1722,6 +1933,12 @@ const onKeyDown = (e: KeyboardEvent) => {
 
     if (newScale !== scale.value) {
       scale.value = newScale
+      // 标记用户手动缩放
+      if (newScale > 1) {
+        userHasManuallyZoomed.value = true
+      } else if (newScale === 1) {
+        userHasManuallyZoomed.value = false
+      }
       console.log('⌨️ 键盘缩放', {
         key: e.key,
         scale: newScale

@@ -99,9 +99,7 @@ public class PhotoAIScoringService implements AutoCloseable {
             if (this.env == null) {
                 log.debug("尝试初始化ONNX Runtime环境...");
 
-                // 尝试手动提取并加载ONNX库（针对macOS ARM64）
-                tryManualLibraryLoad();
-
+                // 直接初始化，ONNX Runtime 1.16.3 会自动找到正确的本地库
                 this.env = OrtEnvironment.getEnvironment();
                 this.onnxAvailable = true;
                 log.info("ONNX Runtime环境初始化成功，AI增强评分功能已启用");
@@ -121,7 +119,6 @@ public class PhotoAIScoringService implements AutoCloseable {
             log.error("错误详情: {}", e.getMessage());
             log.error("系统信息 - OS: {}, 架构: {}", osName, osArch);
             log.error("Java库路径: {}", javaLibPath);
-            log.error("已尝试手动加载库文件，但仍失败");
             log.error("当前将使用基础评分模式，AI增强功能不可用");
             this.env = null;
             this.onnxAvailable = false;
@@ -129,7 +126,6 @@ public class PhotoAIScoringService implements AutoCloseable {
             log.error("ONNX Runtime初始化异常 - 未知错误");
             log.error("错误类型: {}", e.getClass().getSimpleName());
             log.error("错误详情: {}", e.getMessage());
-            log.error("完整堆栈跟踪:", e);
             log.error("当前将使用基础评分模式，AI增强功能不可用");
             this.env = null;
             this.onnxAvailable = false;

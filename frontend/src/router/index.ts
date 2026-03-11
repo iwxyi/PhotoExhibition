@@ -121,12 +121,6 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/admin/migration',
-    name: 'AdminMigration',
-    component: () => import('@/views/admin/Folders.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
     path: '/admin/file-browser',
     name: 'AdminFileBrowser',
     component: () => import('@/views/admin/FileBrowser.vue'),
