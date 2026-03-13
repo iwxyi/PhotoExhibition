@@ -1028,7 +1028,22 @@ onMounted(async () => {
 
     // 声明当前活跃视图为 wall（避免其他视图触发 wall API）
     photoStore.setCurrentView && photoStore.setCurrentView('wall')
-    await loadInitial()
+
+    // 根据 URL 参数决定加载方式
+    if (activeTagId.value) {
+      // 按标签筛选
+      await photoStore.fetchPhotosByTag(activeTagId.value, 0)
+    } else if (activePersonId.value) {
+      // 按人物筛选
+      await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
+    } else if (urlFilters.value && hasEffectiveFilters(urlFilters.value)) {
+      // 应用筛选条件
+      await photoStore.filterPhotos(urlFilters.value, 0)
+    } else {
+      // 加载所有图片
+      await loadInitial()
+    }
+
     // 标记组件已激活，后续 onActivated 不再重新加载
     isActivatedFlag.value = true
     window.addEventListener('scroll', handleScroll, { passive: true })
@@ -1155,15 +1170,32 @@ const hydrateFromRoute = () => {
 
   // 处理URL中的filters参数
   urlFilters.value = null
+  let filtersFromUrl: any = null
+
   if (route.query.filters) {
     try {
-      const parsedFilters = JSON.parse(route.query.filters as string)
-      urlFilters.value = parsedFilters
-      // 保存筛选条件到store，但不自动打开筛选面板
-      photoStore.lastFilters = parsedFilters
+      filtersFromUrl = JSON.parse(route.query.filters as string)
     } catch (e) {
       console.warn('解析URL筛选参数失败:', e)
     }
+  }
+
+  // 如果有 tagId 参数，也添加到 filters 中以便筛选面板显示选中状态
+  if (activeTagId.value) {
+    filtersFromUrl = filtersFromUrl || {}
+    filtersFromUrl.tagIds = [activeTagId.value]
+  }
+
+  // 如果有 personId 参数，也添加到 filters 中
+  if (activePersonId.value) {
+    filtersFromUrl = filtersFromUrl || {}
+    filtersFromUrl.personIds = [activePersonId.value]
+  }
+
+  if (filtersFromUrl) {
+    urlFilters.value = filtersFromUrl
+    // 保存筛选条件到store，但不自动打开筛选面板
+    photoStore.lastFilters = filtersFromUrl
   }
 }
 
@@ -1188,9 +1220,20 @@ watch(
       }
       // 更新内部状态
       hydrateFromRoute()
-      // 如果有 URL 筛选参数，则应用筛选；否则加载所有照片
-      if (urlFilters.value && hasEffectiveFilters(urlFilters.value)) {
-        // 应用筛选
+
+      // 根据 URL 参数类型选择加载方式
+      if (activeTagId.value) {
+        // 按标签筛选
+        currentPage.value = 0
+        hasMore.value = true
+        await photoStore.fetchPhotosByTag(activeTagId.value, 0)
+      } else if (activePersonId.value) {
+        // 按人物筛选
+        currentPage.value = 0
+        hasMore.value = true
+        await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
+      } else if (urlFilters.value && hasEffectiveFilters(urlFilters.value)) {
+        // 应用筛选条件
         currentPage.value = 0
         hasMore.value = true
         await photoStore.filterPhotos(urlFilters.value, 0)

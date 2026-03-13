@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { albumApi, aiApi, personApi, configApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { usePhotoStore } from '@/stores/photo'
 import AppHeader from '@/components/AppHeader.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
@@ -11,6 +12,7 @@ import type { Photo } from '@/stores/photo'
 
 const route = useRoute()
 const router = useRouter()
+const photoStore = usePhotoStore()
 
 // 检测是否为移动端
 const isMobile = ref(window.innerWidth < 640)
@@ -169,6 +171,8 @@ const unconfirmedFaceIds = computed(() => {
 
 const keyword = ref('')
 const faceId = ref<number | null>(null)
+const tagId = ref<number | null>(null)
+const tagName = ref<string>('')
 const clusterThreshold = ref<number>(0.7)
 
 // 加载聚类阈值配置
@@ -180,6 +184,12 @@ const loadClusterThreshold = async () => {
     console.error('加载聚类阈值失败:', e)
   }
 }
+
+// 清理滚动监听
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
+  if (scrollTimer) clearTimeout(scrollTimer)
+})
 const loading = ref(true)
 const albums = ref<AlbumDTO[]>([])
 const persons = ref<PersonSummary[]>([])
@@ -187,7 +197,13 @@ const photos = ref<PhotoDTO[]>([])
 const facePhotos = ref<FacePhoto[]>([])
 const similarFaces = ref<FaceFace[]>([])
 const hasSearched = ref(false)
-const searchMode = ref<'keyword' | 'face'>('keyword')
+const searchMode = ref<'keyword' | 'face' | 'tag'>('keyword')
+
+// 标签搜索相关
+const tagPhotos = ref<PhotoDTO[]>([])
+const tagPage = ref(0)
+const tagHasMore = ref(true)
+const tagLoadingMore = ref(false)
 
 onMounted(async () => {
   // 先加载聚类阈值配置
@@ -196,31 +212,44 @@ onMounted(async () => {
   // 从查询参数获取关键词
   keyword.value = (route.query.q as string) || (route.params.keyword as string) || ''
   faceId.value = route.query.faceId ? parseInt(route.query.faceId as string, 10) : null
+  tagId.value = route.query.tagId ? parseInt(route.query.tagId as string, 10) : null
+  tagName.value = (route.query.tagName as string) || ''
 
   if (faceId.value && !isNaN(faceId.value)) {
     searchMode.value = 'face'
     await searchSimilarFaces()
+  } else if (tagId.value && !isNaN(tagId.value)) {
+    searchMode.value = 'tag'
+    await searchByTag()
   } else if (keyword.value) {
     searchMode.value = 'keyword'
     await search()
   } else {
     loading.value = false
   }
+
+  // 添加滚动监听
+  window.addEventListener('scroll', handleScroll, { passive: true })
 })
 
 // 监听路由变化，支持 /search?q=xxx 和 /s/xxx 之间的切换
 watch(
-  () => [route.query.q, route.params.keyword, route.query.faceId],
-  async ([newQ, newKeyword, newFaceId]) => {
+  () => [route.query.q, route.params.keyword, route.query.faceId, route.query.tagId],
+  async ([newQ, newKeyword, newFaceId, newTagId]) => {
     const newKeywordValue = (newQ as string) || (newKeyword as string) || ''
     const newFaceIdValue = newFaceId ? parseInt(newFaceId as string, 10) : null
+    const newTagIdValue = newTagId ? parseInt(newTagId as string, 10) : null
 
     keyword.value = newKeywordValue
     faceId.value = newFaceIdValue && !isNaN(newFaceIdValue) ? newFaceIdValue : null
+    tagId.value = newTagIdValue && !isNaN(newTagIdValue) ? newTagIdValue : null
 
     if (faceId.value && !isNaN(faceId.value)) {
       searchMode.value = 'face'
       await searchSimilarFaces()
+    } else if (tagId.value && !isNaN(tagId.value)) {
+      searchMode.value = 'tag'
+      await searchByTag()
     } else if (newKeywordValue) {
       searchMode.value = 'keyword'
       await search()
@@ -231,6 +260,7 @@ watch(
       persons.value = []
       photos.value = []
       similarFaces.value = []
+      tagPhotos.value = []
     }
   }
 )
@@ -285,9 +315,74 @@ const searchSimilarFaces = async () => {
   }
 }
 
+// 标签搜索
+const searchByTag = async () => {
+  loading.value = true
+  hasSearched.value = true
+  tagPage.value = 0
+  tagPhotos.value = []
+  tagHasMore.value = true
+
+  try {
+    const response = await photoStore.filterPhotos({ tagIds: [tagId.value!] }, 0, 30)
+    const photosData = response as any
+    tagPhotos.value = photosData?.content || photosData || []
+    tagHasMore.value = tagPhotos.value.length >= 30
+  } catch (e) {
+    console.error('标签搜索失败:', e)
+    tagPhotos.value = []
+    tagHasMore.value = false
+  } finally {
+    loading.value = false
+  }
+}
+
+// 加载更多标签搜索结果
+const loadMoreTagPhotos = async () => {
+  if (tagLoadingMore.value || !tagHasMore.value) return
+
+  tagLoadingMore.value = true
+  try {
+    const nextPage = tagPage.value + 1
+    const response = await photoStore.filterPhotos({ tagIds: [tagId.value!] }, nextPage, 30)
+    const newPhotos = (response as any)?.content || (response as any) || []
+    tagPhotos.value = [...tagPhotos.value, ...newPhotos]
+    tagPage.value = nextPage
+    tagHasMore.value = newPhotos.length >= 30
+  } catch (e) {
+    console.error('加载更多标签照片失败:', e)
+  } finally {
+    tagLoadingMore.value = false
+  }
+}
+
+// 滚动加载更多
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+const handleScroll = () => {
+  if (scrollTimer) return
+  scrollTimer = setTimeout(() => {
+    if (searchMode.value !== 'tag') {
+      scrollTimer = null
+      return
+    }
+
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const windowHeight = window.innerHeight
+    const documentHeight = document.documentElement.scrollHeight
+
+    if (scrollTop + windowHeight >= documentHeight - 500) {
+      loadMoreTagPhotos()
+    }
+    scrollTimer = null
+  }, 100)
+}
+
 const hasResults = computed(() => {
   if (searchMode.value === 'face') {
     return similarFaces.value.length > 0 || facePhotos.value.length > 0
+  }
+  if (searchMode.value === 'tag') {
+    return tagPhotos.value.length > 0
   }
   return albums.value.length > 0 || persons.value.length > 0 || photos.value.length > 0
 })
@@ -515,6 +610,9 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
         <p class="text-gray-600 dark:text-gray-400" v-else-if="faceId">
           相似人脸搜索 (人脸ID: {{ faceId }})
         </p>
+        <p class="text-gray-600 dark:text-gray-400" v-else-if="tagId">
+          标签: {{ tagName || ('#' + tagId) }}
+        </p>
       </div>
 
       <!-- 加载状态 -->
@@ -640,6 +738,60 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
                   是TA
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 标签搜索结果 -->
+        <div v-if="searchMode === 'tag' && tagPhotos.length > 0" class="mb-10">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
+            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            照片 ({{ tagPhotos.length }})
+          </h2>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <a
+              v-for="photo in tagPhotos"
+              :key="photo.id"
+              :href="`/photo/${photo.albumId}/${photo.id}`"
+              target="_blank"
+              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
+            >
+              <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
+                <img
+                  v-if="getPhotoThumbUrl(photo)"
+                  :src="getPhotoThumbUrl(photo)"
+                  :alt="photo.filename"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+              </div>
+              <div class="p-2">
+                <p class="text-sm font-medium text-gray-800 dark:text-white truncate">
+                  {{ photo.filename }}
+                </p>
+              </div>
+            </a>
+          </div>
+          <!-- 加载更多 -->
+          <div v-if="tagHasMore" class="flex justify-center mt-6">
+            <button
+              v-if="!tagLoadingMore"
+              @click="loadMoreTagPhotos"
+              class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full text-sm font-medium transition-colors"
+            >
+              加载更多
+            </button>
+            <div v-else class="flex items-center gap-2 text-gray-500">
+              <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+              <span>加载中...</span>
             </div>
           </div>
         </div>

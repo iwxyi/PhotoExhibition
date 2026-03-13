@@ -86,11 +86,16 @@
           :class="{ 'album-persons-section--dark': atmosphereEnabled && album?.backgroundColor }"
         >
           <div class="album-persons-scroll">
-            <div
-              v-for="person in albumPersons"
+            <a
+              v-for="(person, index) in albumPersons"
               :key="person.id"
+              :href="`/p/${person.id}?from=${encodeURIComponent(route.fullPath)}`"
+              target="_blank"
+              rel="noopener noreferrer"
               class="album-person-card"
-              @click="router.push({ path: `/p/${person.id}`, query: { from: route.fullPath } })"
+              :class="{ 'album-person-card--highlighted': hoveredPhotoPersonIds.has(person.id) }"
+              :style="{ '--delay': `${index * 80}ms` }"
+              @click="handlePersonClick(person, $event)"
             >
               <div class="person-avatar-wrapper">
                 <img
@@ -108,7 +113,7 @@
               </div>
               <span class="person-name">{{ person.name }}</span>
               <span class="person-count">{{ person.faceCount }} 张</span>
-            </div>
+            </a>
           </div>
         </div>
 
@@ -127,6 +132,8 @@
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
               @pointerup="onPhotoPointerUp(photo, index, $event)"
               @click="handlePhotoClick(photo, index, $event)"
+              @mouseenter="onPhotoHover(photo, true)"
+              @mouseleave="onPhotoHover(photo, false)"
               :ref="(el: Element | ComponentPublicInstance | null) => setPhotoRef(el as Element | null, photo.id)"
             >
               <!-- multi-select checkbox (shown only in multiselect mode) -->
@@ -308,6 +315,41 @@ interface AlbumPerson {
 }
 const albumPersons = ref<AlbumPerson[]>([])
 const albumPersonsLoading = ref(false)
+
+// 当前悬浮的照片关联的人物ID集合
+const hoveredPhotoPersonIds = ref<Set<number>>(new Set())
+
+// 从照片数据中获取关联的人物ID列表
+const getPhotoPersonIds = (photo: any): number[] => {
+  if (!photo?.faces || !Array.isArray(photo.faces)) return []
+  const personIds: number[] = []
+  for (const face of photo.faces) {
+    if (face.personId) personIds.push(face.personId)
+  }
+  return [...new Set(personIds)] // 去重
+}
+
+// 鼠标悬停在照片上时
+const onPhotoHover = (photo: any, isEnter: boolean) => {
+  // 从照片数据中获取人物ID - 兼容 masonry item 结构
+  const rawPhoto = photo?.data || photo
+  const personIds = getPhotoPersonIds(rawPhoto)
+
+  if (isEnter) {
+    // 添加该照片关联的所有人物ID
+    personIds.forEach(id => hoveredPhotoPersonIds.value.add(id))
+  } else {
+    // 移除该照片关联的所有人物ID
+    personIds.forEach(id => hoveredPhotoPersonIds.value.delete(id))
+  }
+  // 触发响应式更新
+  hoveredPhotoPersonIds.value = new Set(hoveredPhotoPersonIds.value)
+}
+
+// 人物卡片点击处理 - 保留点击事件以支持链接跳转
+const handlePersonClick = (_person: AlbumPerson, _event: MouseEvent) => {
+  // 使用 href 跳转，不需要额外处理
+}
 
 // 图片加载状态
 const imagesLoaded = ref(false)

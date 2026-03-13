@@ -208,6 +208,16 @@
         </div>
 
 
+        <!-- 信息栏遮罩层（信息栏宽度超过窗口一半时显示，点击关闭信息栏） -->
+        <transition name="fade">
+          <div
+            v-if="showInfoOverlay"
+            class="absolute inset-0 z-[5] bg-black/50 backdrop-blur-sm pointer-events-auto"
+            @click="toggleInfo"
+            title="点击关闭信息栏"
+          ></div>
+        </transition>
+
         <!-- 信息侧栏 -->
       <transition name="slide-right">
         <div
@@ -380,17 +390,14 @@
                   @click.stop="f.isConfirmed && f.personId && f.personName ? openPersonByFace(f) : (!f.personId || !f.personName) ? findSimilarFaces(f) : null"
                 >
                   <div
-                    class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 overflow-hidden"
-                    :class="[getFaceColor(idx).border, 'border-2']"
-                    :style="getFaceAvatarStyle(f)"
-                    :title="getFaceTooltip(f)"
-                  ></div>
+                  class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 overflow-hidden face-avatar"
+                  :class="[getFaceColor(idx).border, 'border-2']"
+                  :style="getFaceAvatarStyle(f)"
+                  :title="getFaceTooltip(f)"
+                ></div>
                   <div class="text-xs flex-1 min-w-0">
                     <div class="font-semibold truncate" :class="getFaceColor(idx).text">
                       {{ f.personName || '未命名' }}
-                    </div>
-                    <div class="text-[11px] text-gray-400 truncate">
-                      置信度: {{ f.confidence !== undefined ? (f.confidence * 100).toFixed(1) + '%' : '-' }}
                     </div>
                   </div>
                 </div>
@@ -704,6 +711,18 @@ const isInfoPanelAnimating = ref(false)
 const isResizingInfoPanel = ref(false)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(320)
+
+// 响应式窗口宽度（用于判断是否显示遮罩层）
+const windowWidth = ref(window.innerWidth)
+
+const onWindowResize = () => {
+  windowWidth.value = window.innerWidth
+}
+
+// 判断信息栏遮罩层是否需要显示（信息栏宽度超过窗口一半时显示，点击遮罩可关闭信息栏）
+const showInfoOverlay = computed(() => {
+  return !infoCollapsed.value && infoPanelWidth.value > windowWidth.value / 2
+})
 
 // 记录鼠标/指针最近位置（用于触控板 pinch 时以“鼠标所在位置”为中心缩放）
 const lastPointerPos = ref({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
@@ -2182,12 +2201,13 @@ const getColorTooltip = (color: string) => {
 const resolveFaceAvatarUrl = (face: any) => {
   const photo = currentPhoto.value
   if (!photo) return ''
+  // 直接使用当前显示的图片
   const firstPath = [
-    face.photoThumbnailPath,
-    face.photoOriginalPath,
-    photo.thumbnailPath,
+    photo.originalPath,
     photo.webpPath,
-    photo.originalPath
+    photo.thumbnailPath,
+    face.photoOriginalPath,
+    face.photoThumbnailPath
   ].find(p => p && typeof p === 'string' && p.length > 0) || ''
   const base = firstPath
     ? firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
@@ -2210,11 +2230,36 @@ const getFaceAvatarStyle = (face: any) => {
   if (!hasSize) {
     return { backgroundImage: `url(${base})`, backgroundSize: 'cover', backgroundPosition: 'center center' }
   }
-  const centerX = ((face.x || 0) + face.width / 2) * 100
-  const centerY = ((face.y || 0) + face.height / 2) * 100
+
+  // 人脸中心坐标（0-1 范围转为百分比）
+  const faceCenterX = (face.x || 0) + face.width / 2
+  const faceCenterY = (face.y || 0) + face.height / 2
+
+  // 计算相对于中心的偏移（-0.5 到 0.5）
+  const offsetX = faceCenterX - 0.5
+  const offsetY = faceCenterY - 0.5
+
+  // 距离中心的欧几里得距离
+  const distFromCenter = Math.sqrt(offsetX * offsetX + offsetY * offsetY)
+
+  // 添加位置补偿：距离中心越远，补偿越大
+  const compensationFactor = 0.3
+  const compensationX = offsetX * compensationFactor * (distFromCenter / 0.5)
+  const compensationY = offsetY * compensationFactor * (distFromCenter / 0.5)
+
+  // 应用补偿后的中心坐标
+  const centerX = (faceCenterX + compensationX) * 100
+  const centerY = (faceCenterY + compensationY) * 100
+
+  // 目标填充比例：人脸占满圆圈的 80%
+  const fillRatio = 0.8
+  let scalePercent = (fillRatio / face.width) * 100
+  // 限制缩放范围
+  scalePercent = Math.min(Math.max(scalePercent, 150), 500)
+
   return {
     backgroundImage: `url(${base})`,
-    backgroundSize: 'cover',
+    backgroundSize: `${scalePercent}%`,
     backgroundPosition: `${centerX}% ${centerY}%`
   }
 }
@@ -2280,6 +2325,7 @@ onMounted(() => {
   })
 
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('resize', onWindowResize)
   window.addEventListener('resize', onImageLoad)
   document.addEventListener('fullscreenchange', onFullscreenChange)
 })
@@ -2287,6 +2333,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('resize', onImageLoad)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
@@ -2406,7 +2453,25 @@ onBeforeUnmount(() => {
   @apply rounded;
 }
 .face-item:hover {
-  transform: translateX(4px);
+  transform: translateX(4px) scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.face-item:active {
+  transform: translateX(2px) scale(0.98);
+  transition-duration: 0.1s;
+}
+
+/* 人脸头像动画 */
+.face-avatar {
+  @apply transition-all duration-300;
+}
+.face-item:hover .face-avatar {
+  transform: scale(1.15) rotate(5deg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.face-item:active .face-avatar {
+  transform: scale(0.95);
+  transition-duration: 0.1s;
 }
 
 /* 颜色色卡动画 */

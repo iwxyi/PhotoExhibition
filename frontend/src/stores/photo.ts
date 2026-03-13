@@ -125,7 +125,7 @@ export const usePhotoStore = defineStore('photo', () => {
     const wasLoading = loading.value
     if (setLoading) loading.value = true
     try {
-      const params: any = { page, size }
+      const params: any = { page, size, includeHidden: false }
       if (category) params.category = category
       if (sort) params.sort = sort
       const response = await api.get('/albums', { params })

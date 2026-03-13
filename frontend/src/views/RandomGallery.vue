@@ -636,20 +636,39 @@ const loadInitial = async () => {
     hasMore.value = true
     let data: any
 
+    // 解析 URL 参数
+    const tagIdParam = route.query.tagId ? Number(route.query.tagId) : null
+    const personIdParam = route.query.personId ? Number(route.query.personId) : null
+
     // 检查URL中的filters参数
     urlFilters.value = null
+    let filtersFromUrl: any = null
+
     if (route.query.filters) {
       try {
-        const parsedFilters = JSON.parse(route.query.filters as string)
-        urlFilters.value = parsedFilters
-        // 将URL筛选条件应用到photoStore
-        photoStore.lastFilters = parsedFilters
-        photoStore.lastFiltersActive.value = true
-        // 触发筛选面板显示（可选）
-        showFilter.value = true
+        filtersFromUrl = JSON.parse(route.query.filters as string)
       } catch (e) {
         console.warn('解析URL筛选参数失败:', e)
       }
+    }
+
+    // 如果有 tagId 参数，添加到 filters 中
+    if (tagIdParam) {
+      filtersFromUrl = filtersFromUrl || {}
+      filtersFromUrl.tagIds = [tagIdParam]
+    }
+
+    // 如果有 personId 参数，添加到 filters 中
+    if (personIdParam) {
+      filtersFromUrl = filtersFromUrl || {}
+      filtersFromUrl.personIds = [personIdParam]
+    }
+
+    if (filtersFromUrl) {
+      urlFilters.value = filtersFromUrl
+      // 将URL筛选条件应用到photoStore
+      photoStore.lastFilters = filtersFromUrl
+      photoStore.lastFiltersActive.value = true
     }
 
     if (photoStore.lastFilters) {
@@ -682,14 +701,25 @@ const loadInitial = async () => {
 }
 
 onMounted(async () => {
-  // 如果已经有数据（从其他页面返回），不重新加载
+  // 声明当前活跃视图为 random（避免其他视图触发 random API）
+  photoStore.setCurrentView && photoStore.setCurrentView('random')
+
+  // 如果已经有数据（从其他页面返回），检查是否需要应用筛选
   if (photos.value.length > 0) {
+    // 解析 URL 参数
+    const tagIdParam = route.query.tagId ? Number(route.query.tagId) : null
+    const personIdParam = route.query.personId ? Number(route.query.personId) : null
+
+    // 如果有 URL 筛选参数，重新应用筛选
+    if (tagIdParam || personIdParam || route.query.filters) {
+      await loadInitial()
+    }
     isActivatedFlag.value = true
     window.addEventListener('scroll', handleScroll, { passive: true })
     return
   }
-  // 声明当前活跃视图为 random（避免其他视图触发 random API）
-  photoStore.setCurrentView && photoStore.setCurrentView('random')
+
+  // 首次加载
   await loadInitial()
   // 标记组件已激活，后续 onActivated 不再重新加载
   isActivatedFlag.value = true
