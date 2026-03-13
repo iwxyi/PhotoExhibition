@@ -173,6 +173,16 @@
                   @blur="onSearchBlur"
                 />
               </div>
+              <!-- 分享按钮 -->
+              <button
+                @click="handleShare"
+                class="p-2 w-9 h-9 flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-300 hover:scale-110 group"
+                title="分享当前筛选"
+              >
+                <svg class="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-green-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+              </button>
               <!-- 关闭按钮 - 添加悬停动画 -->
               <button
                 @click="closePanel"
@@ -595,10 +605,14 @@ const props = defineProps<{
   categories?: string[]
 }>()
 
+// 内部维护的 URL 参数（用于首次打开面板时同步）
+const urlFilters = ref<any>(null)
+
 const emit = defineEmits<{
-  'update:show': [value: boolean],
-  'update:selectedTags': [value: any[]],
-  'filters-applied': []
+  (e: 'update:show', value: boolean): void
+  (e: 'update:selectedTags', value: any[]): void
+  (e: 'reset'): void
+  (e: 'filters-applied', filters: any): void
 }>()
 
 const photoStore = usePhotoStore()
@@ -648,6 +662,126 @@ const onSearchBlur = () => {
     searchExpanded.value = false
     searchKeyword.value = ''
   }, 150)
+}
+
+// 同步筛选参数到面板
+const syncFiltersFromProps = async (filterData: any) => {
+  if (!filterData) return
+
+  // 更新筛选条件
+  if (filterData.cameraModel !== undefined) filters.value.cameraModel = filterData.cameraModel
+  if (filterData.lensModel !== undefined) filters.value.lensModel = filterData.lensModel
+  if (filterData.minFocalLength !== undefined || filterData.maxFocalLength !== undefined) {
+    filters.value.focalLengthRange = [filterData.minFocalLength || null, filterData.maxFocalLength || null]
+  }
+  if (filterData.minAperture !== undefined || filterData.maxAperture !== undefined) {
+    filters.value.apertureRange = [filterData.minAperture || null, filterData.maxAperture || null]
+  }
+  if (filterData.minShutterSpeed !== undefined || filterData.maxShutterSpeed !== undefined) {
+    filters.value.shutterSpeedRange = [filterData.minShutterSpeed || null, filterData.maxShutterSpeed || null]
+  }
+  if (filterData.minIso !== undefined || filterData.maxIso !== undefined) {
+    filters.value.isoRange = [filterData.minIso || null, filterData.maxIso || null]
+  }
+  if (filterData.colorCategory !== undefined) filters.value.colorCategory = filterData.colorCategory
+  if (filterData.category !== undefined) filters.value.category = filterData.category
+  if (filterData.minQualityScore !== undefined) filters.value.minQualityScore = filterData.minQualityScore
+
+  // 处理标签ID - 需要从API加载标签详情
+  if (filterData.tagIds && filterData.tagIds.length > 0) {
+    // 确保筛选选项已加载
+    if (!filterOptions.value.tags || filterOptions.value.tags.length === 0) {
+      await loadFilterOptions()
+    }
+    // 从已加载的标签中找到匹配的标签
+    const selected = filterOptions.value.tags.filter((tag: any) => filterData.tagIds.includes(tag.id))
+    if (selected.length > 0) {
+      selectedTags.value = selected
+    }
+  }
+}
+
+// 外部调用同步方法（供父组件使用）
+const syncFromExternal = async (filterData: any) => {
+  await syncFiltersFromProps(filterData)
+
+  // 同步完成后，刷新滑块的可见状态
+  nextTick(() => {
+    updateAllVisible()
+    // 延迟刷新确保DOM已渲染
+    setTimeout(() => {
+      updateAllVisible()
+    }, 100)
+  })
+}
+
+// 分享功能
+const handleShare = () => {
+  // 构建筛选参数对象，只包含有效的筛选条件
+  const filterData: any = {}
+
+  // 只添加有实际值的筛选条件
+  if (selectedTags.value.length > 0) {
+    filterData.tagIds = selectedTags.value.map(t => t.id)
+  }
+  if (filters.value.cameraModel) {
+    filterData.cameraModel = filters.value.cameraModel
+  }
+  if (filters.value.lensModel) {
+    filterData.lensModel = filters.value.lensModel
+  }
+  if (filters.value.focalLengthRange[0] !== null) {
+    filterData.minFocalLength = filters.value.focalLengthRange[0]
+  }
+  if (filters.value.focalLengthRange[1] !== null) {
+    filterData.maxFocalLength = filters.value.focalLengthRange[1]
+  }
+  if (filters.value.shutterSpeedRange[0] !== null) {
+    filterData.minShutterSpeed = filters.value.shutterSpeedRange[0]
+  }
+  if (filters.value.shutterSpeedRange[1] !== null) {
+    filterData.maxShutterSpeed = filters.value.shutterSpeedRange[1]
+  }
+  if (filters.value.apertureRange[0] !== null) {
+    filterData.minAperture = filters.value.apertureRange[0]
+  }
+  if (filters.value.apertureRange[1] !== null) {
+    filterData.maxAperture = filters.value.apertureRange[1]
+  }
+  if (filters.value.isoRange[0] !== null) {
+    filterData.minIso = filters.value.isoRange[0]
+  }
+  if (filters.value.isoRange[1] !== null) {
+    filterData.maxIso = filters.value.isoRange[1]
+  }
+  if (filters.value.colorCategory) {
+    filterData.colorCategory = filters.value.colorCategory
+  }
+  if (filters.value.category) {
+    filterData.category = filters.value.category
+  }
+  if (filters.value.minQualityScore > 0) {
+    filterData.minQualityScore = filters.value.minQualityScore
+  }
+
+  // 检查是否有有效的筛选条件
+  const hasFilters = Object.keys(filterData).length > 0
+
+  if (hasFilters) {
+    // 将筛选参数编码为URL查询参数
+    const filtersJson = JSON.stringify(filterData)
+    const encodedFilters = encodeURIComponent(filtersJson)
+
+    // 获取当前路径（从父组件传入或默认）
+    const currentPath = window.location.pathname
+    const shareUrl = `${currentPath}?filters=${encodedFilters}`
+
+    // 在新标签页打开分享链接
+    window.open(shareUrl, '_blank')
+  } else {
+    // 没有筛选条件时，直接分享当前页面
+    window.open(window.location.pathname, '_blank')
+  }
 }
 
 // 筛选选项数据
@@ -700,8 +834,10 @@ const filters = ref({
 })
 
 // 监听外部传入的初始筛选条件
-watch(() => props.initialFilters, (newFilters) => {
+watch(() => props.initialFilters, async (newFilters) => {
   if (newFilters) {
+    // 同步保存到内部变量，供首次打开面板时使用
+    urlFilters.value = newFilters
     // 更新内部筛选状态
     if (newFilters.cameraModel !== undefined) filters.value.cameraModel = newFilters.cameraModel
     if (newFilters.lensModel !== undefined) filters.value.lensModel = newFilters.lensModel
@@ -720,6 +856,19 @@ watch(() => props.initialFilters, (newFilters) => {
     if (newFilters.colorCategory !== undefined) filters.value.colorCategory = newFilters.colorCategory
     if (newFilters.category !== undefined) filters.value.category = newFilters.category
     if (newFilters.minQualityScore !== undefined) filters.value.minQualityScore = newFilters.minQualityScore
+
+    // 处理标签ID - 需要从API加载标签详情
+    if (newFilters.tagIds && newFilters.tagIds.length > 0) {
+      // 确保筛选选项已加载
+      if (!filterOptions.value.tags || filterOptions.value.tags.length === 0) {
+        await loadFilterOptions()
+      }
+      // 从已加载的标签中找到匹配的标签
+      const selected = filterOptions.value.tags.filter((tag: any) => newFilters.tagIds.includes(tag.id))
+      if (selected.length > 0) {
+        selectedTags.value = selected
+      }
+    }
   }
 }, { immediate: true })
 
@@ -762,8 +911,10 @@ const loadFilterOptions = async () => {
     const response = await api.get('/photos/filter-options')
     filterOptions.value = response.data
 
-    // 设置默认的全选范围
-    setDefaultRanges()
+    // 只有在没有外部传入筛选参数时，才设置默认的全选范围
+    if (!urlFilters.value) {
+      setDefaultRanges()
+    }
   } catch (error) {
     console.error('加载筛选选项失败:', error)
   }
@@ -783,6 +934,24 @@ watch(() => props.show, async (val) => {
     // 显示弹窗
     show.value = true
     await nextTick()
+
+    // 如果有初始筛选参数，同步筛选面板状态
+    // 优先使用 props.initialFilters，如果没有则使用内部保存的 urlFilters
+    const filtersToApply = props.initialFilters || urlFilters.value
+    if (filtersToApply) {
+      await syncFiltersFromProps(filtersToApply)
+    }
+
+    // ensure ResizeObserver observes newly rendered mark containers
+    if (resizeObserver) {
+      if (focalMarksRef.value) resizeObserver.observe(focalMarksRef.value)
+      if (shutterMarksRef.value) resizeObserver.observe(shutterMarksRef.value)
+      if (apertureMarksRef.value) resizeObserver.observe(apertureMarksRef.value)
+      if (isoMarksRef.value) resizeObserver.observe(isoMarksRef.value)
+    }
+    // recalc visible after DOM is rendered
+    updateAllVisible()
+
     // ensure ResizeObserver observes newly rendered mark containers
     if (resizeObserver) {
       if (focalMarksRef.value) resizeObserver.observe(focalMarksRef.value)
@@ -904,7 +1073,7 @@ const confirmTagSelection = async () => {
       photoStore.clearLastFilters()
     }
     // 通知父组件筛选已应用，需要重置分页状态
-    emit('filters-applied')
+    emit('filters-applied', filterData)
     closeTagSelector()
   } catch (error) {
     console.error('标签筛选失败:', error)
@@ -946,7 +1115,7 @@ const applyFilters = async () => {
     // 通知父组件更新选中的标签状态
     emit('update:selectedTags', selectedTags.value)
     // 通知父组件筛选已应用，需要重置分页状态
-    emit('filters-applied')
+    emit('filters-applied', filterData)
 
     closePanel()
   } catch (error) {
@@ -977,7 +1146,7 @@ const hasEffectiveFilters = (filterData: any) => {
 }
 
 // 内部重置方法（用于重置按钮）
-const resetFiltersInternal = () => {
+const resetFiltersInternal = async () => {
   setDefaultRanges()
   filters.value.cameraModel = ''
   filters.value.lensModel = ''
@@ -985,11 +1154,11 @@ const resetFiltersInternal = () => {
   filters.value.category = ''
   filters.value.minQualityScore = 0
   selectedTags.value = []
-  // 清除筛选状态并刷新页面内容
+  // 清除筛选状态
   photoStore.clearLastFilters()
   // 设置标志，下次打开面板时重置UI状态
   shouldResetOnOpen.value = true
-  // 触发页面刷新
+  // 触发页面刷新 - 通知父组件
   emit('reset')
 }
 
@@ -1142,7 +1311,7 @@ const selectColor = async (colorValue: string) => {
       await photoStore.filterPhotos({})
     }
     // 通知父组件筛选已应用，需要重置分页状态
-    emit('filters-applied')
+    emit('filters-applied', filterData)
     // 自动关闭面板
     closePanel()
   } catch (error) {
@@ -1181,7 +1350,7 @@ const selectCategory = async (categoryValue: string) => {
       await photoStore.filterPhotos({})
     }
     // 通知父组件筛选已应用，需要重置分页状态
-    emit('filters-applied')
+    emit('filters-applied', filterData)
     // 自动关闭面板
     closePanel()
   } catch (error) {
@@ -1917,7 +2086,8 @@ onBeforeUnmount(() => {
 
 // 暴露方法给父组件调用
 defineExpose({
-  resetFilters
+  resetFilters,
+  syncFromExternal
 })
 </script>
 

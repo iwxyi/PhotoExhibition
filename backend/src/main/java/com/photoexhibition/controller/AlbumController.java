@@ -41,13 +41,14 @@ public class AlbumController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String sort) {
-        log.info("获取相册列表 - 页码: {}, 数量: {}, 分类: {}, 排序: {}", page, size, category, sort);
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "false") boolean includeHidden) {
+        log.info("获取相册列表 - 页码: {}, 数量: {}, 分类: {}, 排序: {}, includeHidden: {}", page, size, category, sort, includeHidden);
         // 参数校验，确保 page 和 size 至少为 1
         if (page < 0) page = 0;
         if (size < 1) size = 12;
         Pageable pageable = PageRequest.of(page, size);
-        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort);
+        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort, includeHidden);
         log.info("返回 {} 个相册, 总数: {}", albums.getNumberOfElements(), albums.getTotalElements());
         return ResponseEntity.ok(albums);
     }
@@ -171,6 +172,21 @@ public class AlbumController {
             return ResponseEntity.badRequest().build();
         }
         AlbumDTO album = albumService.setAlbumDownloadAllowed(id, downloadAllowed);
+        return ResponseEntity.ok(album);
+    }
+
+    /**
+     * 设置相册隐藏状态
+     */
+    @PutMapping("/{id}/hidden")
+    public ResponseEntity<AlbumDTO> setAlbumHidden(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Boolean> request) {
+        Boolean isHidden = request.get("isHidden");
+        if (isHidden == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        AlbumDTO album = albumService.setAlbumHidden(id, isHidden);
         return ResponseEntity.ok(album);
     }
 

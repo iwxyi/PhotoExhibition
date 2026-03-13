@@ -62,9 +62,10 @@ public class AlbumService {
 
     /**
      * 获取相册总数（有照片的相册或开启了聚合的相册，已过滤被聚合的相册）
+     * @param includeHidden 是否包含隐藏相册（true=后台管理，显示所有；false=前台，过滤隐藏）
      */
     @Transactional(readOnly = true)
-    public long getAlbumsCount(String category) {
+    public long getAlbumsCount(String category, boolean includeHidden) {
         List<Album> allAlbums;
         if (category != null && !category.isEmpty()) {
             String prefix = buildCategoryPrefix(category);
@@ -76,8 +77,17 @@ public class AlbumService {
         }
 
         // 过滤掉被聚合的相册
-        List<Album> filteredAlbums = filterAggregatedAlbums(allAlbums);
+        List<Album> filteredAlbums = filterAggregatedAlbums(allAlbums, includeHidden);
         return filteredAlbums.size();
+    }
+
+    /**
+     * 获取相册总数（有照片的相册或开启了聚合的相册，已过滤被聚合的相册）
+     * 默认不包含隐藏相册
+     */
+    @Transactional(readOnly = true)
+    public long getAlbumsCount(String category) {
+        return getAlbumsCount(category, false);
     }
 
     /**
@@ -86,7 +96,16 @@ public class AlbumService {
      */
     @Transactional(readOnly = true)
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort) {
-        log.debug("获取相册列表 - 排序: {}, 分类: {}", sort, category);
+        return getAllAlbumsWithCover(pageable, category, sort, false);
+    }
+
+    /**
+     * 获取所有相册并生成封面（只返回有照片的相册或开启了聚合的相册）
+     * @param includeHidden 是否包含隐藏相册（true=后台管理，显示所有；false=前台，过滤隐藏）
+     */
+    @Transactional(readOnly = true)
+    public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort, boolean includeHidden) {
+        log.debug("获取相册列表 - 排序: {}, 分类: {}, includeHidden: {}", sort, category, includeHidden);
 
         // 先查询足够多的数据（500条足够容纳所有相册），然后在内存中过滤和分页
         int fetchSize = 500;
@@ -103,11 +122,11 @@ public class AlbumService {
         }
 
         // 过滤掉被聚合的相册，并按排序重新排序
-        List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent());
+        List<Album> filteredAlbums = filterAggregatedAlbums(albums.getContent(), includeHidden);
         filteredAlbums = sortAlbums(filteredAlbums, sort);
 
         // 获取总数
-        long totalElements = getAlbumsCount(category);
+        long totalElements = getAlbumsCount(category, includeHidden);
 
         // 计算实际的分页范围
         int page = pageable.getPageNumber();
@@ -219,7 +238,12 @@ public class AlbumService {
      */
     public List<Album> searchAlbumsByName(String name) {
         List<Album> nameMatches = albumRepository.searchByName(name);
-        
+
+        // 过滤掉隐藏的相册
+        nameMatches = nameMatches.stream()
+            .filter(album -> !Boolean.TRUE.equals(album.getIsHidden()))
+            .collect(Collectors.toList());
+
         // 1. 先过滤有照片的名称匹配相册
         List<Album> withPhotos = nameMatches.stream()
             .filter(album -> album.getPhotoCount() != null && album.getPhotoCount() > 0)
@@ -687,6 +711,7 @@ public class AlbumService {
         dto.setPhotoCount(album.getPhotoCount());
         dto.setAggregateSubAlbums(album.getAggregateSubAlbums());
         dto.setDownloadAllowed(album.getDownloadAllowed());
+        dto.setIsHidden(album.getIsHidden());
         dto.setPhotoSortOrder(album.getPhotoSortOrder());
 
         // 检查是否有子文件夹（用于聚合功能）
@@ -1417,6 +1442,20 @@ public class AlbumService {
     }
 
     /**
+     * 设置相册隐藏状态
+     */
+    @Transactional
+    public AlbumDTO setAlbumHidden(Long albumId, Boolean isHidden) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在: " + albumId));
+
+        album.setIsHidden(isHidden);
+        Album saved = albumRepository.save(album);
+
+        return convertToDTO(saved);
+    }
+
+    /**
      * 设置相册自定义封面
      * 注意：不重新生成封面，直接返回更新后的相册信息
      */
@@ -1536,7 +1575,16 @@ public class AlbumService {
      * 如果一个相册被其父相册聚合了，就不在列表中显示
      */
     @Transactional(readOnly = true)
-    private List<Album> filterAggregatedAlbums(List<Album> albums) {
+    public List<Album> filterAggregatedAlbums(List<Album> albums) {
+        return filterAggregatedAlbums(albums, true);
+    }
+
+    /**
+     * 过滤被聚合的相册
+     * @param filterHidden 是否保留隐藏相册（true=保留显示所有相册，false=过滤掉隐藏相册）
+     */
+    @Transactional(readOnly = true)
+    public List<Album> filterAggregatedAlbums(List<Album> albums, boolean filterHidden) {
         // 获取所有开启了聚合功能的相册
         List<Album> aggregatingAlbums = albumRepository.findAlbumsWithAggregationEnabled();
 
@@ -1560,13 +1608,18 @@ public class AlbumService {
         // 过滤掉被聚合的相册（使用标准化路径进行比较）
         List<Album> filtered = albums.stream()
             .filter(album -> {
+                // 过滤隐藏相册（前台可见时过滤隐藏相册，后台管理时显示所有）
+                if (!filterHidden && Boolean.TRUE.equals(album.getIsHidden())) {
+                    return false;
+                }
+
                 // 标准化路径进行比较
                 String normalizedPath = album.getPath().replace("\\", "/");
                 // 如果是前导斜杠的Windows路径，去掉前导斜杠
                 if (normalizedPath.matches("^/[A-Za-z]:/.*")) {
                     normalizedPath = normalizedPath.substring(1);
                 }
-                
+
                 boolean shouldFilter = aggregatedPaths.contains(album.getPath()) || aggregatedPaths.contains(normalizedPath);
                 log.debug("filterAggregatedAlbums - 检查相册 [{}], path: [{}], normalized: [{}], 过滤: {}", album.getName(), album.getPath(), normalizedPath, shouldFilter);
                 return !shouldFilter;

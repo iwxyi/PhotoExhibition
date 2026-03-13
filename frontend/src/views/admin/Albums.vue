@@ -25,6 +25,7 @@
           v-for="album in albums"
           :key="album.id"
           class="glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
+          :class="{ 'opacity-50': album.isHidden }"
         >
           <!-- 封面预览 -->
           <div
@@ -38,6 +39,14 @@
               :photo-count="album.photoCount || 0"
               size="lg"
             />
+            <!-- 隐藏标签 - 封面左上角 -->
+            <div
+              v-if="album.isHidden"
+              class="absolute top-2 left-2 px-2 py-0.5 bg-red-500/30 backdrop-blur-sm rounded text-xs text-red-200 border border-red-400/30"
+              title="已隐藏（前台不可见）"
+            >
+              已隐藏
+            </div>
             <!-- 聚合标签 - 封面右上角 -->
             <div
               v-if="album.aggregateSubAlbums"
@@ -138,7 +147,7 @@
       >
         <!-- 菜单毛玻璃背景 -->
         <div
-          class="absolute glass-menu rounded-lg shadow-2xl z-10 w-56"
+          class="absolute glass-menu rounded-lg shadow-2xl z-10 w-48"
           :style="menuStyle"
           @click.stop
         >
@@ -194,6 +203,8 @@
               </svg>
               相册特效
             </button>
+            <!-- 分割线 -->
+            <div class="border-t border-gray-600 my-1"></div>
             <!-- 重命名菜单项 -->
             <button
               @click="editName(showMenuForAlbum)"
@@ -328,6 +339,16 @@
                 </div>
               </div>
             </div>
+            <!-- 隐藏相册菜单项 -->
+            <button
+              @click="toggleAlbumHidden(showMenuForAlbum, !showMenuForAlbum.isHidden); closeAllMenus()"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+              {{ showMenuForAlbum.isHidden ? '显示相册' : '隐藏相册' }}
+            </button>
             <!-- 删除菜单项 -->
             <button
               @click="deleteAlbum(showMenuForAlbum)"
@@ -1282,9 +1303,9 @@ const load = async () => {
   currentPage = 0
   hasMoreData = true
   albums.value = []
-  
+
   try {
-    const params: any = { page: 0, size: PAGE_SIZE, sort: albumSortOrder.value }
+    const params: any = { page: 0, size: PAGE_SIZE, sort: albumSortOrder.value, includeHidden: true }
     const res = await api.get('/albums', { params })
     const content = res.data.content || res.data || []
     
@@ -1317,7 +1338,7 @@ const loadMore = async () => {
   loadingMore.value = true
   try {
     currentPage++
-    const params: any = { page: currentPage, size: PAGE_SIZE, sort: albumSortOrder.value }
+    const params: any = { page: currentPage, size: PAGE_SIZE, sort: albumSortOrder.value, includeHidden: true }
     const res = await api.get('/albums', { params })
     const content = res.data.content || res.data || []
     albums.value = [...albums.value, ...content]
@@ -2161,7 +2182,7 @@ const openMenu = (event: MouseEvent, album: any) => {
   showMenuForAlbum.value = album
 
   // 计算菜单位置，防止超出屏幕
-  const menuWidth = 224 // w-56 = 14rem = 224px
+  const menuWidth = 192 // w-48 = 12rem = 192px
   const menuHeight = 500 // 估算菜单最大高度
   const padding = 16 // 屏幕边缘留白
 
@@ -2196,7 +2217,7 @@ const subMenuStyle = computed(() => {
     left: baseLeft,
     right: rightOffset,
     top: '0',
-    width: '224px' // w-56
+    width: '192px' // w-48
   }
 })
 
@@ -2512,6 +2533,21 @@ const setAlbumDownloadAllowed = async (album: any, downloadAllowed: string) => {
     closeAllMenus()
   } catch (e: any) {
     alert('设置下载权限失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const toggleAlbumHidden = async (album: any, isHidden: boolean) => {
+  try {
+    const newHiddenValue = Boolean(isHidden)
+    await api.put(`/albums/${album.id}/hidden`, {
+      isHidden: newHiddenValue
+    })
+    // 直接更新本地数据，避免重新加载导致滚动丢失
+    updateAlbumData(album.id, {
+      isHidden: newHiddenValue
+    })
+  } catch (e: any) {
+    alert('设置隐藏状态失败: ' + (e.response?.data?.error || e.message))
   }
 }
 

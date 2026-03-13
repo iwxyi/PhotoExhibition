@@ -44,6 +44,9 @@ public class Album {
     @Column(name = "download_allowed")
     private Boolean downloadAllowed;
 
+    @Column(name = "is_hidden")
+    private Boolean isHidden = false;
+
     @Column(name = "photo_sort_order")
     private String photoSortOrder;
 

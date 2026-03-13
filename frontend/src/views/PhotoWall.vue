@@ -9,7 +9,7 @@
         <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
-            <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
+            <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
         </div>
@@ -159,6 +159,25 @@ const activePersonId = ref<number | null>(null)
 const activePersonName = ref<string | null>(null)
 const filterPanelRef = ref()
 
+// 从URL解析的筛选条件
+const urlFilters = ref<any>(null)
+
+// 标记是否正在清除筛选（用于防止 watch 重新加载）
+const isClearingFilters = ref(false)
+
+// 标记是否正在应用筛选（用于防止 watch 重复触发）
+const isApplyingFilters = ref(false)
+
+// 同步筛选面板参数
+const syncFilterPanel = async () => {
+  if (filterPanelRef.value && urlFilters.value) {
+    // 调用FilterPanel的同步方法
+    if (filterPanelRef.value.syncFromExternal) {
+      await filterPanelRef.value.syncFromExternal(urlFilters.value)
+    }
+  }
+}
+
 // 当前已启用的筛选（来自 store.lastFilters）
 const currentFilters = computed(() => photoStore.lastFilters || null)
 
@@ -228,30 +247,111 @@ const formatShutterSpeed = (value: number | null) => {
 }
 
 const clearFilters = async () => {
-  photoStore.clearLastFilters()
+  // 标记正在清除筛选，防止重复触发
+  isClearingFilters.value = true
+
+  // 先滚动到页面顶部（隐藏顶部筛选信息栏后不会导致布局抖动）
+  window.scrollTo({ top: 0, behavior: 'instant' })
+
+  // 然后清除数据（保持当前数据可见，直到新数据加载完成）
   selectedTags.value = [] // 重置选中的标签
-  // 重置筛选面板的状态
-  if (filterPanelRef.value && filterPanelRef.value.resetFilters) {
-    filterPanelRef.value.resetFilters()
-  }
-  await loadInitial()
-  // 滚动到页面顶部
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  urlFilters.value = null // 重置内部的 URL filters 状态
+
+  // 清除 URL 中的筛选参数
+  const { filters: _f, ...restQuery } = route.query
+  await router.replace({
+    path: route.path,
+    query: restQuery
+  })
+
+  // 清除 store 中的筛选状态
+  photoStore.clearLastFilters()
+
+  // 加载所有照片
+  await loadPhotosWithoutClear()
+
+  // 清除标志
+  isClearingFilters.value = false
 }
 
 
 
 const handleFilterReset = async () => {
+  // 标记正在清除筛选，防止重复触发
+  isClearingFilters.value = true
+
+  // 先滚动到页面顶部
+  window.scrollTo({ top: 0, behavior: 'instant' })
+
+  // 然后清除数据
   selectedTags.value = [] // 重置选中的标签
-  await loadInitial()
-  // 滚动到页面顶部
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  urlFilters.value = null // 重置内部的 URL filters 状态
+
+  // 清除 URL 中的筛选参数
+  const { filters: _f, ...restQuery } = route.query
+  await router.replace({
+    path: route.path,
+    query: restQuery
+  })
+
+  // 清除 store 中的筛选状态
+  photoStore.clearLastFilters()
+
+  // 加载所有照片
+  await loadPhotosWithoutClear()
+
+  // 清除标志
+  isClearingFilters.value = false
 }
 
-const handleFiltersApplied = () => {
+const handleFiltersApplied = (filters: any) => {
+  // 标记正在应用筛选，防止 watch 重复触发
+  isApplyingFilters.value = true
+
   // 重置分页状态，让新的筛选可以重新加载更多
   currentPage.value = 0
   hasMore.value = true
+
+  // 更新 URL 中的筛选参数
+  if (filters && hasEffectiveFilters(filters)) {
+    router.replace({
+      query: {
+        ...route.query,
+        filters: JSON.stringify(filters)
+      }
+    })
+  } else {
+    // 清除筛选参数
+    const { filters: _, ...restQuery } = route.query
+    router.replace({
+      query: restQuery
+    })
+  }
+
+  // 延迟清除标志，确保 watch 已经处理完
+  setTimeout(() => {
+    isApplyingFilters.value = false
+  }, 100)
+}
+
+// 检查筛选条件是否有实际限制（非默认值）
+const hasEffectiveFilters = (filterData: any) => {
+  return (
+    (filterData.tagIds && filterData.tagIds.length > 0) ||
+    (filterData.cameraModel && filterData.cameraModel.trim() !== '') ||
+    (filterData.lensModel && filterData.lensModel.trim() !== '') ||
+    (filterData.colorCategory && filterData.colorCategory.trim() !== '') ||
+    (filterData.category && filterData.category.trim() !== '') ||
+    (filterData.minQualityScore && filterData.minQualityScore > 0) ||
+    (filterData.minFocalLength !== null && filterData.minFocalLength !== undefined) ||
+    (filterData.maxFocalLength !== null && filterData.maxFocalLength !== undefined) ||
+    (filterData.minShutterSpeed !== null && filterData.minShutterSpeed !== undefined) ||
+    (filterData.maxShutterSpeed !== null && filterData.maxShutterSpeed !== undefined) ||
+    (filterData.minAperture !== null && filterData.minAperture !== undefined) ||
+    (filterData.maxAperture !== null && filterData.maxAperture !== undefined) ||
+    (filterData.minIso !== null && filterData.minIso !== undefined) ||
+    (filterData.maxIso !== null && filterData.maxIso !== undefined)
+  )
 }
 
 // 点赞相关（匿名点赞，使用 localStorage 保存用户是否已点赞）
@@ -904,8 +1004,16 @@ onMounted(async () => {
     loadLikedFromStorage()
     hydrateFromRoute()
 
-    // 如果已经有数据（从其他页面返回），不重新加载
+    // 同步筛选面板参数
+    await syncFilterPanel()
+
+    // 如果已经有数据（从其他页面返回），不重新加载，但可能需要应用筛选
     if (photos.value.length > 0) {
+      // 检查是否有URL筛选参数需要应用
+      if (photoStore.lastFilters && urlFilters.value) {
+        // 重新应用筛选
+        await photoStore.filterPhotos(photoStore.lastFilters, 0)
+      }
       isActivatedFlag.value = true
       window.addEventListener('scroll', handleScroll, { passive: true })
       window.addEventListener('resize', handleResize)
@@ -947,11 +1055,9 @@ onUnmounted(() => {
 })
 
 onActivated(() => {
-  console.log('[PhotoWall] onActivated 触发')
   // 重置加载状态，确保可以继续加载更多
   hasMore.value = true
   isLoadingMore.value = false
-  console.log('[PhotoWall] hasMore 重置为:', hasMore.value)
 
   // 更新窗口宽度
   windowWidth.value = window.innerWidth
@@ -959,24 +1065,20 @@ onActivated(() => {
   // 恢复滚动位置并添加事件监听器
   // 使用 setTimeout 确保 DOM 已更新，避免 nextTick 在某些情况下不触发的问题
   setTimeout(() => {
-    console.log('[PhotoWall] setTimeout 触发，savedScrollTop:', savedScrollTop.value)
     // 先恢复滚动位置
     window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
 
     // 再次确保滚动位置正确（有时一次可能不够）
     requestAnimationFrame(() => {
-      console.log('[PhotoWall] requestAnimationFrame 触发，当前滚动位置:', window.scrollY)
       window.scrollTo({ top: savedScrollTop.value })
     })
 
     // 添加事件监听器
     window.addEventListener('scroll', handleScroll, { passive: true })
-    console.log('[PhotoWall] scroll listener 已添加')
     window.addEventListener('resize', handleResize)
 
     // 重新布局，确保容器尺寸和位置正确
     if (photos.value.length > 0 && masonryContainer.value) {
-      console.log('[PhotoWall] 重新布局，photos:', photos.value.length)
       setTimeout(() => {
         layoutItems()
         updateParallax()
@@ -984,6 +1086,33 @@ onActivated(() => {
     }
   }, 10)
 })
+
+const loadPhotosWithoutClear = async () => {
+  currentPage.value = 0
+  hasMore.value = true
+
+  // 先清除 store 中的筛选状态
+  photoStore.clearLastFilters()
+
+  // 加载所有图片（默认）- 直接调用 API 绕过 store 的检查
+  // 先获取新数据，等数据返回后再更新 store
+  try {
+    photoStore.setCurrentView('wall')
+    const response = await api.get('/photos/wall', {
+      params: { page: 0, size: 20 }
+    })
+    // 数据返回后再更新 store，确保 UI 平滑过渡
+    photoStore.photosWall = response.data.content || []
+    hasMore.value = !response.data.last
+  } catch (e) {
+    console.error('加载照片墙失败:', e)
+  }
+
+  // 滚动到页面顶部（仅当需要时）
+  if (window.scrollY > 0) {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+}
 
 const loadInitial = async () => {
   currentPage.value = 0
@@ -995,15 +1124,19 @@ const loadInitial = async () => {
     loadCategorySortOrder()
   ])
 
-  if (photoStore.lastFilters) {
-    await photoStore.filterPhotos(photoStore.lastFilters, 0)
-  } else if (activePersonId.value) {
-    await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
-  } else if (activeTagId.value) {
-    await photoStore.fetchPhotosByTag(activeTagId.value, 0)
-  } else {
-    // 加载所有图片（默认）
-    await photoStore.fetchPhotoWall(0)
+  // 清除 store 中的筛选状态，确保能加载所有照片
+  photoStore.clearLastFilters()
+
+  // 加载所有图片（默认）- 直接调用 API 绕过 store 的检查
+  try {
+    photoStore.setCurrentView('wall')
+    const response = await api.get('/photos/wall', {
+      params: { page: 0, size: 20 }
+    })
+    photoStore.photosWall = response.data.content || []
+    hasMore.value = !response.data.last
+  } catch (e) {
+    console.error('加载照片墙失败:', e)
   }
   // 滚动到页面顶部
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1019,6 +1152,19 @@ const hydrateFromRoute = () => {
   const personNameParam = route.query.personName
   activePersonId.value = personIdParam ? Number(personIdParam) : null
   activePersonName.value = personNameParam ? String(personNameParam) : null
+
+  // 处理URL中的filters参数
+  urlFilters.value = null
+  if (route.query.filters) {
+    try {
+      const parsedFilters = JSON.parse(route.query.filters as string)
+      urlFilters.value = parsedFilters
+      // 保存筛选条件到store，但不自动打开筛选面板
+      photoStore.lastFilters = parsedFilters
+    } catch (e) {
+      console.warn('解析URL筛选参数失败:', e)
+    }
+  }
 }
 
 const clearTag = async () => {
@@ -1032,12 +1178,26 @@ const clearTag = async () => {
 }
 
 watch(
-  () => [route.query.tagId, route.query.personId],
+  () => [route.query.tagId, route.query.personId, route.query.filters],
   async () => {
     // 仅当组件已激活过且数据已加载时才重新加载
     if (isActivatedFlag.value) {
+      // 如果正在清除筛选或应用筛选，跳过本次触发（已经手动处理了）
+      if (isClearingFilters.value || isApplyingFilters.value) {
+        return
+      }
+      // 更新内部状态
       hydrateFromRoute()
-      await loadInitial()
+      // 如果有 URL 筛选参数，则应用筛选；否则加载所有照片
+      if (urlFilters.value && hasEffectiveFilters(urlFilters.value)) {
+        // 应用筛选
+        currentPage.value = 0
+        hasMore.value = true
+        await photoStore.filterPhotos(urlFilters.value, 0)
+      } else {
+        // 加载所有照片
+        await loadPhotosWithoutClear()
+      }
       nextTick(() => {
         setTimeout(() => {
           layoutItems()
