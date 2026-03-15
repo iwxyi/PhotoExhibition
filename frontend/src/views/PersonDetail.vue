@@ -770,8 +770,8 @@ const loadMorePersonPhotos = async () => {
     const newPhotos = response.data.content || []
     hasMorePhotos.value = !response.data.last
 
-    const shuffledNewPhotos = newPhotos.sort(() => Math.random() - 0.5)
-    personPhotos.value = [...personPhotos.value, ...shuffledNewPhotos]
+    // 直接追加（后端已按拍摄时间倒序）
+    personPhotos.value = [...personPhotos.value, ...newPhotos]
   } catch (error) {
     console.error('加载更多人物照片失败:', error)
   } finally {
