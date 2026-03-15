@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { albumApi, aiApi, personApi, configApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePhotoStore } from '@/stores/photo'
+import { useLanguageStore } from '@/stores/language'
 import AppHeader from '@/components/AppHeader.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
@@ -13,6 +14,7 @@ import type { Photo } from '@/stores/photo'
 const route = useRoute()
 const router = useRouter()
 const photoStore = usePhotoStore()
+const languageStore = useLanguageStore()
 
 // 检测是否为移动端
 const isMobile = ref(window.innerWidth < 640)
@@ -174,6 +176,14 @@ const faceId = ref<number | null>(null)
 const tagId = ref<number | null>(null)
 const tagName = ref<string>('')
 const clusterThreshold = ref<number>(0.7)
+
+// 监听关键词变化，更新页面标题
+watch(keyword, (newKeyword) => {
+  if (newKeyword) {
+    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    document.title = `${baseTitle} - 搜索: ${decodeURIComponent(newKeyword)}`
+  }
+})
 
 // 加载聚类阈值配置
 const loadClusterThreshold = async () => {

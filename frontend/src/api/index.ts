@@ -14,7 +14,9 @@ export interface FaceFace {
   personDescription?: string
   isConfirmed?: boolean
   photoFilename?: string
-  photoThumbnailPath?: string
+  photoThumbnailPath?: string  // medium 缩略图（兼容旧字段）
+  photoMediumThumbPath?: string  // medium 缩略图
+  photoSmallThumbPath?: string   // small 缩略图
   photoOriginalPath?: string
   photoWidth?: number  // 照片宽度
   photoHeight?: number // 照片高度

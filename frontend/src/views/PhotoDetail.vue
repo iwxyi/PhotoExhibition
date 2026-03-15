@@ -179,16 +179,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
+import { useLanguageStore } from '@/stores/language'
 import AppHeader from '@/components/AppHeader.vue'
 
 const route = useRoute()
 const photoStore = usePhotoStore()
+const languageStore = useLanguageStore()
 
 const photo = computed(() => photoStore.currentPhoto)
 const loading = computed(() => photoStore.loading)
+
+// 监听照片数据变化，更新页面标题
+watch(photo, (newPhoto) => {
+  if (newPhoto?.filename) {
+    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    document.title = `${baseTitle} - ${newPhoto.filename}`
+  }
+}, { immediate: true })
 
 // 人物颜色数组，用于区分不同人物
 const faceColorClasses = [

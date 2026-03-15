@@ -10,6 +10,7 @@
         :covers="coverPhotos"
         :photo-count="recommendation.photoCount || 0"
         size="lg"
+        :keep-square="true"
       />
       <!-- 占位符（当没有封面图时显示） -->
       <div v-if="!hasAnyCover" class="absolute inset-0 flex items-center justify-center">
@@ -85,6 +86,7 @@ const coverPhotos = computed<Photo[]>(() => {
       photos.push({
         id: index + 1,
         filename: `cover_${index + 1}`,
+        // 直接设置 thumbnailPath，CoverDisplay 会根据封面数量自动选择中等或小缩略图
         thumbnailPath: path
       })
     }

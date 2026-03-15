@@ -57,13 +57,17 @@ interface Props {
   }
   photoCount?: number
   size?: 'sm' | 'md' | 'lg'
+  keepSquare?: boolean
+  preferMediumThumb?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   covers: () => [],
   defaultCovers: () => ({ left: undefined, rightTop: undefined, rightBottom: undefined }),
   photoCount: 0,
-  size: 'md'
+  size: 'md',
+  keepSquare: false,
+  preferMediumThumb: false
 })
 
 // 存储图片的实际尺寸（用于布局判断）
@@ -283,8 +287,18 @@ const getSlotName = (photo: Photo, index: number): string => {
 
 const getPhotoUrl = (photo?: Photo): string => {
   if (!photo) return ''
+
+  // 根据封面数量自动选择缩略图质量
+  // 只有1张封面时使用中等缩略图，多张封面时使用小缩略图
+  const coverCount = displayPhotos.value.length
+  const useMediumThumb = coverCount === 1
+
+  if (useMediumThumb && photo.mediumThumbPath) {
+    return `/api/files${photo.mediumThumbPath}`
+  }
   if (photo.smallThumbPath) return `/api/files${photo.smallThumbPath}`
   if (photo.webpPath) return `/api/files${photo.webpPath}`
+  if (photo.mediumThumbPath) return `/api/files${photo.mediumThumbPath}`
   if (photo.thumbnailPath) return `/api/files${photo.thumbnailPath}`
   return `/api/files${photo.originalPath}`
 }
@@ -295,7 +309,12 @@ const handleError = (event: Event) => {
 }
 
 const sizeClass = computed(() => {
-  switch (props.size) {
+  const { size, keepSquare } = props
+  // 人物封面保持正方形，其他场景使用固定高度
+  if (keepSquare) {
+    return 'aspect-square'
+  }
+  switch (size) {
     case 'sm': return 'h-32 md:h-36 lg:h-40'
     case 'lg': return 'h-48 md:h-56 lg:h-64'
     default: return 'h-40 md:h-48 lg:h-56'

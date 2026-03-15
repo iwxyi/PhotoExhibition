@@ -238,13 +238,23 @@ import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import MasonryLayout from '@/components/MasonryLayout.vue'
 import CommentSection from '@/components/CommentSection.vue'
 import { commentApi, api, personApi, albumApi } from '@/api'
+import { useLanguageStore } from '@/stores/language'
 
 const route = useRoute()
 const router = useRouter()
 const photoStore = usePhotoStore()
+const languageStore = useLanguageStore()
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
+
+// 监听相册数据变化，更新页面标题
+watch(album, (newAlbum) => {
+  if (newAlbum?.name) {
+    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    document.title = `${baseTitle} - ${newAlbum.name}`
+  }
+}, { immediate: true })
 
 // 从路由参数获取相册 ID（支持 /album/:id 和 /a/:id 两种路由）
 const albumId = computed(() => {

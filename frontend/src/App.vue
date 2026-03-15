@@ -22,11 +22,22 @@ const isDark = computed(() => themeStore.isDark)
 const route = useRoute()
 
 // 根据语言设置页面标题
+const baseTitle = computed(() => {
+  return languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+})
+
+// 根据路由更新页面标题
 const updateTitle = () => {
-  const title = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
-  document.title = title
+  const routeTitle = route.meta?.title
+  if (routeTitle) {
+    document.title = `${baseTitle.value} - ${routeTitle}`
+  } else {
+    document.title = baseTitle.value
+  }
 }
 
+// 监听路由变化
+watch(() => route.fullPath, updateTitle, { immediate: true })
 // 监听语言变化
 watch(() => languageStore.language, updateTitle)
 

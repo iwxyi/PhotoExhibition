@@ -753,7 +753,10 @@ public class FaceService {
                     // 确保返回完整的Photo信息（使用相对路径）
                     if (face.getPhoto() != null) {
                         dto.setPhotoFilename(face.getPhoto().getFilename());
+                        // 同时返回 medium 和 small 缩略图路径，供前端根据封面数量选择
                         dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
+                        dto.setPhotoMediumThumbPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
+                        dto.setPhotoSmallThumbPath(convertToRelativePath(face.getPhoto().getSmallThumbPath()));
                         dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
                         dto.setPhotoWidth(face.getPhoto().getWidth());
                         dto.setPhotoHeight(face.getPhoto().getHeight());
@@ -796,7 +799,10 @@ public class FaceService {
                     FaceDTO dto = toDTO(face);
                     if (face.getPhoto() != null) {
                         dto.setPhotoFilename(face.getPhoto().getFilename());
+                        // 同时返回 medium 和 small 缩略图路径，供前端根据封面数量选择
                         dto.setPhotoThumbnailPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
+                        dto.setPhotoMediumThumbPath(convertToRelativePath(face.getPhoto().getMediumThumbPath()));
+                        dto.setPhotoSmallThumbPath(convertToRelativePath(face.getPhoto().getSmallThumbPath()));
                         dto.setPhotoOriginalPath(convertToRelativePath(face.getPhoto().getOriginalPath()));
                         dto.setPhotoWidth(face.getPhoto().getWidth());
                         dto.setPhotoHeight(face.getPhoto().getHeight());
@@ -2548,10 +2554,27 @@ public class FaceService {
 
             if (!facesInAlbum.isEmpty()) {
                 // 取前3张已确认照片作为封面
-                for (int i = 0; i < Math.min(facesInAlbum.size(), 3); i++) {
+                // 根据封面图数量选择不同质量的缩略图：
+                // - 只有1张时使用中等缩略图(thumbnailPath)，保证清晰度
+                // - 有2-3张时使用小缩略图(smallThumbPath)，因为是多张图组合
+                int coverCount = Math.min(facesInAlbum.size(), 3);
+                boolean useMediumThumb = (coverCount == 1);
+                
+                for (int i = 0; i < coverCount; i++) {
                     Face face = facesInAlbum.get(i);
                     if (face.getPhoto() != null) {
-                        String path = convertToRelativePath(face.getPhoto().getThumbnailPath());
+                        // 根据封面数量选择缩略图质量
+                        String path;
+                        if (useMediumThumb) {
+                            // 只有1张封面时，使用中等缩略图(mediumThumbPath)保证清晰度
+                            path = convertToRelativePath(face.getPhoto().getMediumThumbPath());
+                        } else {
+                            // 有2-3张封面时，优先使用小缩略图(smallThumbPath)
+                            path = convertToRelativePath(face.getPhoto().getSmallThumbPath());
+                            if (path == null || path.isEmpty()) {
+                                path = convertToRelativePath(face.getPhoto().getMediumThumbPath());
+                            }
+                        }
                         if (i == 0) coverImagePath1 = path;
                         else if (i == 1) coverImagePath2 = path;
                         else if (i == 2) coverImagePath3 = path;
@@ -2562,15 +2585,50 @@ public class FaceService {
             } else {
                 // 如果没有找到该人物的照片，则使用默认相册封面
                 var coverImages = albumService.getAlbumCoverImages(album.getId());
+                // 计算实际有多少张封面图
+                int actualCoverCount = 0;
+                if (coverImages != null) {
+                    if (coverImages.getLeftVertical() != null) actualCoverCount++;
+                    if (coverImages.getRightTop() != null) actualCoverCount++;
+                    if (coverImages.getRightBottom() != null) actualCoverCount++;
+                }
+                boolean useMediumThumb = (actualCoverCount == 1);
+                
                 if (coverImages != null && coverImages.getLeftVertical() != null) {
-                    coverImagePath1 = convertToRelativePath(coverImages.getLeftVertical().getThumbnailPath());
+                    // 根据封面数量选择缩略图质量
+                    if (useMediumThumb) {
+                        // 只有1张封面时，使用中等缩略图
+                        coverImagePath1 = convertToRelativePath(coverImages.getLeftVertical().getMediumThumbPath());
+                    } else {
+                        String path = convertToRelativePath(coverImages.getLeftVertical().getSmallThumbPath());
+                        if (path == null || path.isEmpty()) {
+                            path = convertToRelativePath(coverImages.getLeftVertical().getMediumThumbPath());
+                        }
+                        coverImagePath1 = path;
+                    }
                     dto.setCoverImagePath(coverImagePath1);
                 }
                 if (coverImages != null && coverImages.getRightTop() != null) {
-                    coverImagePath2 = convertToRelativePath(coverImages.getRightTop().getThumbnailPath());
+                    if (useMediumThumb) {
+                        coverImagePath2 = convertToRelativePath(coverImages.getRightTop().getMediumThumbPath());
+                    } else {
+                        String path = convertToRelativePath(coverImages.getRightTop().getSmallThumbPath());
+                        if (path == null || path.isEmpty()) {
+                            path = convertToRelativePath(coverImages.getRightTop().getMediumThumbPath());
+                        }
+                        coverImagePath2 = path;
+                    }
                 }
                 if (coverImages != null && coverImages.getRightBottom() != null) {
-                    coverImagePath3 = convertToRelativePath(coverImages.getRightBottom().getThumbnailPath());
+                    if (useMediumThumb) {
+                        coverImagePath3 = convertToRelativePath(coverImages.getRightBottom().getMediumThumbPath());
+                    } else {
+                        String path = convertToRelativePath(coverImages.getRightBottom().getSmallThumbPath());
+                        if (path == null || path.isEmpty()) {
+                            path = convertToRelativePath(coverImages.getRightBottom().getMediumThumbPath());
+                        }
+                        coverImagePath3 = path;
+                    }
                 }
             }
 

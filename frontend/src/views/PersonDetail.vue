@@ -209,7 +209,7 @@
 
           <div
             v-else-if="albumRecommendations.length > 0"
-            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5"
+            :class="albumGridClass"
           >
             <AlbumRecommendationCard
               v-for="recommendation in albumRecommendations"
@@ -334,6 +334,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
+import { useLanguageStore } from '@/stores/language'
+import { useUiSettings } from '@/composables/useUiSettings'
 import { personApi, PersonSummary, AlbumRecommendation, FaceFace, backgroundRemovalApi } from '@/api'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import AlbumRecommendationCard from '@/components/AlbumRecommendationCard.vue'
@@ -342,6 +344,8 @@ import { useMobileNav } from '@/composables/useMobileNav'
 const route = useRoute()
 const router = useRouter()
 const themeStore = useThemeStore()
+const languageStore = useLanguageStore()
+const { coverSize } = useUiSettings()
 const { isMobile } = useMobileNav()
 
 // 返回按钮相关
@@ -405,6 +409,15 @@ const finalPersonId = computed(() => {
 })
 
 const person = ref<PersonSummary | null>(null)
+
+// 监听人物数据变化，更新页面标题
+watch(person, (newPerson) => {
+  if (newPerson?.name) {
+    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    document.title = `${baseTitle} - ${newPerson.name}`
+  }
+}, { immediate: true })
+
 const loadingPerson = ref(true)
 const avatarEnterComplete = ref(false)
 const activeTab = ref<'albums' | 'photos'>('albums')
@@ -412,6 +425,20 @@ const albumRecommendations = ref<AlbumRecommendation[]>([])
 const personPhotos = ref<FaceFace[]>([])
 const loadingAlbums = ref(false)
 const loadingPhotos = ref(false)
+
+// 相册推荐网格布局（与主页保持一致）
+const albumGridClass = computed(() => {
+  if (coverSize.value === 'sm') {
+    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
+  }
+  if (coverSize.value === 'md') {
+    return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
+  }
+  if (coverSize.value === 'lg') {
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6'
+  }
+  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
+})
 
 // 人物抠图悬浮效果相关状态
 // 使用普通对象以支持更好的响应式

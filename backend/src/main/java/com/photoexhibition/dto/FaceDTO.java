@@ -17,6 +17,7 @@ public class FaceDTO {
     private String photoFilename;
     private String photoThumbnailPath;
     private String photoMediumThumbPath;
+    private String photoSmallThumbPath;
     private String photoOriginalPath;
     private String photoLargeThumbPath;
     private String photoWebpPath;

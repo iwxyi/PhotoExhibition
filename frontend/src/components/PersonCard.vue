@@ -56,6 +56,7 @@
       <CoverDisplay
         :covers="coverPhotos"
         :size="props.size"
+        :keep-square="true"
       />
 
       <!-- 照片数量徽章（右下角） -->
@@ -129,20 +130,48 @@ onMounted(async () => {
     const response = await personApi.getPersonSamplePhotos(props.person.id)
     const faces = response.data || []
 
+    // 根据封面数量决定使用哪种缩略图
+    // 只有1张时用 mediumThumbPath，多张时用 smallThumbPath
+    const useMediumThumb = faces.length === 1
+
     // 转换为Photo格式（包含宽高信息用于布局判断）
-    const formattedPhotos: (Photo | null)[] = faces.map(face => ({
-      id: face.photoId || 0,
-      albumId: 0,
-      filename: face.photoFilename || '',
-      originalPath: face.photoOriginalPath || '',
-      thumbnailPath: face.photoThumbnailPath || '',
-      width: face.photoWidth,
-      height: face.photoHeight,
-      createdAt: '',
-      viewCount: 0,
-      likeCount: 0,
-      isFeatured: false
-    } as Photo))
+    const formattedPhotos: (Photo | null)[] = faces.map(face => {
+      // 使用后端返回的正确路径
+      const mediumThumbPath = face.photoMediumThumbPath || face.photoThumbnailPath || ''
+      const smallThumbPath = face.photoSmallThumbPath || ''
+
+      // 根据封面数量设置对应的缩略图路径
+      // CoverDisplay 的逻辑：只有1张时用 mediumThumbPath，多张时用 smallThumbPath
+      if (useMediumThumb) {
+        return {
+          id: face.photoId || 0,
+          albumId: 0,
+          filename: face.photoFilename || '',
+          originalPath: face.photoOriginalPath || '',
+          mediumThumbPath: mediumThumbPath,
+          width: face.photoWidth,
+          height: face.photoHeight,
+          createdAt: '',
+          viewCount: 0,
+          likeCount: 0,
+          isFeatured: false
+        } as Photo
+      } else {
+        return {
+          id: face.photoId || 0,
+          albumId: 0,
+          filename: face.photoFilename || '',
+          originalPath: face.photoOriginalPath || '',
+          smallThumbPath: smallThumbPath,
+          width: face.photoWidth,
+          height: face.photoHeight,
+          createdAt: '',
+          viewCount: 0,
+          likeCount: 0,
+          isFeatured: false
+        } as Photo
+      }
+    })
 
     // 填充到4个位置
     for (let i = 0; i < 4; i++) {
@@ -157,7 +186,8 @@ onMounted(async () => {
         albumId: 0,
         filename: '',
         originalPath: props.person.sampleOriginalPath || '',
-        thumbnailPath: props.person.sampleThumbnailPath,
+        // 只有1张时使用 mediumThumbPath
+        mediumThumbPath: props.person.sampleThumbnailPath,
         width: undefined,
         height: undefined,
         createdAt: '',
