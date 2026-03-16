@@ -20,9 +20,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -295,64 +292,31 @@ public class PhotoController {
             return ResponseEntity.notFound().build();
         }
 
-        try {
-            // 6. 执行背景移除（使用并发版本，传入 outputMaxSize）
-            log.info("开始处理抠图(并发): {}, outputMaxSize={}", photoPath, outputMaxSize);
-            
-            // 确定输出文件路径
-            File parentDir = new File(photo.getOriginalPath()).getParentFile();
-            File cacheDir = new File(parentDir, ".thumbnails");
-            String cachedFileName = "bg_removed_" + photo.getId() + ".png";
-            File outputFile = new File(cacheDir, cachedFileName);
-            
-            // 使用并发方法处理，传入 outputMaxSize
-            BufferedImage resultImage = backgroundRemovalService.removeBackgroundConcurrently(
-                photo.getId(), sourceFile, outputFile, outputMaxSize);
-            
-            if (resultImage == null) {
-                log.error("背景移除返回空结果");
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-            }
+        // 6. 检查是否有正在进行的处理
+        File parentDir = new File(photo.getOriginalPath()).getParentFile();
+        File cacheDir = new File(parentDir, ".thumbnails");
+        String cachedFileName = "bg_removed_" + photo.getId() + ".png";
+        File outputFile = new File(cacheDir, cachedFileName);
 
-            log.info("抠图处理完成，返回图片");
-            // 7. 转换为 PNG 字节流
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(resultImage, "PNG", baos);
-            byte[] imageBytes = baos.toByteArray();
+        // 如果有正在处理的任务或文件已存在，使用异步方式提交
+        if (backgroundRemovalService.isProcessingOrDone(photo.getId()) || outputFile.exists()) {
+            // 异步提交任务（如果还没提交的话）
+            backgroundRemovalService.submitBackgroundRemoval(photo.getId(), sourceFile, outputFile, outputMaxSize);
 
-            // 8. 保存到缓存文件
-            try {
-                // 确保缓存目录存在
-                if (!cacheDir.exists()) {
-                    cacheDir.mkdirs();
-                }
-                // 无论文件是否存在，都更新数据库路径（确保路径正确）
-                if (!outputFile.exists()) {
-                    ImageIO.write(resultImage, "PNG", outputFile);
-                    log.info("已保存新的缓存文件: {}", outputFile.getAbsolutePath());
-                } else {
-                    log.info("缓存文件已存在: {}", outputFile.getAbsolutePath());
-                }
-                // 始终更新数据库路径
-                photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
-                photoRepository.save(photo);
-                log.info("已更新数据库缓存路径: {}", outputFile.getAbsolutePath());
-            } catch (IOException e) {
-                log.warn("保存缓存文件失败", e);
-            }
-
-            // 9. 返回图片
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.IMAGE_PNG);
-            headers.setContentLength(imageBytes.length);
-            headers.setCacheControl("public, max-age=31536000"); // 缓存1年
-
-            return new ResponseEntity<>(imageBytes, headers, HttpStatus.OK);
-            
-        } catch (IOException e) {
-            log.error("图片处理失败: {}", photoPath, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            // 返回 202 Accepted，表示请求已接受但处理未完成
+            // 前端可以稍后重试
+            log.info("抠图任务已提交，返回处理中状态: photoId={}", id);
+            return ResponseEntity.status(HttpStatus.ACCEPTED).build();
         }
+
+        // 7. 异步提交抠图任务
+        log.info("开始处理抠图(异步): {}, outputMaxSize={}", photoPath, outputMaxSize);
+
+        backgroundRemovalService.submitBackgroundRemoval(photo.getId(), sourceFile, outputFile, outputMaxSize);
+
+        // 返回 202 Accepted
+        log.info("抠图任务已提交，返回处理中状态: photoId={}", id);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
     /**

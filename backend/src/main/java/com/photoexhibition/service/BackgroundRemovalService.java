@@ -485,8 +485,69 @@ public class BackgroundRemovalService implements AutoCloseable {
     }
 
     /**
+     * 异步提交背景移除任务，不等待完成
+     * 适用于 HTTP 请求场景，立即返回，任务在后台处理
+     *
+     * @param photoId 图片ID
+     * @param sourceFile 源文件
+     * @param outputFile 输出文件
+     * @param outputMaxSize 输出尺寸
+     */
+    public void submitBackgroundRemoval(Long photoId, File sourceFile, File outputFile, int outputMaxSize) {
+        if (!enabled || !modelLoaded) {
+            log.warn("模型未就绪，跳过处理: photoId={}", photoId);
+            return;
+        }
+
+        // 检查是否已有任务在处理中
+        if (inProgressTasks.containsKey(photoId)) {
+            java.util.concurrent.Future<?> existingTask = inProgressTasks.get(photoId);
+            if (existingTask != null && !existingTask.isDone()) {
+                log.debug("图片正在处理中，跳过重复提交: photoId={}", photoId);
+                return;
+            }
+        }
+
+        // 提交任务，不等待结果
+        java.util.concurrent.Future<?> task = processingExecutor.submit(() -> {
+            try {
+                log.info("开始处理抠图: photoId={}, file={}, outputMaxSize={}", photoId, sourceFile.getName(), outputMaxSize);
+
+                // 执行背景移除
+                BufferedImage result = removeBackground(sourceFile, outputMaxSize);
+
+                if (result != null && outputFile != null) {
+                    File parentDir = outputFile.getParentFile();
+                    if (parentDir != null && !parentDir.exists()) {
+                        parentDir.mkdirs();
+                    }
+                    ImageIO.write(result, "PNG", outputFile);
+                    log.info("抠图完成并保存: photoId={}", photoId);
+                }
+            } catch (Exception e) {
+                log.error("抠图处理异常: photoId={}", photoId, e);
+            } finally {
+                inProgressTasks.remove(photoId);
+            }
+        });
+
+        inProgressTasks.put(photoId, task);
+        log.debug("抠图任务已提交: photoId={}", photoId);
+    }
+
+    /**
+     * 检查指定 photoId 的抠图是否已完成
+     *
+     * @param photoId 图片ID
+     * @return true 表示已完成（或正在处理中）
+     */
+    public boolean isProcessingOrDone(Long photoId) {
+        return inProgressTasks.containsKey(photoId);
+    }
+
+    /**
      * 并发背景移除 - 带缓存检查和任务追踪，支持指定输出尺寸
-     * 
+     *
      * @param photoId 图片ID（用于追踪任务）
      * @param sourceFile 源图片文件
      * @param outputFile 输出文件（可选，为null时只返回内存图片）
@@ -691,11 +752,12 @@ public class BackgroundRemovalService implements AutoCloseable {
         g.dispose();
 
         // 计算掩码在原图中的位置
+        // scale 是基于较大边计算的，原图缩放后居中放置在 maskSize 正方形中
         double scale = (double) maskSize / Math.max(w, h);
-        int maskW = (int) (w * scale);
-        int maskH = (int) (h * scale);
-        int offsetX = (maskSize - maskW) / 2;
-        int offsetY = (maskSize - maskH) / 2;
+        int scaledW = (int) (w * scale);
+        int scaledH = (int) (h * scale);
+        int offsetX = (maskSize - scaledW) / 2;
+        int offsetY = (maskSize - scaledH) / 2;
 
         // 应用掩码
         int[] pixels = new int[w * h];
@@ -703,23 +765,27 @@ public class BackgroundRemovalService implements AutoCloseable {
 
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                // 将原图坐标映射到掩码坐标
-                int maskX = (int) (x * scale) + offsetX;
-                int maskY = (int) (y * scale) + offsetY;
-                
-                // 确保在掩码范围内
+                // 反向映射：将原图坐标映射到掩码坐标
+                // 原图坐标 x -> 缩放后的坐标 (x * scale) -> 加上偏移得到掩码坐标
+                int maskX = Math.round((float) (x * scale)) + offsetX;
+                int maskY = Math.round((float) (y * scale)) + offsetY;
+
+                // 确保在掩码范围内（考虑填充区域）
                 if (maskX < 0 || maskX >= maskSize || maskY < 0 || maskY >= maskSize) {
+                    // 填充区域，设为完全透明
+                    int idx = y * w + x;
+                    pixels[idx] = pixels[idx] & 0x00FFFFFF; // alpha = 0
                     continue;
                 }
-                
+
                 float alpha = mask[maskY][maskX];
-                
+
                 // 应用阈值和羽化
                 alpha = smoothAlpha(alpha);
-                
+
                 int idx = y * w + x;
                 int rgb = pixels[idx];
-                
+
                 // 设置新的 alpha 值
                 int newAlpha = (int) (alpha * 255) << 24;
                 pixels[idx] = (rgb & 0x00FFFFFF) | newAlpha;
@@ -727,17 +793,17 @@ public class BackgroundRemovalService implements AutoCloseable {
         }
 
         result.setRGB(0, 0, w, h, pixels, 0, w);
-        
+
         // 后处理：腐蚀去除噪点
         if (erodeRadius > 0) {
             result = erodeAlpha(result, erodeRadius);
         }
-        
+
         // 后处理：高斯模糊平滑边缘
         if (blurRadius > 0) {
             result = blurAlpha(result, blurRadius);
         }
-        
+
         return result;
     }
 
@@ -791,11 +857,12 @@ public class BackgroundRemovalService implements AutoCloseable {
         g.dispose();
 
         // 计算掩码在原图中的位置
+        // scale 是基于较大边计算的，原图缩放后居中放置在 maskSize 正方形中
         double scale = (double) maskSize / Math.max(w, h);
-        int maskW = (int) (w * scale);
-        int maskH = (int) (h * scale);
-        int offsetX = (maskSize - maskW) / 2;
-        int offsetY = (maskSize - maskH) / 2;
+        int scaledW = (int) (w * scale);
+        int scaledH = (int) (h * scale);
+        int offsetX = (maskSize - scaledW) / 2;
+        int offsetY = (maskSize - scaledH) / 2;
 
         // 应用掩码
         int[] pixels = new int[w * h];
@@ -803,17 +870,21 @@ public class BackgroundRemovalService implements AutoCloseable {
 
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                // 将原图坐标映射到掩码坐标
-                int maskX = (int) (x * scale) + offsetX;
-                int maskY = (int) (y * scale) + offsetY;
-                
-                // 确保在掩码范围内
+                // 反向映射：将原图坐标映射到掩码坐标
+                // 原图坐标 x -> 缩放后的坐标 (x * scale) -> 加上偏移得到掩码坐标
+                int maskX = Math.round((float) (x * scale)) + offsetX;
+                int maskY = Math.round((float) (y * scale)) + offsetY;
+
+                // 确保在掩码范围内（考虑填充区域）
                 if (maskX < 0 || maskX >= maskSize || maskY < 0 || maskY >= maskSize) {
+                    // 填充区域，设为完全透明
+                    int idx = y * w + x;
+                    pixels[idx] = pixels[idx] & 0x00FFFFFF; // alpha = 0
                     continue;
                 }
-                
+
                 float alpha = mask[maskY][maskX];
-                
+
                 // 根据是否在人脸区域应用不同的阈值
                 boolean inFaceRegion = x >= faceRegionMinX && x <= faceRegionMaxX && 
                                         y >= faceRegionMinY && y <= faceRegionMaxY;

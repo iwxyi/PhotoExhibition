@@ -42,8 +42,15 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     /**
      * 按人物ID获取人脸，按照片拍摄时间倒序
+     * 去重：每张照片只保留一条记录（优先保留 id 最大的，即最新录入的）
      */
-    @Query("SELECT f FROM Face f JOIN f.photo p WHERE f.person.id = :personId ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
+    @Query(value = "SELECT f.* FROM photo_face f " +
+           "INNER JOIN photo p ON f.photo_id = p.id " +
+           "WHERE f.person_id = :personId " +
+           "AND f.id = (SELECT MAX(f2.id) FROM photo_face f2 WHERE f2.person_id = :personId AND f2.photo_id = p.id) " +
+           "ORDER BY COALESCE(p.taken_at, p.created_at) DESC",
+           countQuery = "SELECT COUNT(DISTINCT f.photo_id) FROM photo_face f WHERE f.person_id = :personId",
+           nativeQuery = true)
     Page<Face> findByPersonIdOrderByPhotoTimeDesc(@Param("personId") Long personId, Pageable pageable);
 
     Page<Face> findByPersonIdAndIsConfirmed(Long personId, Boolean isConfirmed, Pageable pageable);

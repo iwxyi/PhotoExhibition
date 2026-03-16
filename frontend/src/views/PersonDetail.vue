@@ -476,15 +476,22 @@ const preloadBackgroundRemovedImage = (photoId: number) => {
   if (bgRemoveSuccessCache.value[photoId] || bgRemoveLoadingCache.value[photoId]) {
     return
   }
-  
+
   // 标记正在加载
   bgRemoveLoadingCache.value[photoId] = true
-  
+
   const url = getBackgroundRemovedUrl(photoId)
-  
+
   // 先用 fetch 检查响应状态，避免显示错误图片
   fetch(url)
     .then(response => {
+      // 202 Accepted 表示处理中，稍后重试
+      if (response.status === 202) {
+        delete bgRemoveLoadingCache.value[photoId]
+        // 2秒后重试
+        setTimeout(() => preloadBackgroundRemovedImage(photoId), 2000)
+        return null
+      }
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
@@ -762,16 +769,24 @@ const loadPersonPhotos = async (personIdToLoad: number) => {
 const loadMorePersonPhotos = async () => {
   if (loadingMorePhotos.value || !hasMorePhotos.value || !resolvedPersonId.value) return
 
+  const nextPage = currentPhotoPage.value + 1
+
   try {
     loadingMorePhotos.value = true
-    currentPhotoPage.value++
 
-    const response = await personApi.getPersonPhotos(resolvedPersonId.value, currentPhotoPage.value, photoPageSize)
+    const response = await personApi.getPersonPhotos(resolvedPersonId.value, nextPage, photoPageSize)
     const newPhotos = response.data.content || []
     hasMorePhotos.value = !response.data.last
 
+    // 去重：过滤掉已存在的 photoId
+    const existingIds = new Set(personPhotos.value.map(p => p.photoId))
+    const uniqueNewPhotos = newPhotos.filter(p => !existingIds.has(p.photoId))
+
+    // 更新页码
+    currentPhotoPage.value = nextPage
+
     // 直接追加（后端已按拍摄时间倒序）
-    personPhotos.value = [...personPhotos.value, ...newPhotos]
+    personPhotos.value = [...personPhotos.value, ...uniqueNewPhotos]
   } catch (error) {
     console.error('加载更多人物照片失败:', error)
   } finally {
