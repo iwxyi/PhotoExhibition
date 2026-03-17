@@ -568,6 +568,37 @@
                 />
               </div>
 
+              <!-- 时间范围筛选 -->
+              <div>
+                <label class="block text-sm font-medium mb-2">拍摄时间范围</label>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">开始日期</label>
+                    <input
+                      v-model="filters.startDate"
+                      type="date"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">结束日期</label>
+                    <input
+                      v-model="filters.endDate"
+                      type="date"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-gray-900 dark:focus:ring-white text-sm"
+                    />
+                  </div>
+                </div>
+                <div v-if="filters.startDate || filters.endDate" class="mt-2">
+                  <button
+                    @click="clearDateRange"
+                    class="text-xs text-blue-500 hover:text-blue-600"
+                  >
+                    清除日期范围
+                  </button>
+                </div>
+              </div>
+
             </form>
           </div>
 
@@ -686,6 +717,8 @@ const syncFiltersFromProps = async (filterData: any) => {
   if (filterData.colorCategory !== undefined) filters.value.colorCategory = filterData.colorCategory
   if (filterData.category !== undefined) filters.value.category = filterData.category
   if (filterData.minQualityScore !== undefined) filters.value.minQualityScore = filterData.minQualityScore
+  if (filterData.startDate !== undefined) filters.value.startDate = filterData.startDate || ''
+  if (filterData.endDate !== undefined) filters.value.endDate = filterData.endDate || ''
 
   // 处理标签ID - 需要从API加载标签详情
   if (filterData.tagIds && filterData.tagIds.length > 0) {
@@ -763,6 +796,12 @@ const handleShare = () => {
   if (filters.value.minQualityScore > 0) {
     filterData.minQualityScore = filters.value.minQualityScore
   }
+  if (filters.value.startDate) {
+    filterData.startDate = filters.value.startDate
+  }
+  if (filters.value.endDate) {
+    filterData.endDate = filters.value.endDate
+  }
 
   // 检查是否有有效的筛选条件
   const hasFilters = Object.keys(filterData).length > 0
@@ -830,7 +869,9 @@ const filters = ref({
   isoRange: [null, null] as [number | null, number | null],
   colorCategory: '',
   category: '',
-  minQualityScore: 0
+  minQualityScore: 0,
+  startDate: '',
+  endDate: ''
 })
 
 // 监听外部传入的初始筛选条件
@@ -856,6 +897,8 @@ watch(() => props.initialFilters, async (newFilters) => {
     if (newFilters.colorCategory !== undefined) filters.value.colorCategory = newFilters.colorCategory
     if (newFilters.category !== undefined) filters.value.category = newFilters.category
     if (newFilters.minQualityScore !== undefined) filters.value.minQualityScore = newFilters.minQualityScore
+    if (newFilters.startDate !== undefined) filters.value.startDate = newFilters.startDate || ''
+    if (newFilters.endDate !== undefined) filters.value.endDate = newFilters.endDate || ''
 
     // 处理标签ID - 需要从API加载标签详情
     if (newFilters.tagIds && newFilters.tagIds.length > 0) {
@@ -1100,7 +1143,9 @@ const applyFilters = async () => {
     maxIso: filters.value.isoRange[1],
     colorCategory: filters.value.colorCategory || null,
     category: filters.value.category || null,
-    minQualityScore: filters.value.minQualityScore || null
+    minQualityScore: filters.value.minQualityScore || null,
+    startDate: filters.value.startDate || null,
+    endDate: filters.value.endDate || null
   }
 
   try {
@@ -1141,7 +1186,9 @@ const hasEffectiveFilters = (filterData: any) => {
     (filterData.minAperture !== null && filterData.minAperture !== undefined) ||
     (filterData.maxAperture !== null && filterData.maxAperture !== undefined) ||
     (filterData.minIso !== null && filterData.minIso !== undefined) ||
-    (filterData.maxIso !== null && filterData.maxIso !== undefined)
+    (filterData.maxIso !== null && filterData.maxIso !== undefined) ||
+    (filterData.startDate && filterData.startDate.trim() !== '') ||
+    (filterData.endDate && filterData.endDate.trim() !== '')
   )
 }
 
@@ -1153,6 +1200,8 @@ const resetFiltersInternal = async () => {
   filters.value.colorCategory = ''
   filters.value.category = ''
   filters.value.minQualityScore = 0
+  filters.value.startDate = ''
+  filters.value.endDate = ''
   selectedTags.value = []
   // 清除筛选状态
   photoStore.clearLastFilters()
@@ -1170,9 +1219,17 @@ const resetFilters = () => {
   filters.value.colorCategory = ''
   filters.value.category = ''
   filters.value.minQualityScore = 0
+  filters.value.startDate = ''
+  filters.value.endDate = ''
   selectedTags.value = []
   // 设置标志，下次打开面板时重置UI状态
   shouldResetOnOpen.value = true
+}
+
+// 清除日期范围
+const clearDateRange = () => {
+  filters.value.startDate = ''
+  filters.value.endDate = ''
 }
 
 // 打开/关闭面板的处理，确保按需加载筛选选项（避免刷新时自动请求）
@@ -1194,6 +1251,8 @@ const onTogglePanel = async () => {
       filters.value.colorCategory = ''
       filters.value.category = ''
       filters.value.minQualityScore = 0
+      filters.value.startDate = ''
+      filters.value.endDate = ''
       selectedTags.value = []
       shouldResetOnOpen.value = false
     }

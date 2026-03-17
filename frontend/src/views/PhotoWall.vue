@@ -178,8 +178,18 @@ const syncFilterPanel = async () => {
   }
 }
 
-// 当前已启用的筛选（来自 store.lastFilters）
-const currentFilters = computed(() => photoStore.lastFilters || null)
+// 当前已启用的筛选（来自 store.lastFilters 或 URL 参数）
+const currentFilters = computed(() => {
+  // 优先使用 store 中的筛选条件
+  if (photoStore.lastFilters?.value) {
+    return photoStore.lastFilters.value
+  }
+  // 其次检查 URL 中的筛选参数
+  if (urlFilters.value) {
+    return urlFilters.value
+  }
+  return null
+})
 
 // 选中的标签列表
 const selectedTags = ref<any[]>([])
@@ -226,6 +236,17 @@ const filterSummary = computed(() => {
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
   if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
   if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
+  // 时间范围
+  if (f.startDate || f.endDate) {
+    // 如果开始和结束日期相同，只显示一个日期
+    if (f.startDate && f.endDate && f.startDate === f.endDate) {
+      parts.push(`📅 ${f.startDate}`)
+    } else {
+      const start = f.startDate ? f.startDate.slice(5) : '开始'
+      const end = f.endDate ? f.endDate.slice(5) : '现在'
+      parts.push(`📅 ${start} - ${end}`)
+    }
+  }
   return parts.join(' · ')
 })
 
@@ -350,7 +371,9 @@ const hasEffectiveFilters = (filterData: any) => {
     (filterData.minAperture !== null && filterData.minAperture !== undefined) ||
     (filterData.maxAperture !== null && filterData.maxAperture !== undefined) ||
     (filterData.minIso !== null && filterData.minIso !== undefined) ||
-    (filterData.maxIso !== null && filterData.maxIso !== undefined)
+    (filterData.maxIso !== null && filterData.maxIso !== undefined) ||
+    (filterData.startDate && filterData.startDate.trim() !== '') ||
+    (filterData.endDate && filterData.endDate.trim() !== '')
   )
 }
 
@@ -885,7 +908,7 @@ const loadMore = async () => {
     // 使用 store 的同步 helper判断是否处于活动筛选
     if (photoStore.hasActiveFilters && photoStore.hasActiveFilters()) {
       // 只有当 lastFilters.value 可用时才继续分页请求；否则避免传 undefined 导致覆盖原有 filters
-      const filtersObj = photoStore.lastFilters && photoStore.lastFilters
+      const filtersObj = photoStore.lastFilters?.value
       if (!filtersObj) {
         // 保持当前页码不变（因为尚未成功加载新页），并结束加载
         currentPage.value--
@@ -996,24 +1019,56 @@ const handleScroll = () => {
   }, 100)
 }
 
-onMounted(async () => {
-  try {
-    // 初始化窗口宽度
-    windowWidth.value = window.innerWidth
-    // 初始化点赞数据
-    loadLikedFromStorage()
-    hydrateFromRoute()
+onMounted(() => {
+  (async () => {
+    try {
+      // 初始化窗口宽度
+      windowWidth.value = window.innerWidth
+      // 初始化点赞数据
+      loadLikedFromStorage()
+      await hydrateFromRoute()
 
-    // 同步筛选面板参数
-    await syncFilterPanel()
+      // 同步筛选面板参数
+      await syncFilterPanel()
 
-    // 如果已经有数据（从其他页面返回），不重新加载，但可能需要应用筛选
-    if (photos.value.length > 0) {
-      // 检查是否有URL筛选参数需要应用
-      if (photoStore.lastFilters && urlFilters.value) {
-        // 重新应用筛选
-        await photoStore.filterPhotos(photoStore.lastFilters, 0)
+      // 如果已经有数据（从其他页面返回），不重新加载，但可能需要应用筛选
+      if (photos.value.length > 0) {
+        // 检查是否有URL筛选参数需要应用
+        if (photoStore.lastFilters?.value && urlFilters.value) {
+          // 重新应用筛选
+          await photoStore.filterPhotos(photoStore.lastFilters?.value, 0)
+        }
+        isActivatedFlag.value = true
+        window.addEventListener('scroll', handleScroll, { passive: true })
+        window.addEventListener('resize', handleResize)
+        // 等待图片加载后布局
+        nextTick(() => {
+          setTimeout(() => {
+            layoutItems()
+          }, 100)
+        })
+        return
       }
+
+      // 声明当前活跃视图为 wall（避免其他视图触发 wall API）
+      photoStore.setCurrentView && photoStore.setCurrentView('wall')
+
+      // 根据 URL 参数决定加载方式
+      if (activeTagId.value) {
+        // 按标签筛选
+        await photoStore.fetchPhotosByTag(activeTagId.value, 0)
+      } else if (activePersonId.value) {
+        // 按人物筛选
+        await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
+      } else if (urlFilters.value && hasEffectiveFilters(urlFilters.value)) {
+        // 应用筛选条件
+        await photoStore.filterPhotos(urlFilters.value, 0)
+      } else {
+        // 加载所有图片
+        await loadInitial()
+      }
+
+      // 标记组件已激活，后续 onActivated 不再重新加载
       isActivatedFlag.value = true
       window.addEventListener('scroll', handleScroll, { passive: true })
       window.addEventListener('resize', handleResize)
@@ -1023,40 +1078,10 @@ onMounted(async () => {
           layoutItems()
         }, 100)
       })
-      return
+    } catch (error) {
+      console.error('初始化加载失败:', error)
     }
-
-    // 声明当前活跃视图为 wall（避免其他视图触发 wall API）
-    photoStore.setCurrentView && photoStore.setCurrentView('wall')
-
-    // 根据 URL 参数决定加载方式
-    if (activeTagId.value) {
-      // 按标签筛选
-      await photoStore.fetchPhotosByTag(activeTagId.value, 0)
-    } else if (activePersonId.value) {
-      // 按人物筛选
-      await photoStore.fetchPhotosByPerson(activePersonId.value, 0)
-    } else if (urlFilters.value && hasEffectiveFilters(urlFilters.value)) {
-      // 应用筛选条件
-      await photoStore.filterPhotos(urlFilters.value, 0)
-    } else {
-      // 加载所有图片
-      await loadInitial()
-    }
-
-    // 标记组件已激活，后续 onActivated 不再重新加载
-    isActivatedFlag.value = true
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    window.addEventListener('resize', handleResize)
-    // 等待图片加载后布局
-    nextTick(() => {
-      setTimeout(() => {
-        layoutItems()
-      }, 100)
-    })
-  } catch (error) {
-    console.error('初始化加载失败:', error)
-  }
+  })()
 })
 
 onUnmounted(() => {
@@ -1157,7 +1182,7 @@ const loadInitial = async () => {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-const hydrateFromRoute = () => {
+const hydrateFromRoute = async () => {
   const tagIdParam = route.query.tagId
   const tagNameParam = route.query.tagName
   activeTagId.value = tagIdParam ? Number(tagIdParam) : null
@@ -1194,8 +1219,11 @@ const hydrateFromRoute = () => {
 
   if (filtersFromUrl) {
     urlFilters.value = filtersFromUrl
-    // 保存筛选条件到store，但不自动打开筛选面板
-    photoStore.lastFilters = filtersFromUrl
+    // 保存筛选条件到store，但不自动打开筛选面板 - 使用store方法
+    // filterPhotos 内部会设置 lastFilters.value
+    if (photoStore && photoStore.filterPhotos) {
+      await photoStore.filterPhotos(filtersFromUrl, 0)
+    }
   }
 }
 
@@ -1219,7 +1247,7 @@ watch(
         return
       }
       // 更新内部状态
-      hydrateFromRoute()
+      await hydrateFromRoute()
 
       // 根据 URL 参数类型选择加载方式
       if (activeTagId.value) {

@@ -2101,12 +2101,14 @@ const findSimilarFaces = (face: { id?: number }) => {
 const filterByTakenAt = () => {
   if (!currentPhoto.value?.takenAt) return
   const date = new Date(currentPhoto.value.takenAt)
-  const year = date.getFullYear()
-  const month = date.getMonth() + 1
+  // 格式化为 YYYY-MM-DD
+  const dateStr = date.toISOString().slice(0, 10)
+  // 设置同一天的开始和结束
   const filters = {
-    takenAtYear: year,
-    takenAtMonth: month
+    startDate: dateStr,
+    endDate: dateStr
   }
+  // 打开随机页面
   const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
 }

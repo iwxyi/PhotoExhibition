@@ -213,6 +213,16 @@ public class PhotoService {
         Double minQualityScore = request.getMinQualityScore();
         List<Long> excludePhotoIds = request.getExcludePhotoIds();
 
+        // 处理日期范围
+        java.time.LocalDateTime startDate = null;
+        java.time.LocalDateTime endDate = null;
+        if (request.getStartDate() != null && !request.getStartDate().isBlank()) {
+            startDate = java.time.LocalDate.parse(request.getStartDate()).atStartOfDay();
+        }
+        if (request.getEndDate() != null && !request.getEndDate().isBlank()) {
+            endDate = java.time.LocalDate.parse(request.getEndDate()).atTime(23, 59, 59);
+        }
+
         // 按人物筛选（优先级最高）
         if (request.getPersonId() != null) {
             photos = photoRepository.findByPersonId(request.getPersonId(), createNativePageable(pageable));
@@ -270,12 +280,13 @@ public class PhotoService {
                 photos = Page.empty(pageable);
             }
         }
-        // EXIF筛选
+        // EXIF筛选（包括日期范围）
         else if (cameraModel != null || lensModel != null ||
                  minAperture != null || maxAperture != null ||
                  minFocalLength != null || maxFocalLength != null ||
                  minShutterSpeed != null || maxShutterSpeed != null ||
-                 minIso != null || maxIso != null) {
+                 minIso != null || maxIso != null ||
+                 startDate != null || endDate != null) {
             photos = photoRepository.findByExifFilters(
                 cameraModel,
                 lensModel,
@@ -289,6 +300,8 @@ public class PhotoService {
                 maxIso,
                 colorCategory,
                 minQualityScore,
+                startDate,
+                endDate,
                 excludePhotoIds,
                 pageable
             );

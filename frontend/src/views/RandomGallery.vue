@@ -180,8 +180,18 @@ const gridClass = computed(() => {
   return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
 })
 
-// 当前已启用的筛选（来自 store.lastFilters）
-const currentFilters = computed(() => photoStore.lastFilters || null)
+// 当前已启用的筛选（来自 store.lastFilters 或 URL 参数）
+const currentFilters = computed(() => {
+  // 优先使用 store 中的筛选条件
+  if (photoStore.lastFilters?.value) {
+    return photoStore.lastFilters.value
+  }
+  // 其次检查 URL 中的筛选参数
+  if (urlFilters.value) {
+    return urlFilters.value
+  }
+  return null
+})
 
 // 选中的标签列表
 const selectedTags = ref<any[]>([])
@@ -231,6 +241,17 @@ const filterSummary = computed(() => {
   if (f.minAperture != null || f.maxAperture != null) parts.push(`光圈 ${f.minAperture || '∞'}-${f.maxAperture || '∞'}`)
   if (f.minIso != null || f.maxIso != null) parts.push(`ISO ${f.minIso || '∞'}-${f.maxIso || '∞'}`)
   if (f.minQualityScore) parts.push(`评分≥${f.minQualityScore}`)
+  // 时间范围
+  if (f.startDate || f.endDate) {
+    // 如果开始和结束日期相同，只显示一个日期
+    if (f.startDate && f.endDate && f.startDate === f.endDate) {
+      parts.push(`📅 ${f.startDate}`)
+    } else {
+      const start = f.startDate ? f.startDate.slice(5) : '开始'
+      const end = f.endDate ? f.endDate.slice(5) : '现在'
+      parts.push(`📅 ${start} - ${end}`)
+    }
+  }
   return parts.join(' · ')
 })
 
@@ -558,7 +579,7 @@ const loadMore = async () => {
         isLoadingMore.value = false
         return
       }
-      const filtersObj = photoStore.lastFilters && photoStore.lastFilters
+      const filtersObj = photoStore.lastFilters?.value
       if (!filtersObj) {
         currentPage.value--
         hasMore.value = false
@@ -666,19 +687,11 @@ const loadInitial = async () => {
 
     if (filtersFromUrl) {
       urlFilters.value = filtersFromUrl
-      // 将URL筛选条件应用到photoStore
-      photoStore.lastFilters = filtersFromUrl
-      photoStore.lastFiltersActive.value = true
-    }
-
-    if (photoStore.lastFilters) {
-      // 筛选模式：传递已查看的图片ID列表以避免重复
-      const excludeIds = Array.from(viewedPhotoIds.value)
-      const filtersWithExclusion = {
-        ...photoStore.lastFilters,
-        excludePhotoIds: excludeIds.length > 0 ? excludeIds : [-1] // 如果为空，传-1（不可能的ID）
+      // 将URL筛选条件应用到photoStore - 使用store的方法
+      // filterPhotos 内部会设置 lastFilters.value
+      if (photoStore && photoStore.filterPhotos) {
+        data = await photoStore.filterPhotos(filtersFromUrl, 0, 20)
       }
-      data = await photoStore.filterPhotos(filtersWithExclusion, 0, 20)
     } else {
       data = await photoStore.fetchRandomPhotos(0, 20, 70)
     }
@@ -700,29 +713,31 @@ const loadInitial = async () => {
   }
 }
 
-onMounted(async () => {
-  // 声明当前活跃视图为 random（避免其他视图触发 random API）
-  photoStore.setCurrentView && photoStore.setCurrentView('random')
+onMounted(() => {
+  (async () => {
+    // 声明当前活跃视图为 random（避免其他视图触发 random API）
+    photoStore.setCurrentView && photoStore.setCurrentView('random')
 
-  // 如果已经有数据（从其他页面返回），检查是否需要应用筛选
-  if (photos.value.length > 0) {
-    // 解析 URL 参数
-    const tagIdParam = route.query.tagId ? Number(route.query.tagId) : null
-    const personIdParam = route.query.personId ? Number(route.query.personId) : null
+    // 如果已经有数据（从其他页面返回），检查是否需要应用筛选
+    if (photos.value.length > 0) {
+      // 解析 URL 参数
+      const tagIdParam = route.query.tagId ? Number(route.query.tagId) : null
+      const personIdParam = route.query.personId ? Number(route.query.personId) : null
 
-    // 如果有 URL 筛选参数，重新应用筛选
-    if (tagIdParam || personIdParam || route.query.filters) {
-      await loadInitial()
+      // 如果有 URL 筛选参数，重新应用筛选
+      if (tagIdParam || personIdParam || route.query.filters) {
+        await loadInitial()
+      }
+      isActivatedFlag.value = true
+      window.addEventListener('scroll', handleScroll, { passive: true })
+      return
     }
-    isActivatedFlag.value = true
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return
-  }
 
-  // 首次加载
-  await loadInitial()
-  // 标记组件已激活，后续 onActivated 不再重新加载
-  isActivatedFlag.value = true
+    // 首次加载
+    await loadInitial()
+    // 标记组件已激活，后续 onActivated 不再重新加载
+    isActivatedFlag.value = true
+  })()
 })
 
 onUnmounted(() => {

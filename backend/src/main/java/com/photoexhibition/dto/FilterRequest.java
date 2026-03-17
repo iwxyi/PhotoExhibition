@@ -21,6 +21,8 @@ public class FilterRequest {
     private String colorCategory;        // 颜色分类
     private String category;             // 相册分类
     private Double minQualityScore;      // 最小质量评分
+    private String startDate;            // 开始日期 (yyyy-MM-dd)
+    private String endDate;              // 结束日期 (yyyy-MM-dd)
     private Boolean randomOrder = false;     // 是否随机排序
     private List<Long> excludePhotoIds = java.util.Arrays.asList(-1L);      // 排除的图片ID列表（避免重复显示，默认-1表示不排除）
     private Integer page = 0;

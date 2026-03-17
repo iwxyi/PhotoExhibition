@@ -99,6 +99,8 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
            "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
            "(:colorCategory IS NULL OR p.colorCategory = :colorCategory) AND " +
            "(:minQualityScore IS NULL OR p.qualityScore >= :minQualityScore) AND " +
+           "(:startDate IS NULL OR p.takenAt >= :startDate) AND " +
+           "(:endDate IS NULL OR p.takenAt <= :endDate) AND " +
            "(p.id NOT IN :excludePhotoIds)")
     Page<Photo> findByExifFilters(@Param("cameraModel") String cameraModel,
                                   @Param("lensModel") String lensModel,
@@ -112,6 +114,8 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   @Param("maxIso") Integer maxIso,
                                   @Param("colorCategory") String colorCategory,
                                   @Param("minQualityScore") Double minQualityScore,
+                                  @Param("startDate") java.time.LocalDateTime startDate,
+                                  @Param("endDate") java.time.LocalDateTime endDate,
                                   @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                   Pageable pageable);
 
