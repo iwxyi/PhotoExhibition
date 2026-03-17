@@ -53,7 +53,7 @@
             </div>
             <div>
               <h2 class="text-2xl sm:text-3xl lg:text-4xl font-light tracking-wide mb-2">
-                智能相册中枢
+                光忆集
               </h2>
               <p class="text-sm sm:text-base text-slate-300/90 max-w-xl">
                 统一管理相册、标签、人脸与文件系统，配合自动扫描与 AI 能力，让你的作品集始终保持有序而精彩。

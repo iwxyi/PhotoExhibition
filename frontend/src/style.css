@@ -1069,11 +1069,17 @@
   }
 
   .admin-hero,
-  .admin-card-animate,
   .admin-hero-gradient,
   .admin-hero-particle,
   .viewer-open-anim {
     animation: none !important;
+  }
+
+  .admin-card-animate {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
   }
 
   * {

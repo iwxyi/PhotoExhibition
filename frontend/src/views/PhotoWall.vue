@@ -145,6 +145,11 @@ const masonryContainer = ref<HTMLElement | null>(null)
 const isLoadingMore = ref(false)
 // 标记组件是否已激活（用于区分首次加载和从其他页面返回）
 const isActivatedFlag = ref(false)
+// 记录上次加载数据时的路由信息，用于判断是否需要重新加载
+const lastDataLoadedInfo = ref<{
+  query: Record<string, any>;
+  fullPath: string;
+} | null>(null)
 const { previewSize, parallaxEnabled } = useUiSettings()
 const { isMobile } = useMobileNav()
 const { isHidden: navHidden } = useNavAutoHide()
@@ -1073,36 +1078,55 @@ onActivated(() => {
   console.log('[PhotoWall] onActivated 触发')
   // 标记组件已激活，用于路由参数变化监听
   isActivatedFlag.value = true
-  // 重置加载状态，确保可以继续加载更多
-  hasMore.value = true
-  isLoadingMore.value = false
 
-  // 更新窗口宽度
-  windowWidth.value = window.innerWidth
+  // 智能判断是否需要重新加载数据
+  // 只有当路由路径发生变化（首次加载或导航到其他路由后返回）时才重新加载
+  if (!lastDataLoadedInfo.value || lastDataLoadedInfo.value.fullPath !== route.fullPath) {
+    console.log('[PhotoWall] 路由路径变化，需要重新加载数据')
+    // 重置加载状态，确保可以继续加载更多
+    hasMore.value = true
+    isLoadingMore.value = false
+    console.log('[PhotoWall] hasMore 重置为:', hasMore.value)
 
-  // 恢复滚动位置并添加事件监听器
-  // 使用 setTimeout 确保 DOM 已更新，避免 nextTick 在某些情况下不触发的问题
-  setTimeout(() => {
-    // 先恢复滚动位置
-    window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+    // 更新窗口宽度
+    windowWidth.value = window.innerWidth
 
-    // 再次确保滚动位置正确（有时一次可能不够）
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: savedScrollTop.value })
-    })
+    // 恢复滚动位置并添加事件监听器
+    setTimeout(() => {
+      console.log('[PhotoWall] setTimeout 触发，savedScrollTop:', savedScrollTop.value)
+      // 先恢复滚动位置
+      window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
 
-    // 添加事件监听器
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    window.addEventListener('resize', handleResize)
+      // 再次确保滚动位置正确（有时一次可能不够）
+      requestAnimationFrame(() => {
+        console.log('[PhotoWall] requestAnimationFrame 触发，当前滚动位置:', window.scrollY)
+        window.scrollTo({ top: savedScrollTop.value })
+      })
 
-    // 重新布局，确保容器尺寸和位置正确
-    if (photos.value.length > 0 && masonryContainer.value) {
-      setTimeout(() => {
-        layoutItems()
-        updateParallax()
-      }, 50)
-    }
-  }, 10)
+      // 添加事件监听器
+      window.addEventListener('scroll', handleScroll, { passive: true })
+      console.log('[PhotoWall] scroll listener 已添加')
+      window.addEventListener('resize', handleResize)
+
+      // 重新布局，确保容器尺寸和位置正确
+      if (photos.value.length > 0 && masonryContainer.value) {
+        console.log('[PhotoWall] 重新布局，photos:', photos.value.length)
+        setTimeout(() => {
+          layoutItems()
+          updateParallax()
+        }, 50)
+      }
+    }, 10)
+  } else {
+    console.log('[PhotoWall] 路由路径未变化，保持缓存状态')
+    // 路由路径未变化，只是从其他页面返回，不需要重新加载数据
+    // 只需恢复滚动位置和事件监听器
+    setTimeout(() => {
+      window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
+      window.addEventListener('scroll', handleScroll, { passive: true })
+      window.addEventListener('resize', handleResize)
+    }, 10)
+  }
 })
 
 const loadPhotosWithoutClear = async () => {
@@ -1158,6 +1182,11 @@ const loadInitial = async () => {
   }
   // 滚动到页面顶部
   window.scrollTo({ top: 0, behavior: 'smooth' })
+  // 记录本次加载的路由信息
+  lastDataLoadedInfo.value = {
+    query: { ...route.query },
+    fullPath: route.fullPath
+  }
 }
 
 const hydrateFromRoute = () => {
