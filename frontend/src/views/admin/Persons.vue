@@ -621,6 +621,11 @@
                          class="absolute top-1 right-1 bg-blue-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
                       已认领
                     </div>
+                    <!-- 被他人认领（相似人脸全部被其他人认领，且图片未被当前人物认领） -->
+                    <div v-else-if="f.faces && f.faces.length > 0 && f.faces.every((face: any) => face.personId && face.personId !== selectedPersonId) && f.assignedPersonId !== selectedPersonId"
+                         class="absolute top-1 right-1 bg-yellow-500 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                      已认领
+                    </div>
                     <!-- 已移除状态 -->
                     <div v-else-if="f.isRemoved"
                          class="absolute top-1 right-1 bg-gray-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
@@ -926,6 +931,23 @@
                       :style="getFaceCropStyle(f)"
                       loading="lazy"
                     />
+                    <!-- 已认领标识：人脸级别认领（绿色）或图片级别认领（琥珀色） -->
+                    <div v-if="f.personId && f.personId !== selectedPersonId"
+                         class="absolute top-1 right-1 bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                      已认领
+                    </div>
+                    <div v-else-if="f.assignedPersonId && f.assignedPersonId !== selectedPersonId"
+                         class="absolute top-1 right-1 bg-amber-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                      已认领
+                    </div>
+                    <!-- 移除按钮：对于已被其他人认领的照片，显示移除按钮 -->
+                    <button
+                        v-if="(f.personId && f.personId !== selectedPersonId) || (f.assignedPersonId && f.assignedPersonId !== selectedPersonId)"
+                        @click.stop="unassignPhotoOrFace(f)"
+                        class="absolute bottom-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      移除
+                    </button>
                   </div>
                   <div class="p-1.5">
                     <div
@@ -964,7 +986,7 @@
     :photos="viewerPhotos"
     :start-index="viewerIndex"
     :auto-show-faces="true"
-    :force-show-faces="tab === 'similar' || tab === 'unassigned'"
+    :force-show-faces="tab === 'similar' || tab === 'unassigned' || tab === 'albums'"
     :open-options="viewerOpenOptions"
     @viewer-index-change="onViewerIndexChange"
   />
@@ -1196,6 +1218,7 @@ interface FaceItem {
   personName?: string
   similarity?: number
   isConfirmed?: boolean
+  assignedPersonId?: number // 图片级别的指派人物ID
 }
 
 interface AlbumRecommendation {
@@ -4717,18 +4740,37 @@ const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: numbe
     const photoPromises = photoIds.map(id => photoStore.fetchPhotoById(id))
     const photos = await Promise.all(photoPromises)
 
-    // 为每张照片添加人脸信息（只保留相似度最高的那张人脸）
+    // 为每张照片添加人脸信息（保留所有人脸用于显示）
     const enrichedPhotos = photos.map(photo => {
+      // albums tab：只显示当前人物的人脸框，或未认领的最相似人脸
+      if (tab.value === 'albums') {
+        const albumPhoto = (selectedAlbum.value?.albumPhotos || []).find((p: any) => p.id === photo.id)
+        const similarFaces = albumPhoto?.faces || []
+        const personId = selectedPersonId.value
+
+        // 优先：当前人物已认领的人脸
+        const ownFace = similarFaces.find((f: any) => f.personId === personId)
+        if (ownFace) {
+          return { ...photo, faces: [ownFace] }
+        }
+
+        // 其次：未被任何人认领的相似人脸中相似度最高的
+        const unclaimedFaces = similarFaces.filter((f: any) => !f.personId)
+        if (unclaimedFaces.length > 0) {
+          const best = unclaimedFaces.reduce((a: any, b: any) => (b.similarity || 0) > (a.similarity || 0) ? b : a)
+          return { ...photo, faces: [best] }
+        }
+
+        // 剩下的都是被其他人认领的 → 大图不显示人脸框
+        return { ...photo, faces: [] }
+      }
+
       // 对于相册tab，faces可能已经在对象中
       const existingFaces = faceOrPhoto.faces && photo.id === (faceOrPhoto.photoId || faceOrPhoto.id) ? faceOrPhoto.faces : []
       let photoFaces: any[] = []
 
       if (existingFaces.length > 0) {
-        // 相册tab：只取相似度最高的那张人脸
-        const bestFace = existingFaces.reduce((best: any, current: any) =>
-          (current.similarity || 0) > (best.similarity || 0) ? current : best
-        , existingFaces[0])
-        photoFaces = [bestFace]
+        photoFaces = existingFaces
       } else {
         // 其他tab：从facesForViewer中过滤，然后取最优的
         const allFacesForPhoto = facesForViewer
@@ -4745,12 +4787,13 @@ const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: numbe
             width: f.width,
             height: f.height
           }))
-        // 只取置信度最高的那张人脸
-        if (allFacesForPhoto.length > 0) {
-          const bestFace = allFacesForPhoto.reduce((best: any, current: any) =>
-            (current.confidence || 0) > (best.confidence || 0) ? current : best
-          , allFacesForPhoto[0])
-          photoFaces = [bestFace]
+
+        // 只保留相似度最高的1张人脸
+        if (allFacesForPhoto.length > 1) {
+          allFacesForPhoto.sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+          photoFaces = [allFacesForPhoto[0]]
+        } else {
+          photoFaces = allFacesForPhoto
         }
       }
 
@@ -4774,7 +4817,7 @@ const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: numbe
       if (selectedItem.value && selectedItem.value.type === 'confirmed' && tab.value === 'confirmed') {
         return { highlightedPersonId: selectedItem.value.id }
       }
-      // For albums tab, don't set fallback options since we want to use highlightedFaceIds
+      // albums tab: faces 已在 enrichedPhotos 中只保留了最相似的一个，无需额外过滤
       if (tab.value === 'albums') {
         return {}
       }
@@ -4802,9 +4845,8 @@ const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: numbe
       // No person/cluster selected - for recommended tabs, highlight all faces in the current tab
       if (tab.value === 'similar') {
         allFacesSource = similarFaces.value
-      } else if (tab.value === 'albums' && selectedAlbum.value) {
-        // 对于albums tab，不设置highlightedFaceIds，因为相似face和photo face的ID不匹配
-        // 只使用preferredFaceId进行高亮
+      } else if (tab.value === 'albums') {
+        // albums tab: faces 已在 enrichedPhotos 中只保留了最相似的一个，无需 faceIds 过滤
         allFacesSource = []
       } else if (tab.value === 'unassigned') {
         allFacesSource = unassignedFaces.value
@@ -4815,7 +4857,23 @@ const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: numbe
 
     const allFaceIds = allFacesSource.map((f: any) => Number(f.id)).filter(Boolean)
     const uniqueFaceIds = Array.from(new Set(allFaceIds))
-    const finalOptions = { ...fallbackOptions, highlightedFaceIds: uniqueFaceIds, ...options }
+
+    // 确保 highlightedFaceIds 是普通数组
+    const finalOptions = {
+      ...fallbackOptions,
+      highlightedFaceIds: uniqueFaceIds,
+      ...options
+    }
+
+    console.log('openViewer albums tab:', {
+      tab: tab.value,
+      selectedPersonId: selectedPersonId.value,
+      fallbackOptions,
+      uniqueFaceIds,
+      options,
+      finalOptions
+    })
+
     viewerOpenOptions.value = finalOptions
     viewerVisible.value = true
 
@@ -4897,14 +4955,48 @@ const openViewerForPhoto = async (photoId?: number) => {
   if (!photoId) return
   try {
     showViewerLoadingOverlay.value = true
-    const photo = await photoStore.fetchPhotoById(photoId)
-    if (!photo) return
-    // ensure faces array exists
-    const enriched = { ...photo, faces: photo.faces || [] }
-    viewerPhotos.value = [enriched]
-    viewerIndex.value = 0
-    // no specific highlighted face; rely on highlightedFaceIds if any
-    viewerOpenOptions.value = {}
+
+    // 判断当前是否在 albums tab
+    let photosToShow: any[] = []
+    let highlightedFaceIds: number[] = []
+    let highlightedPersonId: number | undefined = undefined
+
+    if (tab.value === 'albums' && selectedAlbum.value?.albumPhotos) {
+      // albums tab：显示所有相册照片
+      photosToShow = selectedAlbum.value.albumPhotos
+
+      // 使用当前选中人物的ID
+      highlightedPersonId = selectedPersonId.value || undefined
+
+      // 从 albumPhotos 中收集所有属于当前人物的相似人脸ID作为备选
+      highlightedFaceIds = photosToShow
+        .flatMap((photo: any) => (photo.faces || []).map((f: any) => f.id))
+        .filter(Boolean)
+    }
+
+    // 如果不是 albums tab 或者没有特定照片，使用单张照片
+    if (photosToShow.length === 0) {
+      const photo = await photoStore.fetchPhotoById(photoId)
+      if (!photo) return
+      const enriched = { ...photo, faces: photo.faces || [] }
+      viewerPhotos.value = [enriched]
+      viewerIndex.value = 0
+      viewerOpenOptions.value = {}
+      viewerVisible.value = true
+      return
+    }
+
+    // 设置 viewerPhotos
+    viewerPhotos.value = photosToShow
+    const idx = photosToShow.findIndex(p => p.id === photoId)
+    viewerIndex.value = idx >= 0 ? idx : 0
+
+    // 设置高亮选项：优先使用 highlightedPersonId
+    viewerOpenOptions.value = {
+      highlightedPersonId,
+      highlightedFaceIds
+    }
+
     viewerVisible.value = true
   } catch (e) {
     console.error('openViewerForPhoto error', e)

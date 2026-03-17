@@ -134,7 +134,7 @@
               class="absolute inset-0"
             >
               <div
-                v-for="(face, idx) in currentPhoto?.faces || []"
+                v-for="(face, idx) in visibleFaceList"
                 :key="face.id"
                 v-show="showFaceBoxes"
                 class="absolute pointer-events-none"
@@ -963,7 +963,24 @@ const getFaceBoxStyle = (face: any) => {
 const visibleFaceList = computed(() => {
   if (!currentPhoto.value?.faces?.length) return []
 
-  return currentPhoto.value.faces
+  const faces = currentPhoto.value.faces
+  const options = props.openOptions
+
+  // 如果有 highlightedFaceIds 且不为空，按 ID 过滤
+  if (options?.highlightedFaceIds?.length) {
+    const highlightedSet = new Set(options.highlightedFaceIds.map((id: number | string) => Number(id)))
+    const filtered = faces.filter(f => highlightedSet.has(Number(f.id)))
+    if (filtered.length > 0) return filtered
+  }
+
+  // 如果有 highlightedPersonId 且不为空，按 personId 过滤
+  if (options?.highlightedPersonId) {
+    const filtered = faces.filter(f => f.personId === options?.highlightedPersonId)
+    if (filtered.length > 0) return filtered
+  }
+
+  // 没有设置高亮选项时，显示所有人脸
+  return faces
 })
 
 // 获取当前相册路径

@@ -1940,6 +1940,9 @@ public class FaceService {
             dto.setPhotoShutterSpeed(photo.getShutterSpeed());
             dto.setPhotoIso(photo.getIso() != null ? photo.getIso().toString() : null);
             dto.setPhotoFocalLength(photo.getFocalLength());
+            // 获取图片级别的指派信息
+            photoAssignmentRepository.findByPhotoId(photo.getId())
+                .ifPresent(assignment -> dto.setAssignedPersonId(assignment.getPersonId()));
         }
         return dto;
     }

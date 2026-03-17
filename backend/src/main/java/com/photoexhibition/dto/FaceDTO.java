@@ -36,5 +36,6 @@ public class FaceDTO {
     private String photoFocalLength;
     private Double similarity; // 相似度（可选）
     private Boolean isConfirmed; // 是否已确认
+    private Long assignedPersonId; // 图片级别的指派人物ID（如果有的话）
 }
 
