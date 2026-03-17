@@ -71,6 +71,26 @@ public class PhotoScanService {
         public LocalDateTime endTime;
     }
 
+    // 跳过文件记录（扫描进度差异详情）
+    public static class SkippedFileRecord {
+        public int index;
+        public String relativePath;
+        public String reason;
+        public String detail;
+        public long fileSizeBytes;
+
+        public SkippedFileRecord(int index, String relativePath, String reason, String detail, long fileSizeBytes) {
+            this.index = index;
+            this.relativePath = relativePath;
+            this.reason = reason;
+            this.detail = detail;
+            this.fileSizeBytes = fileSizeBytes;
+        }
+    }
+
+    private final List<SkippedFileRecord> skippedFileRecords = Collections.synchronizedList(new ArrayList<>());
+    private final AtomicInteger skippedFileIndex = new AtomicInteger(0);
+
     @Value("${photo.scan.base-path}")
     private String basePath;
 
@@ -968,6 +988,13 @@ public class PhotoScanService {
     }
 
     /**
+     * 获取本次扫描跳过的文件列表（进度差异详情）
+     */
+    public List<SkippedFileRecord> getSkippedFileRecords() {
+        return new ArrayList<>(skippedFileRecords);
+    }
+
+    /**
      * 获取扫描进度/状态
      */
     @Transactional(readOnly = true)
@@ -1020,9 +1047,16 @@ public class PhotoScanService {
                     status.put("total", filesystemTotal);
                     status.put("scanMode", "scanning"); // 表示正在扫描文件
                 } else {
-                    // 扫描未进行：显示已扫描数量 / 总的照片数量
-                    status.put("current", totalPhotos);  // 已扫描数量（数据库中的照片）
-                    status.put("total", filesystemTotal); // 总的照片数量（文件系统中的照片）
+                    // 扫描未进行：如果本次会话有过扫描，使用扫描计数器（包含空文件/去重文件）
+                    int lastScanCurrent = scanCurrent.get();
+                    if (lastScanCurrent > 0 && lastScanCurrent >= totalPhotos) {
+                        // 扫描已完成，显示实际遍历数/总数（可能 >= total，因为包含空文件和去重文件的计数）
+                        status.put("current", Math.min(lastScanCurrent, (int) filesystemTotal));
+                    } else {
+                        // 未扫描过或计数异常，显示数据库记录数
+                        status.put("current", totalPhotos);
+                    }
+                    status.put("total", filesystemTotal);
                     status.put("scanMode", "completed"); // 表示扫描已完成
                 }
 
@@ -1234,6 +1268,7 @@ public class PhotoScanService {
             directoryPath = basePath;
         }
         activeScanCount.incrementAndGet();
+        final Set<String> allExpectedPaths = new java.util.LinkedHashSet<>();
         try {
             // 只有在没有其他扫描进行时才重置计数器和设置扫描状态
             if (activeScanCount.get() == 1) {
@@ -1300,29 +1335,22 @@ public class PhotoScanService {
 
             // 取消优先处理逻辑，所有照片都在正常的目录遍历中处理
 
-            // 预统计所有要扫描的文件总数
-            long totalFilesToScan = countPhotosInFilesystem();
-            log.info("文件系统统计结果: {} 张照片", totalFilesToScan);
-            log.info("本次扫描将处理 {} 张照片", totalFilesToScan);
-
-            // 重置扫描计数器，为扫描做准备
-            // 注意：只有在没有并发扫描时才重置，避免干扰其他扫描的进度
+            // 重置扫描计数器
             if (activeScanCount.get() == 1) {
-                scanCurrent.set(0);  // 从0开始计数已遍历的文件
-                scanTotal.set((int) totalFilesToScan);    // 设置总数，不限制上限
-                processedFiles.clear();  // 清空已处理文件跟踪
-                log.info("设置扫描总数: {}", totalFilesToScan);
+                scanCurrent.set(0);
+                scanTotal.set(0);
+                processedFiles.clear();
+                skippedFileRecords.clear();
+                skippedFileIndex.set(0);
             }
 
-            // 预统计总数用于进度显示
-            // 注意：这里统计所有文件，包括可能被递归处理的超过层级的目录中的文件
+            // 预统计总数，同时收集所有文件路径（供扫描结束后做差集，避免二次遍历）
             try (Stream<Path> paths = Files.walk(path)) {
                 Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
                     .map(String::trim)
                     .map(String::toLowerCase)
                     .collect(Collectors.toSet());
-                int total = (int) paths
-                    .filter(Files::isRegularFile)
+                paths.filter(Files::isRegularFile)
                     .filter(p -> {
                         String name = p.getFileName().toString();
                         if (name.contains("_thumb")) return false;
@@ -1331,14 +1359,15 @@ public class PhotoScanService {
                         String ext = FilenameUtils.getExtension(name).toLowerCase();
                         return supportedSet.contains(ext);
                     })
-                    .count();
+                    .map(Path::toString)
+                    .forEach(allExpectedPaths::add);
 
+                int total = allExpectedPaths.size();
                 // 设置扫描总数（只有第一个扫描任务才设置）
                 if (activeScanCount.get() == 1) {
                     scanTotal.set(total);
                     scanCurrent.set(0); // 从0开始计数
                 } else {
-                    // 并发情况下，累积总数，但这可能不准确
                     scanTotal.addAndGet(total);
                 }
 
@@ -1381,6 +1410,40 @@ public class PhotoScanService {
                     log.error("更新筛选选项失败", e);
                     // 不抛出异常，避免影响扫描结果
                 }
+
+                // 补录未被遍历到的文件（用预统计时收集的路径集合做差集，无需二次 walk）
+                try {
+                    Set<String> alreadyRecorded = skippedFileRecords.stream()
+                        .map(r -> r.relativePath)
+                        .collect(java.util.stream.Collectors.toSet());
+                    int missedCount = 0;
+                    for (String absPath : allExpectedPaths) {
+                        if (!processedFiles.contains(absPath)) {
+                            String relPath = toRelativePath(absPath);
+                            if (!alreadyRecorded.contains(relPath)) {
+                                File f = new File(absPath);
+                                String reason = !f.exists() ? "文件不存在"
+                                    : !f.canRead() ? "无读取权限"
+                                    : f.length() == 0 ? "文件为空"
+                                    : "未被扫描到";
+                                String detail = "该文件在扫描遍历中未被处理，可能因上级目录处理时发生异常";
+                                log.debug("补录未遍历文件: {} (原因: {}, absPath: {})", relPath, reason, absPath);
+                                skippedFileRecords.add(new SkippedFileRecord(
+                                    skippedFileIndex.incrementAndGet(),
+                                    relPath, reason, detail, f.length()
+                                ));
+                                scanCurrent.incrementAndGet();
+                                missedCount++;
+                            }
+                        }
+                    }
+                    if (missedCount > 0) {
+                        log.info("补录完成: {} 个文件未在扫描中被处理, processedFiles 大小: {}, allExpectedPaths 大小: {}",
+                            missedCount, processedFiles.size(), allExpectedPaths.size());
+                    }
+                } catch (Exception e) {
+                    log.warn("补录未遍历文件失败", e);
+                }
             }
         }
     }
@@ -1417,6 +1480,26 @@ public class PhotoScanService {
 
             // 如果目录深度超过最大层级，不创建相册，将所有图片归属到父相册
             if (depth > maxDepth) {
+                // 如果 parentAlbum 为 null（从 Files.walk 调用），向上查找最近的父目录相册
+                Album effectiveParent = parentAlbum;
+                if (effectiveParent == null) {
+                    Path ancestor = albumPath.getParent();
+                    Path basePth = resolveBasePath();
+                    while (ancestor != null && ancestor.startsWith(basePth)) {
+                        String ancestorHash = calculateSha256(ancestor.toString());
+                        Optional<Album> ancestorAlbum = albumRepository.findByPathHash(ancestorHash);
+                        if (ancestorAlbum.isPresent()) {
+                            effectiveParent = ancestorAlbum.get();
+                            log.info("目录 {} 超过最大层级，找到祖先相册: {}", toRelativePath(albumPath.toString()), effectiveParent.getName());
+                            break;
+                        }
+                        ancestor = ancestor.getParent();
+                    }
+                    if (effectiveParent == null) {
+                        log.warn("目录 {} 超过最大层级且找不到父相册，跳过处理", toRelativePath(albumPath.toString()));
+                    }
+                }
+
                 // 查找是否已存在该目录的相册记录，如果存在则删除
                 String albumPathStr = albumPath.toString();
                 String albumPathHash = calculateSha256(albumPathStr);
@@ -1428,7 +1511,7 @@ public class PhotoScanService {
                     log.info("删除超出层级的相册 {} (深度: {}, 最大深度: {})", relativePath, depth, maxDepth);
 
                     // 将该相册的照片移动到父相册（如果有父相册）
-                    if (parentAlbum != null) {
+                    if (effectiveParent != null) {
                         // 分页获取该相册的所有照片并移动到父相册
                         int pageSize = 1000;
                         int pageNumber = 0;
@@ -1443,7 +1526,7 @@ public class PhotoScanService {
                             }
 
                             for (Photo photo : photos) {
-                                photo.setAlbumId(parentAlbum.getId());
+                                photo.setAlbumId(effectiveParent.getId());
                                 photoRepository.save(photo);
                                 totalMoved++;
                             }
@@ -1454,7 +1537,7 @@ public class PhotoScanService {
                             }
                         }
 
-                        String parentRelativePath = toRelativePath(parentAlbum.getPath());
+                        String parentRelativePath = toRelativePath(effectiveParent.getPath());
                         log.info("已将 {} 张照片移动到父相册 {}", totalMoved, parentRelativePath);
                     }
 
@@ -1463,9 +1546,9 @@ public class PhotoScanService {
                 }
 
                 // 将所有图片归属到父相册中，并递归处理子目录
-                if (parentAlbum != null) {
-                    log.debug("目录 {} 超过最大相册层级 {}，将其图片归属到父相册 {}", toRelativePath(albumPath.toString()), maxDepth, parentAlbum.getName());
-                    processAlbumImagesRecursively(albumPath, parentAlbum, force);
+                if (effectiveParent != null) {
+                    log.debug("目录 {} 超过最大相册层级 {}，将其图片归属到父相册 {}", toRelativePath(albumPath.toString()), maxDepth, effectiveParent.getName());
+                    processAlbumImagesRecursively(albumPath, effectiveParent, force);
                 }
                 return;
             }
@@ -1517,6 +1600,14 @@ public class PhotoScanService {
                 } catch (Exception e) {
                     log.warn("处理文件失败，跳过: {} - {}", imageFile.getName(), e.getMessage());
                     skippedCount++;
+                    String relPath = toRelativePath(imageFile.getAbsolutePath());
+                    String shortMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    // 截断过长的错误信息
+                    String detail = shortMsg.length() > 200 ? shortMsg.substring(0, 200) + "…" : shortMsg;
+                    skippedFileRecords.add(new SkippedFileRecord(
+                        skippedFileIndex.incrementAndGet(),
+                        relPath, "处理失败", detail, imageFile.length()
+                    ));
                 }
             }
 
@@ -1632,7 +1723,29 @@ public class PhotoScanService {
                             if (file.exists() && file.canRead() && file.length() > 0) {
                                 imageFiles.add(file);
                             } else {
-                                log.debug("文件不可读或为空，跳过: {}", file.getName());
+                                // 判断具体原因
+                                String reason, detail;
+                                if (!file.exists()) {
+                                    reason = "文件不存在";
+                                    detail = "文件路径在扫描期间消失";
+                                } else if (!file.canRead()) {
+                                    reason = "无读取权限";
+                                    detail = "文件存在但无法读取，可能是权限问题";
+                                } else {
+                                    reason = "文件为空";
+                                    detail = "文件大小为 0 字节，无法作为有效图片处理";
+                                }
+                                log.debug("文件不可读或为空，跳过: {} ({})", file.getName(), reason);
+                                // 预统计已将此文件计入 total，跳过时同样推进 current，保持进度一致
+                                scanCurrent.incrementAndGet();
+                                // 标记为已处理，避免补录差集时重复记录
+                                processedFiles.add(file.getAbsolutePath());
+                                // 记录跳过详情
+                                String relPath = toRelativePath(file.getAbsolutePath());
+                                skippedFileRecords.add(new SkippedFileRecord(
+                                    skippedFileIndex.incrementAndGet(),
+                                    relPath, reason, detail, file.length()
+                                ));
                             }
                         }
                     }
@@ -1667,6 +1780,9 @@ public class PhotoScanService {
                 log.debug("文件已处理过，跳过: {}", imageFile.getName());
                 return;
             }
+
+            // 无论后续走哪条路径，立即标记为已处理，确保补录差集逻辑不会误判为"未被扫描到"
+            processedFiles.add(filePath);
 
             try {
                 // 跳过.thumbnails目录下的文件
@@ -1723,29 +1839,25 @@ public class PhotoScanService {
             boolean foundByContentHash = photoByHash.isPresent() && photo.getId() != null;
 
             // 所有到达这里的照片都算已遍历（无论是否需要处理）
-            int previousCount = scanCurrent.get();
             int currentCount = scanCurrent.incrementAndGet();
-
-            // 将文件标记为已处理，避免重复计数
-            processedFiles.add(filePath);
-
-            // 详细日志：记录每次增加的原因和当前进度
-            String reason = "遍历文件";
-            if (!force && photo.getId() != null && photo.canSkipProcessing(force)) {
-                reason = "跳过已处理文件";
-            } else {
-                reason = "处理新文件或强制处理";
-            }
-
-            // 检查是否超过总数
-            if (currentCount > scanTotal.get()) {
-                log.warn("计数超出: current({}) > total({}), 文件: {}", currentCount, scanTotal.get(), imageFile.getName());
-            }
 
             // 仅在实际处理时记录日志，输出相对路径
             String relativePath = toRelativePath(filePath);
             if (foundByContentHash && !force) {
                 log.info("{}/{} 跳过: {}", currentCount, scanTotal.get(), relativePath != null ? relativePath : filePath);
+
+                // 如果当前文件路径与数据库中已有照片路径不同，记录为内容重复
+                String existingPath = photo.getOriginalPath();
+                if (existingPath != null && !existingPath.equals(filePath)) {
+                    String existingRelPath = toRelativePath(existingPath);
+                    skippedFileRecords.add(new SkippedFileRecord(
+                        skippedFileIndex.incrementAndGet(),
+                        relativePath != null ? relativePath : filePath,
+                        "内容重复",
+                        "与已有照片内容相同: " + (existingRelPath != null ? existingRelPath : existingPath),
+                        imageFile.length()
+                    ));
+                }
             } else {
                 log.info("{}/{} 处理: {}", currentCount, scanTotal.get(), relativePath != null ? relativePath : filePath);
             }
@@ -1768,11 +1880,18 @@ public class PhotoScanService {
         } catch (Exception e) {
             // 检查是否是应用关闭相关的异常
             String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-            if (errorMsg.contains("closed") || errorMsg.contains("shutdown") || 
+            if (errorMsg.contains("closed") || errorMsg.contains("shutdown") ||
                 (errorMsg.contains("context") && errorMsg.contains("close"))) {
                 log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
             } else {
-            log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+                log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+                String relPath = toRelativePath(imageFile.getAbsolutePath());
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                String detail = msg.length() > 200 ? msg.substring(0, 200) + "…" : msg;
+                skippedFileRecords.add(new SkippedFileRecord(
+                    skippedFileIndex.incrementAndGet(),
+                    relPath, "处理异常", detail, imageFile.length()
+                ));
             }
         }
         } // end synchronized block

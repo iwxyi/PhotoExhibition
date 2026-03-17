@@ -53,7 +53,7 @@
             </div>
             <div>
               <h2 class="text-2xl sm:text-3xl lg:text-4xl font-light tracking-wide mb-2">
-                智能相册中枢
+                光忆集
               </h2>
               <p class="text-sm sm:text-base text-slate-300/90 max-w-xl">
                 统一管理相册、标签、人脸与文件系统，配合自动扫描与 AI 能力，让你的作品集始终保持有序而精彩。
@@ -92,7 +92,13 @@
                 <div class="font-medium mb-1">最近扫描状态</div>
                 <div class="space-y-0.5">
                   <p>状态：<span class="text-sky-300">{{ scanStatus }}</span></p>
-                  <p>进度：<span class="text-sky-300">{{ scanProgressText }}</span></p>
+                  <p>进度：
+                    <span
+                      class="text-sky-300 cursor-pointer hover:underline hover:text-sky-200 transition-colors"
+                      @click="openSkippedFilesModal"
+                      title="点击查看跳过文件详情"
+                    >{{ scanProgressText }}</span>
+                  </p>
                   <p>时间：<span class="text-slate-300">{{ lastScanTime || '—' }}</span></p>
                 </div>
               </div>
@@ -263,6 +269,82 @@
       </div>
       </div>
     </div>
+
+    <!-- 跳过文件详情弹窗 -->
+    <div
+      v-if="showSkippedModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      @click.self="closeSkippedModal"
+    >
+      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+      <div class="relative w-full max-w-4xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+        <!-- 弹窗头部 -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+          <div>
+            <h3 class="text-base font-medium text-white">扫描异常文件详情</h3>
+            <p class="text-xs text-slate-400 mt-0.5">
+              <template v-if="scanning">
+                <span class="text-cyan-400 animate-pulse">扫描进行中，数据实时更新…</span>
+              </template>
+              <template v-else>
+                共 {{ scanTotal }} 个文件，正常 {{ scanTotal - skippedFiles.length }} 个，异常 {{ skippedFiles.length }} 个
+                <template v-if="skippedFiles.length > 0">
+                  （重复 {{ skippedFiles.filter(f => f.reason === '内容重复').length }}，
+                  空文件 {{ skippedFiles.filter(f => f.reason === '文件为空').length }}，
+                  其他 {{ skippedFiles.filter(f => f.reason !== '内容重复' && f.reason !== '文件为空').length }}）
+                </template>
+              </template>
+            </p>
+          </div>
+          <button @click="closeSkippedModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <!-- 表格内容 -->
+        <div class="overflow-auto flex-1">
+          <div v-if="loadingSkipped" class="flex items-center justify-center py-16 text-slate-400 text-sm">
+            加载中…
+          </div>
+          <div v-else-if="skippedFiles.length === 0" class="flex items-center justify-center py-16 text-slate-400 text-sm">
+            无跳过文件，进度数据完全一致
+          </div>
+          <table v-else class="w-full text-xs text-slate-200 border-collapse">
+            <thead class="sticky top-0 bg-slate-800 text-slate-400 uppercase tracking-wide">
+              <tr>
+                <th class="px-4 py-2.5 text-left w-12">#</th>
+                <th class="px-4 py-2.5 text-left">相对路径</th>
+                <th class="px-4 py-2.5 text-left w-28">原因</th>
+                <th class="px-4 py-2.5 text-right w-24">文件大小</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="f in skippedFiles"
+                :key="f.index"
+                class="border-t border-slate-800 hover:bg-slate-800/50 transition-colors"
+              >
+                <td class="px-4 py-2 text-slate-500">{{ f.index }}</td>
+                <td class="px-4 py-2 font-mono text-slate-300 break-all">{{ f.relativePath }}</td>
+                <td class="px-4 py-2">
+                  <span
+                    class="cursor-help border-b border-dashed"
+                    :class="{
+                      'text-blue-400 border-blue-400/50': f.reason === '内容重复',
+                      'text-slate-400 border-slate-400/50': f.reason === '文件为空',
+                      'text-amber-400 border-amber-400/50': f.reason !== '内容重复' && f.reason !== '文件为空'
+                    }"
+                    :title="f.detail"
+                  >{{ f.reason }}</span>
+                </td>
+                <td class="px-4 py-2 text-right text-slate-400 tabular-nums">{{ formatFileSize(f.fileSizeBytes) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -296,6 +378,63 @@ const scanProgressText = computed(() => {
   const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0
   return `${current} / ${total} (${percentage}%)`
 })
+
+const scanCurrentVal = computed(() => scanProgress.value.current)
+const scanTotal = computed(() => scanProgress.value.total)
+
+// 跳过文件弹窗
+const showSkippedModal = ref(false)
+const loadingSkipped = ref(false)
+const skippedFiles = ref<Array<{
+  index: number
+  relativePath: string
+  reason: string
+  detail: string
+  fileSizeBytes: number
+}>>([])
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
+let skippedPollTimer: number | null = null
+
+const fetchSkippedFiles = async () => {
+  try {
+    const res = await api.get('/admin/scan/skipped-files')
+    skippedFiles.value = res.data || []
+  } catch (e) {
+    skippedFiles.value = []
+  }
+}
+
+const openSkippedFilesModal = async () => {
+  showSkippedModal.value = true
+  loadingSkipped.value = true
+  await fetchSkippedFiles()
+  loadingSkipped.value = false
+
+  // 如果正在扫描，自动轮询刷新异常列表直到扫描结束
+  if (skippedPollTimer) clearInterval(skippedPollTimer)
+  if (scanning.value) {
+    skippedPollTimer = window.setInterval(async () => {
+      await fetchSkippedFiles()
+      if (!scanning.value) {
+        // 扫描结束后再刷新一次，然后停止轮询
+        await fetchSkippedFiles()
+        if (skippedPollTimer) { clearInterval(skippedPollTimer); skippedPollTimer = null }
+      }
+    }, 2000)
+  }
+}
+
+const closeSkippedModal = () => {
+  showSkippedModal.value = false
+  if (skippedPollTimer) { clearInterval(skippedPollTimer); skippedPollTimer = null }
+}
 const selectedApi = ref('')
 const testing = ref(false)
 const apiResponse = ref<any>(null)
@@ -426,7 +565,6 @@ const triggerScan = async () => {
   lastScanTime.value = new Date().toLocaleString('zh-CN')
   try {
     await api.post('/admin/scan')
-    alert('扫描任务已触发')
   } catch (error: any) {
     alert('触发扫描失败: ' + (error.response?.data?.message || error.message))
   } finally {

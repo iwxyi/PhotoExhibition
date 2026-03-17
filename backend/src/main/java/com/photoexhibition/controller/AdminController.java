@@ -551,6 +551,14 @@ public class AdminController {
     }
 
     /**
+     * 获取本次扫描跳过的文件详情列表
+     */
+    @GetMapping("/scan/skipped-files")
+    public ResponseEntity<List<PhotoScanService.SkippedFileRecord>> getSkippedFiles() {
+        return ResponseEntity.ok(photoScanService.getSkippedFileRecords());
+    }
+
+    /**
      * 查询后台异步任务状态（包含日志）
      */
     @GetMapping("/tasks/{taskId}")
