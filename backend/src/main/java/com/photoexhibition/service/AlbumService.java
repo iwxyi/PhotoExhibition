@@ -899,16 +899,8 @@ public class AlbumService {
             }
         }
 
-        // 解析EXIF数据
-        if (photo.getExifData() != null) {
-            try {
-                java.util.Map<String, Object> exifMap = objectMapper.readValue(photo.getExifData(),
-                    objectMapper.getTypeFactory().constructMapType(java.util.Map.class, String.class, Object.class));
-                dto.setExifData(exifMap);
-            } catch (Exception e) {
-                // 忽略解析错误
-            }
-        }
+        // 相册封面不需要完整EXIF数据，跳过exifData字段以减少响应体积
+        // exifData 仅在照片详情接口中返回
 
         dto.setCameraMake(photo.getCameraMake());
         dto.setCameraModel(photo.getCameraModel());
