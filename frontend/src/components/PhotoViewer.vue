@@ -70,6 +70,8 @@
 
       <!-- 主要图片显示区域 -->
       <div class="flex-1 relative min-h-0" :style="mainContentStyle" ref="mainContentArea">
+        <!-- 相册氛围特效 - 背景层（在图片下方） -->
+        <AtmosphereEffects v-if="albumAtmosphereEffects.length > 0" :effects="albumAtmosphereEffects" layer-filter="background" />
         <!-- 移动端左右切换按钮 - 只在手机上显示 -->
         <button
           v-if="currentIndex > 0"
@@ -94,9 +96,18 @@
 
         <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
         <div
-          class="absolute flex items-center justify-center"
+          class="absolute flex items-center justify-center z-[1] cursor-grab active:cursor-grabbing"
           :style="imageContainerStyle"
           @click="onImageContainerClick"
+          @mousedown="onImageMouseDown"
+          @mousemove="onImageMouseMove"
+          @mouseup="onImageMouseUp"
+          @mouseleave="onImageMouseUp"
+          @touchstart="onImageTouchStart"
+          @touchmove="onImageTouchMove"
+          @touchend="onImageTouchEnd"
+          @wheel="onImageWheel"
+          @dblclick="onImageDoubleClick"
           ref="imageViewport"
         >
           <!-- 图片包装容器 - 应用变换，使人脸框和 -->
@@ -111,19 +122,10 @@
                 ref="mainImage"
                 :src="getImageUrl(currentPhoto)"
                 :alt="currentPhoto.filename"
-                class="select-none cursor-grab active:cursor-grabbing main-image"
+                class="select-none main-image pointer-events-none"
                 :style="imageStyle"
                 @load="onImageLoad"
                 @error="onImageError"
-                @dblclick="onImageDoubleClick"
-                @mousedown="onImageMouseDown"
-                @mousemove="onImageMouseMove"
-                @mouseup="onImageMouseUp"
-                @mouseleave="onImageMouseUp"
-                @touchstart="onImageTouchStart"
-                @touchmove="onImageTouchMove"
-                @touchend="onImageTouchEnd"
-                @wheel="onImageWheel"
               />
             </transition>
 
@@ -650,8 +652,8 @@
           </div>
         </transition>
 
-      <!-- 相册氛围特效（覆盖在查看器图片上方） -->
-      <AtmosphereEffects v-if="albumAtmosphereEffects.length > 0" :effects="albumAtmosphereEffects" :viewer-mode="true" />
+      <!-- 相册氛围特效 - 前景层（覆盖在图片上方，pointer-events: none 不影响交互） -->
+      <AtmosphereEffects v-if="albumAtmosphereEffects.length > 0" :effects="albumAtmosphereEffects" layer-filter="above" />
     </div>
   </transition>
 </template>

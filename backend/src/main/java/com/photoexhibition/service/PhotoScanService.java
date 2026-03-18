@@ -1205,6 +1205,10 @@ public class PhotoScanService {
                     // 如果前端没有发送config，使用AtmosphereEffectsService生成默认配置
                     config = (Map<String, Object>) atmosphereEffectsService.generateEffectConfig(type, intensity, layer);
                 }
+                // 手动设置的特效移除自动生成标记，防止被自动分析覆盖
+                if (config != null) {
+                    config.remove("source");
+                }
 
                 com.photoexhibition.dto.AtmosphereEffectDTO dto = new com.photoexhibition.dto.AtmosphereEffectDTO(
                     type, intensity, layer, config);

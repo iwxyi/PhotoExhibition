@@ -50,8 +50,10 @@ interface AtmosphereEffect {
 const props = withDefaults(defineProps<{
   effects: AtmosphereEffect[]
   viewerMode?: boolean
+  layerFilter?: 'above' | 'background' | null
 }>(), {
-  viewerMode: false
+  viewerMode: false,
+  layerFilter: null
 })
 
 const { triggerClick, updateScroll, scrollVelocity, consumeClicks } = useEffectInteraction()
@@ -77,17 +79,20 @@ onBeforeUnmount(() => {
   clearInterval(scrollTimer)
 })
 
+// 层过滤：layerFilter 优先，否则回退到 viewerMode 行为
+const matchesLayer = (e: AtmosphereEffect) => {
+  const layer = e.config?.layer || e.layer || 'above'
+  if (props.layerFilter) return layer === props.layerFilter
+  if (props.viewerMode) return layer === 'above'
+  return true
+}
+
 const particleEffects = computed(() => {
   if (!props.effects) return []
   return props.effects
     .filter(e => {
       if (!hasImagePreset(e.type)) return false
-      // viewerMode: only show 'above' layer, hide 'background' layer
-      if (props.viewerMode) {
-        const layer = e.config?.layer || e.layer || 'above'
-        return layer === 'above'
-      }
-      return true
+      return matchesLayer(e)
     })
     .map(e => {
       const preset = getPreset(e.type)!
@@ -107,12 +112,7 @@ const shaderEffectList = computed(() => {
   return props.effects
     .filter(e => {
       if (!isShaderEffect(e.type)) return false
-      // viewerMode: only show 'above' layer, hide 'background' layer
-      if (props.viewerMode) {
-        const layer = e.config?.layer || e.layer || 'above'
-        return layer === 'above'
-      }
-      return true
+      return matchesLayer(e)
     })
     .map(e => {
       const layer = (e.config?.layer || e.layer || 'above') as 'above' | 'background'
@@ -135,12 +135,7 @@ const containerRainEffects = computed(() => {
   return props.effects
     .filter(e => {
       if (e.type !== 'rain_on_containers') return false
-      // viewerMode: only show 'above' layer, hide 'background' layer
-      if (props.viewerMode) {
-        const layer = e.config?.layer || e.layer || 'above'
-        return layer === 'above'
-      }
-      return true
+      return matchesLayer(e)
     })
     .map(e => {
       const layer = (e.config?.layer || e.layer || 'above') as 'above' | 'background'

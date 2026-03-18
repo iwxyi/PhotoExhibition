@@ -98,11 +98,15 @@ public class AtmosphereEffectsService {
                     objectMapper.getTypeFactory().constructCollectionType(List.class, AtmosphereEffectDTO.class)
                 );
 
-                // 检查是否有手动设置的特效（通过检查是否有layer字段）
+                // 检查是否有手动设置的特效（自动生成的特效config中有source=auto标记）
                 boolean hasManualEffects = existingEffects.stream()
-                    .anyMatch(effect -> effect.getConfig() != null &&
-                                       effect.getConfig() instanceof Map &&
-                                       ((Map<?, ?>) effect.getConfig()).containsKey("layer"));
+                    .anyMatch(effect -> {
+                        if (effect.getConfig() == null || !(effect.getConfig() instanceof Map)) {
+                            return true; // 无config视为手动
+                        }
+                        Object source = ((Map<?, ?>) effect.getConfig()).get("source");
+                        return !"auto".equals(source);
+                    });
 
                 if (hasManualEffects) {
                     log.info("相册 {} 已有手动设置的特效，跳过自动分析", album.getName());
@@ -163,8 +167,38 @@ public class AtmosphereEffectsService {
             return true;
         }
 
-        // 检查标签是否在分析后发生变化（这里简化处理，实际可以比较标签hash）
-        return true; // 暂时总是重新分析，确保特效是最新的
+        // 如果已有手动设置的特效，不需要自动更新
+        if (album.getAtmosphereEffects() != null && !album.getAtmosphereEffects().isEmpty()) {
+            try {
+                List<AtmosphereEffectDTO> existingEffects = objectMapper.readValue(
+                    album.getAtmosphereEffects(),
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, AtmosphereEffectDTO.class)
+                );
+                boolean hasManualEffects = existingEffects.stream()
+                    .anyMatch(effect -> {
+                        if (effect.getConfig() == null || !(effect.getConfig() instanceof Map)) {
+                            return true;
+                        }
+                        Object source = ((Map<?, ?>) effect.getConfig()).get("source");
+                        return !"auto".equals(source);
+                    });
+                if (hasManualEffects) {
+                    return false;
+                }
+            } catch (Exception e) {
+                // 解析失败则允许重新分析
+            }
+        }
+
+        // 如果已有自动生成的特效且分析时间不超过7天，不需要重新分析
+        if (album.getAtmosphereLastUpdated() != null) {
+            LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
+            if (album.getAtmosphereLastUpdated().isAfter(sevenDaysAgo)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
