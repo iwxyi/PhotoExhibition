@@ -2251,10 +2251,21 @@ public class PhotoScanService {
                 }
             }
 
-            // 提取所有EXIF标签
+            // 提取所有EXIF标签（跳过ICC Profile等大体积无用目录和标签）
+            Set<String> skipDirectories = Set.of(
+                "ICC Profile", "Photoshop", "IPTC",
+                "Adobe JPEG", "Adobe", "Huffman", "File Type"
+            );
             for (Directory directory : metadata.getDirectories()) {
+                if (skipDirectories.contains(directory.getName())) {
+                    continue;
+                }
                 for (com.drew.metadata.Tag tag : directory.getTags()) {
-                    exifMap.put(tag.getTagName(), tag.getDescription());
+                    String desc = tag.getDescription();
+                    if (shouldFilterExifTag(tag.getTagName(), desc)) {
+                        continue;
+                    }
+                    exifMap.put(tag.getTagName(), desc);
                 }
             }
 
@@ -2465,6 +2476,25 @@ public class PhotoScanService {
                         }
                     }
                 } catch (Exception ignored) {}
+            }
+
+            // 清理 exifData JSON 中的 ICC Profile 等大体积无用字段
+            if (photo.getExifData() != null) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> exifMap = mapper.readValue(photo.getExifData(), Map.class);
+                    int before = exifMap.size();
+                    exifMap.entrySet().removeIf(e ->
+                        shouldFilterExifTag(e.getKey(), e.getValue() instanceof String ? (String) e.getValue() : null));
+                    if (exifMap.size() < before) {
+                        photo.setExifData(mapper.writeValueAsString(exifMap));
+                        changed = true;
+                        log.debug("照片 {} 清理了 {} 个EXIF无用字段", photo.getId(), before - exifMap.size());
+                    }
+                } catch (Exception e) {
+                    log.warn("清理照片 {} 的EXIF数据失败: {}", photo.getId(), e.getMessage());
+                }
             }
 
             if (changed) {
@@ -3701,6 +3731,43 @@ public class PhotoScanService {
         }
 
         return null;  // 没有找到匹配的时间格式
+    }
+
+    /**
+     * 判断 EXIF 标签是否应该被过滤掉（ICC Profile、超长值等无用大字段）
+     */
+    public static boolean shouldFilterExifTag(String tagName, String tagValue) {
+        if (tagName == null) return true;
+        // 包含关键词的标签
+        if (tagName.contains("TRC") || tagName.contains("Colorant")) return true;
+        // 精确匹配的无用标签
+        switch (tagName) {
+            case "Media White Point":
+            case "Thumbnail Data":
+            case "Padding":
+            case "Profile Description":
+            case "Technology":
+            case "Rendering Intent":
+            case "Profile Size":
+            case "CMM Type":
+            case "Profile Date/Time":
+            case "Profile Connection Space":
+            case "Primary Platform":
+            case "Device Manufacturer":
+            case "XYZ values":
+            case "Tag Count":
+            case "Signature":
+            case "Copyright":
+            case "Profile Class":
+            case "Color space":
+            case "Connection Space":
+                return true;
+            default:
+                break;
+        }
+        // 超长值
+        if (tagValue != null && tagValue.length() > 256) return true;
+        return false;
     }
 }
 
