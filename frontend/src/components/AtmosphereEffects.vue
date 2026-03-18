@@ -47,7 +47,12 @@ interface AtmosphereEffect {
   config?: Record<string, any>
 }
 
-const props = defineProps<{ effects: AtmosphereEffect[] }>()
+const props = withDefaults(defineProps<{
+  effects: AtmosphereEffect[]
+  viewerMode?: boolean
+}>(), {
+  viewerMode: false
+})
 
 const { triggerClick, updateScroll, scrollVelocity, consumeClicks } = useEffectInteraction()
 
@@ -75,7 +80,15 @@ onBeforeUnmount(() => {
 const particleEffects = computed(() => {
   if (!props.effects) return []
   return props.effects
-    .filter(e => hasImagePreset(e.type))
+    .filter(e => {
+      if (!hasImagePreset(e.type)) return false
+      // viewerMode: only show 'above' layer, hide 'background' layer
+      if (props.viewerMode) {
+        const layer = e.config?.layer || e.layer || 'above'
+        return layer === 'above'
+      }
+      return true
+    })
     .map(e => {
       const preset = getPreset(e.type)!
       const intensity = e.intensity || 'medium'
@@ -92,7 +105,15 @@ const particleEffects = computed(() => {
 const shaderEffectList = computed(() => {
   if (!props.effects) return []
   return props.effects
-    .filter(e => isShaderEffect(e.type))
+    .filter(e => {
+      if (!isShaderEffect(e.type)) return false
+      // viewerMode: only show 'above' layer, hide 'background' layer
+      if (props.viewerMode) {
+        const layer = e.config?.layer || e.layer || 'above'
+        return layer === 'above'
+      }
+      return true
+    })
     .map(e => {
       const layer = (e.config?.layer || e.layer || 'above') as 'above' | 'background'
       const custom = e.config?.custom || {}
@@ -112,7 +133,15 @@ const shaderEffectList = computed(() => {
 const containerRainEffects = computed(() => {
   if (!props.effects) return []
   return props.effects
-    .filter(e => e.type === 'rain_on_containers')
+    .filter(e => {
+      if (e.type !== 'rain_on_containers') return false
+      // viewerMode: only show 'above' layer, hide 'background' layer
+      if (props.viewerMode) {
+        const layer = e.config?.layer || e.layer || 'above'
+        return layer === 'above'
+      }
+      return true
+    })
     .map(e => {
       const layer = (e.config?.layer || e.layer || 'above') as 'above' | 'background'
       const custom = e.config?.custom || {}
