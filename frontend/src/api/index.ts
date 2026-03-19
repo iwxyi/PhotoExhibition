@@ -349,5 +349,41 @@ export const configApi = {
   getFaceClusterThreshold: () => api.get<{ faceClusterThreshold: number }>('/admin/config/face-cluster-threshold'),
 
   // 设置人脸聚类阈值
-  setFaceClusterThreshold: (threshold: number) => api.put<{ message: string; faceClusterThreshold: number }>('/admin/config/face-cluster-threshold', { faceClusterThreshold: threshold })
+  setFaceClusterThreshold: (threshold: number) => api.put<{ message: string; faceClusterThreshold: number }>('/admin/config/face-cluster-threshold', { faceClusterThreshold: threshold }),
+
+  // AI搜索状态
+  getAiSearchStatus: () => api.get<{ enabled: boolean }>('/photos/ai-search/status')
+}
+
+// AI搜索相关API
+export interface AiSearchResponse {
+  explanation?: string
+  parsedIntent?: {
+    personId?: number
+    personIds?: number[]
+    tagIds?: number[]
+    albumIds?: number[]
+    startDate?: string
+    endDate?: string
+    cameraModel?: string
+    lensModel?: string
+    colorCategory?: string
+    keywords?: string[]
+    filenameKeywords?: string[]
+    resultTypes?: string[]
+    includeHidden?: boolean
+  }
+  photos?: any[]
+  albums?: any[]
+  persons?: any[]
+  totalElements?: number
+  matchedPersonName?: string
+  matchedTagNames?: string[]
+  matchedAlbumNames?: string[]
+  aiSearchEnabled: boolean
+}
+
+export const aiSearchApi = {
+  search: (q: string, page = 0, size = 30) =>
+    api.get<AiSearchResponse>('/photos/ai-search', { params: { q, page, size } })
 }

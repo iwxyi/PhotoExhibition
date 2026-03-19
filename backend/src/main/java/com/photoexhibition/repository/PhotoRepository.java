@@ -328,5 +328,37 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      */
     @Query("SELECT p FROM Photo p WHERE p.filename LIKE %:filename% AND (p.isHidden IS NULL OR p.isHidden = false)")
     List<Photo> searchByFilename(@Param("filename") String filename);
+
+    /**
+     * 按ID列表查询未隐藏的照片
+     */
+    @Query("SELECT p FROM Photo p WHERE p.id IN :ids AND (p.isHidden IS NULL OR p.isHidden = false)")
+    Page<Photo> findByIdIn(@Param("ids") java.util.Collection<Long> ids, Pageable pageable);
+
+    /**
+     * 按ID列表查询未隐藏的照片（不分页）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.id IN :ids AND (p.isHidden IS NULL OR p.isHidden = false)")
+    List<Photo> findAllByIdIn(@Param("ids") java.util.Collection<Long> ids);
+
+    // ===== 包含隐藏照片的查询变体（AI搜索用） =====
+
+    /**
+     * 根据文件名模糊搜索照片（包含隐藏）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.filename LIKE %:filename%")
+    List<Photo> searchByFilenameIncludeHidden(@Param("filename") String filename);
+
+    /**
+     * 按ID列表查询照片（包含隐藏，不分页）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.id IN :ids")
+    List<Photo> findAllByIdInIncludeHidden(@Param("ids") java.util.Collection<Long> ids);
+
+    /**
+     * 按相册ID列表查询照片（包含隐藏）
+     */
+    @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds")
+    Page<Photo> findByAlbumIdsIncludeHidden(@Param("albumIds") List<Long> albumIds, Pageable pageable);
 }
 

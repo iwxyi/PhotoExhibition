@@ -280,6 +280,68 @@
         </div>
       </section>
 
+      <!-- AI智能搜索设置 -->
+      <section class="glass-panel p-6 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 class="text-lg font-light">AI 智能搜索</h2>
+            <p class="text-xs text-gray-400">
+              启用AI自然语言搜索功能，支持语义理解搜索照片。需要配置兼容OpenAI格式的API接口。
+            </p>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              v-model="aiSearchEnabled"
+              class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+            />
+            <span class="text-sm">{{ aiSearchEnabled ? '已启用' : '已关闭' }}</span>
+          </label>
+        </div>
+
+        <div v-if="aiSearchEnabled" class="space-y-4 mt-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">API 地址</label>
+            <input
+              v-model="aiSearchApiUrl"
+              type="text"
+              placeholder="https://api.openai.com/v1"
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p class="text-xs text-gray-500 mt-1">OpenAI兼容的API地址，末尾不需要加 /chat/completions</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">API 密钥</label>
+            <input
+              v-model="aiSearchApiKey"
+              type="password"
+              placeholder="sk-..."
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">模型名称</label>
+            <input
+              v-model="aiSearchModel"
+              type="text"
+              placeholder="gpt-4o"
+              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p class="text-xs text-gray-500 mt-1">支持 gpt-4o、gpt-4o-mini、deepseek-chat 等兼容模型</p>
+          </div>
+        </div>
+
+        <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-blue-300 mb-2">功能说明</h3>
+          <div class="text-xs text-gray-300 space-y-1">
+            <p>&#x2022; 启用后，搜索栏将支持自然语言查询，如"去年语嫣在樱花园的白天樱花汉服"</p>
+            <p>&#x2022; AI会自动从数据库中匹配人物、标签、相册等信息，生成精确的搜索条件</p>
+            <p>&#x2022; 每次搜索消耗约1000-1500 tokens，请注意API用量</p>
+            <p>&#x2022; 如果AI搜索失败，会自动回退到普通关键词搜索</p>
+          </div>
+        </div>
+      </section>
+
       <!-- 用户名更改设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
@@ -504,6 +566,16 @@ const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
 
+// AI搜索相关
+const aiSearchEnabled = ref(false)
+const originalAiSearchEnabled = ref(false)
+const aiSearchApiUrl = ref('')
+const originalAiSearchApiUrl = ref('')
+const aiSearchApiKey = ref('')
+const originalAiSearchApiKey = ref('')
+const aiSearchModel = ref('gpt-4o')
+const originalAiSearchModel = ref('gpt-4o')
+
 // 密码修改相关
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -535,6 +607,14 @@ const loadSettings = async () => {
     originalAlbumCategorySortOrder.value = response.data.albumCategorySortOrder || ''
     tagIgnoreList.value = response.data.tagIgnoreList || ''
     originalTagIgnoreList.value = response.data.tagIgnoreList || ''
+    aiSearchEnabled.value = response.data.aiSearchEnabled === true
+    originalAiSearchEnabled.value = response.data.aiSearchEnabled === true
+    aiSearchApiUrl.value = response.data.aiSearchApiUrl || ''
+    originalAiSearchApiUrl.value = response.data.aiSearchApiUrl || ''
+    aiSearchApiKey.value = response.data.aiSearchApiKey || ''
+    originalAiSearchApiKey.value = response.data.aiSearchApiKey || ''
+    aiSearchModel.value = response.data.aiSearchModel || 'gpt-4o'
+    originalAiSearchModel.value = response.data.aiSearchModel || 'gpt-4o'
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -666,6 +746,25 @@ const saveSettings = async () => {
       })
     }
 
+    // 保存AI搜索配置
+    const aiEnabledChanged = aiSearchEnabled.value !== originalAiSearchEnabled.value
+    const aiUrlChanged = aiSearchApiUrl.value !== originalAiSearchApiUrl.value
+    const aiKeyChanged = aiSearchApiKey.value !== originalAiSearchApiKey.value && !aiSearchApiKey.value.includes('****')
+    const aiModelChanged = aiSearchModel.value !== originalAiSearchModel.value
+
+    if (aiEnabledChanged) {
+      await api.put('/admin/config/ai-search-enabled', { aiSearchEnabled: aiSearchEnabled.value })
+    }
+    if (aiUrlChanged) {
+      await api.put('/admin/config/ai-search-api-url', { aiSearchApiUrl: aiSearchApiUrl.value })
+    }
+    if (aiKeyChanged) {
+      await api.put('/admin/config/ai-search-api-key', { aiSearchApiKey: aiSearchApiKey.value })
+    }
+    if (aiModelChanged) {
+      await api.put('/admin/config/ai-search-model', { aiSearchModel: aiSearchModel.value })
+    }
+
     // 设置保存成功，显示提示
     originalMaxAlbumDepth.value = maxAlbumDepth.value
     originalPhotoSortOrder.value = photoSortOrder.value
@@ -675,6 +774,10 @@ const saveSettings = async () => {
     originalGlobalDownloadAllowed.value = globalDownloadAllowed.value
     originalAlbumCategorySortOrder.value = albumCategorySortOrder.value
     originalTagIgnoreList.value = tagIgnoreList.value
+    if (aiEnabledChanged) originalAiSearchEnabled.value = aiSearchEnabled.value
+    if (aiUrlChanged) originalAiSearchApiUrl.value = aiSearchApiUrl.value
+    if (aiKeyChanged) originalAiSearchApiKey.value = aiSearchApiKey.value
+    if (aiModelChanged) originalAiSearchModel.value = aiSearchModel.value
     settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
                            photoSortOrder.value !== originalPhotoSortOrder.value ||
                            albumSortOrder.value !== originalAlbumSortOrder.value ||

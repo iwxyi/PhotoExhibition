@@ -9,6 +9,7 @@
         <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
+            <SearchSpotlight />
             <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
             <SettingsMenu />
           </div>
@@ -118,6 +119,7 @@ import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
+import SearchSpotlight from '@/components/SearchSpotlight.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { useUiSettings } from '@/composables/useUiSettings'

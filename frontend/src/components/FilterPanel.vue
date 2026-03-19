@@ -138,41 +138,8 @@
             <div class="flex items-center gap-4 flex-shrink-0">
               <h2 class="text-2xl font-light whitespace-nowrap">高级筛选</h2>
             </div>
-            <!-- 搜索区域和关闭按钮 - 紧贴排列 -->
+            <!-- 操作按钮区域 -->
             <div class="flex items-center gap-2">
-              <!-- 搜索按钮 - 小方形 -->
-              <button
-                @click="toggleSearch"
-                class="p-2 w-9 h-9 flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-300 hover:scale-110 hover:rotate-12 group"
-                :class="searchExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100'"
-                title="搜索"
-              >
-                <svg class="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </button>
-              <!-- 搜索输入框 - 展开动画 -->
-              <div
-                class="flex items-center transition-all duration-300 ease-out overflow-hidden"
-                :class="searchExpanded ? 'w-64 opacity-100' : 'w-0 opacity-0'"
-              >
-                <div class="relative mr-2 flex-shrink-0">
-                  <div class="absolute inset-0 bg-blue-500/30 rounded-full animate-ping opacity-75"></div>
-                  <svg class="w-5 h-5 text-blue-500 relative" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-                <input
-                  ref="searchInputRef"
-                  v-model="searchKeyword"
-                  type="text"
-                  placeholder="搜索相册、人物... (回车搜索)"
-                  class="w-full px-4 py-2 text-sm border-2 border-blue-400 dark:border-blue-500 rounded-xl bg-white dark:bg-gray-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 focus:border-blue-500 shadow-lg transition-all duration-300"
-                  @keyup.enter="doSearch"
-                  @keyup.escape="searchExpanded = false; searchKeyword = ''"
-                  @blur="onSearchBlur"
-                />
-              </div>
               <!-- 分享按钮 -->
               <button
                 @click="handleShare"
@@ -656,44 +623,6 @@ const shouldResetOnOpen = ref(false)
 
 // 筛选按钮动画状态
 const filterHover = ref(false)
-
-// 搜索相关状态
-const searchExpanded = ref(false)
-const searchKeyword = ref('')
-const searchInputRef = ref<HTMLInputElement>()
-
-// 搜索相关函数
-const toggleSearch = () => {
-  if (!searchExpanded.value) {
-    // 展开搜索框
-    searchExpanded.value = true
-    nextTick(() => {
-      searchInputRef.value?.focus()
-    })
-  } else if (searchKeyword.value) {
-    // 执行搜索
-    doSearch()
-  }
-}
-
-const doSearch = () => {
-  if (searchKeyword.value.trim()) {
-    // 新标签页打开搜索页面
-    const searchUrl = `/search?q=${encodeURIComponent(searchKeyword.value.trim())}`
-    window.open(searchUrl, '_blank')
-    searchKeyword.value = ''
-    searchExpanded.value = false
-  }
-}
-
-const onSearchBlur = () => {
-  // 延迟收起，以便点击搜索按钮时能继续执行
-  setTimeout(() => {
-    // 失焦时始终收起搜索框
-    searchExpanded.value = false
-    searchKeyword.value = ''
-  }, 150)
-}
 
 // 同步筛选参数到面板
 const syncFiltersFromProps = async (filterData: any) => {

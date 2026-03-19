@@ -1,0 +1,89 @@
+name: photoexhibition-dev
+
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: photo-exhibition-mysql-dev
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: photo_exhibition
+      MYSQL_USER: photo_user
+      MYSQL_PASSWORD: photo_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: photo-exhibition-redis-dev
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - photo-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  backend:
+    image: maven:3.8.7-eclipse-temurin-11
+    container_name: photo-exhibition-backend-dev
+    working_dir: /app
+    command: >
+      mvn spring-boot:run
+      -Dspring-boot.run.jvmArguments="-Djava.awt.headless=true -Dspring.devtools.restart.enabled=true"
+      -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:mysql://mysql:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true --spring.datasource.username=root --spring.datasource.password=root --spring.redis.host=redis --spring.redis.port=6379 --photo.scan.base-path=/data/photos"
+    environment:
+      MAVEN_OPTS: -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8
+      LOGGING_LEVEL_COM_PHOTOEXHIBITION_SERVICE_PHOTOSCANSERVICE: DEBUG
+    ports:
+      - "6060:6060"
+    volumes:
+      - ./backend:/app
+      - maven_cache:/root/.m2
+      - ./data/photos:/data/photos
+      - ./data/thumbnails:/data/thumbnails
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+  frontend:
+    image: node:18-alpine
+    container_name: photo-exhibition-frontend-dev
+    working_dir: /app
+    command: sh -c "npm install && HOST=0.0.0.0 PORT=3030 npm run dev"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:6060
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3030:3030"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    name: photoexhibition_mysql_data
+    external: true
+  redis_data:
+    name: photoexhibition_redis_data
+    external: true
+  maven_cache:
+  frontend_node_modules:
+
+networks:
+  photo-network:
+    driver: bridge

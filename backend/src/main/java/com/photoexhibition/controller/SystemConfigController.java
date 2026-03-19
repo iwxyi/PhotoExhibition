@@ -34,6 +34,15 @@ public class SystemConfigController {
             resp.put("globalDownloadAllowed", systemConfigService.isGlobalDownloadAllowed());
             resp.put("albumCategorySortOrder", systemConfigService.getAlbumCategorySortOrder());
             resp.put("tagIgnoreList", systemConfigService.getTagIgnoreList());
+            resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
+            resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
+            String apiKey = systemConfigService.getAiSearchApiKey();
+            if (apiKey != null && apiKey.length() > 8) {
+                resp.put("aiSearchApiKey", apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4));
+            } else {
+                resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
+            }
+            resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
@@ -432,6 +441,124 @@ public class SystemConfigController {
         } catch (IllegalArgumentException e) {
             resp.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    // ===== AI 搜索配置 =====
+
+    @GetMapping("/ai-search-enabled")
+    public ResponseEntity<Map<String, Object>> getAiSearchEnabled() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/ai-search-enabled")
+    public ResponseEntity<Map<String, Object>> setAiSearchEnabled(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            Boolean enabled = (Boolean) request.get("aiSearchEnabled");
+            if (enabled == null) {
+                resp.put("error", "aiSearchEnabled 参数不能为空");
+                return ResponseEntity.badRequest().body(resp);
+            }
+            systemConfigService.setAiSearchEnabled(enabled);
+            resp.put("message", "AI搜索开关设置成功");
+            resp.put("aiSearchEnabled", enabled);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/ai-search-api-url")
+    public ResponseEntity<Map<String, Object>> getAiSearchApiUrl() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/ai-search-api-url")
+    public ResponseEntity<Map<String, Object>> setAiSearchApiUrl(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String url = (String) request.get("aiSearchApiUrl");
+            systemConfigService.setAiSearchApiUrl(url);
+            resp.put("message", "AI搜索API地址设置成功");
+            resp.put("aiSearchApiUrl", url != null ? url.trim() : "");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/ai-search-api-key")
+    public ResponseEntity<Map<String, Object>> getAiSearchApiKey() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String apiKey = systemConfigService.getAiSearchApiKey();
+            if (apiKey != null && apiKey.length() > 8) {
+                resp.put("aiSearchApiKey", apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4));
+            } else {
+                resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
+            }
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/ai-search-api-key")
+    public ResponseEntity<Map<String, Object>> setAiSearchApiKey(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String key = (String) request.get("aiSearchApiKey");
+            systemConfigService.setAiSearchApiKey(key);
+            resp.put("message", "AI搜索API密钥设置成功");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/ai-search-model")
+    public ResponseEntity<Map<String, Object>> getAiSearchModel() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/ai-search-model")
+    public ResponseEntity<Map<String, Object>> setAiSearchModel(@RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String model = (String) request.get("aiSearchModel");
+            systemConfigService.setAiSearchModel(model);
+            resp.put("message", "AI搜索模型设置成功");
+            resp.put("aiSearchModel", model != null ? model.trim() : "gpt-4o");
+            return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
             return ResponseEntity.status(500).body(resp);

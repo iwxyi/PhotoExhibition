@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { albumApi, aiApi, personApi, configApi } from '@/api'
+import { albumApi, aiApi, personApi, configApi, aiSearchApi } from '@/api'
+import type { AiSearchResponse } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePhotoStore } from '@/stores/photo'
 import { useLanguageStore } from '@/stores/language'
@@ -209,6 +210,14 @@ const similarFaces = ref<FaceFace[]>([])
 const hasSearched = ref(false)
 const searchMode = ref<'keyword' | 'face' | 'tag'>('keyword')
 
+// AI 搜索相关状态
+const aiSearchEnabled = ref(false)
+const aiSearchResult = ref<AiSearchResponse | null>(null)
+const aiPhotos = ref<PhotoDTO[]>([])
+const aiPage = ref(0)
+const aiHasMore = ref(false)
+const aiLoadingMore = ref(false)
+
 // 标签搜索相关
 const tagPhotos = ref<PhotoDTO[]>([])
 const tagPage = ref(0)
@@ -216,6 +225,14 @@ const tagHasMore = ref(true)
 const tagLoadingMore = ref(false)
 
 onMounted(async () => {
+  // 检查 AI 搜索是否启用
+  try {
+    const statusRes = await configApi.getAiSearchStatus()
+    aiSearchEnabled.value = statusRes.data.enabled
+  } catch {
+    aiSearchEnabled.value = false
+  }
+
   // 先加载聚类阈值配置
   await loadClusterThreshold()
 
@@ -271,6 +288,8 @@ watch(
       photos.value = []
       similarFaces.value = []
       tagPhotos.value = []
+      aiSearchResult.value = null
+      aiPhotos.value = []
     }
   }
 )
@@ -279,6 +298,14 @@ const search = async () => {
   loading.value = true
   hasSearched.value = true
 
+  if (aiSearchEnabled.value) {
+    await aiSearch()
+  } else {
+    await standardSearch()
+  }
+}
+
+const standardSearch = async () => {
   try {
     const decodedKeyword = decodeURIComponent(keyword.value)
     const response = await albumApi.searchAll(decodedKeyword)
@@ -292,6 +319,55 @@ const search = async () => {
     photos.value = []
   } finally {
     loading.value = false
+  }
+}
+
+const aiSearch = async () => {
+  aiSearchResult.value = null
+  aiPhotos.value = []
+  aiPage.value = 0
+
+  try {
+    const decodedKeyword = decodeURIComponent(keyword.value)
+    const res = await aiSearchApi.search(decodedKeyword, 0, 30)
+    aiSearchResult.value = res.data
+
+    if (!res.data.aiSearchEnabled) {
+      // AI搜索未启用，fallback到普通搜索
+      aiSearchEnabled.value = false
+      await standardSearch()
+      return
+    }
+
+    aiPhotos.value = res.data.photos || []
+    aiHasMore.value = aiPhotos.value.length >= 30
+
+    // 使用 AI 返回的相册和人物结果
+    albums.value = res.data.albums || []
+    persons.value = res.data.persons || []
+  } catch (e) {
+    console.error('AI搜索失败, fallback到普通搜索:', e)
+    await standardSearch()
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadMoreAiPhotos = async () => {
+  if (aiLoadingMore.value || !aiHasMore.value) return
+  aiLoadingMore.value = true
+  try {
+    const nextPage = aiPage.value + 1
+    const decodedKeyword = decodeURIComponent(keyword.value)
+    const res = await aiSearchApi.search(decodedKeyword, nextPage, 30)
+    const newPhotos = res.data.photos || []
+    aiPhotos.value = [...aiPhotos.value, ...newPhotos]
+    aiPage.value = nextPage
+    aiHasMore.value = newPhotos.length >= 30
+  } catch (e) {
+    console.error('加载更多AI搜索结果失败:', e)
+  } finally {
+    aiLoadingMore.value = false
   }
 }
 
@@ -371,7 +447,7 @@ let scrollTimer: ReturnType<typeof setTimeout> | null = null
 const handleScroll = () => {
   if (scrollTimer) return
   scrollTimer = setTimeout(() => {
-    if (searchMode.value !== 'tag') {
+    if (searchMode.value !== 'tag' && !(searchMode.value === 'keyword' && aiSearchEnabled.value)) {
       scrollTimer = null
       return
     }
@@ -381,7 +457,11 @@ const handleScroll = () => {
     const documentHeight = document.documentElement.scrollHeight
 
     if (scrollTop + windowHeight >= documentHeight - 500) {
-      loadMoreTagPhotos()
+      if (searchMode.value === 'tag') {
+        loadMoreTagPhotos()
+      } else if (aiSearchEnabled.value && aiHasMore.value) {
+        loadMoreAiPhotos()
+      }
     }
     scrollTimer = null
   }, 100)
@@ -393,6 +473,9 @@ const hasResults = computed(() => {
   }
   if (searchMode.value === 'tag') {
     return tagPhotos.value.length > 0
+  }
+  if (aiSearchEnabled.value && aiSearchResult.value) {
+    return aiPhotos.value.length > 0 || albums.value.length > 0 || persons.value.length > 0
   }
   return albums.value.length > 0 || persons.value.length > 0 || photos.value.length > 0
 })
@@ -570,6 +653,46 @@ const photoViewerPhotos = computed<Photo[]>(() => {
   }))
 })
 
+// AI搜索结果的 PhotoViewer
+const aiViewerVisible = ref(false)
+const aiViewerIndex = ref(0)
+const aiViewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+
+const aiViewerPhotos = computed<Photo[]>(() => {
+  return aiPhotos.value.map((photo: any) => ({
+    id: photo.id,
+    filename: photo.filename,
+    thumbnailPath: photo.thumbnailPath,
+    mediumThumbPath: photo.mediumThumbPath,
+    largeThumbPath: photo.largeThumbPath,
+    originalPath: photo.originalPath,
+    webpPath: photo.webpPath,
+    width: photo.width || 0,
+    height: photo.height || 0,
+    takenAt: photo.takenAt || '',
+    albumId: photo.albumId || 0,
+    folderPath: photo.folderPath || ''
+  }))
+})
+
+const openAiViewer = (index: number, e: MouseEvent) => {
+  aiViewerIndex.value = index
+  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
+  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  if (rectSource) {
+    const rect = rectSource.getBoundingClientRect()
+    aiViewerOriginRect.value = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    }
+  } else {
+    aiViewerOriginRect.value = null
+  }
+  aiViewerVisible.value = true
+}
+
 // 打开照片 PhotoViewer
 const openPhotoViewer = (index: number, e: MouseEvent) => {
   photoViewerIndex.value = index
@@ -646,6 +769,105 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
 
       <!-- 有结果 -->
       <div v-else>
+        <!-- AI搜索结果 -->
+        <div v-if="aiSearchEnabled && aiSearchResult && searchMode === 'keyword'" class="mb-10">
+          <!-- AI理解说明 -->
+          <div v-if="aiSearchResult.explanation" class="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div class="flex items-start gap-2">
+              <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              <p class="text-sm text-blue-700 dark:text-blue-300">
+                {{ aiSearchResult.explanation }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 匹配的筛选条件标签 -->
+          <div class="flex flex-wrap gap-2 mb-4" v-if="aiSearchResult.matchedPersonName || (aiSearchResult.matchedTagNames && aiSearchResult.matchedTagNames.length > 0) || (aiSearchResult.matchedAlbumNames && aiSearchResult.matchedAlbumNames.length > 0) || (aiSearchResult.parsedIntent?.startDate)">
+            <span v-if="aiSearchResult.matchedPersonName" class="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
+              人物: {{ aiSearchResult.matchedPersonName }}
+            </span>
+            <span v-for="tag in (aiSearchResult.matchedTagNames || [])" :key="tag" class="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium">
+              {{ tag }}
+            </span>
+            <span v-for="album in (aiSearchResult.matchedAlbumNames || [])" :key="album" class="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full text-xs font-medium">
+              {{ album }}
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.startDate" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
+              {{ aiSearchResult.parsedIntent.startDate }} ~ {{ aiSearchResult.parsedIntent.endDate || '至今' }}
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.colorCategory" class="px-3 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 rounded-full text-xs font-medium">
+              色彩: {{ aiSearchResult.parsedIntent.colorCategory }}
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.cameraModel" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
+              {{ aiSearchResult.parsedIntent.cameraModel }}
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.lensModel" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
+              {{ aiSearchResult.parsedIntent.lensModel }}
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.filenameKeywords?.length" class="px-3 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full text-xs font-medium">
+              文件名: {{ aiSearchResult.parsedIntent.filenameKeywords.join(', ') }}
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.includeHidden" class="px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full text-xs font-medium">
+              包含隐藏内容
+            </span>
+          </div>
+
+          <!-- AI搜索照片结果 -->
+          <div v-if="aiPhotos.length > 0">
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
+              <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              AI 搜索结果 ({{ aiPhotos.length }})
+            </h2>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              <div
+                v-for="(photo, index) in aiPhotos"
+                :key="photo.id"
+                class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group"
+                @click="openAiViewer(index, $event)"
+              >
+                <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
+                  <img
+                    v-if="getPhotoThumbUrl(photo)"
+                    :src="getPhotoThumbUrl(photo)"
+                    :alt="photo.filename"
+                    class="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div v-else class="w-full h-full flex items-center justify-center">
+                    <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="p-2">
+                  <p class="text-sm font-medium text-gray-800 dark:text-white truncate">
+                    {{ photo.filename }}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <!-- 加载更多 -->
+            <div v-if="aiHasMore" class="flex justify-center mt-6">
+              <button
+                v-if="!aiLoadingMore"
+                @click="loadMoreAiPhotos"
+                class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full text-sm font-medium transition-colors"
+              >
+                加载更多
+              </button>
+              <div v-else class="flex items-center gap-2 text-gray-500">
+                <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                <span>加载中...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 包含该人脸的照片 -->
         <div v-if="searchMode === 'face' && facePhotos.length > 0" class="mb-10">
           <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
@@ -930,16 +1152,14 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
       :origin-rect="photoViewerOriginRect"
       @update:visible="photoViewerVisible = $event"
     />
-    <!-- 人脸对应照片的 PhotoViewer（保留以便后续扩展） -->
-    <!--
+    <!-- AI搜索结果的 PhotoViewer -->
     <PhotoViewer
-      v-if="facePhotoViewerPhotos.length > 0"
-      :photos="facePhotoViewerPhotos"
-      :visible="viewerVisible"
-      :start-index="viewerIndex"
-      :origin-rect="viewerOriginRect"
-      @update:visible="viewerVisible = $event"
+      v-if="aiViewerPhotos.length > 0"
+      :photos="aiViewerPhotos"
+      :visible="aiViewerVisible"
+      :start-index="aiViewerIndex"
+      :origin-rect="aiViewerOriginRect"
+      @update:visible="aiViewerVisible = $event"
     />
-    -->
   </div>
 </template>

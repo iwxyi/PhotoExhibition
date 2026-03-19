@@ -5,8 +5,11 @@ import { spawn } from 'child_process';
 
 console.log('🚀 启动PhotoExhibition开发服务器...');
 
-// 启动vite开发服务器，指定host以避免macOS网络接口检测问题
-const vite = spawn('node', ['./node_modules/vite/bin/vite.js', '--host', '127.0.0.1'], {
+const host = process.env.HOST || '127.0.0.1';
+const port = process.env.PORT || '3030';
+
+// 启动vite开发服务器，默认绑定127.0.0.1，容器内可通过环境变量覆盖为0.0.0.0
+const vite = spawn('node', ['./node_modules/vite/bin/vite.js', '--host', host, '--port', port], {
   stdio: 'inherit',
   cwd: process.cwd()
 });

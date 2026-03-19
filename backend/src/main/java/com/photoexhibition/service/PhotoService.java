@@ -485,7 +485,7 @@ public class PhotoService {
         }
     }
 
-    private PhotoDTO convertToDTO(Photo photo) {
+    public PhotoDTO convertToDTO(Photo photo) {
         PhotoDTO dto = new PhotoDTO();
         dto.setId(photo.getId());
         dto.setAlbumId(photo.getAlbumId());

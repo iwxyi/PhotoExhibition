@@ -1,7 +1,12 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import path from 'path'
 import { fileURLToPath, URL } from 'node:url'
+
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:6060'
+const allowedHostsEnv = process.env.VITE_ALLOWED_HOSTS
+const allowedHosts = allowedHostsEnv
+  ? allowedHostsEnv.split(',').map((host) => host.trim()).filter(Boolean)
+  : ['photo.iwxyi.com', 'iwxyi.com', 'localhost', '127.0.0.1', '.iwxyi.com', 'claw.iwxyi.com']
 
 export default defineConfig({
   plugins: [vue()],
@@ -11,13 +16,13 @@ export default defineConfig({
     }
   },
   server: {
-    host: '0.0.0.0',  // 允许外网访问
+    host: '0.0.0.0',
     port: 3030,
-    allowedHosts: ['photo.iwxyi.com', 'iwxyi.com', 'localhost', '127.0.0.1', '.iwxyi.com', 'claw.iwxyi.com'],  // 允许的域名/IP（包括子域名）
+    allowedHosts,
     hmr: {
       overlay: true,
-      clientPort: 3030,  // 强制使用相同端口
-      path: '/hmr/'  // 使用固定路径避免冲突
+      clientPort: 3030,
+      path: '/hmr/'
     },
     watch: {
       usePolling: true,
@@ -25,7 +30,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:6060',
+        target: apiProxyTarget,
         changeOrigin: true,
         timeout: 600000,
         proxyTimeout: 600000
@@ -33,4 +38,3 @@ export default defineConfig({
     }
   }
 })
-

@@ -53,5 +53,8 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
     @Modifying
     @Query(value = "DELETE FROM photo_tag", nativeQuery = true)
     void clearAllPhotoTagAssociations();
+
+    @Query("SELECT t FROM Tag t WHERE t.name LIKE %:keyword%")
+    List<Tag> searchByNameContaining(@org.springframework.data.repository.query.Param("keyword") String keyword);
 }
 

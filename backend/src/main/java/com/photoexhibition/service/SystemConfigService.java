@@ -63,6 +63,22 @@ public class SystemConfigService {
     public static final String FACE_CLUSTER_THRESHOLD_DEFAULT = "0.7";
     public static final String FACE_CLUSTER_THRESHOLD_DESCRIPTION = "人脸聚类阈值（用于人脸识别和分组）";
 
+    public static final String AI_SEARCH_ENABLED_KEY = "ai_search_enabled";
+    public static final String AI_SEARCH_ENABLED_DEFAULT = "false";
+    public static final String AI_SEARCH_ENABLED_DESCRIPTION = "AI智能搜索开关";
+
+    public static final String AI_SEARCH_API_URL_KEY = "ai_search_api_url";
+    public static final String AI_SEARCH_API_URL_DEFAULT = "";
+    public static final String AI_SEARCH_API_URL_DESCRIPTION = "AI搜索API地址(OpenAI兼容格式)";
+
+    public static final String AI_SEARCH_API_KEY_KEY = "ai_search_api_key";
+    public static final String AI_SEARCH_API_KEY_DEFAULT = "";
+    public static final String AI_SEARCH_API_KEY_DESCRIPTION = "AI搜索API密钥";
+
+    public static final String AI_SEARCH_MODEL_KEY = "ai_search_model";
+    public static final String AI_SEARCH_MODEL_DEFAULT = "gpt-4o";
+    public static final String AI_SEARCH_MODEL_DESCRIPTION = "AI搜索使用的模型名称";
+
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
     public static final String SORT_BY_TAKEN_AT_ASC = "taken_at_asc";
@@ -394,6 +410,53 @@ public class SystemConfigService {
                SORT_BY_LATEST_PHOTO_TAKEN_ASC.equals(sortOrder) ||
                SORT_BY_ALBUM_NAME_DATE_DESC.equals(sortOrder) ||
                SORT_BY_ALBUM_NAME_DATE_ASC.equals(sortOrder);
+    }
+
+    // ===== AI 搜索配置 =====
+
+    public boolean isAiSearchEnabled() {
+        String value = getConfigValueWithDefault(
+            AI_SEARCH_ENABLED_KEY, AI_SEARCH_ENABLED_DEFAULT, AI_SEARCH_ENABLED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setAiSearchEnabled(boolean enabled) {
+        setConfigValue(AI_SEARCH_ENABLED_KEY, String.valueOf(enabled), AI_SEARCH_ENABLED_DESCRIPTION);
+    }
+
+    public String getAiSearchApiUrl() {
+        return getConfigValueWithDefault(
+            AI_SEARCH_API_URL_KEY, AI_SEARCH_API_URL_DEFAULT, AI_SEARCH_API_URL_DESCRIPTION
+        );
+    }
+
+    @Transactional
+    public void setAiSearchApiUrl(String url) {
+        setConfigValue(AI_SEARCH_API_URL_KEY, url != null ? url.trim() : "", AI_SEARCH_API_URL_DESCRIPTION);
+    }
+
+    public String getAiSearchApiKey() {
+        return getConfigValueWithDefault(
+            AI_SEARCH_API_KEY_KEY, AI_SEARCH_API_KEY_DEFAULT, AI_SEARCH_API_KEY_DESCRIPTION
+        );
+    }
+
+    @Transactional
+    public void setAiSearchApiKey(String key) {
+        setConfigValue(AI_SEARCH_API_KEY_KEY, key != null ? key.trim() : "", AI_SEARCH_API_KEY_DESCRIPTION);
+    }
+
+    public String getAiSearchModel() {
+        return getConfigValueWithDefault(
+            AI_SEARCH_MODEL_KEY, AI_SEARCH_MODEL_DEFAULT, AI_SEARCH_MODEL_DESCRIPTION
+        );
+    }
+
+    @Transactional
+    public void setAiSearchModel(String model) {
+        setConfigValue(AI_SEARCH_MODEL_KEY, model != null ? model.trim() : AI_SEARCH_MODEL_DEFAULT, AI_SEARCH_MODEL_DESCRIPTION);
     }
 
     /**
