@@ -50,7 +50,6 @@
           :border-color="borderColor"
           :input-border-color="inputBorderColor"
           :is-dark-mode="props.isDarkMode"
-          :is-atmosphere-enabled="props.isAtmosphereEnabled"
           @comment-added="handleReplyAdded"
           @cancel="showReplyForm = false"
         />
@@ -67,7 +66,6 @@
             :border-color="borderColor"
             :input-border-color="inputBorderColor"
             :is-dark-mode="props.isDarkMode"
-            :is-atmosphere-enabled="props.isAtmosphereEnabled"
             :reply-status-map="props.replyStatusMap"
             @reply-added="$emit('reply-added')"
             @comment-deleted="$emit('comment-deleted', $event)"
@@ -92,7 +90,6 @@ interface Props {
   borderColor?: string
   inputBorderColor?: string
   isDarkMode?: boolean
-  isAtmosphereEnabled?: boolean
   replyStatusMap?: Map<number, boolean>
 }
 
@@ -173,14 +170,10 @@ const handleReplyAdded = (reply: CommentDTO) => {
   emit('reply-added', reply, props.comment.id)
 }
 
-// 获取文字颜色类
+// 获取文字颜色类（根据日夜间模式）
 const getTextColorClass = () => {
-  // 如果开启氛围模式或处于夜间模式，使用白色文字
-  if (props.isAtmosphereEnabled || props.isDarkMode) {
-    return 'text-white/90'
-  }
-  // 日间模式使用黑色文字
-  return 'text-black'
+  // 直接根据日夜间模式判断，不依赖氛围开关
+  return props.isDarkMode ? 'text-white/90' : 'text-black'
 }
 
 // 检查是否是用户自己的评论

@@ -53,7 +53,7 @@
           :style="{ borderColor: inputBorderColor }"
           placeholder="请输入评论内容..."
         ></textarea>
-        <div :class="`text-right text-sm mt-1 ${props.isAtmosphereEnabled || props.isDarkMode ? 'text-white/70' : 'text-gray-600'}`">
+        <div :class="`text-right text-sm mt-1 ${props.isDarkMode ? 'text-white/70' : 'text-gray-600'}`">
           {{ formData.content.length }}/1000
         </div>
       </div>
@@ -64,7 +64,7 @@
           v-if="parentId"
           type="button"
           @click="$emit('cancel')"
-          :class="`px-4 py-2 ${props.isAtmosphereEnabled || props.isDarkMode ? 'text-white/70 hover:text-white' : 'text-gray-600 hover:text-gray-800'}`"
+          :class="`px-4 py-2 ${props.isDarkMode ? 'text-white/70 hover:text-white' : 'text-gray-600 hover:text-gray-800'}`"
         >
           取消回复
         </button>
@@ -92,7 +92,6 @@ interface Props {
   borderColor?: string
   inputBorderColor?: string
   isDarkMode?: boolean
-  isAtmosphereEnabled?: boolean
 }
 
 interface Emits {
@@ -105,8 +104,7 @@ const props = withDefaults(defineProps<Props>(), {
   backgroundColor: 'rgba(255, 255, 255, 0.8)',
   borderColor: 'rgba(229, 231, 235, 0.5)',
   inputBorderColor: 'rgb(107 114 128 / 0.5)',
-  isDarkMode: false,
-  isAtmosphereEnabled: false
+  isDarkMode: false
 })
 
 const emit = defineEmits<Emits>()
@@ -114,14 +112,8 @@ const emit = defineEmits<Emits>()
 const submitting = ref(false)
 const inputBorderColor = computed(() => props.inputBorderColor)
 
-// 获取文字颜色类
 const getTextColorClass = () => {
-  // 如果开启氛围模式或处于夜间模式，使用白色文字
-  if (props.isAtmosphereEnabled || props.isDarkMode) {
-    return 'text-white'
-  }
-  // 日间模式使用黑色文字
-  return 'text-black'
+  return props.isDarkMode ? 'text-white' : 'text-black'
 }
 
 // 从localStorage加载用户信息

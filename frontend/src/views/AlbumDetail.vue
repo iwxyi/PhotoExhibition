@@ -83,7 +83,7 @@
         <div
           v-if="albumPersons.length > 0"
           class="album-persons-section"
-          :class="{ 'album-persons-section--dark': atmosphereEnabled && hasAtmosphereColors }"
+          :class="{ 'album-persons-section--dark': atmosphereEnabled && hasAtmosphereColors && themeStore.isDark, 'album-persons-section--light': atmosphereEnabled && hasAtmosphereColors && !themeStore.isDark }"
         >
           <div class="album-persons-scroll">
             <a
@@ -197,7 +197,6 @@
         :border-color="commentBorderColor"
         :input-border-color="inputBorderColor"
         :is-dark-mode="themeStore.isDark"
-        :is-atmosphere-enabled="atmosphereEnabled"
       />
 
       <!-- 回到顶部按钮 -->
@@ -552,45 +551,24 @@ const albumAtmosphereEffects = computed(() => {
   return album.value?.atmosphereEffects || [] as any[]
 })
 
-// 评论区域背景和边框颜色
+// 评论区域背景和边框颜色（根据日夜间模式，而非氛围开关）
 const commentBackgroundColor = computed(() => {
-  if (atmosphereEnabled.value && atmosphereBgColor.value) {
-    const bgColor = atmosphereBgColor.value
-    if (bgColor.startsWith('#')) {
-      const r = parseInt(bgColor.slice(1, 3), 16)
-      const g = parseInt(bgColor.slice(3, 5), 16)
-      const b = parseInt(bgColor.slice(5, 7), 16)
-      return `rgba(${r}, ${g}, ${b}, 0.85)`
-    }
-    return 'rgba(255, 255, 255, 0.85)'
+  // 直接根据日夜间模式判断，不依赖氛围开关
+  if (themeStore.isDark) {
+    return 'rgba(31, 41, 55, 0.85)' // 深色日间
   } else {
-    return themeStore.isDark ? 'rgba(31, 41, 55, 0.85)' : 'rgba(255, 255, 255, 0.85)'
+    return 'rgba(255, 255, 255, 0.85)' // 浅色日间
   }
 })
 
+// 评论区域边框颜色（根据日夜间模式）
 const commentBorderColor = computed(() => {
-  if (atmosphereEnabled.value && atmosphereBgColor.value) {
-    const bgColor = atmosphereBgColor.value
-    if (bgColor.startsWith('#')) {
-      const r = parseInt(bgColor.slice(1, 3), 16)
-      const g = parseInt(bgColor.slice(3, 5), 16)
-      const b = parseInt(bgColor.slice(5, 7), 16)
-      return `rgba(${r}, ${g}, ${b}, 0.3)`
-    }
-    return 'rgba(229, 231, 235, 0.3)'
-  } else {
-    return themeStore.isDark ? 'rgba(75, 85, 99, 0.3)' : 'rgba(229, 231, 235, 0.3)'
-  }
+  return themeStore.isDark ? 'rgba(75, 85, 99, 0.3)' : 'rgba(229, 231, 235, 0.3)'
 })
 
-// 输入框边框颜色（根据背景模式）
+// 输入框边框颜色（根据日夜间模式）
 const inputBorderColor = computed(() => {
-  // 如果开启氛围模式或处于夜间模式，使用浅白色边框
-  if (atmosphereEnabled.value || themeStore.isDark) {
-    return 'rgb(255 255 255 / 0.3)' // 浅白色
-  }
-  // 日间模式使用深灰色边框
-  return 'rgb(107 114 128 / 0.5)' // 深灰色
+  return themeStore.isDark ? 'rgb(255 255 255 / 0.3)' : 'rgb(107 114 128 / 0.5)'
 })
 
 // 计算列数（响应式，与其他页面保持一致）

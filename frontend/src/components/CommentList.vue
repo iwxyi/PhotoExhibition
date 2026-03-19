@@ -18,7 +18,6 @@
         :border-color="borderColor"
         :input-border-color="inputBorderColor"
         :is-dark-mode="props.isDarkMode"
-        :is-atmosphere-enabled="props.isAtmosphereEnabled"
         :reply-status-map="props.replyStatusMap"
         @reply-added="(reply, parentId) => $emit('reply-added', reply, parentId)"
         @comment-deleted="$emit('comment-deleted', $event)"
@@ -58,7 +57,6 @@ interface Props {
   borderColor?: string
   inputBorderColor?: string
   isDarkMode?: boolean
-  isAtmosphereEnabled?: boolean
   replyStatusMap?: Map<number, boolean>
 }
 

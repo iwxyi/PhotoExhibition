@@ -11,7 +11,6 @@
       :border-color="borderColor"
       :input-border-color="inputBorderColor"
       :is-dark-mode="props.isDarkMode"
-      :is-atmosphere-enabled="props.isAtmosphereEnabled"
       :reply-status-map="replyStatusMap"
       :comments="comments"
       :loading="loading"
@@ -34,7 +33,6 @@
       :border-color="borderColor"
       :input-border-color="inputBorderColor"
       :is-dark-mode="props.isDarkMode"
-      :is-atmosphere-enabled="props.isAtmosphereEnabled"
       @comment-added="handleCommentAdded"
     />
   </div>
@@ -54,7 +52,6 @@ interface Props {
   borderColor?: string
   inputBorderColor?: string
   isDarkMode?: boolean
-  isAtmosphereEnabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -63,8 +60,7 @@ const props = withDefaults(defineProps<Props>(), {
   backgroundColor: 'rgba(255, 255, 255, 0.8)',
   borderColor: 'rgba(229, 231, 235, 0.5)',
   inputBorderColor: 'rgb(107 114 128 / 0.5)',
-  isDarkMode: false,
-  isAtmosphereEnabled: false
+  isDarkMode: false
 })
 
 const comments = ref<CommentDTO[]>([])
