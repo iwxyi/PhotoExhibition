@@ -253,6 +253,15 @@ watch(album, (newAlbum) => {
     const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
     document.title = `${baseTitle} - ${newAlbum.name}`
   }
+  // 当相册数据加载后，清除预存的背景色（避免覆盖真实数据）
+  if (newAlbum) {
+    const bgColor = themeStore.isDark ? newAlbum.darkBgColor : newAlbum.lightBgColor
+    if (bgColor) {
+      presetAtmosphereBg.value = null
+      // 清理 sessionStorage
+      sessionStorage.removeItem(`album-atmosphere-bg-${newAlbum.id}`)
+    }
+  }
 }, { immediate: true })
 
 // 从路由参数获取相册 ID（支持 /album/:id 和 /a/:id 两种路由）
@@ -401,6 +410,9 @@ const { atmosphereEnabled, previewSize } = useUiSettings()
 // 获取主题store
 const themeStore = useThemeStore()
 
+// 预存的氛围背景色（从相册列表页传递，用于避免页面跳转时的闪烁）
+const presetAtmosphereBg = ref<string | null>(null)
+
 // 窗口宽度响应式（用于触发columnCount重新计算）
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
 
@@ -510,6 +522,12 @@ const atmosphereAccentColor = computed(() => {
 
 // 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
 const backgroundStyle = computed(() => {
+  // 优先使用预存的背景色（从相册列表页传递，避免闪烁）
+  if (presetAtmosphereBg.value) {
+    return {
+      backgroundColor: presetAtmosphereBg.value
+    }
+  }
   if (atmosphereEnabled.value && atmosphereBgColor.value) {
     return {
       backgroundColor: atmosphereBgColor.value
@@ -1718,6 +1736,13 @@ const loadAlbumData = async () => {
     } catch (e) {
       // ignore
     }
+  }
+
+  // 读取预存的氛围背景色（从相册列表页传递，用于避免页面跳转时的闪烁）
+  const storedBgColor = sessionStorage.getItem(`album-atmosphere-bg-${targetAlbumId}`)
+  if (storedBgColor && atmosphereEnabled.value) {
+    presetAtmosphereBg.value = storedBgColor
+    console.log('[AlbumDetail] 已读取预存氛围背景色:', storedBgColor)
   }
 
   // 注意：数据已在 onDeactivated 中清空，此处直接加载新数据

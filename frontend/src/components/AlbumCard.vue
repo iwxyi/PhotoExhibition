@@ -175,6 +175,15 @@ const handleClick = () => {
     console.log('[点击相册] 已保存封面位置和导航时间戳', { albumId: props.album.id, coverRectsCount: coverRects.length })
   }
   
+  // 保存氛围背景色（用于页面跳转前预设置底色，避免闪烁）
+  if (atmosphereEnabled.value) {
+    const bgColor = themeStore.isDark ? props.album.darkBgColor : props.album.lightBgColor
+    if (bgColor) {
+      sessionStorage.setItem(`album-atmosphere-bg-${props.album.id}`, bgColor)
+      console.log('[点击相册] 已保存氛围背景色', { albumId: props.album.id, bgColor })
+    }
+  }
+  
   emit('click')
 }
 </script>
