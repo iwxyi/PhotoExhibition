@@ -52,17 +52,18 @@ public class AlbumAtmosphereAnalysisService {
         // 分析颜色
         AtmosphereColors colors = analyzeColors(photos);
 
-        // 更新相册氛围信息
-        album.setBackgroundColor(colors.getBackgroundColor());
-        album.setForegroundColor(colors.getForegroundColor());
-        album.setNavbarColor(colors.getNavbarColor());
+        // 更新相册氛围颜色
+        album.setDarkBgColor(colors.getDarkBgColor());
+        album.setLightBgColor(colors.getLightBgColor());
+        album.setDarkAccentColor(colors.getDarkAccentColor());
+        album.setLightAccentColor(colors.getLightAccentColor());
         album.setAtmosphereLastUpdated(LocalDateTime.now());
 
         albumRepository.save(album);
 
-        log.info("完成相册 {} 的氛围分析，背景色: {}, 前景色: {}, 导航栏色: {}",
-            album.getName(), colors.getBackgroundColor(),
-            colors.getForegroundColor(), colors.getNavbarColor());
+        log.info("完成相册 {} 的氛围分析，深色背景: {}, 浅色背景: {}, 深色点缀: {}, 浅色点缀: {}",
+            album.getName(), colors.getDarkBgColor(), colors.getLightBgColor(),
+            colors.getDarkAccentColor(), colors.getLightAccentColor());
     }
 
     /**
@@ -113,7 +114,7 @@ public class AlbumAtmosphereAnalysisService {
     }
 
     /**
-     * 分析图片颜色并计算氛围颜色
+     * 分析图片颜色并计算氛围颜色（4种：深色/浅色背景 + 深色/浅色点缀色）
      */
     private AtmosphereColors analyzeColors(List<Photo> photos) {
         List<ColorInfo> allColors = new ArrayList<>();
@@ -123,13 +124,12 @@ public class AlbumAtmosphereAnalysisService {
             if (photo.getDominantColor() != null) {
                 try {
                     Color dominantColor = hexToColor(photo.getDominantColor());
-                    allColors.add(new ColorInfo(dominantColor, 3.0)); // 主色调权重更高
+                    allColors.add(new ColorInfo(dominantColor, 3.0));
                 } catch (Exception e) {
                     // 忽略解析错误
                 }
             }
 
-            // 添加调色板颜色
             if (photo.getColorPalette() != null) {
                 try {
                     List<String> palette = objectMapper.readValue(photo.getColorPalette(),
@@ -137,7 +137,7 @@ public class AlbumAtmosphereAnalysisService {
 
                     for (int i = 0; i < palette.size(); i++) {
                         Color color = hexToColor(palette.get(i));
-                        double weight = 2.0 - (i * 0.3); // 调色板中靠前的颜色权重更高
+                        double weight = 2.0 - (i * 0.3);
                         allColors.add(new ColorInfo(color, weight));
                     }
                 } catch (Exception e) {
@@ -147,23 +147,76 @@ public class AlbumAtmosphereAnalysisService {
         }
 
         if (allColors.isEmpty()) {
-            // 默认颜色方案
-            return new AtmosphereColors("#1a1a1a", "#ffffff", "#2d3748");
+            return new AtmosphereColors("#1a1a2e", "#f0ebe3", "#7c9cb5", "#4a6b82");
         }
 
-        // 计算平均颜色
+        // 计算加权平均颜色
         Color averageColor = calculateAverageColor(allColors);
+        float[] hsb = Color.RGBtoHSB(averageColor.getRed(), averageColor.getGreen(), averageColor.getBlue(), null);
+        float hue = hsb[0];
+        float sat = hsb[1];
 
-        // 根据平均颜色确定背景色
-        String backgroundColor = determineBackgroundColor(averageColor);
+        // === 深色背景 ===
+        // 保留色调，适中饱和度，低亮度，营造沉浸感
+        float darkBgSat = Math.min(0.5f, sat * 0.8f);
+        float darkBgBri = 0.12f + Math.min(0.08f, sat * 0.1f); // 0.12~0.20
+        String darkBgColor = colorToHex(Color.getHSBColor(hue, darkBgSat, darkBgBri));
 
-        // 根据背景色确定前景色（确保对比度）
-        String foregroundColor = determineForegroundColor(backgroundColor);
+        // === 浅色背景 ===
+        // 保留色调，低饱和度，高亮度，柔和不刺眼
+        float lightBgSat = Math.min(0.15f, sat * 0.3f);
+        float lightBgBri = 0.94f + Math.min(0.04f, (1 - sat) * 0.05f); // 0.94~0.98
+        String lightBgColor = colorToHex(Color.getHSBColor(hue, lightBgSat, lightBgBri));
 
-        // 导航栏颜色稍微深于背景色
-        String navbarColor = determineNavbarColor(backgroundColor);
+        // === 点缀色（用于标题等） ===
+        // 从图片中找到饱和度较高的代表色作为点缀色基础
+        Color accentBase = findAccentBase(allColors, hue);
+        float[] accentHsb = Color.RGBtoHSB(accentBase.getRed(), accentBase.getGreen(), accentBase.getBlue(), null);
+        float accentHue = accentHsb[0];
+        float accentSat = accentHsb[1];
 
-        return new AtmosphereColors(backgroundColor, foregroundColor, navbarColor);
+        // 深色模式点缀色：明亮、饱和，在深色背景上醒目
+        float darkAccSat = Math.max(0.4f, Math.min(0.8f, accentSat * 1.1f));
+        float darkAccBri = Math.max(0.65f, Math.min(0.85f, 0.75f));
+        String darkAccentColor = colorToHex(Color.getHSBColor(accentHue, darkAccSat, darkAccBri));
+
+        // 浅色模式点缀色：深沉、饱和，在浅色背景上醒目
+        float lightAccSat = Math.max(0.45f, Math.min(0.85f, accentSat * 1.2f));
+        float lightAccBri = Math.max(0.3f, Math.min(0.5f, 0.4f));
+        String lightAccentColor = colorToHex(Color.getHSBColor(accentHue, lightAccSat, lightAccBri));
+
+        return new AtmosphereColors(darkBgColor, lightBgColor, darkAccentColor, lightAccentColor);
+    }
+
+    /**
+     * 从图片颜色中找到适合做点缀色的基础色
+     * 优先选择饱和度较高且与主色调有一定区分的颜色
+     */
+    private Color findAccentBase(List<ColorInfo> allColors, float mainHue) {
+        // 按饱和度排序，取饱和度最高的几个颜色
+        List<float[]> candidates = allColors.stream()
+            .map(ci -> Color.RGBtoHSB(ci.getColor().getRed(), ci.getColor().getGreen(), ci.getColor().getBlue(), null))
+            .filter(hsb -> hsb[1] > 0.2f && hsb[2] > 0.2f) // 过滤掉太灰暗的
+            .sorted((a, b) -> Float.compare(b[1] * b[2], a[1] * a[2])) // 按饱和度×亮度排序
+            .collect(Collectors.toList());
+
+        if (candidates.isEmpty()) {
+            // 没有饱和色，用主色调偏移30度
+            return Color.getHSBColor((mainHue + 0.083f) % 1.0f, 0.5f, 0.6f);
+        }
+
+        // 优先选择色相与主背景有所区分的（至少15度差异）
+        for (float[] c : candidates) {
+            float hueDiff = Math.abs(c[0] - mainHue);
+            if (hueDiff > 0.5f) hueDiff = 1.0f - hueDiff;
+            if (hueDiff > 0.04f) { // ~15度
+                return Color.getHSBColor(c[0], c[1], c[2]);
+            }
+        }
+
+        // 如果都很接近，用饱和度最高的
+        float[] best = candidates.get(0);
+        return Color.getHSBColor(best[0], best[1], best[2]);
     }
 
     /**
@@ -188,80 +241,6 @@ public class AlbumAtmosphereAnalysisService {
             Math.max(0, Math.min(255, (int) g)),
             Math.max(0, Math.min(255, (int) b))
         );
-    }
-
-    /**
-     * 根据平均颜色确定背景色
-     */
-    private String determineBackgroundColor(Color averageColor) {
-        // 计算亮度
-        double brightness = (averageColor.getRed() * 0.299 +
-                           averageColor.getGreen() * 0.587 +
-                           averageColor.getBlue() * 0.114) / 255;
-
-        // 根据图片色调调整背景色
-        if (brightness > 0.7) {
-            // 明亮图片：使用深色背景
-            return "#1a1a1a";
-        } else if (brightness > 0.4) {
-            // 中等亮度：稍微调整饱和度和亮度
-            Color adjusted = adjustColorForBackground(averageColor, 0.3, 0.2);
-            return colorToHex(adjusted);
-        } else {
-            // 暗色图片：使用浅色背景或稍微调亮
-            Color adjusted = adjustColorForBackground(averageColor, 0.6, 0.4);
-            return colorToHex(adjusted);
-        }
-    }
-
-    /**
-     * 根据背景色确定前景色（确保对比度）
-     */
-    private String determineForegroundColor(String backgroundColorHex) {
-        Color bgColor = hexToColor(backgroundColorHex);
-        double bgBrightness = getBrightness(bgColor);
-
-        // 如果背景较暗，使用浅色前景；反之使用深色前景
-        if (bgBrightness < 0.5) {
-            return "#ffffff"; // 白色文字
-        } else {
-            return "#1a1a1a"; // 深色文字
-        }
-    }
-
-    /**
-     * 根据背景色确定导航栏颜色
-     */
-    private String determineNavbarColor(String backgroundColorHex) {
-        Color bgColor = hexToColor(backgroundColorHex);
-        // 导航栏稍微深一点
-        Color navbarColor = adjustColorForNavbar(bgColor);
-        return colorToHex(navbarColor);
-    }
-
-    /**
-     * 调整颜色用于背景
-     */
-    private Color adjustColorForBackground(Color color, double saturationFactor, double brightnessFactor) {
-        float[] hsb = Color.RGBtoHSB(color.getRed(), color.getGreen(), color.getBlue(), null);
-
-        // 降低饱和度，调整亮度
-        float newSaturation = (float) Math.max(0, Math.min(1, hsb[1] * saturationFactor));
-        float newBrightness = (float) Math.max(0, Math.min(1, hsb[2] * brightnessFactor));
-
-        return Color.getHSBColor(hsb[0], newSaturation, newBrightness);
-    }
-
-    /**
-     * 调整颜色用于导航栏
-     */
-    private Color adjustColorForNavbar(Color color) {
-        float[] hsb = Color.RGBtoHSB(color.getRed(), color.getGreen(), color.getBlue(), null);
-
-        // 稍微降低亮度
-        float newBrightness = (float) Math.max(0, Math.min(1, hsb[2] * 0.8));
-
-        return Color.getHSBColor(hsb[0], hsb[1], newBrightness);
     }
 
     /**
@@ -310,21 +289,24 @@ public class AlbumAtmosphereAnalysisService {
     }
 
     /**
-     * 氛围颜色结果类
+     * 氛围颜色结果类（4种颜色）
      */
     private static class AtmosphereColors {
-        private final String backgroundColor;
-        private final String foregroundColor;
-        private final String navbarColor;
+        private final String darkBgColor;
+        private final String lightBgColor;
+        private final String darkAccentColor;
+        private final String lightAccentColor;
 
-        public AtmosphereColors(String backgroundColor, String foregroundColor, String navbarColor) {
-            this.backgroundColor = backgroundColor;
-            this.foregroundColor = foregroundColor;
-            this.navbarColor = navbarColor;
+        public AtmosphereColors(String darkBgColor, String lightBgColor, String darkAccentColor, String lightAccentColor) {
+            this.darkBgColor = darkBgColor;
+            this.lightBgColor = lightBgColor;
+            this.darkAccentColor = darkAccentColor;
+            this.lightAccentColor = lightAccentColor;
         }
 
-        public String getBackgroundColor() { return backgroundColor; }
-        public String getForegroundColor() { return foregroundColor; }
-        public String getNavbarColor() { return navbarColor; }
+        public String getDarkBgColor() { return darkBgColor; }
+        public String getLightBgColor() { return lightBgColor; }
+        public String getDarkAccentColor() { return darkAccentColor; }
+        public String getLightAccentColor() { return lightAccentColor; }
     }
 }

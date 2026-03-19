@@ -50,15 +50,18 @@ public class Album {
     @Column(name = "photo_sort_order")
     private String photoSortOrder;
 
-    // 氛围信息字段
-    @Column(name = "background_color", length = 20)
-    private String backgroundColor;
+    // 氛围颜色字段（深色/浅色模式各一套背景色+点缀色）
+    @Column(name = "dark_bg_color", length = 20)
+    private String darkBgColor;
 
-    @Column(name = "foreground_color", length = 20)
-    private String foregroundColor;
+    @Column(name = "light_bg_color", length = 20)
+    private String lightBgColor;
 
-    @Column(name = "navbar_color", length = 20)
-    private String navbarColor;
+    @Column(name = "dark_accent_color", length = 20)
+    private String darkAccentColor;
+
+    @Column(name = "light_accent_color", length = 20)
+    private String lightAccentColor;
 
     @Column(name = "atmosphere_effects", columnDefinition = "JSON")
     private String atmosphereEffects;

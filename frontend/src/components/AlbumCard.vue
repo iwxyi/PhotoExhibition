@@ -1,7 +1,8 @@
 <template>
   <div
-    class="photo-card cursor-pointer group w-full mx-auto transform-gpu bg-white dark:bg-gray-800 rounded-xl overflow-hidden"
-    :class="cardSizeClass"
+    class="photo-card cursor-pointer group w-full mx-auto transform-gpu rounded-xl overflow-hidden"
+    :class="[cardSizeClass, !cardBgColor ? 'bg-white dark:bg-gray-800' : '']"
+    :style="cardBgColor ? { backgroundColor: cardBgColor } : {}"
     :data-album-id="album.id"
     role="button"
     tabindex="0"
@@ -36,6 +37,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Album } from '@/stores/photo'
+import { useThemeStore } from '@/stores/theme'
+import { useUiSettings } from '@/composables/useUiSettings'
 import CoverDisplay from '@/components/CoverDisplay.vue'
 
 type Size = 'sm' | 'md' | 'lg'
@@ -50,6 +53,18 @@ const emit = defineEmits<{
 }>()
 
 const cardRef = ref<HTMLElement>()
+const themeStore = useThemeStore()
+const { atmosphereEnabled } = useUiSettings()
+
+// 氛围模式下使用相册的背景色
+const cardBgColor = computed(() => {
+  if (!atmosphereEnabled.value) return null
+  const a = props.album
+  if (themeStore.isDark) {
+    return a.darkBgColor || null
+  }
+  return a.lightBgColor || null
+})
 
 const sizeValue = computed(() => props.size || 'md')
 

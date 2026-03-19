@@ -63,7 +63,7 @@
       <div v-if="album" class="album-content-wrapper">
         <!-- 相册信息 - 居中显示 -->
         <div class="album-header-center">
-          <h1 class="album-title" :style="textStyle">{{ album.name }}</h1>
+          <h1 class="album-title" :style="titleStyle">{{ album.name }}</h1>
           <p v-if="album.description" class="album-description">{{ album.description }}</p>
           <!-- 分割线：位于备注和照片数量之间 -->
           <div class="album-header-divider"></div>
@@ -83,7 +83,7 @@
         <div
           v-if="albumPersons.length > 0"
           class="album-persons-section"
-          :class="{ 'album-persons-section--dark': atmosphereEnabled && album?.backgroundColor }"
+          :class="{ 'album-persons-section--dark': atmosphereEnabled && hasAtmosphereColors }"
         >
           <div class="album-persons-scroll">
             <a
@@ -492,17 +492,30 @@ const scrollToTop = () => {
   })
 }
 
+// 是否有氛围颜色数据
+const hasAtmosphereColors = computed(() => {
+  return !!(album.value?.darkBgColor && album.value?.lightBgColor)
+})
+
+// 当前模式下的氛围背景色
+const atmosphereBgColor = computed(() => {
+  if (!hasAtmosphereColors.value) return null
+  return themeStore.isDark ? album.value!.darkBgColor! : album.value!.lightBgColor!
+})
+
+// 当前模式下的氛围点缀色（用于标题等）
+const atmosphereAccentColor = computed(() => {
+  if (!album.value?.darkAccentColor || !album.value?.lightAccentColor) return null
+  return themeStore.isDark ? album.value.darkAccentColor : album.value.lightAccentColor
+})
+
 // 背景样式（基于相册的背景颜色或默认主题，支持氛围开关）
 const backgroundStyle = computed(() => {
-  if (atmosphereEnabled.value && album.value?.backgroundColor) {
-    // 启用氛围时，总是使用相册的背景颜色作为基础氛围
-    // 背景层特效会叠加在背景色之上
-    const baseColor = album.value.backgroundColor!
+  if (atmosphereEnabled.value && atmosphereBgColor.value) {
     return {
-      backgroundColor: baseColor
+      backgroundColor: atmosphereBgColor.value
     }
   } else if (!atmosphereEnabled.value) {
-    // 关闭氛围时使用纯色背景，与主页一致
     return {
       backgroundColor: themeStore.isDark ? '#000000' : '#ffffff'
     }
@@ -510,28 +523,25 @@ const backgroundStyle = computed(() => {
   return {}
 })
 
-
 // 文字样式（确保在任何背景下都有足够对比度）
 const textStyle = computed(() => {
-  if (atmosphereEnabled.value && album.value?.backgroundColor) {
-    // 启用氛围时，根据相册背景色选择文字颜色
-    const bgBrightness = getBrightness(album.value.backgroundColor!)
-    const isLightBackground = bgBrightness > 0.5
-
-    if (isLightBackground) {
-      // 浅色背景 -> 使用深色文字
-      return { color: '#1a1a1a' }
-    } else {
-      // 深色背景 -> 使用浅色文字
-      return { color: '#ffffff' }
-    }
+  if (atmosphereEnabled.value && atmosphereBgColor.value) {
+    // 深色模式用浅色文字，浅色模式用深色文字
+    return { color: themeStore.isDark ? '#e8e8e8' : '#2a2a2a' }
   } else if (!atmosphereEnabled.value) {
-    // 关闭氛围时使用默认的主题文字颜色
     return {
       color: themeStore.isDark ? '#ffffff' : '#1a1a1a'
     }
   }
   return {}
+})
+
+// 标题样式（使用点缀色，在氛围背景上更醒目）
+const titleStyle = computed(() => {
+  if (atmosphereEnabled.value && atmosphereAccentColor.value) {
+    return { color: atmosphereAccentColor.value }
+  }
+  return textStyle.value
 })
 
 // 氛围特效列表
@@ -544,10 +554,8 @@ const albumAtmosphereEffects = computed(() => {
 
 // 评论区域背景和边框颜色
 const commentBackgroundColor = computed(() => {
-  if (atmosphereEnabled.value && album.value?.backgroundColor) {
-    // 启用氛围时，使用半透明的相册背景色
-    const bgColor = album.value.backgroundColor!
-    // 将十六进制颜色转换为rgba，添加透明度
+  if (atmosphereEnabled.value && atmosphereBgColor.value) {
+    const bgColor = atmosphereBgColor.value
     if (bgColor.startsWith('#')) {
       const r = parseInt(bgColor.slice(1, 3), 16)
       const g = parseInt(bgColor.slice(3, 5), 16)
@@ -556,15 +564,13 @@ const commentBackgroundColor = computed(() => {
     }
     return 'rgba(255, 255, 255, 0.85)'
   } else {
-    // 关闭氛围时使用半透明的主题背景色
     return themeStore.isDark ? 'rgba(31, 41, 55, 0.85)' : 'rgba(255, 255, 255, 0.85)'
   }
 })
 
 const commentBorderColor = computed(() => {
-  if (atmosphereEnabled.value && album.value?.backgroundColor) {
-    // 启用氛围时，使用更透明的边框
-    const bgColor = album.value.backgroundColor!
+  if (atmosphereEnabled.value && atmosphereBgColor.value) {
+    const bgColor = atmosphereBgColor.value
     if (bgColor.startsWith('#')) {
       const r = parseInt(bgColor.slice(1, 3), 16)
       const g = parseInt(bgColor.slice(3, 5), 16)
@@ -573,7 +579,6 @@ const commentBorderColor = computed(() => {
     }
     return 'rgba(229, 231, 235, 0.3)'
   } else {
-    // 关闭氛围时使用半透明的主题边框色
     return themeStore.isDark ? 'rgba(75, 85, 99, 0.3)' : 'rgba(229, 231, 235, 0.3)'
   }
 })

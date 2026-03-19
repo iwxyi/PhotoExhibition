@@ -44,10 +44,11 @@ public class AlbumDTO {
      */
     private String relativePath;
 
-    // 氛围信息
-    private String backgroundColor;
-    private String foregroundColor;
-    private String navbarColor;
+    // 氛围颜色（深色/浅色模式各一套）
+    private String darkBgColor;
+    private String lightBgColor;
+    private String darkAccentColor;
+    private String lightAccentColor;
     private List<AtmosphereEffectDTO> atmosphereEffects;
 }
 

@@ -796,10 +796,11 @@ public class AlbumService {
 
         takenAt.ifPresent(dto::setTakenAt);
 
-        // 设置氛围信息
-        dto.setBackgroundColor(album.getBackgroundColor());
-        dto.setForegroundColor(album.getForegroundColor());
-        dto.setNavbarColor(album.getNavbarColor());
+        // 设置氛围颜色
+        dto.setDarkBgColor(album.getDarkBgColor());
+        dto.setLightBgColor(album.getLightBgColor());
+        dto.setDarkAccentColor(album.getDarkAccentColor());
+        dto.setLightAccentColor(album.getLightAccentColor());
 
         // 解析氛围特效
         if (album.getAtmosphereEffects() != null) {
