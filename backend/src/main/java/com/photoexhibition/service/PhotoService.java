@@ -594,6 +594,7 @@ public class PhotoService {
                     dto.setAiTechnicalScore(aiScoring.getTechnicalScore());
                     dto.setAiCompositionScore(aiScoring.getCompositionScore());
                     dto.setAiAppealScore(aiScoring.getAppealScore());
+                    log.debug("设置AI评分 for photo {}: overall={}", photo.getId(), aiScoring.getOverallScore());
 
                     // 解析优点和不足
                     if (aiScoring.getStrengths() != null) {

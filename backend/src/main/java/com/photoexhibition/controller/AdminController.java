@@ -8,6 +8,7 @@ import com.photoexhibition.repository.AdminUserRepository;
 import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.DataCleanupService;
+import com.photoexhibition.service.AiSearchService;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.service.FilterOptionService;
@@ -64,6 +65,7 @@ public class AdminController {
     private final PhotoAIScoringRepository aiScoringRepository;
     private final SimilarPhotoSearchService similarPhotoSearchService;
     private final BackgroundRemovalService backgroundRemovalService;
+    private final AiSearchService aiSearchService;
 
     /**
      * 全局异常处理器 - 处理各种异常
@@ -1549,6 +1551,34 @@ public class AdminController {
             log.error("清空抠图缓存失败", e);
             resp.put("success", false);
             resp.put("message", "清空抠图缓存失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+
+        return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * 清空 AI 搜索结果缓存
+     */
+    @DeleteMapping("/ai-search/clear-cache")
+    public ResponseEntity<Map<String, Object>> clearSearchCache(
+            @RequestParam(required = false) String query) {
+        Map<String, Object> resp = new HashMap<>();
+
+        try {
+            if (query != null && !query.isBlank()) {
+                aiSearchService.clearSearchCache(query);
+                resp.put("success", true);
+                resp.put("message", "已清除指定搜索缓存: " + query);
+            } else {
+                aiSearchService.clearSearchCache();
+                resp.put("success", true);
+                resp.put("message", "已清除所有 AI 搜索缓存");
+            }
+        } catch (Exception e) {
+            log.error("清除搜索缓存失败", e);
+            resp.put("success", false);
+            resp.put("message", "清除搜索缓存失败: " + e.getMessage());
             return ResponseEntity.status(500).body(resp);
         }
 

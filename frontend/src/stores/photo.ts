@@ -38,6 +38,7 @@ export interface Photo {
   mediumThumbPath?: string
   largeThumbPath?: string
   fileSize?: number
+  contentHash?: string
   width?: number
   height?: number
   format?: string
@@ -61,6 +62,8 @@ export interface Photo {
   viewCount: number
   likeCount: number
   isFeatured: boolean
+  location?: string
+  dominantColor?: string
 
   // AI评分相关字段
   aiOverallScore?: number // AI综合评分
@@ -70,9 +73,11 @@ export interface Photo {
   aiStrengths?: string[] // AI分析优点
   aiWeaknesses?: string[] // AI分析不足
   aiSuggestions?: string[] // AI改进建议
-  dominantColor?: string
   tags?: Tag[]
+  assignedPersonId?: number
+  assignedPersonName?: string
   faces?: FaceFace[]
+  isHidden?: boolean
   createdAt: string
 }
 

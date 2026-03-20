@@ -10,6 +10,7 @@
         <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
+            <SearchSpotlight />
             <SettingsMenu />
           </div>
         </div>
@@ -69,6 +70,7 @@ import AlbumCard from '@/components/AlbumCard.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import SearchSpotlight from '@/components/SearchSpotlight.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'

@@ -99,6 +99,55 @@ interface PhotoDTO {
   takenAt?: string
   albumId?: number
   folderPath?: string
+  fileSize?: number
+  contentHash?: string
+  format?: string
+  colorCategory?: string
+  colorPalette?: string[]
+  exifData?: Record<string, any>
+  cameraMake?: string
+  cameraModel?: string
+  lensModel?: string
+  focalLength?: string
+  focalLengthMm?: number
+  aperture?: string
+  apertureValue?: number
+  shutterSpeed?: string
+  shutterSpeedSeconds?: number
+  iso?: number
+  qualityScore?: number
+  focusX?: number
+  focusY?: number
+  viewCount?: number
+  likeCount?: number
+  isFeatured?: boolean
+  location?: string
+  dominantColor?: string
+  // AI 评分
+  aiOverallScore?: number
+  aiTechnicalScore?: number
+  aiCompositionScore?: number
+  aiAppealScore?: number
+  aiStrengths?: string[]
+  aiWeaknesses?: string[]
+  aiSuggestions?: string[]
+  // 标签和人物
+  tags?: Array<{ id: number; name: string; color?: string }>
+  faces?: Array<{
+    id: number
+    personId?: number
+    personName?: string
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+    isConfirmed?: boolean
+    confidence?: number
+  }>
+  assignedPersonId?: number
+  assignedPersonName?: string
+  isHidden?: boolean
+  createdAt?: string
 }
 
 const authStore = useAuthStore()
@@ -804,7 +853,48 @@ const keywordViewerPhotos = computed<Photo[]>(() => {
     height: photo.height || 0,
     takenAt: photo.takenAt || '',
     albumId: photo.albumId || 0,
-    folderPath: photo.folderPath || ''
+    folderPath: photo.folderPath || '',
+    // EXIF 信息
+    cameraMake: photo.cameraMake,
+    cameraModel: photo.cameraModel,
+    lensModel: photo.lensModel,
+    focalLength: photo.focalLength,
+    focalLengthMm: photo.focalLengthMm,
+    aperture: photo.aperture,
+    apertureValue: photo.apertureValue,
+    shutterSpeed: photo.shutterSpeed,
+    shutterSpeedSeconds: photo.shutterSpeedSeconds,
+    iso: photo.iso,
+    location: photo.location || '',
+    format: photo.format,
+    colorCategory: photo.colorCategory,
+    colorPalette: photo.colorPalette,
+    exifData: photo.exifData,
+    fileSize: photo.fileSize,
+    qualityScore: photo.qualityScore,
+    focusX: photo.focusX,
+    focusY: photo.focusY,
+    viewCount: photo.viewCount || 0,
+    likeCount: photo.likeCount || 0,
+    isFeatured: photo.isFeatured || false,
+    // AI 评分
+    aiOverallScore: photo.aiOverallScore,
+    aiTechnicalScore: photo.aiTechnicalScore,
+    aiCompositionScore: photo.aiCompositionScore,
+    aiAppealScore: photo.aiAppealScore,
+    aiStrengths: photo.aiStrengths,
+    aiWeaknesses: photo.aiWeaknesses,
+    aiSuggestions: photo.aiSuggestions,
+    // 标签和人物
+    tags: photo.tags,
+    faces: photo.faces,
+    assignedPersonId: photo.assignedPersonId,
+    assignedPersonName: photo.assignedPersonName,
+    // 其他
+    contentHash: photo.contentHash,
+    dominantColor: photo.dominantColor,
+    isHidden: photo.isHidden,
+    createdAt: photo.createdAt,
   }))
 })
 

@@ -24,4 +24,5 @@ public class AiSearchResponse {
     private boolean aiSearchEnabled;
     private List<AlbumDTO> albums;
     private List<PersonSummaryDTO> persons;
+    private boolean cached; // 是否来自缓存
 }

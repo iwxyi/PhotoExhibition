@@ -59,6 +59,107 @@ public class AiSearchService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    // ==================== 搜索结果缓存 ====================
+    private static final int SEARCH_CACHE_TTL_SECONDS = 600; // 缓存10分钟
+    private static final int MAX_CACHED_PHOTOS = 10000; // 最多缓存1万张照片ID
+    private final Map<String, SearchCacheEntry> searchCache = new LinkedHashMap<>(100) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > 100; // 最多缓存100个不同的搜索
+        }
+    };
+
+    // 缓存条目结构
+    private static class SearchCacheEntry {
+        final AiSearchIntent intent;
+        final List<Long> allPhotoIds;
+        final long totalCount;
+        final long cachedAt;
+        final Set<Long> albumSnapshot;
+        // 缓存 AI 回答（用于 needAnswer=true 的查询）
+        final String cachedAnswer;
+
+        SearchCacheEntry(AiSearchIntent intent, List<Long> allPhotoIds, Set<Long> albumSnapshot) {
+            this(intent, allPhotoIds, albumSnapshot, null);
+        }
+
+        SearchCacheEntry(AiSearchIntent intent, List<Long> allPhotoIds, Set<Long> albumSnapshot, String cachedAnswer) {
+            this.intent = intent;
+            this.allPhotoIds = allPhotoIds;
+            this.totalCount = allPhotoIds.size();
+            this.cachedAt = System.currentTimeMillis();
+            this.albumSnapshot = albumSnapshot;
+            this.cachedAnswer = cachedAnswer;
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - cachedAt > SEARCH_CACHE_TTL_SECONDS * 1000;
+        }
+
+        boolean isAlbumChanged(Set<Long> currentAlbumIds) {
+            return !albumSnapshot.equals(currentAlbumIds);
+        }
+    }
+
+    // 生成缓存键
+    private String generateCacheKey(String query, boolean includeHidden) {
+        return (includeHidden ? "H:" : "N:") + query.toLowerCase().trim();
+    }
+
+    // 从缓存获取（命中时刷新过期时间）
+    private SearchCacheEntry getFromCache(String query, boolean includeHidden, Set<Long> currentAlbumIds) {
+        String cacheKey = generateCacheKey(query, includeHidden);
+        SearchCacheEntry entry = searchCache.get(cacheKey);
+        if (entry == null) {
+            return null;
+        }
+        if (entry.isExpired()) {
+            searchCache.remove(cacheKey);
+            return null;
+        }
+        // 检查相册是否有变化（新增/删除照片）
+        if (entry.isAlbumChanged(currentAlbumIds)) {
+            log.info("相册内容已变化，清除搜索缓存: {}", cacheKey);
+            searchCache.remove(cacheKey);
+            return null;
+        }
+        // 刷新过期时间（用新的 cachedAt 替换缓存条目）
+        searchCache.put(cacheKey, new SearchCacheEntry(
+            entry.intent, entry.allPhotoIds, entry.albumSnapshot, entry.cachedAnswer));
+        return entry;
+    }
+
+    // 存入缓存
+    private void putToCache(String query, boolean includeHidden, AiSearchIntent intent,
+                           List<Long> allPhotoIds, Set<Long> albumSnapshot) {
+        putToCache(query, includeHidden, intent, allPhotoIds, albumSnapshot, null);
+    }
+
+    // 存入缓存（带 AI 回答）
+    private void putToCache(String query, boolean includeHidden, AiSearchIntent intent,
+                           List<Long> allPhotoIds, Set<Long> albumSnapshot, String cachedAnswer) {
+        String cacheKey = generateCacheKey(query, includeHidden);
+        // 限制缓存的ID数量
+        List<Long> limitedIds = allPhotoIds.size() > MAX_CACHED_PHOTOS
+            ? allPhotoIds.subList(0, MAX_CACHED_PHOTOS)
+            : allPhotoIds;
+        searchCache.put(cacheKey, new SearchCacheEntry(intent, limitedIds, albumSnapshot, cachedAnswer));
+        log.debug("已缓存搜索结果: {}, 照片数={}, hasAnswer={}", cacheKey, limitedIds.size(), cachedAnswer != null);
+    }
+
+    // 清除所有搜索缓存
+    public void clearSearchCache() {
+        searchCache.clear();
+        log.info("已清除所有搜索缓存");
+    }
+
+    // 清除指定搜索的缓存
+    public void clearSearchCache(String query) {
+        searchCache.remove(generateCacheKey(query, false));
+        searchCache.remove(generateCacheKey(query, true));
+        log.info("已清除搜索缓存: {}", query);
+    }
+
     private static final int MAX_QUERY_FETCH = 10000;
     private static final Set<String> STOP_WORDS = Set.of(
         "的", "在", "了", "是", "和", "与", "或", "我", "要", "找", "有",
@@ -138,22 +239,84 @@ public class AiSearchService {
             Set<String> tokens = generateTokens(normalizedQuery);
             log.info("分词结果: {}", tokens);
 
+            // 分析模式不缓存，每次都需要完整计算
+            AnalysisRouting analysisRouting = resolveAnalysisRouting(normalizedQuery, null, queryMode);
+            if ("analysis".equals(queryMode) && analysisRouting.isResolved()) {
+                CandidateContext candidates = preRetrieve(tokens);
+                log.info("预检索候选: persons={}, tags={}, albums={}",
+                    candidates.persons.size(), candidates.tags.size(), candidates.albums.size());
+                return buildAnalysisResponse(analysisRouting, candidates, page, size, queryMode);
+            }
+
+            // 尝试从缓存获取（只有 simple_search 和 simple_answer 模式缓存）
             CandidateContext candidates = preRetrieve(tokens);
             log.info("预检索候选: persons={}, tags={}, albums={}",
                 candidates.persons.size(), candidates.tags.size(), candidates.albums.size());
 
-            AnalysisRouting analysisRouting = resolveAnalysisRouting(normalizedQuery, candidates, queryMode);
-            if ("analysis".equals(queryMode) && analysisRouting.isResolved()) {
-                return buildAnalysisResponse(analysisRouting, candidates, page, size, queryMode);
+            // 收集当前相册ID快照，用于检测变化
+            Set<Long> currentAlbumIds = candidates.albums.stream()
+                .map(Album::getId)
+                .collect(Collectors.toSet());
+
+            boolean includeHidden = false;
+            SearchCacheEntry cachedEntry = getFromCache(normalizedQuery, includeHidden, currentAlbumIds);
+
+            // 缓存命中，使用缓存的 intent 直接执行查询（避免 GPT 调用）
+            if (cachedEntry != null) {
+                log.info("缓存命中! query={}, 总数={}, 缓存时间={}秒前, 使用缓存intent重新查询",
+                    query, cachedEntry.totalCount,
+                    (System.currentTimeMillis() - cachedEntry.cachedAt) / 1000);
+
+                // 使用缓存的 intent 重新执行查询，这样能获取完整结果进行分页
+                AiSearchIntent cachedIntent = cachedEntry.intent;
+                normalizeIntent(normalizedQuery, cachedIntent, true);
+                return buildSearchResponse(query, cachedIntent, candidates, page, size, queryMode, false, cachedEntry.cachedAnswer);
             }
 
+            // 缓存未命中，执行搜索
+            AiSearchResponse response;
+
+            // 尝试快速检索
             boolean useDirectIntent = shouldUseDirectIntent(normalizedQuery, queryMode);
-            AiSearchIntent intent = useDirectIntent
-                ? buildDirectIntent(normalizedQuery, candidates, tokens)
-                : callGpt(normalizedQuery, candidates, queryMode);
-            normalizeIntent(normalizedQuery, intent, true);
-            log.info("AI解析结果: mode={}, intent={}", queryMode, intent);
-            return buildSearchResponse(query, intent, candidates, page, size, queryMode, !useDirectIntent);
+            if (useDirectIntent) {
+                AiSearchIntent directIntent = buildDirectIntent(normalizedQuery, candidates, tokens);
+                normalizeIntent(normalizedQuery, directIntent, true);
+                log.info("快速检索 intent={}", directIntent);
+
+                AiSearchResponse quickResponse = buildSearchResponse(query, directIntent, candidates, page, size, queryMode, false, null);
+                log.info("快速检索结果: totalElements={}", quickResponse.getTotalElements());
+
+                if (quickResponse.getTotalElements() == 0) {
+                    // 快速检索未命中，升级到 GPT
+                    log.info("快速检索未命中，自动升级到 GPT 路径...");
+                    AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
+                    normalizeIntent(normalizedQuery, gptIntent, true);
+                    log.info("GPT解析结果: intent={}", gptIntent);
+                    response = buildSearchResponse(query, gptIntent, candidates, page, size, queryMode, true, null);
+
+                    // 缓存 GPT 结果（完整搜索）
+                    cacheSearchResult(normalizedQuery, includeHidden, gptIntent, response, currentAlbumIds);
+                } else {
+                    response = quickResponse;
+                    // 如果有照片结果，缓存之
+                    if (response.getTotalElements() > 0) {
+                        cacheSearchResult(normalizedQuery, includeHidden, directIntent, response, currentAlbumIds);
+                    }
+                }
+            } else {
+                // 直接使用 GPT 路径
+                AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
+                normalizeIntent(normalizedQuery, gptIntent, true);
+                log.info("GPT解析结果: mode={}, intent={}", queryMode, gptIntent);
+                response = buildSearchResponse(query, gptIntent, candidates, page, size, queryMode, true, null);
+
+                // 缓存结果
+                if (response.getTotalElements() > 0) {
+                    cacheSearchResult(normalizedQuery, includeHidden, gptIntent, response, currentAlbumIds);
+                }
+            }
+
+            return response;
         } catch (Exception e) {
             log.error("AI搜索失败: {}", e.getMessage(), e);
             AiSearchResponse response = new AiSearchResponse();
@@ -169,6 +332,86 @@ public class AiSearchService {
             response.setSuggestionActions(Collections.emptyList());
             return response;
         }
+    }
+
+    // 从缓存构建响应（分页）
+    private AiSearchResponse buildResponseFromCache(SearchCacheEntry cached, String query, String queryMode, int page, int size) {
+        List<Long> allPhotoIds = cached.allPhotoIds;
+        int total = allPhotoIds.size();
+
+        // 计算分页
+        int start = page * size;
+        if (start >= total) {
+            AiSearchResponse response = new AiSearchResponse();
+            response.setAiSearchEnabled(true);
+            response.setQueryMode(queryMode);
+            response.setUsedAi(cached.intent.getNeedAnswer() != null && cached.intent.getNeedAnswer());
+            response.setNeedAnswer(false);
+            response.setPhotos(Collections.emptyList());
+            response.setTotalElements(total);
+            response.setAlbums(Collections.emptyList());
+            response.setPersons(Collections.emptyList());
+            response.setSuggestions(Collections.emptyList());
+            response.setSuggestionActions(Collections.emptyList());
+            return response;
+        }
+
+        int end = Math.min(start + size, total);
+        List<Long> pageIds = allPhotoIds.subList(start, end);
+
+        // 加载照片详情
+        List<Photo> photos = photoRepository.findAllByIdIn(pageIds);
+        List<PhotoDTO> photoDtos = photos.stream()
+            .filter(p -> !Boolean.TRUE.equals(p.getIsHidden()))
+            .sorted((a, b) -> {
+                if (a.getTakenAt() == null && b.getTakenAt() == null) return Long.compare(b.getId(), a.getId());
+                if (a.getTakenAt() == null) return 1;
+                if (b.getTakenAt() == null) return -1;
+                return b.getTakenAt().compareTo(a.getTakenAt());
+            })
+            .map(photoService::convertToDTO)
+            .collect(Collectors.toList());
+
+        AiSearchResponse response = new AiSearchResponse();
+        response.setAiSearchEnabled(true);
+        response.setQueryMode(queryMode);
+        response.setUsedAi(cached.intent.getNeedAnswer() != null && cached.intent.getNeedAnswer());
+        response.setNeedAnswer(false);
+        response.setPhotos(photoDtos);
+        response.setTotalElements(total);
+        response.setAlbums(Collections.emptyList());
+        response.setPersons(Collections.emptyList());
+        response.setParsedIntent(cached.intent);
+        response.setExplanation(cached.intent.getExplanation());
+        response.setCached(true); // 标记为缓存结果
+        response.setSuggestions(Collections.emptyList());
+        response.setSuggestionActions(Collections.emptyList());
+
+        return response;
+    }
+
+    // 缓存搜索结果
+    private void cacheSearchResult(String normalizedQuery, boolean includeHidden,
+                                  AiSearchIntent intent, AiSearchResponse response,
+                                  Set<Long> albumSnapshot) {
+        // 只缓存有照片的结果
+        if (response.getPhotos() == null || response.getPhotos().isEmpty()) {
+            return;
+        }
+
+        // 收集所有照片ID
+        List<Long> allPhotoIds = response.getPhotos().stream()
+            .map(PhotoDTO::getId)
+            .collect(Collectors.toList());
+
+        // 提取 AI 回答（如果有）
+        String cachedAnswer = (response.getAnswer() != null && !response.getAnswer().isBlank())
+            ? response.getAnswer()
+            : null;
+
+        putToCache(normalizedQuery, includeHidden, intent, allPhotoIds, albumSnapshot, cachedAnswer);
+        log.info("已缓存搜索结果: query={}, intent={}, hasAnswer={}",
+            normalizedQuery, intent.getExplanation(), cachedAnswer != null);
     }
 
     public AiSearchResponse searchWithSuggestion(String query,
@@ -191,7 +434,8 @@ public class AiSearchService {
                 ? cloneIntent(intent)
                 : applySuggestionAction(intent, suggestionAction);
             normalizeIntent(normalizedQuery, adjustedIntent, false);
-            return buildSearchResponse(query, adjustedIntent, candidates, page, size, queryMode, false);
+            // searchWithSuggestion 不使用缓存，因为它会修改 intent
+            return buildSearchResponse(query, adjustedIntent, candidates, page, size, queryMode, false, null);
         } catch (Exception e) {
             log.error("执行AI搜索建议失败: {}", e.getMessage(), e);
             AiSearchResponse response = new AiSearchResponse();
@@ -215,7 +459,8 @@ public class AiSearchService {
                                                  int page,
                                                  int size,
                                                  String queryMode,
-                                                 boolean usedAi) {
+                                                 boolean usedAi,
+                                                 String cachedAnswer) {
         AiSearchResponse response = new AiSearchResponse();
         response.setAiSearchEnabled(true);
         response.setQueryMode(queryMode);
@@ -253,10 +498,17 @@ public class AiSearchService {
             .collect(Collectors.toList()));
 
         if (Boolean.TRUE.equals(intent.getNeedAnswer())) {
-            String answer = generateAnswer(query, intent, photoSearch, response.getAlbums(), response.getPersons());
-            if (answer != null && !answer.isBlank()) {
+            // 优先使用缓存的回答（分页时避免重复调用 GPT）
+            if (cachedAnswer != null && !cachedAnswer.isBlank()) {
                 response.setNeedAnswer(true);
-                response.setAnswer(answer.trim());
+                response.setAnswer(cachedAnswer);
+            } else {
+                // 只有第一页或缓存未命中时才生成新回答
+                String answer = generateAnswer(query, intent, photoSearch, response.getAlbums(), response.getPersons());
+                if (answer != null && !answer.isBlank()) {
+                    response.setNeedAnswer(true);
+                    response.setAnswer(answer.trim());
+                }
             }
         }
 
@@ -529,7 +781,10 @@ public class AiSearchService {
         Map<String, Integer> scores = scoreAnalysisTypes(query);
         int bestLocalScore = scores.values().stream().max(Integer::compareTo).orElse(0);
 
-        AnalysisRouting aiRouting = tryResolveAnalysisRoutingWithAi(query, candidates, bestLocalScore);
+        // 只有当 candidates 不为 null 时才尝试 AI 路由
+        AnalysisRouting aiRouting = (candidates != null)
+            ? tryResolveAnalysisRoutingWithAi(query, candidates, bestLocalScore)
+            : AnalysisRouting.none();
         if (aiRouting.isResolved()) {
             return aiRouting;
         }
@@ -697,7 +952,7 @@ public class AiSearchService {
         sb.append("5. 不确定时返回 unknown。\n");
         sb.append("6. 只返回 JSON：{\"analysisType\":\"...\",\"topicKeywords\":[],\"confidence\":0.0}\n");
         sb.append("当前本地路由最高分: ").append(localBestScore).append("\n");
-        if (!candidates.tags.isEmpty()) {
+        if (candidates != null && !candidates.tags.isEmpty()) {
             sb.append("候选标签示例: ");
             sb.append(candidates.tags.stream().limit(12).map(Tag::getName).collect(Collectors.joining("、")));
             sb.append("\n");
@@ -1328,12 +1583,32 @@ public class AiSearchService {
         sb.append("- focal_length/aperture/shutter_speed/iso/quality 使用 minValue/maxValue\n");
         sb.append("- date_range 使用 startDate/endDate，格式 yyyy-MM-dd\n\n");
 
+        sb.append("## 口语化输入的智能理解\n");
+        sb.append("用户可能使用各种口语化、不精确的描述来搜索，AI 需要智能理解并映射到数据库中的实际值：\n\n");
+        sb.append("### 相机型号理解\n");
+        sb.append("用户可能输入：佳能/尼康/索尼（品牌名）、R5/R6/Z8/A7C（简称）、EOS R5/Z9（混用）、iPhone/小米/华为（手机）等。\n");
+        sb.append("数据库中的相机型号列表（如 \"Canon EOS R5\", \"Nikon Z8\" 等）已提供在 \"可用相机型号\" 部分。\n");
+        sb.append("→ 请根据用户的口语化描述，在数据库型号列表中找到最匹配的项填入 cameraModel。\n");
+        sb.append("→ 如果用户只说品牌名（如 \"佳能\"），可以只填品牌名（数据库型号会包含品牌前缀如 \"Canon\"）。\n");
+        sb.append("→ 如果用户说的型号在数据库中找不到完全匹配的，优先填入最接近的型号名称。\n\n");
+
+        sb.append("### 镜头型号理解\n");
+        sb.append("用户可能输入：RF50/85、70-200、GM镜头、小痰盂/大法（黑话）等。\n");
+        sb.append("数据库中的镜头型号列表已提供在 \"可用镜头型号\" 部分。\n");
+        sb.append("→ 请根据用户的口语化描述，在数据库镜头列表中找到最匹配的项填入 lensModel。\n");
+        sb.append("→ 焦距简写会自动映射（如 \"RF50\" → \"RF50mm\"），但请尽量使用数据库中的完整型号。\n\n");
+
+        sb.append("### 人物/地点/其他理解\n");
+        sb.append("用户可能输入：某人姓名的小名/昵称、景点的俗称、年份的模糊表达（去年/前年）、颜色偏好等。\n");
+        sb.append("→ 请结合候选人物列表、候选相册路径等，进行语义理解和模糊匹配。\n");
+        sb.append("→ 无法精确匹配时，可放入 keywords 或相关条件中，让数据库做模糊搜索。\n\n");
+
         sb.append("## 规则\n");
         sb.append("1. must 中的条件全部满足；should 中的条件满足任意一个；mustNot 中的条件全部排除。\n");
         sb.append("2. 当用户表达\"或者/或/任意一个\"时优先放入 should。\n");
         sb.append("3. 当用户表达\"不要/排除/除了\"时放入 mustNot。\n");
         sb.append("4. 如果没有明显的布尔关系，默认放入 must。\n");
-        sb.append("5. 只使用候选列表中存在的 id，不要编造人物、标签、相册 id。\n");
+        sb.append("5. 人物/标签/相册必须使用候选列表中存在的 id；相机型号/镜头型号使用数据库中的型号值（见上方可用列表）。\n");
         sb.append("6. 无法映射到候选项的地点词、主题词等，放入 keywords。地点词优先考虑相册 path 和相册名中的地名。\n");
         sb.append("7. \"去年\"表示 ").append(currentYear - 1).append("-01-01 到 ").append(currentYear - 1).append("-12-31，\"前年\"表示 ")
             .append(currentYear - 2).append("-01-01 到 ").append(currentYear - 2).append("-12-31，\"今年\"表示 ")
@@ -1857,13 +2132,20 @@ public class AiSearchService {
             ? photoRepository.findAllByIdInIncludeHidden(candidateIds)
             : photoRepository.findAllByIdIn(candidateIds);
 
+        // 去重（JPA 的 JOIN FETCH 可能产生重复）
+        List<Photo> deduplicatedPhotos = matchedPhotos.stream()
+            .collect(java.util.stream.Collectors.collectingAndThen(
+                java.util.stream.Collectors.toCollection(
+                    () -> new java.util.LinkedHashSet<>(matchedPhotos)),
+                java.util.ArrayList::new));
+
         if (!includeHidden) {
-            matchedPhotos = matchedPhotos.stream()
+            deduplicatedPhotos = deduplicatedPhotos.stream()
                 .filter(photo -> !Boolean.TRUE.equals(photo.getIsHidden()))
                 .collect(Collectors.toList());
         }
 
-        matchedPhotos.sort((a, b) -> {
+        deduplicatedPhotos.sort((a, b) -> {
             if (a.getTakenAt() == null && b.getTakenAt() == null) {
                 return Long.compare(b.getId(), a.getId());
             }
@@ -1877,15 +2159,17 @@ public class AiSearchService {
         });
 
         int start = page * size;
-        if (start >= matchedPhotos.size()) {
-            return new PhotoSearchExecution(Collections.emptyList(), matchedPhotos, matchedPhotos.size());
+        if (start >= deduplicatedPhotos.size()) {
+            return new PhotoSearchExecution(Collections.emptyList(), deduplicatedPhotos, deduplicatedPhotos.size());
         }
-        int end = Math.min(start + size, matchedPhotos.size());
-        List<PhotoDTO> pageDtos = matchedPhotos.subList(start, end).stream()
+        int end = Math.min(start + size, deduplicatedPhotos.size());
+        List<PhotoDTO> pageDtos = deduplicatedPhotos.subList(start, end).stream()
             .map(photoService::convertToDTO)
             .collect(Collectors.toList());
+        log.debug("executePhotoQuery 返回 {} 张照片, 第一张 aiOverallScore={}", pageDtos.size(),
+            pageDtos.isEmpty() ? "N/A" : pageDtos.get(0).getAiOverallScore());
 
-        return new PhotoSearchExecution(pageDtos, matchedPhotos, matchedPhotos.size());
+        return new PhotoSearchExecution(pageDtos, deduplicatedPhotos, deduplicatedPhotos.size());
     }
 
     private PhotoSearchExecution tryRelaxedPhotoQuery(AiSearchIntent intent, int page, int size) {

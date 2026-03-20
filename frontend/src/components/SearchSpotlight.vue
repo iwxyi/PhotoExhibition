@@ -132,8 +132,24 @@ const doSearch = () => {
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
+  // Ctrl+F (Windows/Linux) 或 Command+F (Mac) 显示搜索面板
+  if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+    event.preventDefault()
+    if (!showSpotlight.value) {
+      openSpotlight()
+    }
+    return
+  }
+
   if (event.key === 'Escape' && showSpotlight.value) {
-    closeSpotlight()
+    // 如果搜索框有内容，先清空并失去焦点
+    if (searchKeyword.value.trim()) {
+      searchKeyword.value = ''
+      searchInputRef.value?.blur()
+    } else {
+      // 搜索框没有内容时才关闭面板
+      closeSpotlight()
+    }
   }
 }
 

@@ -10,6 +10,7 @@
         <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
+            <SearchSpotlight />
             <SettingsMenu />
           </div>
         </div>
@@ -84,6 +85,7 @@ import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import PersonCard from '@/components/PersonCard.vue'
+import SearchSpotlight from '@/components/SearchSpotlight.vue'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
 import { useUiSettings } from '@/composables/useUiSettings'

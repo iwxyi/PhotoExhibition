@@ -360,7 +360,7 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     /**
      * 按ID列表查询未隐藏的照片（不分页）
      */
-    @Query("SELECT p FROM Photo p WHERE p.id IN :ids AND (p.isHidden IS NULL OR p.isHidden = false)")
+    @Query("SELECT DISTINCT p FROM Photo p LEFT JOIN FETCH p.tags WHERE p.id IN :ids AND (p.isHidden IS NULL OR p.isHidden = false)")
     List<Photo> findAllByIdIn(@Param("ids") java.util.Collection<Long> ids);
 
     // ===== 包含隐藏照片的查询变体（AI搜索用） =====
@@ -374,7 +374,7 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     /**
      * 按ID列表查询照片（包含隐藏，不分页）
      */
-    @Query("SELECT p FROM Photo p WHERE p.id IN :ids")
+    @Query("SELECT DISTINCT p FROM Photo p LEFT JOIN FETCH p.tags WHERE p.id IN :ids")
     List<Photo> findAllByIdInIncludeHidden(@Param("ids") java.util.Collection<Long> ids);
 
     /**
