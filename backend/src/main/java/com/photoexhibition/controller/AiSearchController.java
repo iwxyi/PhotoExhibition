@@ -1,5 +1,6 @@
 package com.photoexhibition.controller;
 
+import com.photoexhibition.dto.AiSearchExecuteRequest;
 import com.photoexhibition.dto.AiSearchResponse;
 import com.photoexhibition.service.AiSearchService;
 import com.photoexhibition.service.SystemConfigService;
@@ -43,6 +44,36 @@ public class AiSearchController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("AI搜索失败: {}", e.getMessage(), e);
+            AiSearchResponse errorResponse = new AiSearchResponse();
+            errorResponse.setAiSearchEnabled(true);
+            errorResponse.setExplanation("AI搜索出错: " + e.getMessage());
+            errorResponse.setPhotos(Collections.emptyList());
+            errorResponse.setAlbums(Collections.emptyList());
+            errorResponse.setPersons(Collections.emptyList());
+            return ResponseEntity.ok(errorResponse);
+        }
+    }
+
+    @PostMapping("/execute")
+    public ResponseEntity<AiSearchResponse> executeAiSearch(@RequestBody AiSearchExecuteRequest request) {
+        if (!systemConfigService.isAiSearchEnabled()) {
+            AiSearchResponse response = new AiSearchResponse();
+            response.setAiSearchEnabled(false);
+            response.setExplanation("AI搜索功能未启用");
+            response.setPhotos(Collections.emptyList());
+            response.setAlbums(Collections.emptyList());
+            response.setPersons(Collections.emptyList());
+            return ResponseEntity.ok(response);
+        }
+
+        try {
+            String query = request.getQuery() == null ? "" : request.getQuery();
+            int page = request.getPage() == null ? 0 : request.getPage();
+            int size = request.getSize() == null ? 20 : request.getSize();
+            AiSearchResponse result = aiSearchService.searchWithSuggestion(query, request.getIntent(), request.getSuggestionAction(), page, size);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("AI搜索执行建议失败: {}", e.getMessage(), e);
             AiSearchResponse errorResponse = new AiSearchResponse();
             errorResponse.setAiSearchEnabled(true);
             errorResponse.setExplanation("AI搜索出错: " + e.getMessage());

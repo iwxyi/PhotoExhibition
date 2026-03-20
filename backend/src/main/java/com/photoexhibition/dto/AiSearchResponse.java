@@ -1,11 +1,18 @@
 package com.photoexhibition.dto;
 
 import lombok.Data;
+
 import java.util.List;
 
 @Data
 public class AiSearchResponse {
     private String explanation;
+    private String answer;
+    private boolean needAnswer;
+    private boolean relaxed;
+    private String relaxedReason;
+    private List<String> suggestions;
+    private List<AiSearchSuggestionAction> suggestionActions;
     private AiSearchIntent parsedIntent;
     private List<PhotoDTO> photos;
     private long totalElements;
@@ -13,8 +20,6 @@ public class AiSearchResponse {
     private List<String> matchedTagNames;
     private List<String> matchedAlbumNames;
     private boolean aiSearchEnabled;
-
-    // 新增：混合结果类型
     private List<AlbumDTO> albums;
     private List<PersonSummaryDTO> persons;
 }

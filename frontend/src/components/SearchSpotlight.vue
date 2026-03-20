@@ -118,6 +118,7 @@ const openSpotlight = () => {
 }
 
 const closeSpotlight = () => {
+  searchInputRef.value?.blur()
   showSpotlight.value = false
   searchKeyword.value = ''
 }

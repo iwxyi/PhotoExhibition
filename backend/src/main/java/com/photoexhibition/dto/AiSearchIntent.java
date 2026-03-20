@@ -1,6 +1,7 @@
 package com.photoexhibition.dto;
 
 import lombok.Data;
+
 import java.util.List;
 
 @Data
@@ -25,9 +26,16 @@ public class AiSearchIntent {
     private List<String> keywords;
     private String explanation;
 
-    // 新增字段：混合结果类型支持
-    private List<Long> personIds;           // 多人物搜索（替代单个 personId）
-    private List<String> resultTypes;       // GPT 决定返回哪些类型: "albums", "persons", "photos"
-    private boolean includeHidden;          // 是否包含隐藏内容
-    private List<String> filenameKeywords;  // 文件名搜索词
+    private List<Long> personIds;
+    private List<String> resultTypes;
+    private boolean includeHidden;
+    private List<String> filenameKeywords;
+
+    private List<AiSearchCondition> must;
+    private List<AiSearchCondition> should;
+    private List<AiSearchCondition> mustNot;
+
+    private Boolean needAnswer;
+    private String answerPrompt;
+    private String answerStyle;
 }

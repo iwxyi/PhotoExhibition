@@ -130,6 +130,17 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     )
     Page<Photo> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
+    @Query(
+        value = "SELECT DISTINCT p.* FROM photo p " +
+                "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
+                "WHERE pt.tag_id IN (:tagIds)",
+        countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
+                "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
+                "WHERE pt.tag_id IN (:tagIds)",
+        nativeQuery = true
+    )
+    Page<Photo> findByTagIdsIncludeHidden(@Param("tagIds") List<Long> tagIds, Pageable pageable);
+
     /**
      * 按人物ID筛选照片（用于人物图墙，排除隐藏的照片）
      */
@@ -143,6 +154,17 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
         nativeQuery = true
     )
     Page<Photo> findByPersonId(@Param("personId") Long personId, Pageable pageable);
+
+    @Query(
+        value = "SELECT DISTINCT p.* FROM photo p " +
+                "INNER JOIN photo_face f ON p.id = f.photo_id " +
+                "WHERE f.person_id = :personId",
+        countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
+                "INNER JOIN photo_face f ON p.id = f.photo_id " +
+                "WHERE f.person_id = :personId",
+        nativeQuery = true
+    )
+    Page<Photo> findByPersonIdIncludeHidden(@Param("personId") Long personId, Pageable pageable);
 
     /**
      * 按颜色类别筛选照片
@@ -360,5 +382,13 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      */
     @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds")
     Page<Photo> findByAlbumIdsIncludeHidden(@Param("albumIds") List<Long> albumIds, Pageable pageable);
-}
 
+    @Query("SELECT CASE WHEN COUNT(p) > 0 THEN true ELSE false END FROM Photo p " +
+           "WHERE p.albumId = :albumId " +
+           "AND (p.isHidden IS NULL OR p.isHidden = false) " +
+           "AND (:startDate IS NULL OR p.takenAt >= :startDate) " +
+           "AND (:endDate IS NULL OR p.takenAt <= :endDate)")
+    boolean existsVisiblePhotoInAlbumDuringRange(@Param("albumId") Long albumId,
+                                                 @Param("startDate") java.time.LocalDateTime startDate,
+                                                 @Param("endDate") java.time.LocalDateTime endDate);
+}

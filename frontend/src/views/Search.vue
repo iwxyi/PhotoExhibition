@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { albumApi, aiApi, personApi, configApi, aiSearchApi } from '@/api'
-import type { AiSearchResponse } from '@/api'
+import type { AiSearchResponse, AiSearchSuggestionAction } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePhotoStore } from '@/stores/photo'
 import { useLanguageStore } from '@/stores/language'
@@ -173,6 +173,7 @@ const unconfirmedFaceIds = computed(() => {
 })
 
 const keyword = ref('')
+const editableKeyword = ref('')
 const faceId = ref<number | null>(null)
 const tagId = ref<number | null>(null)
 const tagName = ref<string>('')
@@ -180,9 +181,12 @@ const clusterThreshold = ref<number>(0.7)
 
 // 监听关键词变化，更新页面标题
 watch(keyword, (newKeyword) => {
+  editableKeyword.value = newKeyword ? decodeURIComponent(newKeyword) : ''
   if (newKeyword) {
     const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
     document.title = `${baseTitle} - 搜索: ${decodeURIComponent(newKeyword)}`
+  } else {
+    document.title = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
   }
 })
 
@@ -217,6 +221,8 @@ const aiPhotos = ref<PhotoDTO[]>([])
 const aiPage = ref(0)
 const aiHasMore = ref(false)
 const aiLoadingMore = ref(false)
+
+type DisplaySuggestion = AiSearchSuggestionAction | string
 
 // 标签搜索相关
 const tagPhotos = ref<PhotoDTO[]>([])
@@ -305,6 +311,62 @@ const search = async () => {
   }
 }
 
+const submitKeywordSearch = async () => {
+  const nextKeyword = editableKeyword.value.trim()
+  if (!nextKeyword) {
+    return
+  }
+
+  if (nextKeyword === keyword.value && searchMode.value === 'keyword') {
+    await search()
+    return
+  }
+
+  await router.push({
+    path: '/search',
+    query: { q: nextKeyword }
+  })
+}
+
+const applySuggestion = async (suggestion: DisplaySuggestion) => {
+  if (typeof suggestion === 'string') {
+    editableKeyword.value = suggestion
+    await submitKeywordSearch()
+    return
+  }
+
+  if (!aiSearchResult.value?.parsedIntent) {
+    editableKeyword.value = suggestion.label
+    await submitKeywordSearch()
+    return
+  }
+
+  loading.value = true
+  hasSearched.value = true
+  aiPage.value = 0
+  aiPhotos.value = []
+
+  try {
+    const decodedKeyword = decodeURIComponent(keyword.value)
+    const res = await aiSearchApi.execute(decodedKeyword, aiSearchResult.value.parsedIntent, suggestion, 0, 30)
+    applyAiSearchResponse(res.data)
+  } catch (e) {
+    console.error('执行搜索建议失败，回退到普通搜索词:', e)
+    editableKeyword.value = suggestion.label
+    await submitKeywordSearch()
+  } finally {
+    loading.value = false
+  }
+}
+
+const applyAiSearchResponse = (data: AiSearchResponse) => {
+  aiSearchResult.value = data
+  aiPhotos.value = data.photos || []
+  aiHasMore.value = aiPhotos.value.length >= 30
+  albums.value = data.albums || []
+  persons.value = data.persons || []
+}
+
 const standardSearch = async () => {
   try {
     const decodedKeyword = decodeURIComponent(keyword.value)
@@ -330,7 +392,6 @@ const aiSearch = async () => {
   try {
     const decodedKeyword = decodeURIComponent(keyword.value)
     const res = await aiSearchApi.search(decodedKeyword, 0, 30)
-    aiSearchResult.value = res.data
 
     if (!res.data.aiSearchEnabled) {
       // AI搜索未启用，fallback到普通搜索
@@ -339,12 +400,7 @@ const aiSearch = async () => {
       return
     }
 
-    aiPhotos.value = res.data.photos || []
-    aiHasMore.value = aiPhotos.value.length >= 30
-
-    // 使用 AI 返回的相册和人物结果
-    albums.value = res.data.albums || []
-    persons.value = res.data.persons || []
+    applyAiSearchResponse(res.data)
   } catch (e) {
     console.error('AI搜索失败, fallback到普通搜索:', e)
     await standardSearch()
@@ -467,6 +523,98 @@ const handleScroll = () => {
   }, 100)
 }
 
+const keywordPhotoResults = computed(() => {
+  if (searchMode.value !== 'keyword') {
+    return [] as PhotoDTO[]
+  }
+  if (aiSearchEnabled.value && aiSearchResult.value) {
+    return aiPhotos.value
+  }
+  return photos.value
+})
+
+const displaySuggestions = computed<DisplaySuggestion[]>(() => {
+  if (!aiSearchResult.value) {
+    return []
+  }
+  if (aiSearchResult.value.suggestionActions?.length) {
+    return aiSearchResult.value.suggestionActions
+  }
+  return aiSearchResult.value.suggestions || []
+})
+
+const hasAiConditionSummary = computed(() => {
+  const parsedIntent = aiSearchResult.value?.parsedIntent
+  return Boolean(
+    aiSearchResult.value?.matchedPersonName ||
+    aiSearchResult.value?.matchedTagNames?.length ||
+    parsedIntent?.startDate ||
+    parsedIntent?.colorCategory ||
+    parsedIntent?.cameraModel ||
+    parsedIntent?.lensModel ||
+    parsedIntent?.filenameKeywords?.length ||
+    parsedIntent?.should?.length ||
+    parsedIntent?.mustNot?.length
+  )
+})
+
+const showKeywordPhotoEmptyHint = computed(() => {
+  if (searchMode.value !== 'keyword' || !aiSearchEnabled.value || !aiSearchResult.value) {
+    return false
+  }
+  return keywordPhotoResults.value.length === 0 && (
+    Boolean(aiSearchResult.value.answer) ||
+    albums.value.length > 0 ||
+    persons.value.length > 0
+  )
+})
+
+const getSuggestionKey = (suggestion: DisplaySuggestion) => {
+  return typeof suggestion === 'string' ? suggestion : `${suggestion.actionType}:${suggestion.label}`
+}
+
+const getSuggestionLabel = (suggestion: DisplaySuggestion) => {
+  return typeof suggestion === 'string' ? suggestion : suggestion.label
+}
+
+const isRelaxSuggestion = (suggestion: DisplaySuggestion) => {
+  return typeof suggestion !== 'string' && suggestion.actionType === 'remove_condition_types'
+}
+
+const isNarrowSuggestion = (suggestion: DisplaySuggestion) => {
+  return typeof suggestion !== 'string' && suggestion.actionType === 'keep_only_condition_types'
+}
+
+const getSuggestionButtonClass = (suggestion: DisplaySuggestion) => {
+  if (isRelaxSuggestion(suggestion)) {
+    return 'border-emerald-200 text-emerald-700 hover:border-emerald-400 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-300'
+  }
+  if (isNarrowSuggestion(suggestion)) {
+    return 'border-sky-200 text-sky-700 hover:border-sky-400 hover:text-sky-800 dark:border-sky-800 dark:text-sky-300'
+  }
+  return 'border-gray-200 text-gray-700 hover:border-blue-400 hover:text-blue-600 dark:border-gray-700 dark:text-gray-200 dark:hover:text-blue-300'
+}
+
+const formatDateRangeLabel = (startDate?: string, endDate?: string) => {
+  if (!startDate) {
+    return ''
+  }
+
+  const currentYear = new Date().getFullYear()
+  if (endDate && startDate.endsWith('-01-01') && endDate.endsWith('-12-31')) {
+    const startYear = Number.parseInt(startDate.slice(0, 4), 10)
+    const endYear = Number.parseInt(endDate.slice(0, 4), 10)
+    if (startYear === endYear) {
+      if (startYear === currentYear) return '今年全年'
+      if (startYear === currentYear - 1) return '去年全年'
+      if (startYear === currentYear - 2) return '前年全年'
+      return `${startYear} 全年`
+    }
+  }
+
+  return `${startDate} ~ ${endDate || '至今'}`
+}
+
 const hasResults = computed(() => {
   if (searchMode.value === 'face') {
     return similarFaces.value.length > 0 || facePhotos.value.length > 0
@@ -475,7 +623,7 @@ const hasResults = computed(() => {
     return tagPhotos.value.length > 0
   }
   if (aiSearchEnabled.value && aiSearchResult.value) {
-    return aiPhotos.value.length > 0 || albums.value.length > 0 || persons.value.length > 0
+    return Boolean(aiSearchResult.value.answer) || aiPhotos.value.length > 0 || albums.value.length > 0 || persons.value.length > 0
   }
   return albums.value.length > 0 || persons.value.length > 0 || photos.value.length > 0
 })
@@ -630,14 +778,13 @@ const assignToConfirmedPerson = async () => {
   }
 }
 
-// 照片列表 PhotoViewer 相关状态
-const photoViewerVisible = ref(false)
-const photoViewerIndex = ref(0)
-const photoViewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+// 关键词搜索结果 PhotoViewer 相关状态
+const keywordViewerVisible = ref(false)
+const keywordViewerIndex = ref(0)
+const keywordViewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 
-// 转换为 PhotoViewer 需要的 Photo 格式（用于照片搜索结果）
-const photoViewerPhotos = computed<Photo[]>(() => {
-  return photos.value.map((photo) => ({
+const keywordViewerPhotos = computed<Photo[]>(() => {
+  return keywordPhotoResults.value.map((photo) => ({
     id: photo.id,
     filename: photo.filename,
     thumbnailPath: photo.thumbnailPath,
@@ -653,63 +800,22 @@ const photoViewerPhotos = computed<Photo[]>(() => {
   }))
 })
 
-// AI搜索结果的 PhotoViewer
-const aiViewerVisible = ref(false)
-const aiViewerIndex = ref(0)
-const aiViewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
-
-const aiViewerPhotos = computed<Photo[]>(() => {
-  return aiPhotos.value.map((photo: any) => ({
-    id: photo.id,
-    filename: photo.filename,
-    thumbnailPath: photo.thumbnailPath,
-    mediumThumbPath: photo.mediumThumbPath,
-    largeThumbPath: photo.largeThumbPath,
-    originalPath: photo.originalPath,
-    webpPath: photo.webpPath,
-    width: photo.width || 0,
-    height: photo.height || 0,
-    takenAt: photo.takenAt || '',
-    albumId: photo.albumId || 0,
-    folderPath: photo.folderPath || ''
-  }))
-})
-
-const openAiViewer = (index: number, e: MouseEvent) => {
-  aiViewerIndex.value = index
+const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
+  keywordViewerIndex.value = index
   const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
   const rectSource = img || (e.currentTarget as HTMLElement | null)
   if (rectSource) {
     const rect = rectSource.getBoundingClientRect()
-    aiViewerOriginRect.value = {
+    keywordViewerOriginRect.value = {
       top: rect.top,
       left: rect.left,
       width: rect.width,
       height: rect.height
     }
   } else {
-    aiViewerOriginRect.value = null
+    keywordViewerOriginRect.value = null
   }
-  aiViewerVisible.value = true
-}
-
-// 打开照片 PhotoViewer
-const openPhotoViewer = (index: number, e: MouseEvent) => {
-  photoViewerIndex.value = index
-  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
-  const rectSource = img || (e.currentTarget as HTMLElement | null)
-  if (rectSource) {
-    const rect = rectSource.getBoundingClientRect()
-    photoViewerOriginRect.value = {
-      top: rect.top,
-      left: rect.left,
-      width: rect.width,
-      height: rect.height
-    }
-  } else {
-    photoViewerOriginRect.value = null
-  }
-  photoViewerVisible.value = true
+  keywordViewerVisible.value = true
 }
 </script>
 
@@ -732,14 +838,27 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
 
     <!-- 内容区域 -->
     <main class="container mx-auto px-4 py-8" :class="{ 'pt-6 pb-12': true }">
-      <!-- 搜索标题 -->
       <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">
-          搜索结果
-        </h1>
-        <p class="text-gray-600 dark:text-gray-400" v-if="keyword">
-          关键词: {{ decodeURIComponent(keyword) }}
-        </p>
+        <div v-if="searchMode === 'keyword'" class="flex flex-col sm:flex-row gap-3">
+          <div class="flex-1 flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              v-model="editableKeyword"
+              type="text"
+              placeholder="搜索相册、人物、照片..."
+              class="flex-1 bg-transparent text-base text-gray-800 dark:text-white outline-none placeholder-gray-400 dark:placeholder-gray-500"
+              @keyup.enter="submitKeywordSearch"
+            />
+          </div>
+          <button
+            @click="submitKeywordSearch"
+            class="px-5 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl text-sm font-medium transition-colors"
+          >
+            搜索
+          </button>
+        </div>
         <p class="text-gray-600 dark:text-gray-400" v-else-if="faceId">
           相似人脸搜索 (人脸ID: {{ faceId }})
         </p>
@@ -771,31 +890,40 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
       <div v-else>
         <!-- AI搜索结果 -->
         <div v-if="aiSearchEnabled && aiSearchResult && searchMode === 'keyword'" class="mb-10">
-          <!-- AI理解说明 -->
-          <div v-if="aiSearchResult.explanation" class="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-            <div class="flex items-start gap-2">
-              <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-              <p class="text-sm text-blue-700 dark:text-blue-300">
-                {{ aiSearchResult.explanation }}
-              </p>
+          <div v-if="aiSearchResult.answer" class="mb-4 rounded-2xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 h-10 w-1 rounded-full bg-amber-400/80 dark:bg-amber-500/70"></div>
+              <div class="min-w-0 flex-1">
+                <div class="mb-1 flex items-center gap-2">
+                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                    检索结论
+                  </span>
+                  <svg class="h-3.5 w-3.5 text-amber-500 dark:text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M9 8h6m-9 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p class="text-sm leading-6 text-amber-900 dark:text-amber-100">
+                  {{ aiSearchResult.answer }}
+                </p>
+              </div>
             </div>
           </div>
 
-          <!-- 匹配的筛选条件标签 -->
-          <div class="flex flex-wrap gap-2 mb-4" v-if="aiSearchResult.matchedPersonName || (aiSearchResult.matchedTagNames && aiSearchResult.matchedTagNames.length > 0) || (aiSearchResult.matchedAlbumNames && aiSearchResult.matchedAlbumNames.length > 0) || (aiSearchResult.parsedIntent?.startDate)">
+          <div v-if="aiSearchResult.relaxedReason" class="mb-4 p-3 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700">
+            <p class="text-xs text-slate-600 dark:text-slate-300">
+              {{ aiSearchResult.relaxedReason }}
+            </p>
+          </div>
+
+          <div v-if="hasAiConditionSummary" class="flex flex-wrap gap-2 mb-4">
             <span v-if="aiSearchResult.matchedPersonName" class="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
               人物: {{ aiSearchResult.matchedPersonName }}
             </span>
             <span v-for="tag in (aiSearchResult.matchedTagNames || [])" :key="tag" class="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium">
               {{ tag }}
             </span>
-            <span v-for="album in (aiSearchResult.matchedAlbumNames || [])" :key="album" class="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full text-xs font-medium">
-              {{ album }}
-            </span>
             <span v-if="aiSearchResult.parsedIntent?.startDate" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
-              {{ aiSearchResult.parsedIntent.startDate }} ~ {{ aiSearchResult.parsedIntent.endDate || '至今' }}
+              {{ formatDateRangeLabel(aiSearchResult.parsedIntent.startDate, aiSearchResult.parsedIntent.endDate) }}
             </span>
             <span v-if="aiSearchResult.parsedIntent?.colorCategory" class="px-3 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 rounded-full text-xs font-medium">
               色彩: {{ aiSearchResult.parsedIntent.colorCategory }}
@@ -809,62 +937,33 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
             <span v-if="aiSearchResult.parsedIntent?.filenameKeywords?.length" class="px-3 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full text-xs font-medium">
               文件名: {{ aiSearchResult.parsedIntent.filenameKeywords.join(', ') }}
             </span>
-            <span v-if="aiSearchResult.parsedIntent?.includeHidden" class="px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full text-xs font-medium">
-              包含隐藏内容
+            <span v-if="aiSearchResult.parsedIntent?.should?.length" class="px-3 py-1 bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 rounded-full text-xs font-medium">
+              满足其一
+            </span>
+            <span v-if="aiSearchResult.parsedIntent?.mustNot?.length" class="px-3 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded-full text-xs font-medium">
+              已排除部分条件
             </span>
           </div>
 
-          <!-- AI搜索照片结果 -->
-          <div v-if="aiPhotos.length > 0">
-            <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
-              <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          <div v-if="displaySuggestions.length" class="mb-4 flex flex-wrap gap-2">
+            <button
+              v-for="suggestion in displaySuggestions"
+              :key="getSuggestionKey(suggestion)"
+              @click="applySuggestion(suggestion)"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border rounded-full text-xs transition-colors"
+              :class="getSuggestionButtonClass(suggestion)"
+            >
+              <svg v-if="isRelaxSuggestion(suggestion)" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12h16m-4-4l4 4-4 4" />
               </svg>
-              AI 搜索结果 ({{ aiPhotos.length }})
-            </h2>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              <div
-                v-for="(photo, index) in aiPhotos"
-                :key="photo.id"
-                class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group"
-                @click="openAiViewer(index, $event)"
-              >
-                <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
-                  <img
-                    v-if="getPhotoThumbUrl(photo)"
-                    :src="getPhotoThumbUrl(photo)"
-                    :alt="photo.filename"
-                    class="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  <div v-else class="w-full h-full flex items-center justify-center">
-                    <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                </div>
-                <div class="p-2">
-                  <p class="text-sm font-medium text-gray-800 dark:text-white truncate">
-                    {{ photo.filename }}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <!-- 加载更多 -->
-            <div v-if="aiHasMore" class="flex justify-center mt-6">
-              <button
-                v-if="!aiLoadingMore"
-                @click="loadMoreAiPhotos"
-                class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full text-sm font-medium transition-colors"
-              >
-                加载更多
-              </button>
-              <div v-else class="flex items-center gap-2 text-gray-500">
-                <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-                <span>加载中...</span>
-              </div>
-            </div>
+              <svg v-else-if="isNarrowSuggestion(suggestion)" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4m4-4l-4 4 4 4" />
+              </svg>
+              <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {{ getSuggestionLabel(suggestion) }}
+            </button>
           </div>
         </div>
 
@@ -1072,21 +1171,47 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
           </div>
         </div>
 
-        <!-- 照片结果 -->
-        <div v-if="searchMode === 'keyword' && photos.length > 0" class="mb-10">
+        <!-- 相册结果 -->
+        <div v-if="searchMode === 'keyword' && albums.length > 0" class="mb-10">
           <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
             <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            照片 ({{ photos.length }})
+            相册 ({{ albums.length }})
+          </h2>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <AlbumCard
+              v-for="album in albums"
+              :key="album.id"
+              :album="album as any"
+              size="md"
+              @click="goToAlbum(album.id)"
+            />
+          </div>
+        </div>
+
+        <div v-if="showKeywordPhotoEmptyHint" class="mb-10 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+          <p class="text-sm text-slate-600 dark:text-slate-300 leading-6">
+            这次搜索找到了说明、人物或相册结果，但还没有命中具体照片；可以试试上面的建议词继续缩放范围。
+          </p>
+        </div>
+
+        <!-- 照片结果 -->
+        <div v-if="searchMode === 'keyword' && keywordPhotoResults.length > 0" class="mb-10">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
+            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            照片 ({{ keywordPhotoResults.length }})
           </h2>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             <div
-              v-for="(photo, index) in photos"
+              v-for="(photo, index) in keywordPhotoResults"
               :key="photo.id"
               class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group"
-              @click="openPhotoViewer(index, $event)"
+              @click="openKeywordPhotoViewer(index, $event)"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
                 <img
@@ -1110,25 +1235,18 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
               </div>
             </div>
           </div>
-        </div>
-
-        <!-- 相册结果 -->
-        <div v-if="searchMode === 'keyword' && albums.length > 0">
-          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
-            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            相册 ({{ albums.length }})
-          </h2>
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            <AlbumCard
-              v-for="album in albums"
-              :key="album.id"
-              :album="album as any"
-              size="md"
-              @click="goToAlbum(album.id)"
-            />
+          <div v-if="aiSearchEnabled && aiSearchResult && aiHasMore" class="flex justify-center mt-6">
+            <button
+              v-if="!aiLoadingMore"
+              @click="loadMoreAiPhotos"
+              class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full text-sm font-medium transition-colors"
+            >
+              加载更多
+            </button>
+            <div v-else class="flex items-center gap-2 text-gray-500">
+              <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+              <span>加载中...</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1143,23 +1261,14 @@ const openPhotoViewer = (index: number, e: MouseEvent) => {
       :origin-rect="viewerOriginRect"
       @update:visible="viewerVisible = $event"
     />
-    <!-- 照片搜索结果的 PhotoViewer -->
+    <!-- 关键词搜索结果的 PhotoViewer -->
     <PhotoViewer
-      v-if="photoViewerPhotos.length > 0"
-      :photos="photoViewerPhotos"
-      :visible="photoViewerVisible"
-      :start-index="photoViewerIndex"
-      :origin-rect="photoViewerOriginRect"
-      @update:visible="photoViewerVisible = $event"
-    />
-    <!-- AI搜索结果的 PhotoViewer -->
-    <PhotoViewer
-      v-if="aiViewerPhotos.length > 0"
-      :photos="aiViewerPhotos"
-      :visible="aiViewerVisible"
-      :start-index="aiViewerIndex"
-      :origin-rect="aiViewerOriginRect"
-      @update:visible="aiViewerVisible = $event"
+      v-if="keywordViewerPhotos.length > 0"
+      :photos="keywordViewerPhotos"
+      :visible="keywordViewerVisible"
+      :start-index="keywordViewerIndex"
+      :origin-rect="keywordViewerOriginRect"
+      @update:visible="keywordViewerVisible = $event"
     />
   </div>
 </template>

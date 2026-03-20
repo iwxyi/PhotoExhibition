@@ -356,7 +356,30 @@ export const configApi = {
 }
 
 // AI搜索相关API
+export interface AiSearchCondition {
+  type: string
+  ids?: number[]
+  values?: string[]
+  value?: string
+  minValue?: number
+  maxValue?: number
+  startDate?: string
+  endDate?: string
+}
+
+export interface AiSearchSuggestionAction {
+  label: string
+  actionType: string
+  conditionTypes?: string[]
+}
+
 export interface AiSearchResponse {
+  answer?: string
+  needAnswer?: boolean
+  relaxed?: boolean
+  relaxedReason?: string
+  suggestions?: string[]
+  suggestionActions?: AiSearchSuggestionAction[]
   explanation?: string
   parsedIntent?: {
     personId?: number
@@ -370,8 +393,14 @@ export interface AiSearchResponse {
     colorCategory?: string
     keywords?: string[]
     filenameKeywords?: string[]
+    must?: AiSearchCondition[]
+    should?: AiSearchCondition[]
+    mustNot?: AiSearchCondition[]
     resultTypes?: string[]
     includeHidden?: boolean
+    needAnswer?: boolean
+    answerPrompt?: string
+    answerStyle?: string
   }
   photos?: any[]
   albums?: any[]
@@ -385,5 +414,12 @@ export interface AiSearchResponse {
 
 export const aiSearchApi = {
   search: (q: string, page = 0, size = 30) =>
-    api.get<AiSearchResponse>('/photos/ai-search', { params: { q, page, size } })
+    api.get<AiSearchResponse>('/photos/ai-search', { params: { q, page, size } }),
+  execute: (
+    query: string,
+    intent: AiSearchResponse['parsedIntent'],
+    suggestionAction: AiSearchSuggestionAction,
+    page = 0,
+    size = 30
+  ) => api.post<AiSearchResponse>('/photos/ai-search/execute', { query, intent, suggestionAction, page, size })
 }
