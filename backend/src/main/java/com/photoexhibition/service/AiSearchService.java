@@ -2166,8 +2166,6 @@ public class AiSearchService {
         List<PhotoDTO> pageDtos = deduplicatedPhotos.subList(start, end).stream()
             .map(photoService::convertToDTO)
             .collect(Collectors.toList());
-        log.debug("executePhotoQuery 返回 {} 张照片, 第一张 aiOverallScore={}", pageDtos.size(),
-            pageDtos.isEmpty() ? "N/A" : pageDtos.get(0).getAiOverallScore());
 
         return new PhotoSearchExecution(pageDtos, deduplicatedPhotos, deduplicatedPhotos.size());
     }

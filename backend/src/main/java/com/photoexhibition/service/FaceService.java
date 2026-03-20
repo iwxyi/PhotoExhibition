@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Iterator;
+import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -63,6 +64,7 @@ public class FaceService {
     private final PhotoService photoService;
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
+    private final SystemConfigService systemConfigService;
     @Value("${photo.scan.base-path}")
     private String photoBasePath;
     @Value("${face.detection.confidence-threshold:0.25}")
@@ -2542,6 +2544,7 @@ public class FaceService {
             dto.setPhotoCount(album.getPhotoCount());
             dto.setSimilarFaceCount((int) actualConfirmedFaces); // 已确认人脸数量
             dto.setTakenAt(album.getLatestPhotoTakenAt());
+            dto.setCreatedAt(album.getCreatedAt());
             
             // 设置已认领的图片数量
             dto.setClaimedPhotoCount(albumClaimedCountMap.getOrDefault(albumId, 0));
@@ -2642,18 +2645,66 @@ public class FaceService {
             result.add(dto);
         }
 
-        // 按相册拍摄时间倒序排序（最新的相册排在前面）
+        // 按后台设置的相册顺序排序
+        String albumSortOrder = systemConfigService.getAlbumSortOrder();
+        final String finalSortOrder = albumSortOrder;
         result.sort((a, b) -> {
-            if (a.getTakenAt() == null && b.getTakenAt() == null) {
-                return 0;
+            int nameCompare = Comparator.<String>naturalOrder().compare(
+                a.getAlbumName() == null ? "" : a.getAlbumName(),
+                b.getAlbumName() == null ? "" : b.getAlbumName()
+            );
+            int createdCompare = 0;
+            if (a.getCreatedAt() != null && b.getCreatedAt() != null) {
+                createdCompare = b.getCreatedAt().compareTo(a.getCreatedAt()); // 创建时间倒序
+            } else if (a.getCreatedAt() != null) {
+                createdCompare = -1;
+            } else if (b.getCreatedAt() != null) {
+                createdCompare = 1;
             }
-            if (a.getTakenAt() == null) {
-                return 1; // null值排在后面
+
+            // 根据排序设置决定排序方式
+            if (SystemConfigService.SORT_BY_NAME_DESC.equals(finalSortOrder)) {
+                return -nameCompare; // 名称倒序
+            } else if (SystemConfigService.SORT_BY_NAME_ASC.equals(finalSortOrder)) {
+                return nameCompare; // 名称正序
+            } else if (SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_DESC.equals(finalSortOrder)) {
+                // 按最新照片拍摄时间倒序
+                int takenCompare = 0;
+                if (a.getTakenAt() != null && b.getTakenAt() != null) {
+                    takenCompare = b.getTakenAt().compareTo(a.getTakenAt());
+                } else if (a.getTakenAt() != null) {
+                    takenCompare = -1;
+                } else if (b.getTakenAt() != null) {
+                    takenCompare = 1;
+                }
+                return takenCompare;
+            } else if (SystemConfigService.SORT_BY_LATEST_PHOTO_TAKEN_ASC.equals(finalSortOrder)) {
+                // 按最新照片拍摄时间正序
+                int takenCompare = 0;
+                if (a.getTakenAt() != null && b.getTakenAt() != null) {
+                    takenCompare = a.getTakenAt().compareTo(b.getTakenAt());
+                } else if (a.getTakenAt() != null) {
+                    takenCompare = 1;
+                } else if (b.getTakenAt() != null) {
+                    takenCompare = -1;
+                }
+                return takenCompare;
+            } else if (SystemConfigService.SORT_BY_ALBUM_NAME_DATE_DESC.equals(finalSortOrder)) {
+                // 相册名+时间倒序：先按创建时间倒序，再按名称倒序
+                if (createdCompare != 0) return createdCompare;
+                return -nameCompare;
+            } else if (SystemConfigService.SORT_BY_ALBUM_NAME_DATE_ASC.equals(finalSortOrder)) {
+                // 相册名+时间正序：先按创建时间倒序，再按名称正序
+                if (createdCompare != 0) return createdCompare;
+                return nameCompare;
+            } else if (SystemConfigService.SORT_BY_CREATED_AT_DESC.equals(finalSortOrder)) {
+                return createdCompare; // 创建时间倒序
+            } else if (SystemConfigService.SORT_BY_CREATED_AT_ASC.equals(finalSortOrder)) {
+                return -createdCompare; // 创建时间正序
+            } else {
+                // 默认按创建时间倒序
+                return createdCompare;
             }
-            if (b.getTakenAt() == null) {
-                return -1; // null值排在后面
-            }
-            return b.getTakenAt().compareTo(a.getTakenAt()); // 倒序排列
         });
 
         return result;

@@ -14,6 +14,7 @@ public class AlbumRecommendationDTO {
     private Integer claimedPhotoCount; // 已认领的图片数量（含人脸认领与图片指派）
     private List<FaceDTO> similarFaces;
     private LocalDateTime takenAt;
+    private LocalDateTime createdAt; // 相册创建时间，用于按创建时间排序
     private String coverImagePath; // 兼容旧版本：单张封面图路径
     // 最多3张封面图，用于人物详情页的相册展示
     private String coverImagePath1; // 第一张封面图
