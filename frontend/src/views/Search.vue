@@ -595,6 +595,14 @@ const getSuggestionButtonClass = (suggestion: DisplaySuggestion) => {
   return 'border-gray-200 text-gray-700 hover:border-blue-400 hover:text-blue-600 dark:border-gray-700 dark:text-gray-200 dark:hover:text-blue-300'
 }
 
+const displayAnswerText = computed(() => {
+  const answer = aiSearchResult.value?.answer?.trim()
+  if (!answer) {
+    return ''
+  }
+  return answer.replace(/^检索结论[:：]\s*/, '')
+})
+
 const formatDateRangeLabel = (startDate?: string, endDate?: string) => {
   if (!startDate) {
     return ''
@@ -890,20 +898,17 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
       <div v-else>
         <!-- AI搜索结果 -->
         <div v-if="aiSearchEnabled && aiSearchResult && searchMode === 'keyword'" class="mb-10">
-          <div v-if="aiSearchResult.answer" class="mb-4 rounded-2xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
-            <div class="flex items-start gap-3">
-              <div class="mt-0.5 h-10 w-1 rounded-full bg-amber-400/80 dark:bg-amber-500/70"></div>
+          <div v-if="aiSearchResult.answer" class="mb-3 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-900/20">
+            <div class="flex items-start gap-2.5">
+              <div class="mt-0.5 h-8 w-1 rounded-full bg-amber-400/80 dark:bg-amber-500/70"></div>
               <div class="min-w-0 flex-1">
-                <div class="mb-1 flex items-center gap-2">
-                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                <div class="mb-0.5 flex items-center gap-1.5">
+                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                     检索结论
                   </span>
-                  <svg class="h-3.5 w-3.5 text-amber-500 dark:text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M9 8h6m-9 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
                 </div>
-                <p class="text-sm leading-6 text-amber-900 dark:text-amber-100">
-                  {{ aiSearchResult.answer }}
+                <p class="text-sm leading-5 text-amber-900 dark:text-amber-100">
+                  {{ displayAnswerText }}
                 </p>
               </div>
             </div>

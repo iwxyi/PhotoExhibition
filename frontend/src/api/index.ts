@@ -374,6 +374,8 @@ export interface AiSearchSuggestionAction {
 }
 
 export interface AiSearchResponse {
+  queryMode?: string
+  usedAi?: boolean
   answer?: string
   needAnswer?: boolean
   relaxed?: boolean

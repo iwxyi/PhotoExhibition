@@ -6,6 +6,8 @@ import java.util.List;
 
 @Data
 public class AiSearchResponse {
+    private String queryMode;
+    private boolean usedAi;
     private String explanation;
     private String answer;
     private boolean needAnswer;
