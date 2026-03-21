@@ -2,6 +2,7 @@ package com.photoexhibition.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import javax.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -12,6 +13,7 @@ import java.util.Set;
 @Entity
 @Table(name = "photo")
 @Data
+@EqualsAndHashCode(exclude = {"tags", "faces", "aiScoring"})
 public class Photo {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

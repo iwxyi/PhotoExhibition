@@ -267,10 +267,8 @@ public class AiSearchService {
                     query, cachedEntry.totalCount,
                     (System.currentTimeMillis() - cachedEntry.cachedAt) / 1000);
 
-                // 使用缓存的 intent 重新执行查询，这样能获取完整结果进行分页
-                AiSearchIntent cachedIntent = cachedEntry.intent;
-                normalizeIntent(normalizedQuery, cachedIntent, true);
-                return buildSearchResponse(query, cachedIntent, candidates, page, size, queryMode, false, cachedEntry.cachedAnswer);
+                // 直接使用缓存进行分页，避免重新执行查询
+                return buildResponseFromCache(cachedEntry, query, queryMode, page, size);
             }
 
             // 缓存未命中，执行搜索
@@ -281,7 +279,7 @@ public class AiSearchService {
             if (useDirectIntent) {
                 AiSearchIntent directIntent = buildDirectIntent(normalizedQuery, candidates, tokens);
                 normalizeIntent(normalizedQuery, directIntent, true);
-                log.info("快速检索 intent={}", directIntent);
+                log.info("快速检索 intent={}", intentToString(directIntent));
 
                 AiSearchResponse quickResponse = buildSearchResponse(query, directIntent, candidates, page, size, queryMode, false, null);
                 log.info("快速检索结果: totalElements={}", quickResponse.getTotalElements());
@@ -291,7 +289,7 @@ public class AiSearchService {
                     log.info("快速检索未命中，自动升级到 GPT 路径...");
                     AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
                     normalizeIntent(normalizedQuery, gptIntent, true);
-                    log.info("GPT解析结果: intent={}", gptIntent);
+                    log.info("GPT解析结果: intent={}", intentToString(gptIntent));
                     response = buildSearchResponse(query, gptIntent, candidates, page, size, queryMode, true, null);
 
                     // 缓存 GPT 结果（完整搜索）
@@ -307,7 +305,7 @@ public class AiSearchService {
                 // 直接使用 GPT 路径
                 AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
                 normalizeIntent(normalizedQuery, gptIntent, true);
-                log.info("GPT解析结果: mode={}, intent={}", queryMode, gptIntent);
+                log.info("GPT解析结果: mode={}, intent={}", queryMode, intentToString(gptIntent));
                 response = buildSearchResponse(query, gptIntent, candidates, page, size, queryMode, true, null);
 
                 // 缓存结果
@@ -399,10 +397,21 @@ public class AiSearchService {
             return;
         }
 
-        // 收集所有照片ID
-        List<Long> allPhotoIds = response.getPhotos().stream()
-            .map(PhotoDTO::getId)
-            .collect(Collectors.toList());
+        // 执行完整查询获取所有匹配的照片 ID（用于分页）
+        List<Long> allPhotoIds;
+        try {
+            PhotoSearchExecution fullSearch = executePhotoQueryForCache(intent, includeHidden);
+            allPhotoIds = fullSearch.allMatchedPhotos.stream()
+                .map(Photo::getId)
+                .collect(Collectors.toList());
+            log.debug("完整查询获取 {} 个照片ID用于缓存", allPhotoIds.size());
+        } catch (Exception e) {
+            // 如果完整查询失败，回退到只缓存当前页
+            log.warn("完整查询失败，回退到只缓存当前页: {}", e.getMessage());
+            allPhotoIds = response.getPhotos().stream()
+                .map(PhotoDTO::getId)
+                .collect(Collectors.toList());
+        }
 
         // 提取 AI 回答（如果有）
         String cachedAnswer = (response.getAnswer() != null && !response.getAnswer().isBlank())
@@ -410,8 +419,74 @@ public class AiSearchService {
             : null;
 
         putToCache(normalizedQuery, includeHidden, intent, allPhotoIds, albumSnapshot, cachedAnswer);
-        log.info("已缓存搜索结果: query={}, intent={}, hasAnswer={}",
-            normalizedQuery, intent.getExplanation(), cachedAnswer != null);
+        log.info("已缓存搜索结果: query={}, intent={}, hasAnswer={}, totalIds={}",
+            normalizedQuery, intent.getExplanation(), cachedAnswer != null, allPhotoIds.size());
+    }
+
+    // 执行查询用于缓存（获取所有照片 ID）
+    private PhotoSearchExecution executePhotoQueryForCache(AiSearchIntent intent, boolean includeHidden) {
+        List<AiSearchCondition> must = safeList(intent.getMust());
+        List<AiSearchCondition> should = safeList(intent.getShould());
+        List<AiSearchCondition> mustNot = safeList(intent.getMustNot());
+
+        if (must.isEmpty() && should.isEmpty() && mustNot.isEmpty()) {
+            return PhotoSearchExecution.empty();
+        }
+
+        Set<Long> candidateIds = null;
+        for (AiSearchCondition condition : must) {
+            Set<Long> ids = evaluateCondition(condition, includeHidden);
+            candidateIds = intersect(candidateIds, ids);
+            if (candidateIds != null && candidateIds.isEmpty()) {
+                return PhotoSearchExecution.empty();
+            }
+        }
+
+        if (!should.isEmpty()) {
+            Set<Long> shouldIds = evaluateUnionConditions(should, includeHidden);
+            candidateIds = candidateIds == null ? shouldIds : intersect(candidateIds, shouldIds);
+        }
+
+        if (candidateIds == null || candidateIds.isEmpty()) {
+            return PhotoSearchExecution.empty();
+        }
+
+        if (!mustNot.isEmpty()) {
+            Set<Long> excluded = evaluateUnionConditions(mustNot, includeHidden);
+            candidateIds.removeAll(excluded);
+            if (candidateIds.isEmpty()) {
+                return PhotoSearchExecution.empty();
+            }
+        }
+
+        List<Photo> matchedPhotos = includeHidden
+            ? photoRepository.findAllByIdInIncludeHidden(candidateIds)
+            : photoRepository.findAllByIdIn(candidateIds);
+
+        // 去重
+        List<Photo> deduplicatedPhotos = matchedPhotos.stream()
+            .collect(java.util.stream.Collectors.collectingAndThen(
+                java.util.stream.Collectors.toCollection(
+                    () -> new java.util.LinkedHashSet<>(matchedPhotos)),
+                java.util.ArrayList::new));
+
+        if (!includeHidden) {
+            deduplicatedPhotos = deduplicatedPhotos.stream()
+                .filter(photo -> !Boolean.TRUE.equals(photo.getIsHidden()))
+                .collect(Collectors.toList());
+        }
+
+        // 按时间排序
+        deduplicatedPhotos.sort((a, b) -> {
+            if (a.getTakenAt() == null && b.getTakenAt() == null) {
+                return Long.compare(b.getId(), a.getId());
+            }
+            if (a.getTakenAt() == null) return 1;
+            if (b.getTakenAt() == null) return -1;
+            return b.getTakenAt().compareTo(a.getTakenAt());
+        });
+
+        return new PhotoSearchExecution(Collections.emptyList(), deduplicatedPhotos, deduplicatedPhotos.size());
     }
 
     public AiSearchResponse searchWithSuggestion(String query,
@@ -1753,6 +1828,40 @@ public class AiSearchService {
         if (intent.getResultTypes() == null) {
             intent.setResultTypes(new ArrayList<>());
         }
+    }
+
+    // 安全打印 AiSearchIntent，避免 toString() 栈溢出
+    private String intentToString(AiSearchIntent intent) {
+        if (intent == null) {
+            return "null";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("AiSearchIntent[");
+        sb.append("cameraModel=").append(intent.getCameraModel());
+        sb.append(", lensModel=").append(intent.getLensModel());
+        sb.append(", personIds=").append(intent.getPersonIds());
+        sb.append(", tagIds=").append(intent.getTagIds());
+        sb.append(", albumIds=").append(intent.getAlbumIds());
+        sb.append(", keywords=").append(intent.getKeywords());
+        sb.append(", must=").append(intent.getMust() != null ? intent.getMust().size() : 0);
+        sb.append(", should=").append(intent.getShould() != null ? intent.getShould().size() : 0);
+        sb.append(", mustNot=").append(intent.getMustNot() != null ? intent.getMustNot().size() : 0);
+        sb.append(", explanation=").append(intent.getExplanation());
+        sb.append("]");
+        return sb.toString();
+    }
+
+    // 安全打印 AiSearchCondition，避免 toString() 栈溢出
+    private String conditionToString(AiSearchCondition cond) {
+        if (cond == null) {
+            return "null";
+        }
+        return "AiSearchCondition[type=" + cond.getType() +
+               ", value=" + cond.getValue() +
+               ", values=" + cond.getValues() +
+               ", ids=" + cond.getIds() +
+               ", minValue=" + cond.getMinValue() +
+               ", maxValue=" + cond.getMaxValue() + "]";
     }
 
     private void reconcileAlbumConditions(AiSearchIntent intent) {

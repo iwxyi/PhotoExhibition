@@ -1,6 +1,7 @@
 package com.photoexhibition.entity;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import javax.persistence.*;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.List;
 @Entity
 @Table(name = "album")
 @Data
+@EqualsAndHashCode(exclude = {"tags"})
 public class Album {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
