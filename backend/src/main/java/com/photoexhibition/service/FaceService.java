@@ -168,14 +168,26 @@ public class FaceService {
      */
     @Transactional
     public List<Face> detectAndSaveFaces(File imageFile, Photo photo, boolean verbose) {
+        return detectAndSaveFaces(imageFile, photo, verbose, false, false);
+    }
+
+    /**
+     * 重新检测并保存某张照片的人脸信息
+     * @param verbose 是否输出详细调试日志（单张重建时开启，批量扫描时关闭）
+     * @param forceRebuild 是否强制重建（true时即使已有数据也会重跑检测）
+     * @param preserveBindings 是否尽量继承旧人脸的人物绑定与确认状态
+     */
+    @Transactional
+    public List<Face> detectAndSaveFaces(File imageFile, Photo photo, boolean verbose, boolean forceRebuild, boolean preserveBindings) {
         // 防止并发重复检测：检查该照片是否已经有处理中的人脸检测
         Long photoId = photo.getId();
+        List<Face> existingFaces = photoId != null ? faceRepository.findByPhotoId(photoId) : new ArrayList<>();
         if (photoId != null) {
             // 检查是否已有人脸数据，如果有则跳过重复检测
-            long existingFaceCount = faceRepository.findByPhotoId(photoId).size();
-            if (existingFaceCount > 0) {
+            long existingFaceCount = existingFaces.size();
+            if (!forceRebuild && existingFaceCount > 0) {
                 log.debug("照片 {} 已有 {} 个人脸记录，跳过重复检测", photoId, existingFaceCount);
-                return faceRepository.findByPhotoId(photoId);
+                return existingFaces;
             }
         }
 
@@ -267,12 +279,16 @@ public class FaceService {
             face.setConfidence(f.getConfidence());
             Face saved = faceRepository.save(face);
 
+            if (preserveBindings) {
+                inheritBindingFromExistingFace(saved, existingFaces);
+            }
+
             // 提取人脸向量（复用已加载的图片，避免重复磁盘读取）
             float[] embedding = faceEmbeddingService.extractFromImage(loadedImage, saved);
             if (embedding != null) {
                 saved.setEmbedding(toJson(embedding));
-                saved = faceRepository.save(saved);
             }
+            saved = faceRepository.save(saved);
             faces.add(saved);
         }
 
@@ -282,6 +298,45 @@ public class FaceService {
         log.debug("保存人脸 {} 个，photoId={}", faces.size(), targetPhoto.getId());
         invalidateClusterCache();
         return faces;
+    }
+
+    /**
+     * 仅重算已有的人脸 embedding，保留绑定关系与确认状态。
+     */
+    @Transactional
+    public List<Face> rebuildEmbeddingsForPhoto(File imageFile, Photo photo) {
+        if (photo == null || photo.getId() == null) {
+            return new ArrayList<>();
+        }
+
+        List<Face> faces = faceRepository.findByPhotoId(photo.getId());
+        if (faces.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        java.awt.image.BufferedImage loadedImage = null;
+        try {
+            loadedImage = javax.imageio.ImageIO.read(imageFile);
+        } catch (Exception e) {
+            log.warn("读取图片失败: {}", imageFile.getName(), e);
+        }
+        if (loadedImage == null) {
+            return new ArrayList<>();
+        }
+
+        List<Face> updatedFaces = new ArrayList<>();
+        for (Face face : faces) {
+            float[] embedding = faceEmbeddingService.extractFromImage(loadedImage, face);
+            if (embedding != null) {
+                face.setEmbedding(toJson(embedding));
+            } else {
+                face.setEmbedding(null);
+            }
+            updatedFaces.add(faceRepository.save(face));
+        }
+
+        invalidateClusterCache();
+        return updatedFaces;
     }
 
     /**
@@ -1151,10 +1206,9 @@ public class FaceService {
         if (cached != null) {
             return cached;
         }
-        
+
         // ==================== 阶段1: 贪心初始聚类 ====================
         List<List<Face>> groups = new ArrayList<>();
-        // 预计算所有嵌入向量，避免重复解析
         Map<Long, float[]> embeddingCache = new HashMap<>();
         for (Face f : withEmbedding) {
             float[] vec = parseEmbedding(f.getEmbedding());
@@ -1171,24 +1225,19 @@ public class FaceService {
             if (candidateVec == null) continue;
 
             Integer bestGroup = null;
-            double bestMaxSimilarity = -1;
+            double bestScore = -1;
 
-            // 预筛选：用与组内每个成员的最大相似度代替单一代表相似度
             final int MAX_GROUPS_TO_CHECK = Math.min(15, groups.size());
             List<GroupSimilarity> groupSimilarities = new ArrayList<>();
 
             for (int g = 0; g < groups.size(); g++) {
                 List<Face> group = groups.get(g);
-                double maxSim = -1;
-                for (Face member : group) {
-                    float[] memberVec = embeddingCache.get(member.getId());
-                    if (memberVec == null) continue;
-                    double sim = cosine(candidateVec, memberVec);
-                    if (sim > maxSim) maxSim = sim;
-                    if (maxSim > strictThreshold) break;
-                }
-                if (maxSim > strictThreshold * 0.85) {
-                    groupSimilarities.add(new GroupSimilarity(g, maxSim));
+                float[] centroid = calculateGroupCentroid(group, embeddingCache);
+                double centroidSim = centroid != null ? cosine(candidateVec, centroid) : -1;
+                double maxSim = maxSimilarityToGroup(candidateVec, group, embeddingCache);
+                double preScore = Math.max(maxSim, centroidSim);
+                if (preScore > strictThreshold * 0.82) {
+                    groupSimilarities.add(new GroupSimilarity(g, preScore));
                 }
             }
 
@@ -1214,7 +1263,7 @@ public class FaceService {
                 List<Double> similarities = new ArrayList<>();
                 int matchCount = 0;
                 double maxSim = -1;
-                
+
                 for (Face member : group) {
                     float[] memberVec = embeddingCache.get(member.getId());
                     if (memberVec == null) continue;
@@ -1228,33 +1277,51 @@ public class FaceService {
 
                 double avgSim = similarities.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
                 double minSim = similarities.stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
+                double medianSim = quantile(similarities, 0.5);
+                double topKAvgSim = topKAverage(similarities, Math.max(2, Math.min(4, group.size())));
+                float[] centroid = calculateGroupCentroid(group, embeddingCache);
+                double centroidSim = centroid != null ? cosine(candidateVec, centroid) : 0.0;
 
                 boolean canJoin = false;
 
                 if (group.size() < clusteringMinGroupSize) {
                     if (clusteringSmallGroupStrict) {
-                        canJoin = matchCount == group.size() && avgSim >= strictThreshold && minSim >= (strictThreshold - clusteringMinSimSlackSmall);
+                        boolean passAll = matchCount == group.size()
+                            && avgSim >= strictThreshold
+                            && minSim >= (strictThreshold - clusteringMinSimSlackSmall);
+                        boolean passCentroidAssist = group.size() >= 2
+                            && centroidSim >= strictThreshold
+                            && topKAvgSim >= (strictThreshold - 0.02)
+                            && maxSim >= (strictThreshold + 0.01);
+                        canJoin = passAll || passCentroidAssist;
                     } else {
-                        canJoin = avgSim >= strictThreshold || maxSim >= strictThreshold;
+                        canJoin = avgSim >= strictThreshold
+                            || maxSim >= strictThreshold
+                            || (centroidSim >= strictThreshold && topKAvgSim >= strictThreshold - 0.02);
                     }
                 } else {
                     int requiredMatches = Math.min(clusteringMinMatches, group.size());
                     boolean passMultiPoint = !clusteringRequireMultiPoint || matchCount >= requiredMatches;
                     if (!clusteringRequireStats) {
-                        canJoin = passMultiPoint && avgSim >= strictThreshold;
+                        canJoin = passMultiPoint
+                            && (avgSim >= strictThreshold || (centroidSim >= strictThreshold && topKAvgSim >= strictThreshold));
                     } else {
-                        double medianSim = quantile(similarities, 0.5);
-                        boolean passAvg = avgSim >= strictThreshold;
-                        boolean passMedian = medianSim >= strictThreshold;
+                        boolean passAvg = avgSim >= strictThreshold - 0.01;
+                        boolean passMedian = medianSim >= strictThreshold - 0.01;
                         boolean passMin = minSim >= (strictThreshold - clusteringMinSimSlackLarge);
-                        // 放宽条件：avg+median通过 或 max-match很高
-                        canJoin = passMultiPoint && ((passAvg && passMedian && passMin) ||
-                                  maxSim >= strictThreshold + 0.05);
+                        boolean passLocalConsistency = topKAvgSim >= strictThreshold && maxSim >= strictThreshold + 0.01;
+                        boolean passCentroidConsistency = centroidSim >= strictThreshold && topKAvgSim >= strictThreshold - 0.01;
+                        canJoin = passMultiPoint && (
+                            (passAvg && passMedian && passMin)
+                                || passLocalConsistency
+                                || passCentroidConsistency
+                        );
                     }
                 }
 
-                if (canJoin && maxSim > bestMaxSimilarity) {
-                    bestMaxSimilarity = maxSim;
+                double score = maxSim * 0.45 + topKAvgSim * 0.35 + centroidSim * 0.20;
+                if (canJoin && score > bestScore) {
+                    bestScore = score;
                     bestGroup = g;
                 }
             }
@@ -1269,7 +1336,7 @@ public class FaceService {
         }
 
         // ==================== 阶段2: 组间合并（修复同人拆分） ====================
-        final double mergeThreshold = strictThreshold - 0.03;
+        final double mergeThreshold = Math.max(strictThreshold, threshold + 0.04);
         boolean merged = true;
         while (merged) {
             merged = false;
@@ -1289,29 +1356,67 @@ public class FaceService {
                         continue;
                     }
 
-                    // 计算两组之间的最大互相似度和达标对数
+                    float[] centroidI = calculateGroupCentroid(groups.get(i), embeddingCache);
+                    float[] centroidJ = calculateGroupCentroid(groups.get(j), embeddingCache);
+                    if (centroidI == null || centroidJ == null) {
+                        continue;
+                    }
+                    double centroidSim = cosine(centroidI, centroidJ);
+                    if (centroidSim < mergeThreshold) {
+                        continue;
+                    }
+
+                    // 计算两组之间的跨组支持度，避免单个桥接样本误合并
                     int crossMatches = 0;
                     double bestCrossSim = -1;
-                    int sampleLimit = Math.min(groups.get(i).size(), 8);
-                    int sampleLimitJ = Math.min(groups.get(j).size(), 8);
+                    List<Double> crossSimilarities = new ArrayList<>();
+                    int supportI = 0;
+                    int supportJ = 0;
+                    int sampleLimit = Math.min(groups.get(i).size(), 10);
+                    int sampleLimitJ = Math.min(groups.get(j).size(), 10);
 
                     for (int ii = 0; ii < sampleLimit; ii++) {
                         float[] vecI = embeddingCache.get(groups.get(i).get(ii).getId());
                         if (vecI == null) continue;
+                        double bestForI = -1;
                         for (int jj = 0; jj < sampleLimitJ; jj++) {
                             float[] vecJ = embeddingCache.get(groups.get(j).get(jj).getId());
                             if (vecJ == null) continue;
                             double sim = cosine(vecI, vecJ);
                             if (sim > bestCrossSim) bestCrossSim = sim;
-                            if (sim >= mergeThreshold) crossMatches++;
+                            if (sim > bestForI) bestForI = sim;
+                            if (sim >= mergeThreshold) {
+                                crossMatches++;
+                                crossSimilarities.add(sim);
+                            }
                         }
+                        if (bestForI >= mergeThreshold) supportI++;
+                    }
+                    for (int jj = 0; jj < sampleLimitJ; jj++) {
+                        float[] vecJ = embeddingCache.get(groups.get(j).get(jj).getId());
+                        if (vecJ == null) continue;
+                        double bestForJ = -1;
+                        for (int ii = 0; ii < sampleLimit; ii++) {
+                            float[] vecI = embeddingCache.get(groups.get(i).get(ii).getId());
+                            if (vecI == null) continue;
+                            double sim = cosine(vecJ, vecI);
+                            if (sim > bestForJ) bestForJ = sim;
+                        }
+                        if (bestForJ >= mergeThreshold) supportJ++;
                     }
 
-                    // 合并条件：有足够多的跨组高相似度配对
+                    double crossAvg = crossSimilarities.stream().mapToDouble(Double::doubleValue).average().orElse(-1);
+                    double supportRatioI = sampleLimit == 0 ? 0 : (double) supportI / sampleLimit;
+                    double supportRatioJ = sampleLimitJ == 0 ? 0 : (double) supportJ / sampleLimitJ;
+
                     int requiredCross = Math.max(1, Math.min(
                         Math.min(groups.get(i).size(), groups.get(j).size()),
-                        2));
-                    if (crossMatches >= requiredCross && bestCrossSim >= mergeThreshold) {
+                        3));
+                    if (crossMatches >= requiredCross
+                        && bestCrossSim >= mergeThreshold + 0.01
+                        && crossAvg >= mergeThreshold
+                        && supportRatioI >= 0.6
+                        && supportRatioJ >= 0.6) {
                         groups.get(i).addAll(groups.get(j));
                         groups.get(j).clear();
                         merged = true;
@@ -1334,17 +1439,21 @@ public class FaceService {
                 for (Face face : group) {
                     float[] vec = embeddingCache.get(face.getId());
                     if (vec == null) continue;
-                    // 计算与组内其他成员的最大相似度（最近邻）
                     double maxNeighborSim = -1;
+                    List<Double> neighborSimilarities = new ArrayList<>();
                     for (Face other : group) {
                         if (other.getId().equals(face.getId())) continue;
                         float[] otherVec = embeddingCache.get(other.getId());
                         if (otherVec == null) continue;
                         double sim = cosine(vec, otherVec);
                         if (sim > maxNeighborSim) maxNeighborSim = sim;
+                        neighborSimilarities.add(sim);
                     }
-                    // 只要有一个足够相似的邻居就保留
-                    if (maxNeighborSim >= (strictThreshold - 0.05)) {
+                    float[] centroid = calculateGroupCentroid(group, embeddingCache);
+                    double centroidSim = centroid != null ? cosine(vec, centroid) : -1;
+                    double top2Avg = topKAverage(neighborSimilarities, Math.min(2, neighborSimilarities.size()));
+                    if (maxNeighborSim >= (strictThreshold - 0.05)
+                        && (centroidSim >= (strictThreshold - 0.03) || top2Avg >= (strictThreshold - 0.04))) {
                         cleanedGroup.add(face);
                     }
                 }
@@ -1387,6 +1496,159 @@ public class FaceService {
 
     private double roundThreshold(double threshold) {
         return Math.round(threshold * 1000.0) / 1000.0;
+    }
+
+    private void inheritBindingFromExistingFace(Face newFace, List<Face> existingFaces) {
+        if (newFace == null || existingFaces == null || existingFaces.isEmpty()) {
+            return;
+        }
+
+        Face bestMatch = null;
+        double bestScore = -1;
+        for (Face oldFace : existingFaces) {
+            if (oldFace == null) {
+                continue;
+            }
+
+            double iou = calculateIoU(newFace, oldFace);
+            double centerDistance = normalizedCenterDistance(newFace, oldFace);
+            double score = iou * 0.8 + Math.max(0.0, 1.0 - centerDistance) * 0.2;
+
+            if (iou < 0.25 && centerDistance > 0.18) {
+                continue;
+            }
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestMatch = oldFace;
+            }
+        }
+
+        if (bestMatch == null) {
+            return;
+        }
+
+        existingFaces.remove(bestMatch);
+        newFace.setPerson(bestMatch.getPerson());
+        newFace.setIsConfirmed(Boolean.TRUE.equals(bestMatch.getIsConfirmed()));
+    }
+
+    private double calculateIoU(Face a, Face b) {
+        if (a == null || b == null || a.getX() == null || a.getY() == null || a.getWidth() == null || a.getHeight() == null
+            || b.getX() == null || b.getY() == null || b.getWidth() == null || b.getHeight() == null) {
+            return 0.0;
+        }
+
+        double ax1 = a.getX();
+        double ay1 = a.getY();
+        double ax2 = a.getX() + a.getWidth();
+        double ay2 = a.getY() + a.getHeight();
+        double bx1 = b.getX();
+        double by1 = b.getY();
+        double bx2 = b.getX() + b.getWidth();
+        double by2 = b.getY() + b.getHeight();
+
+        double interWidth = Math.max(0.0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+        double interHeight = Math.max(0.0, Math.min(ay2, by2) - Math.max(ay1, by1));
+        double intersection = interWidth * interHeight;
+        if (intersection <= 0.0) {
+            return 0.0;
+        }
+
+        double union = a.getWidth() * a.getHeight() + b.getWidth() * b.getHeight() - intersection;
+        return union <= 1e-9 ? 0.0 : intersection / union;
+    }
+
+    private double normalizedCenterDistance(Face a, Face b) {
+        if (a == null || b == null || a.getX() == null || a.getY() == null || a.getWidth() == null || a.getHeight() == null
+            || b.getX() == null || b.getY() == null || b.getWidth() == null || b.getHeight() == null) {
+            return Double.MAX_VALUE;
+        }
+
+        double acx = a.getX() + a.getWidth() / 2.0;
+        double acy = a.getY() + a.getHeight() / 2.0;
+        double bcx = b.getX() + b.getWidth() / 2.0;
+        double bcy = b.getY() + b.getHeight() / 2.0;
+
+        double dx = acx - bcx;
+        double dy = acy - bcy;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private float[] calculateGroupCentroid(List<Face> group, Map<Long, float[]> embeddingCache) {
+        if (group == null || group.isEmpty()) {
+            return null;
+        }
+
+        int vectorSize = -1;
+        float[] sum = null;
+        int count = 0;
+        for (Face face : group) {
+            float[] embedding = embeddingCache.get(face.getId());
+            if (embedding == null) {
+                continue;
+            }
+            if (sum == null) {
+                vectorSize = embedding.length;
+                sum = new float[vectorSize];
+            }
+            for (int i = 0; i < vectorSize; i++) {
+                sum[i] += embedding[i];
+            }
+            count++;
+        }
+
+        if (sum == null || count == 0) {
+            return null;
+        }
+
+        for (int i = 0; i < vectorSize; i++) {
+            sum[i] /= count;
+        }
+        normalizeVector(sum);
+        return sum;
+    }
+
+    private double maxSimilarityToGroup(float[] candidateVec, List<Face> group, Map<Long, float[]> embeddingCache) {
+        double maxSim = -1;
+        for (Face member : group) {
+            float[] memberVec = embeddingCache.get(member.getId());
+            if (memberVec == null) continue;
+            double sim = cosine(candidateVec, memberVec);
+            if (sim > maxSim) {
+                maxSim = sim;
+            }
+        }
+        return maxSim;
+    }
+
+    private double topKAverage(List<Double> values, int k) {
+        if (values == null || values.isEmpty() || k <= 0) {
+            return 0.0;
+        }
+        return values.stream()
+            .sorted(Comparator.reverseOrder())
+            .limit(k)
+            .mapToDouble(Double::doubleValue)
+            .average()
+            .orElse(0.0);
+    }
+
+    private void normalizeVector(float[] vector) {
+        if (vector == null || vector.length == 0) {
+            return;
+        }
+        double norm = 0.0;
+        for (float value : vector) {
+            norm += value * value;
+        }
+        norm = Math.sqrt(norm);
+        if (norm <= 1e-6) {
+            return;
+        }
+        for (int i = 0; i < vector.length; i++) {
+            vector[i] /= (float) norm;
+        }
     }
 
     private void invalidateClusterCache() {
@@ -3021,4 +3283,3 @@ public class FaceService {
         return result;
     }
 }
-

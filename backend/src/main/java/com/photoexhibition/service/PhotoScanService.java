@@ -960,7 +960,7 @@ public class PhotoScanService {
             return result;
         }
         // 调用现有人脸检测流程（单张重建时开启详细日志）
-        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo, true);
+        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo, true, true, true);
         int count = faces == null ? 0 : faces.size();
 
         // 安全更新关联集合，避免 orphan 触发
@@ -984,6 +984,37 @@ public class PhotoScanService {
         } else {
             result.put("message", "重建完成");
         }
+        return result;
+    }
+
+    /**
+     * 仅重算单张图片已有的人脸 embedding，保留原有人物绑定。
+     */
+    @Transactional
+    public Map<String, Object> rebuildFaceEmbeddingsForPhoto(Long photoId) {
+        Map<String, Object> result = new HashMap<>();
+        Optional<Photo> opt = photoRepository.findById(photoId);
+        if (opt.isEmpty()) {
+            result.put("error", "照片不存在");
+            return result;
+        }
+
+        Photo photo = opt.get();
+        if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
+            result.put("error", "原始路径为空，无法定位文件");
+            return result;
+        }
+
+        File imageFile = new File(photo.getOriginalPath());
+        if (!imageFile.exists()) {
+            result.put("error", "文件不存在: " + photo.getOriginalPath());
+            return result;
+        }
+
+        List<Face> faces = faceService.rebuildEmbeddingsForPhoto(imageFile, photo);
+        result.put("photoId", photoId);
+        result.put("count", faces.size());
+        result.put("message", faces.isEmpty() ? "该照片暂无可重算的人脸" : "embedding重算完成");
         return result;
     }
 
@@ -2149,7 +2180,8 @@ public class PhotoScanService {
      */
     private List<Face> detectFacesSafely(File imageFile, Photo photo) {
         try {
-            return faceService.detectAndSaveFaces(imageFile, photo, false);
+            boolean forceRebuild = photo != null && photo.getId() != null;
+            return faceService.detectAndSaveFaces(imageFile, photo, false, forceRebuild, forceRebuild);
         } catch (UnsatisfiedLinkError e) {
             log.warn("人脸检测服务不可用（缺少系统依赖库），跳过人脸检测: {}。请安装 Microsoft Visual C++ Redistributable 或相关依赖。", imageFile.getName());
             return new ArrayList<>();
@@ -3770,4 +3802,3 @@ public class PhotoScanService {
         return false;
     }
 }
-

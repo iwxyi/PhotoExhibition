@@ -1,24 +1,35 @@
 package com.photoexhibition.service;
 
+import ai.onnxruntime.OnnxTensor;
+import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtSession;
 import com.photoexhibition.entity.Face;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import ai.onnxruntime.*;
 
 import javax.imageio.ImageIO;
-import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.awt.image.RasterFormatException;
 import java.io.File;
 import java.nio.FloatBuffer;
 import java.util.Collections;
-import java.util.Map;
+import java.util.List;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class FaceEmbeddingService implements AutoCloseable {
+
+    private static final int MODEL_INPUT_SIZE = 112;
+    private static final double CROP_MARGIN_RATIO = 0.18;
+    private static final double REDETECT_MARGIN_RATIO = 0.22;
+
+    private final FaceRecognitionService faceRecognitionService;
 
     @Value("${face.embedding.model-path:./models/face_recognition.onnx}")
     private String modelPath;
@@ -26,9 +37,6 @@ public class FaceEmbeddingService implements AutoCloseable {
     private OrtEnvironment env;
     private OrtSession session;
 
-    /**
-     * 提取人脸向量（失败返回 null）
-     */
     public float[] extract(File imageFile, Face face) {
         try {
             BufferedImage img = ImageIO.read(imageFile);
@@ -40,9 +48,6 @@ public class FaceEmbeddingService implements AutoCloseable {
         return null;
     }
 
-    /**
-     * 从已加载的图片提取人脸向量（避免重复磁盘 I/O）
-     */
     public float[] extractFromImage(BufferedImage img, Face face) {
         try {
             ensureSession();
@@ -51,11 +56,14 @@ public class FaceEmbeddingService implements AutoCloseable {
             BufferedImage crop = cropFace(img, face);
             if (crop == null) return null;
 
-            BufferedImage resized = resize(crop, 112, 112);
-            float[] tensor = toCHW(resized);
+            BufferedImage normalized = normalizeFaceOrientation(crop);
+            BufferedImage prepared = resizeLetterbox(normalized, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+            float[] tensor = toCHW(prepared);
 
-            OnnxTensor input = OnnxTensor.createTensor(env, FloatBuffer.wrap(tensor), new long[]{1, 3, 112, 112});
-            try (OrtSession.Result result = session.run(Collections.singletonMap(session.getInputNames().iterator().next(), input))) {
+            OnnxTensor input = OnnxTensor.createTensor(env, FloatBuffer.wrap(tensor),
+                new long[]{1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE});
+            try (OrtSession.Result result = session.run(
+                Collections.singletonMap(session.getInputNames().iterator().next(), input))) {
                 Object out = result.get(0).getValue();
                 if (out instanceof float[][]) {
                     float[] vec = ((float[][]) out)[0];
@@ -97,6 +105,13 @@ public class FaceEmbeddingService implements AutoCloseable {
         w = Math.max(1, Math.min(w, img.getWidth() - x));
         h = Math.max(1, Math.min(h, img.getHeight() - y));
 
+        int marginX = (int) Math.round(w * CROP_MARGIN_RATIO);
+        int marginY = (int) Math.round(h * CROP_MARGIN_RATIO);
+        x = Math.max(0, x - marginX);
+        y = Math.max(0, y - marginY);
+        w = Math.max(1, Math.min(img.getWidth() - x, w + marginX * 2));
+        h = Math.max(1, Math.min(img.getHeight() - y, h + marginY * 2));
+
         try {
             return img.getSubimage(x, y, w, h);
         } catch (RasterFormatException e) {
@@ -105,13 +120,114 @@ public class FaceEmbeddingService implements AutoCloseable {
         }
     }
 
-    private BufferedImage resize(BufferedImage src, int w, int h) {
+    private BufferedImage normalizeFaceOrientation(BufferedImage crop) {
+        if (crop == null) {
+            return null;
+        }
+
+        BufferedImage bestImage = crop;
+        double bestScore = -1;
+
+        for (int rotation : new int[]{0, 90, 270, 180}) {
+            BufferedImage rotated = rotate(crop, rotation);
+            FaceCandidate candidate = detectBestFace(rotated);
+            if (candidate == null) {
+                continue;
+            }
+
+            if (candidate.score > bestScore) {
+                bestScore = candidate.score;
+                bestImage = expandAndCrop(rotated, candidate.face);
+            }
+        }
+
+        return bestImage;
+    }
+
+    private FaceCandidate detectBestFace(BufferedImage image) {
+        List<FaceRecognitionService.DetectedFace> detectedFaces = faceRecognitionService.detectFaces(image);
+        if (detectedFaces == null || detectedFaces.isEmpty()) {
+            return null;
+        }
+
+        FaceRecognitionService.DetectedFace bestFace = null;
+        double bestScore = -1;
+        for (FaceRecognitionService.DetectedFace detectedFace : detectedFaces) {
+            double area = detectedFace.getWidth() * detectedFace.getHeight();
+            double centerX = detectedFace.getX() + detectedFace.getWidth() / 2.0;
+            double centerY = detectedFace.getY() + detectedFace.getHeight() / 2.0;
+            double centerDistance = Math.abs(centerX - 0.5) + Math.abs(centerY - 0.5);
+            double score = detectedFace.getConfidence() * 0.65 + area * 0.25 + (1.0 - centerDistance) * 0.10;
+            if (score > bestScore) {
+                bestScore = score;
+                bestFace = detectedFace;
+            }
+        }
+
+        return bestFace == null ? null : new FaceCandidate(bestFace, bestScore);
+    }
+
+    private BufferedImage expandAndCrop(BufferedImage image, FaceRecognitionService.DetectedFace face) {
+        int imageWidth = image.getWidth();
+        int imageHeight = image.getHeight();
+        int x = (int) Math.round(face.getX() * imageWidth);
+        int y = (int) Math.round(face.getY() * imageHeight);
+        int w = (int) Math.round(face.getWidth() * imageWidth);
+        int h = (int) Math.round(face.getHeight() * imageHeight);
+
+        int marginX = (int) Math.round(w * REDETECT_MARGIN_RATIO);
+        int marginY = (int) Math.round(h * REDETECT_MARGIN_RATIO);
+        x = Math.max(0, x - marginX);
+        y = Math.max(0, y - marginY);
+        w = Math.max(1, Math.min(imageWidth - x, w + marginX * 2));
+        h = Math.max(1, Math.min(imageHeight - y, h + marginY * 2));
+
+        try {
+            return image.getSubimage(x, y, w, h);
+        } catch (RasterFormatException e) {
+            return image;
+        }
+    }
+
+    private BufferedImage resizeLetterbox(BufferedImage src, int w, int h) {
         BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D g2d = out.createGraphics();
+        g2d.setColor(Color.BLACK);
+        g2d.fillRect(0, 0, w, h);
         g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g2d.drawImage(src, 0, 0, w, h, null);
+        g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+
+        double scale = Math.min((double) w / src.getWidth(), (double) h / src.getHeight());
+        int drawWidth = Math.max(1, (int) Math.round(src.getWidth() * scale));
+        int drawHeight = Math.max(1, (int) Math.round(src.getHeight() * scale));
+        int offsetX = (w - drawWidth) / 2;
+        int offsetY = (h - drawHeight) / 2;
+        g2d.drawImage(src, offsetX, offsetY, drawWidth, drawHeight, null);
         g2d.dispose();
         return out;
+    }
+
+    private BufferedImage rotate(BufferedImage src, int degrees) {
+        int normalized = ((degrees % 360) + 360) % 360;
+        if (normalized == 0) {
+            return src;
+        }
+
+        int newWidth = normalized == 90 || normalized == 270 ? src.getHeight() : src.getWidth();
+        int newHeight = normalized == 90 || normalized == 270 ? src.getWidth() : src.getHeight();
+
+        BufferedImage rotated = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2d = rotated.createGraphics();
+        g2d.setColor(Color.BLACK);
+        g2d.fillRect(0, 0, newWidth, newHeight);
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2d.translate(newWidth / 2.0, newHeight / 2.0);
+        g2d.rotate(Math.toRadians(normalized));
+        g2d.translate(-src.getWidth() / 2.0, -src.getHeight() / 2.0);
+        g2d.drawImage(src, 0, 0, null);
+        g2d.dispose();
+        return rotated;
     }
 
     private float[] toCHW(BufferedImage img) {
@@ -125,10 +241,9 @@ public class FaceEmbeddingService implements AutoCloseable {
                 int r = (rgb >> 16) & 0xff;
                 int g = (rgb >> 8) & 0xff;
                 int b = rgb & 0xff;
-                // ArcFace / InsightFace 通常使用 BGR 输入，减 127.5 并除以 128
-                out[idx] = (b - 127.5f) / 128f;           // B
-                out[idx + w * h] = (g - 127.5f) / 128f;   // G
-                out[idx + 2 * w * h] = (r - 127.5f) / 128f; // R
+                out[idx] = (b - 127.5f) / 128f;
+                out[idx + w * h] = (g - 127.5f) / 128f;
+                out[idx + 2 * w * h] = (r - 127.5f) / 128f;
                 idx++;
             }
         }
@@ -145,6 +260,16 @@ public class FaceEmbeddingService implements AutoCloseable {
         }
     }
 
+    private static class FaceCandidate {
+        final FaceRecognitionService.DetectedFace face;
+        final double score;
+
+        FaceCandidate(FaceRecognitionService.DetectedFace face, double score) {
+            this.face = face;
+            this.score = score;
+        }
+    }
+
     @Override
     public void close() {
         try {
@@ -154,4 +279,3 @@ public class FaceEmbeddingService implements AutoCloseable {
         }
     }
 }
-
