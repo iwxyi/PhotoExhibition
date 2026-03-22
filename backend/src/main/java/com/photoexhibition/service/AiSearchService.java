@@ -78,18 +78,28 @@ public class AiSearchService {
         final Set<Long> albumSnapshot;
         // 缓存 AI 回答（用于 needAnswer=true 的查询）
         final String cachedAnswer;
+        // 缓存相册和人物列表快照
+        final List<AlbumDTO> cachedAlbums;
+        final List<PersonSummaryDTO> cachedPersons;
 
         SearchCacheEntry(AiSearchIntent intent, List<Long> allPhotoIds, Set<Long> albumSnapshot) {
-            this(intent, allPhotoIds, albumSnapshot, null);
+            this(intent, allPhotoIds, albumSnapshot, null, null, null);
         }
 
         SearchCacheEntry(AiSearchIntent intent, List<Long> allPhotoIds, Set<Long> albumSnapshot, String cachedAnswer) {
+            this(intent, allPhotoIds, albumSnapshot, cachedAnswer, null, null);
+        }
+
+        SearchCacheEntry(AiSearchIntent intent, List<Long> allPhotoIds, Set<Long> albumSnapshot,
+                         String cachedAnswer, List<AlbumDTO> cachedAlbums, List<PersonSummaryDTO> cachedPersons) {
             this.intent = intent;
             this.allPhotoIds = allPhotoIds;
             this.totalCount = allPhotoIds.size();
             this.cachedAt = System.currentTimeMillis();
             this.albumSnapshot = albumSnapshot;
             this.cachedAnswer = cachedAnswer;
+            this.cachedAlbums = cachedAlbums;
+            this.cachedPersons = cachedPersons;
         }
 
         boolean isExpired() {
@@ -125,26 +135,37 @@ public class AiSearchService {
         }
         // 刷新过期时间（用新的 cachedAt 替换缓存条目）
         searchCache.put(cacheKey, new SearchCacheEntry(
-            entry.intent, entry.allPhotoIds, entry.albumSnapshot, entry.cachedAnswer));
+            entry.intent, entry.allPhotoIds, entry.albumSnapshot,
+            entry.cachedAnswer, entry.cachedAlbums, entry.cachedPersons));
         return entry;
     }
 
     // 存入缓存
     private void putToCache(String query, boolean includeHidden, AiSearchIntent intent,
                            List<Long> allPhotoIds, Set<Long> albumSnapshot) {
-        putToCache(query, includeHidden, intent, allPhotoIds, albumSnapshot, null);
+        putToCache(query, includeHidden, intent, allPhotoIds, albumSnapshot, null, null, null);
     }
 
     // 存入缓存（带 AI 回答）
     private void putToCache(String query, boolean includeHidden, AiSearchIntent intent,
                            List<Long> allPhotoIds, Set<Long> albumSnapshot, String cachedAnswer) {
+        putToCache(query, includeHidden, intent, allPhotoIds, albumSnapshot, cachedAnswer, null, null);
+    }
+
+    // 存入缓存（带完整信息）
+    private void putToCache(String query, boolean includeHidden, AiSearchIntent intent,
+                           List<Long> allPhotoIds, Set<Long> albumSnapshot, String cachedAnswer,
+                           List<AlbumDTO> cachedAlbums, List<PersonSummaryDTO> cachedPersons) {
         String cacheKey = generateCacheKey(query, includeHidden);
         // 限制缓存的ID数量
         List<Long> limitedIds = allPhotoIds.size() > MAX_CACHED_PHOTOS
             ? allPhotoIds.subList(0, MAX_CACHED_PHOTOS)
             : allPhotoIds;
-        searchCache.put(cacheKey, new SearchCacheEntry(intent, limitedIds, albumSnapshot, cachedAnswer));
-        log.debug("已缓存搜索结果: {}, 照片数={}, hasAnswer={}", cacheKey, limitedIds.size(), cachedAnswer != null);
+        searchCache.put(cacheKey, new SearchCacheEntry(intent, limitedIds, albumSnapshot, cachedAnswer, cachedAlbums, cachedPersons));
+        log.debug("已缓存搜索结果: {}, 照片数={}, hasAnswer={}, albums={}, persons={}",
+            cacheKey, limitedIds.size(), cachedAnswer != null,
+            cachedAlbums != null ? cachedAlbums.size() : 0,
+            cachedPersons != null ? cachedPersons.size() : 0);
     }
 
     // 清除所有搜索缓存
@@ -347,8 +368,11 @@ public class AiSearchService {
             response.setNeedAnswer(false);
             response.setPhotos(Collections.emptyList());
             response.setTotalElements(total);
-            response.setAlbums(Collections.emptyList());
-            response.setPersons(Collections.emptyList());
+            response.setAlbums(cached.cachedAlbums != null ? cached.cachedAlbums : Collections.emptyList());
+            response.setPersons(cached.cachedPersons != null ? cached.cachedPersons : Collections.emptyList());
+            response.setParsedIntent(cached.intent);
+            response.setExplanation(cached.intent.getExplanation());
+            response.setCached(true);
             response.setSuggestions(Collections.emptyList());
             response.setSuggestionActions(Collections.emptyList());
             return response;
@@ -377,8 +401,8 @@ public class AiSearchService {
         response.setNeedAnswer(false);
         response.setPhotos(photoDtos);
         response.setTotalElements(total);
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(Collections.emptyList());
+        response.setAlbums(cached.cachedAlbums != null ? cached.cachedAlbums : Collections.emptyList());
+        response.setPersons(cached.cachedPersons != null ? cached.cachedPersons : Collections.emptyList());
         response.setParsedIntent(cached.intent);
         response.setExplanation(cached.intent.getExplanation());
         response.setCached(true); // 标记为缓存结果
@@ -418,9 +442,15 @@ public class AiSearchService {
             ? response.getAnswer()
             : null;
 
-        putToCache(normalizedQuery, includeHidden, intent, allPhotoIds, albumSnapshot, cachedAnswer);
-        log.info("已缓存搜索结果: query={}, intent={}, hasAnswer={}, totalIds={}",
-            normalizedQuery, intent.getExplanation(), cachedAnswer != null, allPhotoIds.size());
+        // 缓存 albums 和 persons 快照
+        List<AlbumDTO> cachedAlbums = response.getAlbums();
+        List<PersonSummaryDTO> cachedPersons = response.getPersons();
+
+        putToCache(normalizedQuery, includeHidden, intent, allPhotoIds, albumSnapshot, cachedAnswer, cachedAlbums, cachedPersons);
+        log.info("已缓存搜索结果: query={}, intent={}, hasAnswer={}, totalIds={}, albums={}, persons={}",
+            normalizedQuery, intent.getExplanation(), cachedAnswer != null, allPhotoIds.size(),
+            cachedAlbums != null ? cachedAlbums.size() : 0,
+            cachedPersons != null ? cachedPersons.size() : 0);
     }
 
     // 执行查询用于缓存（获取所有照片 ID）
@@ -597,17 +627,127 @@ public class AiSearchService {
         }
 
         List<AlbumDTO> results = new ArrayList<>();
+        Set<Long> addedSubAlbumIds = new java.util.HashSet<>();
+
+        // 批量加载所有相册信息（避免N+1查询）
+        Map<Long, Album> albumMap = new java.util.HashMap<>();
+        for (Long albumId : albumIds) {
+            albumRepository.findById(albumId).ifPresent(album -> albumMap.put(albumId, album));
+        }
+
+        // 收集所有需要的子相册路径（用于批量查询）
+        Set<String> pathsToCheck = new java.util.HashSet<>();
+        for (Album album : albumMap.values()) {
+            if (album.getPhotoCount() == null || album.getPhotoCount() <= 0) {
+                pathsToCheck.add(album.getPath());
+            }
+        }
+
+        // 批量获取子相册（只查询直接子相册）
+        Map<String, List<Album>> subAlbumsMap = new java.util.HashMap<>();
+        if (!pathsToCheck.isEmpty()) {
+            for (String path : pathsToCheck) {
+                List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(path, path + "%", "/" + path + "%");
+                subAlbumsMap.put(path, subAlbums);
+            }
+        }
+
         for (Long albumId : albumIds) {
             try {
-                AlbumDTO dto = albumService.getAlbumById(albumId);
-                if (dto != null) {
-                    results.add(dto);
+                Album album = albumMap.get(albumId);
+                if (album == null) {
+                    continue;
+                }
+
+                // 检查相册是否有直接照片
+                Integer photoCount = album.getPhotoCount();
+                if (photoCount != null && photoCount > 0) {
+                    // 有直接照片，添加到结果
+                    results.add(albumService.getAlbumById(albumId));
+                } else {
+                    // 没有直接照片，查找有照片的子相册
+                    List<Album> directSubAlbums = subAlbumsMap.get(album.getPath());
+                    if (directSubAlbums != null) {
+                        boolean hasSubAlbumsWithPhotos = false;
+                        for (Album subAlbum : directSubAlbums) {
+                            if (Boolean.TRUE.equals(subAlbum.getIsHidden())) {
+                                continue;
+                            }
+                            if (subAlbum.getPhotoCount() != null && subAlbum.getPhotoCount() > 0) {
+                                hasSubAlbumsWithPhotos = true;
+                                if (addedSubAlbumIds.add(subAlbum.getId())) {
+                                    results.add(albumService.getAlbumById(subAlbum.getId()));
+                                }
+                            }
+                        }
+                        // 如果没有子相册有照片，继续递归查找更深层
+                        if (!hasSubAlbumsWithPhotos) {
+                            addNestedSubAlbumsWithPhotos(directSubAlbums, results, addedSubAlbumIds);
+                        }
+                    }
+                    // 完全空的相册不添加到结果
                 }
             } catch (Exception e) {
                 log.debug("获取相册失败, albumId={}: {}", albumId, e.getMessage());
             }
         }
         return results;
+    }
+
+    /**
+     * 递归添加深层子相册中所有有照片的相册（限制深度避免性能问题）
+     */
+    private void addNestedSubAlbumsWithPhotos(List<Album> albums, List<AlbumDTO> results, Set<Long> addedSubAlbumIds) {
+        addNestedSubAlbumsWithPhotos(albums, results, addedSubAlbumIds, 0, 10);
+    }
+
+    private void addNestedSubAlbumsWithPhotos(List<Album> albums, List<AlbumDTO> results, Set<Long> addedSubAlbumIds, int currentDepth, int maxDepth) {
+        if (albums == null || albums.isEmpty() || currentDepth >= maxDepth) {
+            return;
+        }
+
+        // 收集下一层子相册的路径
+        Set<String> pathsToCheck = new java.util.HashSet<>();
+        for (Album album : albums) {
+            if (album.getPhotoCount() == null || album.getPhotoCount() <= 0) {
+                pathsToCheck.add(album.getPath());
+            }
+        }
+
+        if (pathsToCheck.isEmpty()) {
+            return;
+        }
+
+        // 批量获取下一层子相册
+        List<Album> nextLevelSubAlbums = new ArrayList<>();
+        for (String path : pathsToCheck) {
+            try {
+                List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(path, path + "%", "/" + path + "%");
+                nextLevelSubAlbums.addAll(subAlbums);
+            } catch (Exception e) {
+                log.debug("获取子相册异常, path={}: {}", path, e.getMessage());
+            }
+        }
+
+        // 添加有照片的子相册
+        List<Album> nextLevelToProcess = new ArrayList<>();
+        for (Album subAlbum : nextLevelSubAlbums) {
+            if (Boolean.TRUE.equals(subAlbum.getIsHidden())) {
+                continue;
+            }
+            if (subAlbum.getPhotoCount() != null && subAlbum.getPhotoCount() > 0) {
+                if (addedSubAlbumIds.add(subAlbum.getId())) {
+                    results.add(albumService.getAlbumById(subAlbum.getId()));
+                }
+            } else {
+                nextLevelToProcess.add(subAlbum);
+            }
+        }
+
+        // 继续递归
+        if (!nextLevelToProcess.isEmpty()) {
+            addNestedSubAlbumsWithPhotos(nextLevelToProcess, results, addedSubAlbumIds, currentDepth + 1, maxDepth);
+        }
     }
 
     private List<PersonSummaryDTO> fetchPersonResults(AiSearchIntent intent) {
@@ -2399,13 +2539,81 @@ public class AiSearchService {
             return Collections.emptySet();
         }
 
+        // 展开相册ID，包含有照片的子相册
+        Set<Long> expandedAlbumIds = new LinkedHashSet<>();
+        for (Long albumId : ids) {
+            expandedAlbumIds.add(albumId);
+            // 获取这个相册下所有有照片的子相册ID
+            expandedAlbumIds.addAll(getSubAlbumIdsWithPhotos(albumId));
+        }
+
         Page<Photo> page = includeHidden
-            ? photoRepository.findByAlbumIdsIncludeHidden(ids, PageRequest.of(0, MAX_QUERY_FETCH))
-            : photoRepository.findByAlbumIds(ids, PageRequest.of(0, MAX_QUERY_FETCH));
+            ? photoRepository.findByAlbumIdsIncludeHidden(new ArrayList<>(expandedAlbumIds), PageRequest.of(0, MAX_QUERY_FETCH))
+            : photoRepository.findByAlbumIds(new ArrayList<>(expandedAlbumIds), PageRequest.of(0, MAX_QUERY_FETCH));
         return page.getContent().stream()
             .filter(photo -> includeHidden || !Boolean.TRUE.equals(photo.getIsHidden()))
             .map(Photo::getId)
             .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * 获取指定相册下所有有照片的子相册ID（包括深层子相册）
+     * 使用迭代方式避免深度递归
+     */
+    private Set<Long> getSubAlbumIdsWithPhotos(Long parentAlbumId) {
+        Set<Long> result = new LinkedHashSet<>();
+        Set<Long> processedAlbums = new java.util.HashSet<>();
+
+        try {
+            Optional<Album> parentOpt = albumRepository.findById(parentAlbumId);
+            if (parentOpt.isEmpty()) {
+                return result;
+            }
+            Album parentAlbum = parentOpt.get();
+            if (Boolean.TRUE.equals(parentAlbum.getIsHidden())) {
+                return result;
+            }
+
+            // 使用栈进行迭代，避免深度递归
+            java.util.Deque<Long> albumStack = new java.util.ArrayDeque<>();
+            albumStack.push(parentAlbumId);
+            processedAlbums.add(parentAlbumId);
+
+            int maxDepth = 10; // 最大深度限制
+            int depth = 0;
+
+            while (!albumStack.isEmpty() && depth < maxDepth) {
+                int currentLevelSize = albumStack.size();
+                depth++;
+
+                for (int i = 0; i < currentLevelSize && !albumStack.isEmpty(); i++) {
+                    Long albumId = albumStack.pop();
+                    Optional<Album> opt = albumRepository.findById(albumId);
+                    if (opt.isEmpty()) {
+                        continue;
+                    }
+                    Album album = opt.get();
+
+                    List<Album> subAlbums = albumRepository.findDirectSubAlbumsNormalized(
+                        album.getPath(), album.getPath() + "%", "/" + album.getPath() + "%");
+
+                    for (Album subAlbum : subAlbums) {
+                        if (Boolean.TRUE.equals(subAlbum.getIsHidden())) {
+                            continue;
+                        }
+                        if (subAlbum.getPhotoCount() != null && subAlbum.getPhotoCount() > 0) {
+                            result.add(subAlbum.getId());
+                        } else if (depth < maxDepth && !processedAlbums.contains(subAlbum.getId())) {
+                            processedAlbums.add(subAlbum.getId());
+                            albumStack.push(subAlbum.getId());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("获取子相册ID异常, albumId={}: {}", parentAlbumId, e.getMessage());
+        }
+        return result;
     }
 
     private Set<Long> photoIdsForKeywordCondition(AiSearchCondition condition, boolean includeHidden) {

@@ -469,6 +469,13 @@ const loadMoreAiPhotos = async () => {
     aiPhotos.value = [...aiPhotos.value, ...newPhotos]
     aiPage.value = nextPage
     aiHasMore.value = newPhotos.length >= 30
+    // 保留 albums 和 persons（只在第一页设置）
+    if (res.data.albums && res.data.albums.length > 0 && albums.value.length === 0) {
+      albums.value = res.data.albums
+    }
+    if (res.data.persons && res.data.persons.length > 0 && persons.value.length === 0) {
+      persons.value = res.data.persons
+    }
   } catch (e) {
     console.error('加载更多AI搜索结果失败:', e)
   } finally {
@@ -1294,12 +1301,23 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
 
         <!-- 照片结果 -->
         <div v-if="searchMode === 'keyword' && keywordPhotoResults.length > 0" class="mb-10">
-          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
-            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            照片 ({{ keywordPhotoResults.length }})
+            <span>照片</span>
+            <!-- 加载进度提示 -->
+            <span
+              v-if="aiSearchResult?.totalElements && aiSearchResult.totalElements > keywordPhotoResults.length"
+              class="opacity-80"
+              :title="`已加载 ${keywordPhotoResults.length} 张，共 ${aiSearchResult.totalElements} 张`"
+            >
+              ({{ keywordPhotoResults.length }}/{{ aiSearchResult.totalElements }})
+            </span>
+            <span v-else class="opacity-80">
+              ({{ keywordPhotoResults.length }})
+            </span>
           </h2>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             <div
