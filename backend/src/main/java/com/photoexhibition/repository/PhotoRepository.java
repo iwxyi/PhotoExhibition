@@ -86,6 +86,12 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.qualityScore >= :minScore")
     Long countByQualityScoreGreaterThanEqual(@Param("minScore") Double minScore);
 
+    @Query("SELECT p.id FROM Photo p WHERE p.isHidden = false OR p.isHidden IS NULL")
+    List<Long> findAllIdsNotHidden();
+
+    @Query("SELECT p.id FROM Photo p")
+    List<Long> findAllIds();
+
     @Query("SELECT p FROM Photo p WHERE " +
            "(:cameraModel IS NULL OR p.cameraModel = :cameraModel) AND " +
            "(:lensModel IS NULL OR p.lensModel = :lensModel) AND " +

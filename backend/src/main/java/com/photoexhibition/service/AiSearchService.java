@@ -477,6 +477,12 @@ public class AiSearchService {
             candidateIds = candidateIds == null ? shouldIds : intersect(candidateIds, shouldIds);
         }
 
+        // 当 must 和 should 都为空，但 mustNot 不为空时，
+        // 需要从所有照片开始，然后执行排除
+        if ((candidateIds == null || candidateIds.isEmpty()) && !mustNot.isEmpty()) {
+            candidateIds = getAllPhotoIds(includeHidden);
+        }
+
         if (candidateIds == null || candidateIds.isEmpty()) {
             return PhotoSearchExecution.empty();
         }
@@ -505,16 +511,6 @@ public class AiSearchService {
                 .filter(photo -> !Boolean.TRUE.equals(photo.getIsHidden()))
                 .collect(Collectors.toList());
         }
-
-        // 按时间排序
-        deduplicatedPhotos.sort((a, b) -> {
-            if (a.getTakenAt() == null && b.getTakenAt() == null) {
-                return Long.compare(b.getId(), a.getId());
-            }
-            if (a.getTakenAt() == null) return 1;
-            if (b.getTakenAt() == null) return -1;
-            return b.getTakenAt().compareTo(a.getTakenAt());
-        });
 
         return new PhotoSearchExecution(Collections.emptyList(), deduplicatedPhotos, deduplicatedPhotos.size());
     }
@@ -1874,9 +1870,9 @@ public class AiSearchService {
         sanitizeIdArrayField(objectNode, "tagIds");
         sanitizeIdArrayField(objectNode, "albumIds");
 
-        sanitizeConditionList(objectNode.get("must"));
-        sanitizeConditionList(objectNode.get("should"));
-        sanitizeConditionList(objectNode.get("mustNot"));
+        sanitizeConditionListWithReplacement(objectNode, "must");
+        sanitizeConditionListWithReplacement(objectNode, "should");
+        sanitizeConditionListWithReplacement(objectNode, "mustNot");
     }
 
     private void sanitizeIdField(ObjectNode objectNode, String fieldName) {
@@ -1902,18 +1898,33 @@ public class AiSearchService {
         objectNode.set(fieldName, sanitized);
     }
 
-    private void sanitizeConditionList(JsonNode node) {
+    private void sanitizeConditionListWithReplacement(ObjectNode parentNode, String fieldName) {
+        JsonNode node = parentNode.get(fieldName);
         if (!(node instanceof ArrayNode)) {
             return;
         }
         ArrayNode conditions = (ArrayNode) node;
+        ArrayNode sanitized = objectMapper.createArrayNode();
+
         for (JsonNode item : conditions) {
-            if (!(item instanceof ObjectNode)) {
+            if (item == null) {
                 continue;
             }
-            ObjectNode condition = (ObjectNode) item;
-            sanitizeIdArrayField(condition, "ids");
+
+            if (item.isTextual()) {
+                // GPT 返回了字符串而不是 AiSearchCondition 对象
+                // 将字符串包装成 AiSearchCondition 对象，type 设为 "camera_model"
+                ObjectNode condition = objectMapper.createObjectNode();
+                condition.put("type", "camera_model");
+                condition.put("value", item.asText());
+                sanitized.add(condition);
+            } else if (item instanceof ObjectNode) {
+                ObjectNode condition = (ObjectNode) item;
+                sanitizeIdArrayField(condition, "ids");
+                sanitized.add(condition);
+            }
         }
+        parentNode.set(fieldName, sanitized);
     }
 
     private void normalizeIntent(String query, AiSearchIntent intent, boolean applyRelativeYearRange) {
@@ -2365,6 +2376,12 @@ public class AiSearchService {
             candidateIds = candidateIds == null ? shouldIds : intersect(candidateIds, shouldIds);
         }
 
+        // 当 must 和 should 都为空，但 mustNot 不为空时，
+        // 需要从所有照片开始，然后执行排除
+        if ((candidateIds == null || candidateIds.isEmpty()) && !mustNot.isEmpty()) {
+            candidateIds = getAllPhotoIds(includeHidden);
+        }
+
         if (candidateIds == null || candidateIds.isEmpty()) {
             return PhotoSearchExecution.empty();
         }
@@ -2463,6 +2480,13 @@ public class AiSearchService {
             result.addAll(evaluateCondition(condition, includeHidden));
         }
         return result;
+    }
+
+    private Set<Long> getAllPhotoIds(boolean includeHidden) {
+        List<Long> ids = includeHidden
+            ? photoRepository.findAllIds()
+            : photoRepository.findAllIdsNotHidden();
+        return new LinkedHashSet<>(ids);
     }
 
     private Set<Long> evaluateCondition(AiSearchCondition condition, boolean includeHidden) {
