@@ -613,6 +613,14 @@ public class AdminController {
     }
 
     /**
+     * 仅重算单张图片已有的人脸 embedding，保留人物绑定
+     */
+    @PostMapping("/photos/{id}/rebuild-face-embeddings")
+    public ResponseEntity<Map<String, Object>> rebuildFaceEmbeddings(@PathVariable Long id) {
+        return ResponseEntity.ok(photoScanService.rebuildFaceEmbeddingsForPhoto(id));
+    }
+
+    /**
      * 全量回填图片哈希（SHA-256）
      */
     @PostMapping("/photos/hash-migrate")

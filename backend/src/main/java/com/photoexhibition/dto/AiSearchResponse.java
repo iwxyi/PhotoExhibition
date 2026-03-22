@@ -3,6 +3,7 @@ package com.photoexhibition.dto;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class AiSearchResponse {
@@ -25,4 +26,5 @@ public class AiSearchResponse {
     private List<AlbumDTO> albums;
     private List<PersonSummaryDTO> persons;
     private boolean cached; // 是否来自缓存
+    private Map<String, Object> analysisData; // 包含体型变化等分析数据
 }

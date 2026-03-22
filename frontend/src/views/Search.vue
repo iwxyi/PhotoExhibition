@@ -687,7 +687,7 @@ const hasResults = computed(() => {
     return tagPhotos.value.length > 0
   }
   if (aiSearchEnabled.value && aiSearchResult.value) {
-    return Boolean(aiSearchResult.value.answer) || aiPhotos.value.length > 0 || albums.value.length > 0 || persons.value.length > 0
+    return Boolean(aiSearchResult.value.answer) || aiPhotos.value.length > 0 || albums.value.length > 0 || persons.value.length > 0 || Boolean(aiSearchResult.value.analysisData)
   }
   return albums.value.length > 0 || persons.value.length > 0 || photos.value.length > 0
 })
@@ -760,6 +760,50 @@ const getFaceUrl = (face: FaceFace) => {
     return `/api/photos/${path.replace(/^\/+/, '')}`
   }
   return ''
+}
+
+// 体型变化分析辅助函数
+const getTrendEmoji = (trend: string | undefined) => {
+  switch (trend) {
+    case 'gained_weight': return '📈'
+    case 'lost_weight': return '📉'
+    case 'stable': return '➡️'
+    default: return '❓'
+  }
+}
+
+const getTrendColorClass = (trend: string | undefined) => {
+  switch (trend) {
+    case 'gained_weight': return 'text-red-500'
+    case 'lost_weight': return 'text-green-500'
+    case 'stable': return 'text-blue-500'
+    default: return 'text-gray-500'
+  }
+}
+
+const getBarColorClass = (index: number) => {
+  const colors = [
+    'bg-blue-400',
+    'bg-purple-400',
+    'bg-pink-400',
+    'bg-indigo-400',
+    'bg-cyan-400',
+  ]
+  return colors[index % colors.length]
+}
+
+const formatChangePercent = (changePercent: number | undefined) => {
+  if (changePercent === undefined || changePercent === null) return '—'
+  const sign = changePercent >= 0 ? '+' : ''
+  return `${sign}${changePercent.toFixed(1)}%`
+}
+
+const getBarHeight = (avgFaceArea: number) => {
+  // 归一化高度，最小10px，最大60px
+  const minArea = 0.01
+  const maxArea = 0.2
+  const normalized = Math.max(0, Math.min(1, (avgFaceArea - minArea) / (maxArea - minArea)))
+  return 10 + normalized * 50
 }
 
 // 打开 PhotoViewer
@@ -995,6 +1039,75 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
       <div v-else>
         <!-- AI搜索结果 -->
         <div v-if="aiSearchEnabled && aiSearchResult && searchMode === 'keyword'" class="mb-10">
+          <!-- 体型变化分析结果 -->
+          <div v-if="aiSearchResult.analysisData" class="mb-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-200 dark:border-blue-800">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">📊</span>
+              <h3 class="text-lg font-semibold text-gray-800 dark:text-white">
+                {{ aiSearchResult.analysisData.personName || '该人物' }} 的体型变化分析
+              </h3>
+            </div>
+
+            <!-- 数据卡片 -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div class="bg-white/80 dark:bg-gray-800/80 rounded-xl p-3 text-center">
+                <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {{ aiSearchResult.analysisData.totalPhotos || 0 }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">有效照片(张)</div>
+              </div>
+              <div class="bg-white/80 dark:bg-gray-800/80 rounded-xl p-3 text-center">
+                <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                  {{ aiSearchResult.analysisData.startYear }}-{{ aiSearchResult.analysisData.endYear }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">分析时间段</div>
+              </div>
+              <div class="bg-white/80 dark:bg-gray-800/80 rounded-xl p-3 text-center">
+                <div class="text-2xl font-bold" :class="getTrendColorClass(aiSearchResult.analysisData.trend)">
+                  {{ getTrendEmoji(aiSearchResult.analysisData.trend) }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">变化趋势</div>
+              </div>
+              <div class="bg-white/80 dark:bg-gray-800/80 rounded-xl p-3 text-center">
+                <div class="text-2xl font-bold" :class="getTrendColorClass(aiSearchResult.analysisData.trend)">
+                  {{ formatChangePercent(aiSearchResult.analysisData.changePercent) }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">面积变化</div>
+              </div>
+            </div>
+
+            <!-- 年度趋势图表 -->
+            <div v-if="aiSearchResult.analysisData.yearlyStats?.length" class="mb-4">
+              <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ aiSearchResult.analysisData.firstPeriod }} 至 {{ aiSearchResult.analysisData.lastPeriod }} 人脸面积趋势
+              </div>
+              <div class="flex items-end gap-1 h-20">
+                <div
+                  v-for="(stat, idx) in aiSearchResult.analysisData.yearlyStats"
+                  :key="stat.label"
+                  class="flex-1 flex flex-col items-center"
+                >
+                  <div
+                    class="w-full rounded-t transition-all hover:opacity-80"
+                    :class="getBarColorClass(idx)"
+                    :style="{ height: getBarHeight(stat.avgFaceArea) + 'px' }"
+                    :title="`${stat.label}: ${stat.avgFaceArea.toFixed(4)}`"
+                  ></div>
+                  <div class="text-xs text-gray-500 mt-1">{{ stat.label }}</div>
+                  <div class="text-[10px] text-gray-400">{{ stat.faceCount }}张</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 结论 -->
+            <div class="bg-white/60 dark:bg-gray-800/60 rounded-xl p-3">
+              <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">分析结论</div>
+              <p class="text-gray-600 dark:text-gray-200">
+                {{ aiSearchResult.analysisData.conclusion || '数据不足，无法判断变化趋势' }}
+              </p>
+            </div>
+          </div>
+
           <div v-if="aiSearchResult.answer" class="mb-3 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-900/20">
             <div class="flex items-start gap-2.5">
               <div class="mt-0.5 h-8 w-1 rounded-full bg-amber-400/80 dark:bg-amber-500/70"></div>

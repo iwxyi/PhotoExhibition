@@ -412,6 +412,34 @@ export interface AiSearchResponse {
   matchedTagNames?: string[]
   matchedAlbumNames?: string[]
   aiSearchEnabled: boolean
+  analysisData?: {
+    personId?: number
+    personName?: string
+    startYear?: number
+    endYear?: number
+    totalPhotos?: number
+    avgFaceArea?: number
+    avgFaceWidth?: number
+    avgFaceHeight?: number
+    avgAspectRatio?: number
+    yearlyStats?: YearlyBodyStats[]
+    trend?: string
+    conclusion?: string
+    changePercent?: number
+    firstPeriod?: string
+    lastPeriod?: string
+  }
+}
+
+export interface YearlyBodyStats {
+  year: number
+  month: number
+  label: string
+  faceCount: number
+  avgFaceArea: number
+  avgFaceWidth: number
+  avgFaceHeight: number
+  avgAspectRatio: number
 }
 
 export const aiSearchApi = {

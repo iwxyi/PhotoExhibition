@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.photoexhibition.dto.*;
 import com.photoexhibition.entity.Album;
+import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.PersonProfile;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.AlbumRepository;
+import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PersonProfileRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.TagRepository;
@@ -52,6 +54,7 @@ public class AiSearchService {
     private final PersonProfileRepository personProfileRepository;
     private final TagRepository tagRepository;
     private final AlbumRepository albumRepository;
+    private final FaceRepository faceRepository;
     private final PhotoRepository photoRepository;
     private final PhotoService photoService;
     private final AlbumService albumService;
@@ -249,6 +252,11 @@ public class AiSearchService {
     );
     private static final Set<String> YEAR_COMPARE_ANALYSIS_CUES = Set.of(
         "相比", "对比", "更多还是更少", "更少还是更多", "更多还是少", "同比"
+    );
+    private static final Set<String> BODY_CHANGE_ANALYSIS_CUES = Set.of(
+        "胖", "瘦", "变化", "成长", "大了", "小了", "长高", "长胖", "长瘦", "发福",
+        "肥", "壮", "变胖", "变瘦", "变高", "变矮", "变壮", "横向发展", "纵向发展",
+        "人变", "看起来", "脸变", "身材"
     );
 
     public AiSearchResponse search(String query, int page, int size) {
@@ -977,6 +985,9 @@ public class AiSearchService {
             case "year_compare":
                 response = buildYearCompareResponse(query, candidates, page, size, queryMode);
                 break;
+            case "body_change":
+                response = buildBodyChangeResponse(query, candidates, page, size, queryMode);
+                break;
             default:
                 throw new IllegalArgumentException("不支持的分析类型: " + routing.type);
         }
@@ -1026,9 +1037,11 @@ public class AiSearchService {
         scores.put("day", 0);
         scores.put("tag", 0);
         scores.put("year_compare", 0);
+        scores.put("body_change", 0);
 
         boolean hasDayCue = containsCue(normalized, DAY_ANALYSIS_CUES);
         boolean hasMonthCue = containsCue(normalized, MONTH_ANALYSIS_CUES) || normalized.contains("月份");
+        boolean hasBodyChangeCue = containsCue(normalized, BODY_CHANGE_ANALYSIS_CUES);
 
         if (containsCue(normalized, THEME_ANALYSIS_CUES)) {
             scores.computeIfPresent("theme", (key, value) -> value + 5);
@@ -1054,6 +1067,16 @@ public class AiSearchService {
         }
         if (containsCue(normalized, YEAR_COMPARE_ANALYSIS_CUES)) {
             scores.computeIfPresent("year_compare", (key, value) -> value + 6);
+        }
+        // 胖瘦变化分析：需要有人物 + 时间范围 + 胖瘦相关关键词
+        if (hasBodyChangeCue) {
+            boolean hasTimeCue = normalized.contains("年") || normalized.contains("月") || normalized.contains("以前")
+                || normalized.contains("过去") || normalized.contains("之前") || normalized.contains("变化");
+            if (hasTimeCue) {
+                scores.computeIfPresent("body_change", (key, value) -> value + 10);
+            } else {
+                scores.computeIfPresent("body_change", (key, value) -> value + 6);
+            }
         }
 
         if (containsCue(normalized, ANALYSIS_RANK_CUES)) {
@@ -1669,6 +1692,349 @@ public class AiSearchService {
             .map(AiSearchSuggestionAction::getLabel)
             .collect(Collectors.toList()));
         return response;
+    }
+
+    private AiSearchResponse buildBodyChangeResponse(String query,
+                                                    CandidateContext candidates,
+                                                    int page,
+                                                    int size,
+                                                    String queryMode) {
+        // 解析人物和时间范围
+        BodyChangeAnalysis analysis = analyzeBodyChangeQuery(query, candidates);
+        
+        if (analysis.personId == null) {
+            AiSearchResponse response = new AiSearchResponse();
+            response.setAiSearchEnabled(true);
+            response.setQueryMode(queryMode);
+            response.setUsedAi(false);
+            response.setExplanation("未识别到具体人物，请明确说出一个相册中已确认的人物名称");
+            response.setPhotos(Collections.emptyList());
+            response.setTotalElements(0);
+            response.setAlbums(Collections.emptyList());
+            response.setPersons(Collections.emptyList());
+            response.setSuggestions(Collections.emptyList());
+            response.setSuggestionActions(Collections.emptyList());
+            return response;
+        }
+
+        // 查询人脸数据
+        BodyChangeStats stats = calculateBodyChangeStats(analysis.personId, analysis.startYear, analysis.endYear);
+        
+        // 执行照片搜索
+        AiSearchIntent photoIntent = new AiSearchIntent();
+        photoIntent.setPersonIds(List.of(analysis.personId));
+        photoIntent.setStartDate(analysis.startYear + "-01-01");
+        photoIntent.setEndDate(analysis.endYear + "-12-31");
+        
+        PhotoSearchExecution photoSearch = executePhotoQuery(photoIntent, page, size);
+        
+        // 获取人物信息
+        List<PersonSummaryDTO> persons = new ArrayList<>();
+        if (analysis.personId != null) {
+            try {
+                Optional<PersonProfile> opt = personProfileRepository.findById(analysis.personId);
+                if (opt.isPresent()) {
+                    persons.add(faceService.toSummaryDTO(opt.get()));
+                }
+            } catch (Exception e) {
+                log.warn("获取人物信息失败: {}", e.getMessage());
+            }
+        }
+
+        // 生成分析结论
+        String answer = buildBodyChangeAnswer(query, stats, analysis);
+        
+        AiSearchResponse response = new AiSearchResponse();
+        response.setAiSearchEnabled(true);
+        response.setQueryMode(queryMode);
+        response.setUsedAi(false);
+        response.setNeedAnswer(true);
+        response.setParsedIntent(photoIntent);
+        response.setExplanation(analysis.explanation);
+        response.setPhotos(photoSearch.pagedPhotoDtos);
+        response.setTotalElements(photoSearch.totalMatched);
+        response.setAlbums(Collections.emptyList());
+        response.setPersons(persons);
+        response.setRelaxed(false);
+        response.setRelaxedReason(null);
+        response.setAnswer(answer);
+        
+        // 添加分析数据到响应中，供前端展示图表
+        Map<String, Object> analysisData = new LinkedHashMap<>();
+        analysisData.put("personId", analysis.personId);
+        analysisData.put("personName", analysis.personName);
+        analysisData.put("startYear", analysis.startYear);
+        analysisData.put("endYear", analysis.endYear);
+        analysisData.put("totalPhotos", stats.totalPhotos);
+        analysisData.put("avgFaceArea", stats.avgFaceArea);
+        analysisData.put("avgFaceWidth", stats.avgFaceWidth);
+        analysisData.put("avgFaceHeight", stats.avgFaceHeight);
+        analysisData.put("avgAspectRatio", stats.avgAspectRatio);
+        // 将 yearlyStats 转换为 Map 列表以便 JSON 序列化
+        List<Map<String, Object>> yearlyStatsList = stats.yearlyStats.stream()
+            .map(ys -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("year", ys.year);
+                m.put("month", ys.month);
+                m.put("label", ys.label);
+                m.put("faceCount", ys.faceCount);
+                m.put("avgFaceArea", ys.avgFaceArea);
+                m.put("avgFaceWidth", ys.avgFaceWidth);
+                m.put("avgFaceHeight", ys.avgFaceHeight);
+                m.put("avgAspectRatio", ys.avgAspectRatio);
+                return m;
+            })
+            .collect(Collectors.toList());
+        analysisData.put("yearlyStats", yearlyStatsList);
+        analysisData.put("trend", stats.trend);
+        analysisData.put("conclusion", stats.conclusion);
+        analysisData.put("changePercent", stats.changePercent);
+        analysisData.put("firstPeriod", stats.firstPeriod);
+        analysisData.put("lastPeriod", stats.lastPeriod);
+        response.setAnalysisData(analysisData);
+        response.setSuggestionActions(Collections.emptyList());
+        response.setSuggestions(Collections.emptyList());
+
+        return response;
+    }
+
+    private BodyChangeAnalysis analyzeBodyChangeQuery(String query, CandidateContext candidates) {
+        BodyChangeAnalysis analysis = new BodyChangeAnalysis();
+        int currentYear = LocalDate.now().getYear();
+
+        // 默认时间范围：过去2年
+        analysis.endYear = currentYear;
+        analysis.startYear = currentYear - 2;
+
+        // 解析时间范围
+        if (query.contains("这两年") || query.contains("近两年")) {
+            analysis.startYear = currentYear - 2;
+            analysis.endYear = currentYear;
+        } else if (query.contains("这三年") || query.contains("近三年")) {
+            analysis.startYear = currentYear - 3;
+            analysis.endYear = currentYear;
+        } else if (query.contains("近五年") || query.contains("这五年")) {
+            analysis.startYear = currentYear - 5;
+            analysis.endYear = currentYear;
+        } else if (query.contains("近几年") || query.contains("近几年")) {
+            analysis.startYear = currentYear - 3;
+            analysis.endYear = currentYear;
+        } else if (query.contains("近一年") || query.contains("这一年")) {
+            analysis.startYear = currentYear - 1;
+            analysis.endYear = currentYear;
+        } else if (query.contains("去年")) {
+            analysis.startYear = currentYear - 1;
+            analysis.endYear = currentYear - 1;
+        } else if (query.contains("今年")) {
+            analysis.startYear = currentYear;
+            analysis.endYear = currentYear;
+        } else if (query.contains("前年")) {
+            analysis.startYear = currentYear - 2;
+            analysis.endYear = currentYear - 2;
+        }
+
+        // 解析具体年份（如"24年"、"2024年"）
+        if (query.contains("年")) {
+            String yearStr = query.replaceAll(".*?(\\d{2,4})年.*", "$1");
+            try {
+                int year;
+                if (yearStr.length() == 2) {
+                    year = 2000 + Integer.parseInt(yearStr);
+                } else {
+                    year = Integer.parseInt(yearStr);
+                }
+                if (year >= 2000 && year <= currentYear + 1) {
+                    analysis.startYear = year;
+                    analysis.endYear = year;
+                    // 如果同时有其他年份，尝试扩展范围
+                    String allYears = query.replaceAll("[^\\d]", " ");
+                    String[] parts = allYears.trim().split("\\s+");
+                    for (String p : parts) {
+                        if (p.length() >= 2) {
+                            try {
+                                int y = p.length() == 2 ? 2000 + Integer.parseInt(p) : Integer.parseInt(p);
+                                if (y >= 2000 && y <= currentYear + 1 && y != year) {
+                                    analysis.startYear = Math.min(year, y);
+                                    analysis.endYear = Math.max(year, y);
+                                }
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // 解析人物
+        if (candidates != null && !candidates.persons.isEmpty()) {
+            // 选择第一个匹配的人物
+            PersonProfile person = candidates.persons.get(0);
+            analysis.personId = person.getId();
+            analysis.personName = person.getName();
+        }
+
+        analysis.explanation = String.format("分析 %s 在 %d-%d 年间的体型/面部变化",
+            analysis.personName != null ? analysis.personName : "该人物",
+            analysis.startYear, analysis.endYear);
+
+        return analysis;
+    }
+
+    private BodyChangeStats calculateBodyChangeStats(Long personId, int startYear, int endYear) {
+        BodyChangeStats stats = new BodyChangeStats();
+
+        try {
+            // 查询该人物所有人脸数据
+            List<Face> faces = faceRepository.findByPersonId(personId);
+
+            // 过滤时间范围
+            List<Face> filteredFaces = faces.stream()
+                .filter(f -> f.getPhoto() != null && f.getPhoto().getTakenAt() != null)
+                .filter(f -> {
+                    int year = f.getPhoto().getTakenAt().getYear();
+                    return year >= startYear && year <= endYear;
+                })
+                .filter(f -> f.getWidth() != null && f.getHeight() != null && f.getWidth() > 0 && f.getHeight() > 0)
+                .collect(Collectors.toList());
+
+            stats.totalPhotos = filteredFaces.size();
+
+            if (stats.totalPhotos == 0) {
+                stats.conclusion = "该时间段内没有检测到人脸的照片，无法分析体型变化";
+                stats.trend = "unknown";
+                return stats;
+            }
+
+            // 计算总体统计
+            double totalArea = 0, totalWidth = 0, totalHeight = 0;
+            for (Face face : filteredFaces) {
+                double area = face.getWidth() * face.getHeight();
+                totalArea += area;
+                totalWidth += face.getWidth();
+                totalHeight += face.getHeight();
+            }
+            stats.avgFaceArea = totalArea / stats.totalPhotos;
+            stats.avgFaceWidth = totalWidth / stats.totalPhotos;
+            stats.avgFaceHeight = totalHeight / stats.totalPhotos;
+            stats.avgAspectRatio = stats.avgFaceHeight / stats.avgFaceWidth;
+
+            // 按 (年份, 月份) 分组统计
+            Map<String, List<Face>> byYearMonth = filteredFaces.stream()
+                .collect(Collectors.groupingBy(f -> {
+                    LocalDateTime takenAt = f.getPhoto().getTakenAt();
+                    return takenAt.getYear() + "-" + String.format("%02d", takenAt.getMonthValue());
+                }));
+
+            for (Map.Entry<String, List<Face>> entry : byYearMonth.entrySet()) {
+                String yearMonth = entry.getKey();
+                List<Face> monthFaces = entry.getValue();
+
+                double monthArea = monthFaces.stream()
+                    .mapToDouble(f -> f.getWidth() * f.getHeight())
+                    .average().orElse(0);
+                double monthWidth = monthFaces.stream()
+                    .mapToDouble(Face::getWidth)
+                    .average().orElse(0);
+                double monthHeight = monthFaces.stream()
+                    .mapToDouble(Face::getHeight)
+                    .average().orElse(0);
+
+                YearlyBodyStats monthStats = new YearlyBodyStats();
+                // 解析年月字符串
+                String[] parts = yearMonth.split("-");
+                monthStats.year = Integer.parseInt(parts[0]);
+                monthStats.month = Integer.parseInt(parts[1]);
+                monthStats.label = yearMonth; // 如 "2024-03"
+                monthStats.faceCount = monthFaces.size();
+                monthStats.avgFaceArea = monthArea;
+                monthStats.avgFaceWidth = monthWidth;
+                monthStats.avgFaceHeight = monthHeight;
+                monthStats.avgAspectRatio = monthHeight / monthWidth;
+
+                stats.yearlyStats.add(monthStats);
+            }
+
+            // 按时间排序
+            stats.yearlyStats.sort((a, b) -> {
+                int yearCompare = Integer.compare(a.year, b.year);
+                if (yearCompare != 0) return yearCompare;
+                return Integer.compare(a.month, b.month);
+            });
+
+            // 计算趋势：比较首尾两个时间点的宽高比
+            // 注意：宽高比更能反映体型变化，因为不受拍摄距离影响
+            // 宽高比增大 = 脸变圆 = 可能变胖
+            // 宽高比减小 = 脸变瘦长 = 可能变瘦
+            if (stats.yearlyStats.size() >= 2) {
+                double firstRatio = stats.yearlyStats.get(0).avgAspectRatio;
+                double lastRatio = stats.yearlyStats.get(stats.yearlyStats.size() - 1).avgAspectRatio;
+                String firstPeriod = stats.yearlyStats.get(0).label;
+                String lastPeriod = stats.yearlyStats.get(stats.yearlyStats.size() - 1).label;
+                // 宽高比变化百分比
+                double changePercent = ((lastRatio - firstRatio) / firstRatio) * 100;
+                stats.changePercent = changePercent;
+                stats.firstPeriod = firstPeriod;
+                stats.lastPeriod = lastPeriod;
+
+                // 使用宽高比判断：阈值调整为更敏感的2%
+                if (changePercent > 2) {
+                    stats.trend = "gained_weight";
+                    stats.conclusion = String.format("%s 至 %s 期间，面部宽高比从 %.3f 变为 %.3f（增加 %.1f%%），脸型看起来更圆了",
+                        firstPeriod, lastPeriod, firstRatio, lastRatio, changePercent);
+                } else if (changePercent < -2) {
+                    stats.trend = "lost_weight";
+                    stats.conclusion = String.format("%s 至 %s 期间，面部宽高比从 %.3f 变为 %.3f（减少 %.1f%%），脸型看起来更瘦长了",
+                        firstPeriod, lastPeriod, firstRatio, lastRatio, Math.abs(changePercent));
+                } else {
+                    stats.trend = "stable";
+                    stats.conclusion = String.format("%s 至 %s 期间，面部宽高比变化不大（%.1f%%），体型基本保持稳定",
+                        firstPeriod, lastPeriod, changePercent);
+                }
+            } else if (stats.yearlyStats.size() == 1) {
+                String period = stats.yearlyStats.get(0).label;
+                stats.trend = "single_period";
+                stats.conclusion = String.format("%s 期间共 %d 张照片，平均人脸面积 %.4f。由于只有单个月份数据，无法判断变化趋势。",
+                    period, stats.totalPhotos, stats.avgFaceArea);
+            } else {
+                stats.trend = "insufficient_data";
+                stats.conclusion = "数据不足，无法判断变化趋势";
+            }
+
+        } catch (Exception e) {
+            log.error("计算体型变化统计数据失败: {}", e.getMessage(), e);
+            stats.conclusion = "分析过程中出错：" + e.getMessage();
+            stats.trend = "error";
+        }
+
+        return stats;
+    }
+
+    private String buildBodyChangeAnswer(String query, BodyChangeStats stats, BodyChangeAnalysis analysis) {
+        StringBuilder sb = new StringBuilder();
+        String personName = analysis.personName != null ? analysis.personName : "该人物";
+        
+        sb.append(personName).append("在").append(analysis.startYear)
+          .append("-").append(analysis.endYear).append("年间的体型变化分析：\n\n");
+        
+        sb.append("📊 数据概览\n");
+        sb.append("- 有效人脸照片：").append(stats.totalPhotos).append(" 张\n");
+        sb.append("- 平均人脸面积：").append(String.format("%.4f", stats.avgFaceArea)).append("\n");
+        sb.append("- 平均宽高比：").append(String.format("%.2f", stats.avgAspectRatio)).append("\n\n");
+        
+        if (!stats.yearlyStats.isEmpty()) {
+            sb.append("📅 月度趋势\n");
+            for (YearlyBodyStats yearStats : stats.yearlyStats) {
+                sb.append("- ").append(yearStats.label).append("：")
+                  .append(yearStats.faceCount).append(" 张，")
+                  .append("宽高比 ").append(String.format("%.3f", yearStats.avgAspectRatio))
+                  .append("\n");
+            }
+            sb.append("\n");
+        }
+        
+        sb.append("📈 分析结论\n");
+        sb.append(stats.conclusion);
+        
+        return sb.toString();
     }
 
     private AiSearchIntent callGpt(String query, CandidateContext candidates, String queryMode) {
@@ -4742,4 +5108,40 @@ public class AiSearchService {
             this.rightYear = rightYear;
         }
     }
+
+    static class BodyChangeAnalysis {
+        Long personId;
+        String personName;
+        int startYear;
+        int endYear;
+        String explanation;
+    }
+
+    static class BodyChangeStats {
+        int totalPhotos;
+        double avgFaceArea;
+        double avgFaceWidth;
+        double avgFaceHeight;
+        double avgAspectRatio;
+        double changePercent;
+        String trend; // gained_weight, lost_weight, stable, unknown, error, single_period
+        String conclusion;
+        String firstPeriod; // 如 "2024-03"
+        String lastPeriod; // 如 "2024-09"
+        List<YearlyBodyStats> yearlyStats = new ArrayList<>();
+    }
+
+    static class YearlyBodyStats {
+        int year;
+        int month; // 新增：月份
+        String label; // 如 "2024-03"
+        int faceCount;
+        double avgFaceArea;
+        double avgFaceWidth;
+        double avgFaceHeight;
+        double avgAspectRatio;
+    }
+
+    // BodyChangeStats 新增字段
+    // 需要在 calculateBodyChangeStats 方法中设置 firstPeriod 和 lastPeriod
 }
