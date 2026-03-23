@@ -784,6 +784,85 @@ public class PhotoScanService {
     }
 
     /**
+     * 异步重建所有照片的人脸数据，默认尽量保留人物绑定与确认状态。
+     */
+    @Async
+    public void rebuildAllFacesAsync(String taskId) {
+        log.info("异步任务 {}: 开始重建所有照片的人脸数据", taskId);
+        createTask(taskId, "任务已启动");
+        currentTaskId.set(taskId);
+        try {
+            int total = Math.toIntExact(photoRepository.count());
+            setTaskProgress(taskId, 0, total);
+            appendTaskLog(taskId, "开始逐张重建人脸，默认保留已有人物绑定");
+
+            int processed = 0;
+            int success = 0;
+            int skipped = 0;
+            int failed = 0;
+            int page = 0;
+            final int pageSize = 100;
+
+            while (true) {
+                Page<Photo> photoPage = photoRepository.findAll(PageRequest.of(page, pageSize));
+                if (!photoPage.hasContent()) {
+                    break;
+                }
+
+                for (Photo photo : photoPage.getContent()) {
+                    TaskStatus ts = tasks.get(taskId);
+                    if (ts != null && ts.stopped) {
+                        appendTaskLog(taskId, "任务已停止");
+                        completeTask(taskId, "已停止");
+                        return;
+                    }
+
+                    processed++;
+                    setTaskProgress(taskId, processed, total);
+
+                    if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
+                        skipped++;
+                        appendTaskLog(taskId, "跳过照片 " + photo.getId() + "：原图路径为空");
+                        continue;
+                    }
+
+                    File imageFile = new File(photo.getOriginalPath());
+                    if (!imageFile.exists()) {
+                        skipped++;
+                        appendTaskLog(taskId, "跳过照片 " + photo.getId() + "：原图不存在");
+                        continue;
+                    }
+
+                    try {
+                        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo, false, true, true);
+                        success++;
+                        appendTaskLog(taskId, "照片 " + photo.getId() + " 重建完成，人脸数=" + (faces == null ? 0 : faces.size()));
+                    } catch (Exception e) {
+                        failed++;
+                        appendTaskLog(taskId, "照片 " + photo.getId() + " 重建失败: " + e.getMessage());
+                        log.warn("重建照片 {} 的人脸失败", photo.getId(), e);
+                    }
+                }
+
+                if (!photoPage.hasNext()) {
+                    break;
+                }
+                page++;
+            }
+
+            appendTaskLog(taskId, "重建结束：成功 " + success + "，跳过 " + skipped + "，失败 " + failed);
+            completeTask(taskId, "已完成");
+            log.info("异步任务 {}: 重建所有人脸完成", taskId);
+        } catch (Exception e) {
+            appendTaskLog(taskId, "发生异常: " + e.getMessage());
+            completeTask(taskId, "已失败");
+            log.error("异步任务 {}: 重建所有人脸失败", taskId, e);
+        } finally {
+            currentTaskId.remove();
+        }
+    }
+
+    /**
      * 异步重新计算所有照片的颜色相关属性（后台任务）
      */
     @Async

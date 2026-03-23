@@ -169,6 +169,7 @@
               <option value="GET /tags">获取所有标签</option>
               <option value="POST /admin/scan">触发扫描</option>
               <option value="POST /admin/scan/force">强制扫描（重新处理所有图片）</option>
+              <option value="POST /admin/faces/rebuild-all">重建所有人脸（默认保留人物绑定）</option>
               <option value="POST /admin/thumbnails/clear">清空缩略图（重新生成三级缩略图）</option>
               <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
               <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
@@ -648,6 +649,24 @@ const testApi = async () => {
     }
   }
 
+  // 重建所有人脸需要确认
+  if (selectedApi.value === 'POST /admin/faces/rebuild-all') {
+    const confirmed = confirm(
+      '👤 重建所有人脸数据\n\n' +
+      '此操作将：\n' +
+      '• 对所有照片重新执行人脸检测\n' +
+      '• 默认保留可匹配到的已有人物绑定与确认状态\n' +
+      '• 对新算法不再认为是人脸的旧记录进行移除\n' +
+      '• 使用新的人脸前处理与特征提取重新生成 embedding\n\n' +
+      '⚠️ 该任务会在后台异步运行，图片多时可能耗时较长。\n' +
+      '⚠️ 这是“只重建人脸”的操作，不会重建缩略图、标签或EXIF。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
   // 清空智能标签需要确认
   if (selectedApi.value === 'POST /admin/smart-tags/clear') {
     const confirmed = confirm(
@@ -913,4 +932,3 @@ onUnmounted(() => {
 const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))
 const showFaceSimilarInputs = computed(() => selectedApi.value.includes('/admin/faces/{id}/similar'))
 </script>
-

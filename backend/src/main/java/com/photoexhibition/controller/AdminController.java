@@ -179,6 +179,22 @@ public class AdminController {
         }
     }
 
+    @PostMapping("/faces/rebuild-all")
+    public ResponseEntity<Map<String, Object>> rebuildAllFaces() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String taskId = UUID.randomUUID().toString();
+            photoScanService.rebuildAllFacesAsync(taskId);
+            resp.put("taskId", taskId);
+            resp.put("message", "已异步触发重建所有人脸（默认保留人物绑定）");
+            return ResponseEntity.accepted().body(resp);
+        } catch (Exception e) {
+            log.error("重建所有人脸失败", e);
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
 
     /**
      * 手动触发扫描
