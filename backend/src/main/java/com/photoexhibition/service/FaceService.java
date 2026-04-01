@@ -65,8 +65,7 @@ public class FaceService {
     private final FaceRecognitionService faceRecognitionService;
     private final FaceEmbeddingService faceEmbeddingService;
     private final SystemConfigService systemConfigService;
-    @Value("${photo.scan.base-path}")
-    private String photoBasePath;
+    private final UserPathService userPathService;
     @Value("${face.detection.confidence-threshold:0.25}")
     private double detectionConfidenceThreshold;
 
@@ -272,6 +271,7 @@ public class FaceService {
             }
             Face face = new Face();
             face.setPhoto(targetPhoto);
+            face.setUserId(targetPhoto.getUserId());
             face.setX(x);
             face.setY(y);
             face.setWidth(w);
@@ -344,6 +344,14 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<Face> getFacesByPhoto(Long photoId) {
+        return getFacesByPhoto(photoId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Face> getFacesByPhoto(Long photoId, Long userId) {
+        Photo photo = photoRepository.findById(photoId)
+            .orElseThrow(() -> new RuntimeException("图片不存在"));
+        validatePhotoOwnership(photo, userId);
         return faceRepository.findByPhotoId(photoId);
     }
 
@@ -352,7 +360,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> getFacesByPhotoDTO(Long photoId) {
-        return faceRepository.findByPhotoId(photoId).stream()
+        return getFacesByPhotoDTO(photoId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getFacesByPhotoDTO(Long photoId, Long userId) {
+        return getFacesByPhoto(photoId, userId).stream()
             .map(this::toDTO)
             .collect(Collectors.toList());
     }
@@ -370,8 +383,20 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public Page<FaceDTO> listFaces(String keyword, Pageable pageable) {
+        return listFaces(keyword, pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listFaces(String keyword, Pageable pageable, Long userId) {
         Page<Face> page = faceRepository.searchFaces(keyword, pageable);
-        return page.map(this::toDTO);
+        if (userId == null) {
+            return page.map(this::toDTO);
+        }
+        List<FaceDTO> filtered = page.getContent().stream()
+            .filter(face -> Objects.equals(face.getUserId(), userId))
+            .map(this::toDTO)
+            .collect(Collectors.toList());
+        return new PageImpl<>(filtered, pageable, filtered.size());
     }
 
     /**
@@ -382,8 +407,14 @@ public class FaceService {
      */
     @Transactional
     public FaceDTO assignFaceToPerson(Long faceId, Long personId, Boolean confirmed) {
+        return assignFaceToPerson(faceId, personId, confirmed, null);
+    }
+
+    @Transactional
+    public FaceDTO assignFaceToPerson(Long faceId, Long personId, Boolean confirmed, Long userId) {
         Face face = faceRepository.findById(faceId)
             .orElseThrow(() -> new RuntimeException("人脸不存在"));
+        validateFaceOwnership(face, userId);
 
         Long originalPersonId = face.getPerson() != null ? face.getPerson().getId() : null;
         boolean wasUnassigned = (originalPersonId == null);
@@ -396,6 +427,9 @@ public class FaceService {
         } else {
             PersonProfile person = personProfileRepository.findById(personId)
                 .orElseThrow(() -> new RuntimeException("人物不存在"));
+            if (userId != null && !Objects.equals(person.getUserId(), userId)) {
+                throw new RuntimeException("人物不存在");
+            }
             face.setPerson(person);
             if (confirmed != null) {
                 face.setIsConfirmed(confirmed);
@@ -424,6 +458,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<Long> findFacesToCleanupAfterRemoval(Long personId, Long removedFaceId) {
+        return findFacesToCleanupAfterRemoval(personId, removedFaceId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Long> findFacesToCleanupAfterRemoval(Long personId, Long removedFaceId, Long userId) {
+        validatePersonOwnership(personId, userId);
         List<Long> result = new ArrayList<>();
         
         // 获取该人物的剩余已确认人脸
@@ -439,6 +479,9 @@ public class FaceService {
 
         // 获取已移除的人脸向量
         Face removedFace = faceRepository.findById(removedFaceId).orElse(null);
+        if (removedFace != null) {
+            validateFaceOwnership(removedFace, userId);
+        }
         if (removedFace == null || removedFace.getEmbedding() == null || removedFace.getEmbedding().isEmpty()) {
             return result;
         }
@@ -511,9 +554,17 @@ public class FaceService {
      */
     @Transactional
     public void unassignFaces(List<Long> faceIds) {
+        unassignFaces(faceIds, null);
+    }
+
+    @Transactional
+    public void unassignFaces(List<Long> faceIds, Long userId) {
         Set<Long> affectedPersonIds = new HashSet<>();
         for (Long faceId : faceIds) {
             Face face = faceRepository.findById(faceId).orElse(null);
+            if (face != null) {
+                validateFaceOwnership(face, userId);
+            }
             if (face != null && face.getPerson() != null) {
                 affectedPersonIds.add(face.getPerson().getId());
             }
@@ -633,11 +684,16 @@ public class FaceService {
      */
     @Transactional
     public FaceDTO assignFaceToPerson(Long faceId, Long personId) {
-        return assignFaceToPerson(faceId, personId, true); // 默认已确认
+        return assignFaceToPerson(faceId, personId, true, null); // 默认已确认
     }
 
     @Transactional(readOnly = true)
     public Page<FaceDTO> listUnassignedFaces(Pageable pageable, String sort) {
+        return listUnassignedFaces(pageable, sort, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listUnassignedFaces(Pageable pageable, String sort, Long userId) {
         // 根据sort参数创建排序
         Sort sortObj;
         if ("confidence".equals(sort)) {
@@ -653,13 +709,26 @@ public class FaceService {
             sortObj
         );
 
-        return faceRepository.findByPersonIsNull(pageableWithSort).map(this::toDTO);
+        Page<Face> page = faceRepository.findByPersonIsNull(pageableWithSort);
+        if (userId == null) {
+            return page.map(this::toDTO);
+        }
+        List<FaceDTO> filtered = page.getContent().stream()
+            .filter(face -> Objects.equals(face.getUserId(), userId))
+            .map(this::toDTO)
+            .collect(Collectors.toList());
+        return new PageImpl<>(filtered, pageable, filtered.size());
     }
 
     /**
      * 获取与指定人物相似的未分配人脸（相似度在0.4-0.6之间的）
      */
     public Page<FaceDTO> listUnassignedFacesForPerson(Long personId, Pageable pageable) {
+        return listUnassignedFacesForPerson(personId, pageable, null);
+    }
+
+    public Page<FaceDTO> listUnassignedFacesForPerson(Long personId, Pageable pageable, Long userId) {
+        validatePersonOwnership(personId, userId);
         // 使用缓存获取相似人脸
         List<CachedFaceSimilarity> cached = getCachedSimilarities(personId);
         if (cached == null) {
@@ -692,6 +761,7 @@ public class FaceService {
             pageContent.stream().map(cs -> {
                 Face face = faceRepository.findById(cs.faceId).orElse(null);
                 if (face == null) return null;
+                if (userId != null && !Objects.equals(face.getUserId(), userId)) return null;
                 FaceDTO dto = toDTO(face);
                 dto.setSimilarity(cs.similarity);
                 return dto;
@@ -718,8 +788,12 @@ public class FaceService {
      * 获取与指定聚类相似的未分配人脸（相似度在0.4-0.6之间的）
      */
     public Page<FaceDTO> listUnassignedFacesForCluster(Integer clusterIndex, Pageable pageable) {
+        return listUnassignedFacesForCluster(clusterIndex, pageable, null);
+    }
+
+    public Page<FaceDTO> listUnassignedFacesForCluster(Integer clusterIndex, Pageable pageable, Long userId) {
         // 获取聚类中的人脸
-        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, 0.6);
+        List<FaceDTO> clusterFaces = getClusterFaces(clusterIndex, 0.6, userId);
         if (clusterFaces.isEmpty()) {
             return new PageImpl<>(new ArrayList<>(), pageable, 0);
         }
@@ -742,7 +816,9 @@ public class FaceService {
         }
 
         // 获取所有未分配人脸，计算相似度
-        List<Face> allUnassigned = faceRepository.findByPersonIsNull();
+        List<Face> allUnassigned = faceRepository.findByPersonIsNull().stream()
+            .filter(face -> userId == null || Objects.equals(face.getUserId(), userId))
+            .collect(Collectors.toList());
         List<FaceSimilarity> candidates = new ArrayList<>();
 
         for (Face face : allUnassigned) {
@@ -779,11 +855,30 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public Page<FaceDTO> listAssignedFaces(Pageable pageable) {
-        return faceRepository.findByPersonIsNotNull(pageable).map(this::toDTO);
+        return listAssignedFaces(pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listAssignedFaces(Pageable pageable, Long userId) {
+        Page<Face> page = faceRepository.findByPersonIsNotNull(pageable);
+        if (userId == null) {
+            return page.map(this::toDTO);
+        }
+        List<FaceDTO> filtered = page.getContent().stream()
+            .filter(face -> Objects.equals(face.getUserId(), userId))
+            .map(this::toDTO)
+            .collect(Collectors.toList());
+        return new PageImpl<>(filtered, pageable, filtered.size());
     }
 
     @Transactional(readOnly = true)
     public Page<FaceDTO> listPersonFaces(Long personId, Pageable pageable) {
+        return listPersonFaces(personId, pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listPersonFaces(Long personId, Pageable pageable, Long userId) {
+        validatePersonOwnership(personId, userId);
         return faceRepository.findByPersonIdOrderByPhotoTimeDesc(personId, pageable).map(this::toDTO);
     }
 
@@ -794,6 +889,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> getPersonSamplePhotos(Long personId) {
+        return getPersonSamplePhotos(personId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getPersonSamplePhotos(Long personId, Long userId) {
+        validatePersonOwnership(personId, userId);
         // 获取该人物所在的所有相册ID（按相册ID倒序）
         List<Long> albumIds = faceRepository.findDistinctAlbumIdsByPersonId(personId);
         List<FaceDTO> result = new ArrayList<>();
@@ -878,6 +979,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public Page<FaceDTO> listConfirmedFaces(Long personId, Pageable pageable) {
+        return listConfirmedFaces(personId, pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listConfirmedFaces(Long personId, Pageable pageable, Long userId) {
+        validatePersonOwnership(personId, userId);
         return faceRepository.findByPersonIdAndIsConfirmed(personId, true, pageable).map(this::toDTO);
     }
 
@@ -886,6 +993,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public Page<FaceDTO> listAutoAssignedFaces(Long personId, Pageable pageable) {
+        return listAutoAssignedFaces(personId, pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listAutoAssignedFaces(Long personId, Pageable pageable, Long userId) {
+        validatePersonOwnership(personId, userId);
         return faceRepository.findByPersonIdAndIsConfirmed(personId, false, pageable).map(this::toDTO);
     }
 
@@ -894,6 +1007,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> listSameFolderSimilarFaces(Long personId, int top) {
+        return listSameFolderSimilarFaces(personId, top, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> listSameFolderSimilarFaces(Long personId, int top, Long userId) {
+        validatePersonOwnership(personId, userId);
         // 获取该人物的已确认人脸和自动分配人脸，一起作为套图推荐的参考基准
         List<Face> confirmedFaces = faceRepository
                 .findByPersonIdAndIsConfirmed(personId, true, PageRequest.of(0, 10))
@@ -929,7 +1048,9 @@ public class FaceService {
             return new ArrayList<>();
         }
 
-        List<Face> unassignedFaces = faceRepository.findByPersonIsNullAndPhotoAlbumIdIn(albumIds);
+        List<Face> unassignedFaces = faceRepository.findByPersonIsNullAndPhotoAlbumIdIn(albumIds).stream()
+                .filter(face -> userId == null || Objects.equals(face.getUserId(), userId))
+                .collect(Collectors.toList());
         if (unassignedFaces.isEmpty()) {
             return new ArrayList<>();
         }
@@ -985,7 +1106,19 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public Page<PersonSummaryDTO> listPersonsWithSample(Pageable pageable) {
-        Page<PersonProfile> personPage = personProfileRepository.findAllOrderByFaceCountDesc(pageable);
+        return listPersonsWithSample(pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PersonSummaryDTO> listPersonsWithSample(Pageable pageable, Long userId) {
+        if (userId == null) {
+            Page<PersonProfile> personPage = personProfileRepository.findAllOrderByFaceCountDesc(pageable);
+            List<PersonSummaryDTO> persons = personPage.getContent().stream()
+                .map(this::toSummaryDTO)
+                .collect(Collectors.toList());
+            return new PageImpl<>(persons, pageable, personPage.getTotalElements());
+        }
+        Page<PersonProfile> personPage = personProfileRepository.findByUserIdOrderByFaceCountDesc(userId, pageable);
         List<PersonSummaryDTO> persons = personPage.getContent().stream()
             .map(this::toSummaryDTO)
             .collect(Collectors.toList());
@@ -997,7 +1130,20 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public Page<PersonSummaryDTO> listVisiblePersonsWithSample(Pageable pageable) {
-        Page<PersonProfile> personPage = personProfileRepository.findVisibleOrderByFaceCountDesc(pageable);
+        return listVisiblePersonsWithSample(pageable, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PersonSummaryDTO> listVisiblePersonsWithSample(Pageable pageable, Long userId) {
+        if (userId == null) {
+            Page<PersonProfile> personPage = personProfileRepository.findVisibleOrderByFaceCountDesc(pageable);
+            List<PersonSummaryDTO> persons = personPage.getContent().stream()
+                .map(this::toSummaryDTO)
+                .collect(Collectors.toList());
+            return new PageImpl<>(persons, pageable, personPage.getTotalElements());
+        }
+
+        Page<PersonProfile> personPage = personProfileRepository.findVisibleByUserIdOrderByFaceCountDesc(userId, pageable);
         List<PersonSummaryDTO> persons = personPage.getContent().stream()
             .map(this::toSummaryDTO)
             .collect(Collectors.toList());
@@ -1009,18 +1155,26 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<PersonListItemDTO> listPersonItems(double clusterThreshold, int clusterPage, int clusterSize) {
+        return listPersonItems(clusterThreshold, clusterPage, clusterSize, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonListItemDTO> listPersonItems(double clusterThreshold, int clusterPage, int clusterSize, Long userId) {
         List<PersonListItemDTO> items = new ArrayList<>();
 
         // 1. 批量获取所有人物的人脸数量（避免 N+1 查询）
         Map<Long, Integer> faceCountMap = new HashMap<>();
-        for (Object[] row : faceRepository.countFacesByPersonGrouped()) {
+        List<Object[]> faceCounts = userId == null
+            ? faceRepository.countFacesByPersonGrouped()
+            : faceRepository.countFacesByPersonGroupedByUserId(userId);
+        for (Object[] row : faceCounts) {
             Long pid = ((Number) row[0]).longValue();
             int cnt = ((Number) row[1]).intValue();
             faceCountMap.put(pid, cnt);
         }
 
         // 2. 已确认的人物
-        List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
+        List<PersonProfile> confirmedPersons = findScopedPersons(userId);
         for (PersonProfile person : confirmedPersons) {
             PersonListItemDTO item = new PersonListItemDTO();
             item.setType("confirmed");
@@ -1046,11 +1200,14 @@ public class FaceService {
         }
 
         // 2. 未确认的聚类（支持分页）
-        List<FaceClusterDTO> allClusters = clusterSimilarFaces(clusterThreshold);
+        List<FaceClusterDTO> allClusters = clusterSimilarFaces(clusterThreshold, userId);
 
         // 计算分页的聚类
         int clusterStartIndex = clusterPage * clusterSize;
         int clusterEndIndex = Math.min(clusterStartIndex + clusterSize, allClusters.size());
+        if (clusterStartIndex >= allClusters.size()) {
+            clusterEndIndex = clusterStartIndex = allClusters.size();
+        }
         List<FaceClusterDTO> pageClusters = allClusters.subList(clusterStartIndex, clusterEndIndex);
 
         for (int i = 0; i < pageClusters.size(); i++) {
@@ -1103,11 +1260,17 @@ public class FaceService {
      */
     @Transactional
     public List<FaceDTO> autoAssignSimilarFaces(Long personId, double threshold) {
-        List<FaceDTO> similar = findSimilarUnassignedFaces(personId, 100, threshold);
+        return autoAssignSimilarFaces(personId, threshold, null);
+    }
+
+    @Transactional
+    public List<FaceDTO> autoAssignSimilarFaces(Long personId, double threshold, Long userId) {
+        validatePersonOwnership(personId, userId);
+        List<FaceDTO> similar = findSimilarUnassignedFaces(personId, 100, threshold, userId);
         // 自动分配相似度 >= 0.75 的人脸
         for (FaceDTO face : similar) {
             if (face.getSimilarity() != null && face.getSimilarity() >= 0.75) {
-                assignFaceToPerson(face.getId(), personId, false); // 自动分配，不确认
+                assignFaceToPerson(face.getId(), personId, false, userId); // 自动分配，不确认
             }
         }
         return similar.stream()
@@ -1134,6 +1297,12 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public List<FaceDTO> findSimilarUnassignedFaces(Long personId, int top, double threshold) {
+        return findSimilarUnassignedFaces(personId, top, threshold, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> findSimilarUnassignedFaces(Long personId, int top, double threshold, Long userId) {
+        validatePersonOwnership(personId, userId);
         // 使用缓存获取相似人脸
         List<CachedFaceSimilarity> cached = getCachedSimilarities(personId);
         if (cached == null) {
@@ -1146,12 +1315,17 @@ public class FaceService {
             if (cs.similarity >= 0.5) {
                 Face face = faceRepository.findById(cs.faceId).orElse(null);
                 if (face != null) {
+                    if (userId != null && !Objects.equals(face.getUserId(), userId)) {
+                        return null;
+                    }
                     FaceDTO dto = toDTO(face);
                     dto.setSimilarity(cs.similarity);
                     result.add(dto);
                 }
             }
         }
+
+        result.removeIf(Objects::isNull);
 
         result.sort((a, b) -> Double.compare(
             b.getSimilarity() != null ? b.getSimilarity() : 0,
@@ -1169,7 +1343,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> getClusterFaces(int clusterIndex, double threshold) {
-        List<FaceClusterDTO> clusters = clusterSimilarFaces(threshold);
+        return getClusterFaces(clusterIndex, threshold, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getClusterFaces(int clusterIndex, double threshold, Long userId) {
+        List<FaceClusterDTO> clusters = clusterSimilarFaces(threshold, userId);
         if (clusterIndex < 0 || clusterIndex >= clusters.size()) {
             return new ArrayList<>();
         }
@@ -1190,7 +1369,14 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceClusterDTO> clusterSimilarFaces(double threshold) {
-        List<Face> unassigned = faceRepository.findByPersonIsNull();
+        return clusterSimilarFaces(threshold, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceClusterDTO> clusterSimilarFaces(double threshold, Long userId) {
+        List<Face> unassigned = faceRepository.findByPersonIsNull().stream()
+            .filter(face -> userId == null || Objects.equals(face.getUserId(), userId))
+            .collect(Collectors.toList());
         List<Face> withEmbedding = unassigned.stream()
             .filter(this::isValidForClustering)
             .collect(Collectors.toList());
@@ -1202,9 +1388,11 @@ public class FaceService {
         final double strictThreshold = Math.max(threshold + clusteringThresholdBonus, clusteringMinThreshold);
 
         double cacheKey = roundThreshold(threshold);
-        List<FaceClusterDTO> cached = clusterCache.get(cacheKey);
-        if (cached != null) {
-            return cached;
+        if (userId == null) {
+            List<FaceClusterDTO> cached = clusterCache.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
         }
 
         // ==================== 阶段1: 贪心初始聚类 ====================
@@ -1488,9 +1676,11 @@ public class FaceService {
 
         clusters.sort((a, b) -> Integer.compare(b.getCount(), a.getCount()));
 
-        log.info("聚类完成: {} 个人脸 → {} 个组（阈值: {} → {}，合并阈值: {}）", 
-            withEmbedding.size(), clusters.size(), threshold, strictThreshold, mergeThreshold);
-        clusterCache.put(cacheKey, new ArrayList<>(clusters));
+        log.info("聚类完成: {} 个人脸 → {} 个组（阈值: {} → {}，合并阈值: {}，userId={}）", 
+            withEmbedding.size(), clusters.size(), threshold, strictThreshold, mergeThreshold, userId);
+        if (userId == null) {
+            clusterCache.put(cacheKey, new ArrayList<>(clusters));
+        }
         return clusters;
     }
 
@@ -1699,6 +1889,11 @@ public class FaceService {
      */
     @Transactional
     public int batchAssignFacesToPerson(List<Long> faceIds, Long personId, Boolean confirmed) {
+        return batchAssignFacesToPerson(faceIds, personId, confirmed, null);
+    }
+
+    @Transactional
+    public int batchAssignFacesToPerson(List<Long> faceIds, Long personId, Boolean confirmed, Long userId) {
         if (faceIds == null || faceIds.isEmpty()) {
             return 0;
         }
@@ -1707,6 +1902,9 @@ public class FaceService {
         if (personId != null) {
             person = personProfileRepository.findById(personId)
                 .orElseThrow(() -> new RuntimeException("人物不存在"));
+            if (userId != null && !Objects.equals(person.getUserId(), userId)) {
+                throw new RuntimeException("人物不存在");
+            }
         }
 
         Set<Long> affectedPersonIds = new HashSet<>();
@@ -1716,6 +1914,7 @@ public class FaceService {
         for (Long faceId : faceIds) {
             Face face = faceRepository.findById(faceId).orElse(null);
             if (face == null) continue;
+            validateFaceOwnership(face, userId);
 
             Long originalPersonId = face.getPerson() != null ? face.getPerson().getId() : null;
             if (originalPersonId != null) {
@@ -1830,13 +2029,7 @@ public class FaceService {
         if (originalPath == null || originalPath.isEmpty()) return prefixes;
 
         try {
-            String base = Paths.get(photoBasePath).normalize().toString();
-            String normalized = Paths.get(originalPath).normalize().toString();
-            // 去掉 base 前缀
-            if (normalized.startsWith(base)) {
-                normalized = normalized.substring(base.length());
-            }
-            normalized = normalized.replace('\\', '/');
+            String normalized = normalizeTenantAwarePath(originalPath);
             if (normalized.startsWith("/")) normalized = normalized.substring(1);
             String[] parts = normalized.split("/");
             if (parts.length < 3) {
@@ -1882,10 +2075,7 @@ public class FaceService {
             return FolderScope.NONE;
         }
         try {
-            String normalized = Paths.get(originalPath).normalize().toString().replace('\\', '/');
-            if (normalized.startsWith(photoBasePath)) {
-                normalized = normalized.substring(Paths.get(photoBasePath).normalize().toString().length());
-            }
+            String normalized = normalizeTenantAwarePath(originalPath);
             if (normalized.startsWith("/")) normalized = normalized.substring(1);
 
             // 构造当前目录层级链
@@ -1912,6 +2102,17 @@ public class FaceService {
             log.debug("匹配目录前缀失败: path={}, err={}", originalPath, e.getMessage());
         }
         return FolderScope.NONE;
+    }
+
+    private String normalizeTenantAwarePath(String path) {
+        if (path == null || path.isBlank()) {
+            return "";
+        }
+        String tenantRelative = userPathService.extractTenantRelativePhotoPath(path);
+        if (tenantRelative != null && !tenantRelative.isBlank()) {
+            return tenantRelative.replace('\\', '/');
+        }
+        return Paths.get(path).normalize().toString().replace('\\', '/');
     }
 
     /**
@@ -1949,6 +2150,11 @@ public class FaceService {
      */
     @Transactional
     public PersonDTO createPersonFromFaces(List<Long> faceIds, String personName, String description) {
+        return createPersonFromFaces(faceIds, personName, description, null);
+    }
+
+    @Transactional
+    public PersonDTO createPersonFromFaces(List<Long> faceIds, String personName, String description, Long userId) {
         if (faceIds == null || faceIds.isEmpty()) {
             throw new RuntimeException("人脸ID列表不能为空");
         }
@@ -1957,10 +2163,11 @@ public class FaceService {
         }
 
         // 查找或创建人物
-        PersonProfile person = personProfileRepository.findByName(personName.trim())
+        PersonProfile person = findPersonByNameForScope(personName.trim(), userId)
             .orElseGet(() -> {
                 PersonProfile p = new PersonProfile();
                 p.setName(personName.trim());
+                p.setUserId(userId);
                 p.setDescription(description);
                 return personProfileRepository.save(p);
             });
@@ -1975,6 +2182,7 @@ public class FaceService {
         for (Long faceId : faceIds) {
             Face face = faceRepository.findById(faceId)
                 .orElseThrow(() -> new RuntimeException("人脸不存在: " + faceId));
+            validateFaceOwnership(face, userId);
             face.setPerson(person);
             face.setIsConfirmed(true);
             faceRepository.save(face);
@@ -1991,10 +2199,18 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> findSimilarFaces(Long faceId, int top, double threshold) {
+        return findSimilarFaces(faceId, top, threshold, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> findSimilarFaces(Long faceId, int top, double threshold, Long userId) {
         Face base = faceRepository.findById(faceId).orElseThrow(() -> new RuntimeException("人脸不存在"));
+        validateFaceOwnership(base, userId);
         float[] baseVec = getEmbedding(base);
 
-        List<Face> all = faceRepository.findAllWithEmbedding();
+        List<Face> all = faceRepository.findAllWithEmbedding().stream()
+            .filter(face -> userId == null || Objects.equals(face.getUserId(), userId))
+            .collect(Collectors.toList());
         List<FaceDTO> result = new ArrayList<>();
 
         // 先添加自己
@@ -2032,12 +2248,18 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<PhotoDTO> getPhotosByFaceId(Long faceId) {
+        return getPhotosByFaceId(faceId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PhotoDTO> getPhotosByFaceId(Long faceId, Long userId) {
         Face face = faceRepository.findById(faceId).orElseThrow(() -> new RuntimeException("人脸不存在"));
+        validateFaceOwnership(face, userId);
         Photo photo = face.getPhoto();
         if (photo == null) {
             return List.of();
         }
-        return List.of(photoService.getPhotoById(photo.getId()));
+        return List.of(photoService.getPhotoById(photo.getId(), userId));
     }
 
     /**
@@ -2045,16 +2267,23 @@ public class FaceService {
      */
     @Transactional
     public FaceDTO updateFacePerson(Long faceId, String name, String description) {
+        return updateFacePerson(faceId, name, description, null);
+    }
+
+    @Transactional
+    public FaceDTO updateFacePerson(Long faceId, String name, String description, Long userId) {
         Face face = faceRepository.findById(faceId)
             .orElseThrow(() -> new RuntimeException("人脸不存在"));
+        validateFaceOwnership(face, userId);
 
         if (name == null || name.trim().isEmpty()) {
             face.setPerson(null);
         } else {
-            PersonProfile person = personProfileRepository.findByName(name.trim())
+            PersonProfile person = findPersonByNameForScope(name.trim(), userId)
                 .orElseGet(() -> {
                     PersonProfile p = new PersonProfile();
                     p.setName(name.trim());
+                    p.setUserId(userId);
                     p.setDescription(description);
                     return personProfileRepository.save(p);
                 });
@@ -2071,7 +2300,12 @@ public class FaceService {
 
     @Transactional(readOnly = true)
     public List<PersonDTO> listPersons() {
-        return personProfileRepository.findAll().stream()
+        return listPersons(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonDTO> listPersons(Long userId) {
+        return loadScopedPersons(userId).stream()
             .map(this::toDTO)
             .collect(Collectors.toList());
     }
@@ -2081,10 +2315,17 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<PersonSummaryDTO> searchPersons(String query) {
+        return searchPersons(query, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> searchPersons(String query, Long userId) {
         if (query == null || query.trim().isEmpty()) {
             return new ArrayList<>();
         }
-        List<PersonProfile> persons = personProfileRepository.searchByNameList(query.trim());
+        List<PersonProfile> persons = userId == null
+            ? personProfileRepository.searchByNameList(query.trim())
+            : personProfileRepository.searchByNameListAndUserId(query.trim(), userId);
         return persons.stream()
             .map(this::toSummaryDTO)
             .collect(Collectors.toList());
@@ -2096,6 +2337,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId, boolean visibleOnly) {
+        return getPersonsInAlbum(albumId, visibleOnly, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId, boolean visibleOnly, Long userId) {
+        validateAlbumOwnership(albumId, userId);
         List<Object[]> rows = faceRepository.findPersonIdsWithFaceCountByAlbumId(albumId);
         List<PersonSummaryDTO> result = new ArrayList<>();
 
@@ -2105,6 +2352,7 @@ public class FaceService {
 
             PersonProfile person = personProfileRepository.findById(personId).orElse(null);
             if (person == null) continue;
+            if (userId != null && !Objects.equals(person.getUserId(), userId)) continue;
             if (visibleOnly && person.getHidden() != null && person.getHidden()) continue;
 
             PersonSummaryDTO dto = new PersonSummaryDTO();
@@ -2136,6 +2384,12 @@ public class FaceService {
      */
     @Transactional
     public PersonProfile togglePersonHidden(Long personId) {
+        return togglePersonHidden(personId, null);
+    }
+
+    @Transactional
+    public PersonProfile togglePersonHidden(Long personId, Long userId) {
+        validatePersonOwnership(personId, userId);
         PersonProfile person = personProfileRepository.findById(personId)
             .orElseThrow(() -> new RuntimeException("人物不存在"));
         boolean current = person.getHidden() != null && person.getHidden();
@@ -2145,13 +2399,22 @@ public class FaceService {
 
     @Transactional
     public PersonDTO createOrUpdatePerson(Long id, PersonDTO payload) {
+        return createOrUpdatePerson(id, payload, null);
+    }
+
+    @Transactional
+    public PersonDTO createOrUpdatePerson(Long id, PersonDTO payload, Long userId) {
         PersonProfile person;
         if (id != null) {
+            validatePersonOwnership(id, userId);
             person = personProfileRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("人物不存在"));
         } else {
-            Optional<PersonProfile> existing = personProfileRepository.findByName(payload.getName());
+            Optional<PersonProfile> existing = findPersonByNameForScope(payload.getName(), userId);
             person = existing.orElseGet(PersonProfile::new);
+            if (person.getUserId() == null) {
+                person.setUserId(userId);
+            }
         }
 
         if (payload.getName() != null && !payload.getName().trim().isEmpty()) {
@@ -2194,7 +2457,7 @@ public class FaceService {
             dto.setAlbumId(photo.getAlbumId());
             if (photo.getAlbumId() != null) {
                 albumRepository.findById(photo.getAlbumId()).ifPresent(album ->
-                    dto.setPhotoFolderPath(album.getPath())
+                    dto.setPhotoFolderPath(getAlbumDisplayPath(album.getPath()))
                 );
             }
             // EXIF 信息
@@ -2235,10 +2498,17 @@ public class FaceService {
      */
     @Transactional
     public PersonDTO setPersonSamplePhoto(Long personId, Long faceId) {
+        return setPersonSamplePhoto(personId, faceId, null);
+    }
+
+    @Transactional
+    public PersonDTO setPersonSamplePhoto(Long personId, Long faceId, Long userId) {
+        validatePersonOwnership(personId, userId);
         PersonProfile person = personProfileRepository.findById(personId)
             .orElseThrow(() -> new RuntimeException("人物不存在"));
         Face face = faceRepository.findById(faceId)
             .orElseThrow(() -> new RuntimeException("人脸不存在"));
+        validateFaceOwnership(face, userId);
 
         person.setSamplePhotoId(face.getPhoto() != null ? face.getPhoto().getId() : null);
         person.setSampleFaceId(faceId);
@@ -2256,7 +2526,13 @@ public class FaceService {
      * 返回匹配的第一个可见人物
      */
     public PersonSummaryDTO searchPersonByName(String name) {
-        List<PersonProfile> persons = personProfileRepository.searchByNameList(name);
+        return searchPersonByName(name, null);
+    }
+
+    public PersonSummaryDTO searchPersonByName(String name, Long userId) {
+        List<PersonProfile> persons = userId == null
+            ? personProfileRepository.searchByNameList(name)
+            : personProfileRepository.searchByNameListAndUserId(name, userId);
         // 优先返回可见的人物
         for (PersonProfile person : persons) {
             if (person.getHidden() == null || !person.getHidden()) {
@@ -2420,6 +2696,12 @@ public class FaceService {
      */
     @Transactional
     public void deletePerson(Long personId) {
+        deletePerson(personId, null);
+    }
+
+    @Transactional
+    public void deletePerson(Long personId, Long userId) {
+        validatePersonOwnership(personId, userId);
         PersonProfile person = personProfileRepository.findById(personId)
             .orElseThrow(() -> new RuntimeException("人物不存在"));
         
@@ -2445,35 +2727,17 @@ public class FaceService {
         if (absolutePath == null || absolutePath.isEmpty()) {
             return absolutePath;
         }
-
-        try {
-            String basePath = photoBasePath;
-            if (!Paths.get(basePath).isAbsolute()) {
-                String projectRoot = System.getProperty("user.dir");
-                if (projectRoot.endsWith("backend")) {
-                    projectRoot = new File(projectRoot).getParent();
-                }
-                String cleanPath = basePath.startsWith("./")
-                    ? basePath.substring(2)
-                    : basePath;
-                basePath = new File(projectRoot, cleanPath).getAbsolutePath();
-            }
-
-            basePath = Paths.get(basePath).normalize().toString();
-            String normalizedAbsolutePath = Paths.get(absolutePath).normalize().toString();
-
-            if (!normalizedAbsolutePath.startsWith(basePath)) {
-                return absolutePath;
-            }
-
-            String relativePath = normalizedAbsolutePath.substring(basePath.length());
-            if (!relativePath.startsWith("/")) {
-                relativePath = "/" + relativePath;
-            }
-            return relativePath.replace("\\", "/");
-        } catch (Exception e) {
-            return absolutePath;
+        String relativePath = userPathService.toRelativePhotoPath(absolutePath, true);
+        if (!absolutePath.equals(relativePath)) {
+            return relativePath;
         }
+        String displayPath = userPathService.toDisplayPath(absolutePath, true);
+        if (!absolutePath.equals(displayPath)) {
+            return displayPath;
+        }
+        String normalized = absolutePath.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     /**
@@ -2485,12 +2749,17 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double clusterThreshold, double recommendThreshold) {
+        return getSimilarPersonsForCluster(clusterIndex, clusterThreshold, recommendThreshold, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSimilarityDTO> getSimilarPersonsForCluster(int clusterIndex, double clusterThreshold, double recommendThreshold, Long userId) {
         // 使用传入的聚类阈值来获取聚类人脸
         final double CLUSTER_THRESHOLD = clusterThreshold;
 
         // 获取聚类中的人脸（这里的人脸已经过聚类算法的质量过滤）
         // 但为了与手动搜索逻辑保持一致，我们需要获取所有原始人脸
-        List<FaceClusterDTO> clusters = clusterSimilarFaces(CLUSTER_THRESHOLD);
+        List<FaceClusterDTO> clusters = clusterSimilarFaces(CLUSTER_THRESHOLD, userId);
         if (clusterIndex < 0 || clusterIndex >= clusters.size()) {
             return new ArrayList<>();
         }
@@ -2533,6 +2802,12 @@ public class FaceService {
 
         for (Object[] row : personFaceData) {
             Long personId = ((Number) row[0]).longValue();
+            if (userId != null) {
+                PersonProfile person = personProfileRepository.findById(personId).orElse(null);
+                if (person == null || !Objects.equals(person.getUserId(), userId)) {
+                    continue;
+                }
+            }
             String personName = (String) row[1];
             String embeddingStr = (String) row[2];
 
@@ -2626,6 +2901,11 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<PersonSimilarityDTO> calculateSimilarityToPersons(List<Long> faceIds) {
+        return calculateSimilarityToPersons(faceIds, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSimilarityDTO> calculateSimilarityToPersons(List<Long> faceIds, Long userId) {
         if (faceIds.isEmpty()) {
             return new ArrayList<>();
         }
@@ -2633,6 +2913,7 @@ public class FaceService {
         // 获取选中的人脸实体
         List<Face> selectedFaces = faceIds.stream()
             .map(id -> faceRepository.findById(id).orElse(null))
+            .filter(face -> face != null && (userId == null || Objects.equals(face.getUserId(), userId)))
             .filter(face -> face != null)
             .collect(Collectors.toList());
 
@@ -2647,7 +2928,7 @@ public class FaceService {
         }
 
         // 获取所有已确认人物
-        List<PersonProfile> confirmedPersons = personProfileRepository.findAll();
+        List<PersonProfile> confirmedPersons = loadScopedPersons(userId);
         List<PersonSimilarityDTO> similarities = new ArrayList<>();
 
         for (PersonProfile person : confirmedPersons) {
@@ -2741,6 +3022,12 @@ public class FaceService {
      */
     @Transactional(readOnly = true)
     public List<AlbumRecommendationDTO> getAlbumRecommendationsForPerson(Long personId) {
+        return getAlbumRecommendationsForPerson(personId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AlbumRecommendationDTO> getAlbumRecommendationsForPerson(Long personId, Long userId) {
+        validatePersonOwnership(personId, userId);
         // 获取人物的所有已确认人脸
         List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
         if (confirmedFaces.isEmpty()) {
@@ -2972,12 +3259,97 @@ public class FaceService {
         return result;
     }
 
+    private void validatePersonOwnership(Long personId, Long userId) {
+        if (userId == null) {
+            return;
+        }
+        PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+        if (!Objects.equals(person.getUserId(), userId)) {
+            throw new RuntimeException("人物不存在");
+        }
+    }
+
+    private void validateFaceOwnership(Face face, Long userId) {
+        if (face == null) {
+            throw new RuntimeException("人脸不存在");
+        }
+        if (userId != null && !Objects.equals(face.getUserId(), userId)) {
+            throw new RuntimeException("人脸不存在");
+        }
+    }
+
+    private void validateAlbumOwnership(Long albumId, Long userId) {
+        if (userId == null) {
+            return;
+        }
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在"));
+        if (!Objects.equals(album.getUserId(), userId)) {
+            throw new RuntimeException("相册不存在");
+        }
+    }
+
+    private void validatePhotoOwnership(Photo photo, Long userId) {
+        if (photo == null) {
+            throw new RuntimeException("图片不存在");
+        }
+        if (userId != null && !Objects.equals(photo.getUserId(), userId)) {
+            throw new RuntimeException("图片不存在");
+        }
+    }
+
+    private Optional<PersonProfile> findPersonByNameForScope(String name, Long userId) {
+        if (name == null || name.trim().isEmpty()) {
+            return Optional.empty();
+        }
+        if (userId == null) {
+            return personProfileRepository.findByName(name.trim());
+        }
+        return personProfileRepository.findByNameAndUserId(name.trim(), userId);
+    }
+
+    private <T> Page<T> paginateList(List<T> items, Pageable pageable) {
+        int start = (int) pageable.getOffset();
+        if (start >= items.size()) {
+            return new PageImpl<>(Collections.emptyList(), pageable, items.size());
+        }
+        int end = Math.min(start + pageable.getPageSize(), items.size());
+        return new PageImpl<>(items.subList(start, end), pageable, items.size());
+    }
+
+    private List<PersonProfile> findScopedPersons(Long userId) {
+        return loadScopedPersons(userId);
+    }
+
+    private List<PersonProfile> loadScopedPersons(Long userId) {
+        List<PersonProfile> persons = new ArrayList<>();
+        int pageNumber = 0;
+        Page<PersonProfile> page;
+        do {
+            Pageable pageable = PageRequest.of(pageNumber, 200, Sort.by(Sort.Direction.DESC, "id"));
+            page = userId == null
+                ? personProfileRepository.findAll(pageable)
+                : personProfileRepository.findByUserId(userId, pageable);
+            persons.addAll(page.getContent());
+            pageNumber++;
+        } while (page.hasNext());
+        return persons;
+    }
+
 
     /**
      * 获取指定相册中与人物相似的未分配人脸
      */
     @Transactional(readOnly = true)
     public List<FaceDTO> getSimilarFacesForAlbum(Long personId, Long albumId) {
+        return getSimilarFacesForAlbum(personId, albumId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FaceDTO> getSimilarFacesForAlbum(Long personId, Long albumId, Long userId) {
+        validatePersonOwnership(personId, userId);
+        validateAlbumOwnership(albumId, userId);
         // 获取人物的所有已确认人脸（用于计算相似度）
         List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
 
@@ -2989,7 +3361,9 @@ public class FaceService {
 
         // 获取指定相册中的所有人脸（包括已分配和未分配的）
         // 关键优化：不要全库扫描 findAll()，直接按 albumId 查询
-        List<Face> albumFaces = faceRepository.findByPhotoAlbumId(albumId);
+        List<Face> albumFaces = faceRepository.findByPhotoAlbumId(albumId).stream()
+            .filter(face -> userId == null || Objects.equals(face.getUserId(), userId))
+            .collect(Collectors.toList());
 
         List<FaceSimilarity> allFaces = new ArrayList<>();
 
@@ -3035,33 +3409,11 @@ public class FaceService {
      */
     private String getAlbumDisplayPath(String absolutePath) {
         try {
-            // 计算base-path的绝对路径
-            String basePathStr = photoBasePath;
-            if (!Paths.get(basePathStr).isAbsolute()) {
-                String projectRoot = System.getProperty("user.dir");
-                if (projectRoot.endsWith("backend")) {
-                    projectRoot = new File(projectRoot).getParent();
-                }
-                if (basePathStr.startsWith("./")) {
-                    basePathStr = basePathStr.substring(2);
-                }
-                basePathStr = new File(projectRoot, basePathStr).getAbsolutePath();
+            String pathStr = userPathService.extractTenantRelativePhotoPath(absolutePath);
+            if (pathStr == null || pathStr.isBlank()) {
+                String displayPath = userPathService.toDisplayPath(absolutePath, true);
+                return displayPath.equals(absolutePath) ? null : displayPath;
             }
-
-            // 标准化路径
-            Path basePath = Paths.get(basePathStr).normalize();
-            Path albumPath = Paths.get(absolutePath).normalize();
-
-            // 检查相册路径是否在base-path下
-            if (!albumPath.startsWith(basePath)) {
-                return absolutePath; // 如果不在base-path下，返回原路径
-            }
-
-            // 获取相对路径
-            Path relativePath = basePath.relativize(albumPath);
-
-            // 转换为字符串并统一分隔符
-            String pathStr = relativePath.toString().replace("\\", "/");
 
             // 显示完整的相对路径，但去掉最后一级（相册本身的名字）
             // 例如：人像/2024.07.19 大奇山-水上汉服/合照 -> 人像/2024.07.19 大奇山-水上汉服
@@ -3075,7 +3427,8 @@ public class FaceService {
 
         } catch (Exception e) {
             // 转换失败，返回原路径
-            return absolutePath;
+            String displayPath = userPathService.toDisplayPath(absolutePath, true);
+            return displayPath.equals(absolutePath) ? null : displayPath;
         }
     }
 

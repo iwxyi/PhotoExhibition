@@ -1,6 +1,7 @@
 package com.photoexhibition.service;
 
 import ai.onnxruntime.*;
+import com.photoexhibition.repository.PhotoRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.imgscalr.Scalr;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +34,14 @@ import java.util.List;
 @Slf4j
 @Service
 public class BackgroundRemovalService implements AutoCloseable {
+
+    private final PhotoRepository photoRepository;
+    private final UserPathService userPathService;
+
+    public BackgroundRemovalService(PhotoRepository photoRepository, UserPathService userPathService) {
+        this.photoRepository = photoRepository;
+        this.userPathService = userPathService;
+    }
 
     @Value("${background.removal.model-path:./models/briaai_rmbg.onnx}")
     private String modelPath;
@@ -103,13 +112,13 @@ public class BackgroundRemovalService implements AutoCloseable {
         
         // 尝试解析模型路径
         String resolvedPath = resolveModelPath(modelPath);
-        log.info("解析后modelPath: {}", resolvedPath);
+        log.info("解析后modelPath: {}", sanitizeFilesystemPath(resolvedPath));
         
         // 检查模型文件是否存在
         File modelFile = new File(resolvedPath);
         if (!modelFile.exists()) {
             // 尝试从 classpath 查找
-            log.warn("模型文件不存在: {}，尝试从 classpath 查找", resolvedPath);
+            log.warn("模型文件不存在: {}，尝试从 classpath 查找", sanitizeFilesystemPath(resolvedPath));
         } else {
             log.info("模型文件存在，大小: {} bytes", modelFile.length());
         }
@@ -172,11 +181,12 @@ public class BackgroundRemovalService implements AutoCloseable {
             }
             
             if (!modelFile.exists()) {
-                log.warn("背景移除模型文件不存在: {} (解析后: {})，功能将不可用", modelPath, resolvedPath);
+                log.warn("背景移除模型文件不存在: {} (解析后: {})，功能将不可用",
+                    sanitizeFilesystemPath(modelPath), sanitizeFilesystemPath(resolvedPath));
                 return;
             }
 
-            log.info("加载背景移除模型，路径: {}", modelFile.getAbsolutePath());
+            log.info("加载背景移除模型，路径: {}", sanitizeFilesystemPath(modelFile.getAbsolutePath()));
 
             // 检查 ONNX Runtime 是否可用
             try {
@@ -522,6 +532,7 @@ public class BackgroundRemovalService implements AutoCloseable {
                         parentDir.mkdirs();
                     }
                     ImageIO.write(result, "PNG", outputFile);
+                    persistBackgroundRemovedPath(photoId, outputFile);
                     log.info("抠图完成并保存: photoId={}", photoId);
                 }
             } catch (Exception e) {
@@ -598,6 +609,7 @@ public class BackgroundRemovalService implements AutoCloseable {
                         parentDir.mkdirs();
                     }
                     ImageIO.write(result, "PNG", outputFile);
+                    persistBackgroundRemovedPath(photoId, outputFile);
                     log.info("抠图完成并保存: photoId={}", photoId);
                 }
                 
@@ -633,6 +645,35 @@ public class BackgroundRemovalService implements AutoCloseable {
         }
     }
 
+    private void persistBackgroundRemovedPath(Long photoId, File outputFile) {
+        if (photoId == null || outputFile == null) {
+            return;
+        }
+        try {
+            photoRepository.findById(photoId).ifPresent(photo -> {
+                String storedPath = userPathService.tryBuildStoragePathReference(outputFile.getAbsolutePath(), photo.getUserId())
+                    .orElse(outputFile.getAbsolutePath());
+                photo.setBackgroundRemovedPath(storedPath);
+                photoRepository.save(photo);
+            });
+        } catch (Exception e) {
+            log.warn("回写抠图路径失败: photoId={}, output={}", photoId, sanitizeFilesystemPath(outputFile.getAbsolutePath()), e);
+        }
+    }
+
+    private String sanitizeFilesystemPath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String displayPath = userPathService.toDisplayPath(path, true);
+        if (!path.equals(displayPath)) {
+            return displayPath;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
+    }
+
     /**
      * 批量处理目录下的所有图片
      */
@@ -657,7 +698,7 @@ public class BackgroundRemovalService implements AutoCloseable {
         });
 
         if (files == null || files.length == 0) {
-            log.info("目录下没有找到需要处理的图片: {}", inputDir.getPath());
+            log.info("目录下没有找到需要处理的图片: {}", sanitizeFilesystemPath(inputDir.getPath()));
             return 0;
         }
 

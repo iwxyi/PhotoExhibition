@@ -25,6 +25,7 @@ public class FilterRequest {
     private String endDate;              // 结束日期 (yyyy-MM-dd)
     private Boolean randomOrder = false;     // 是否随机排序
     private List<Long> excludePhotoIds = java.util.Arrays.asList(-1L);      // 排除的图片ID列表（避免重复显示，默认-1表示不排除）
+    private String userSlug;             // 公共页面用户标识
     private Integer page = 0;
     private Integer size = 20;
 
@@ -36,4 +37,3 @@ public class FilterRequest {
         return size == null || size < 1 ? 20 : size;
     }
 }
-

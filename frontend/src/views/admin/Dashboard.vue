@@ -5,7 +5,10 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
           <div class="flex items-center">
-            <h1 class="text-xl font-light tracking-wide">管理后台</h1>
+            <div class="space-y-1">
+              <h1 class="text-xl font-light tracking-wide">管理后台</h1>
+              <AdminSectionTabs />
+            </div>
           </div>
           <div class="flex items-center space-x-4">
             <button
@@ -53,7 +56,7 @@
             </div>
             <div>
               <h2 class="text-2xl sm:text-3xl lg:text-4xl font-light tracking-wide mb-2">
-                光忆集
+                {{ authStore.projectDisplayName || '光忆集' }}
               </h2>
               <p class="text-sm sm:text-base text-slate-300/90 max-w-xl">
                 统一管理相册、标签、人脸与文件系统，配合自动扫描与 AI 能力，让你的作品集始终保持有序而精彩。
@@ -92,6 +95,12 @@
                 <div class="font-medium mb-1">最近扫描状态</div>
                 <div class="space-y-0.5">
                   <p>状态：<span class="text-sky-300">{{ scanStatus }}</span></p>
+                  <p v-if="runningTaskCount > 0">运行中：<span class="text-emerald-300">{{ runningTaskCount }}</span></p>
+                  <p v-if="queueCount > 0">队列：<span class="text-sky-300">{{ queueCount }}</span></p>
+                  <p v-if="queuedOwnerCount > 0">排队用户：<span class="text-sky-300">{{ queuedOwnerCount }}</span></p>
+                  <p v-if="queuedOwnerSummaryText">队列分布：<span class="text-slate-300">{{ queuedOwnerSummaryText }}</span></p>
+                  <p v-if="pausedTaskCount > 0">暂停：<span class="text-amber-300">{{ pausedTaskCount }}</span></p>
+                  <p v-if="runningTaskSummaryText">运行分布：<span class="text-slate-300">{{ runningTaskSummaryText }}</span></p>
                   <p>进度：
                     <span
                       class="text-sky-300 cursor-pointer hover:underline hover:text-sky-200 transition-colors"
@@ -102,20 +111,43 @@
                   <p>时间：<span class="text-slate-300">{{ lastScanTime || '—' }}</span></p>
                 </div>
               </div>
-            <button
-              @click="triggerScan"
-              :disabled="scanning"
-                class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60 border border-blue-500/30"
-            >
+            <div class="flex flex-col items-end gap-2 min-w-[220px]">
+              <div
+                v-if="authStore.isSuperAdmin && scanDisabledReason"
+                class="w-full rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100"
+              >
+                {{ scanDisabledReason }}
+              </div>
+              <select
+                v-if="authStore.isSuperAdmin && scanProviderOptions.length"
+                v-model="selectedScanProviderId"
+                class="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-950/70 border border-white/10 text-slate-200"
+              >
+                <option :value="null">默认存储</option>
+                <option
+                  v-for="provider in scanProviderOptions"
+                  :key="provider.id"
+                  :value="provider.id"
+                  :disabled="provider.scanSupported === false"
+                >
+                  {{ provider.name }} · {{ storageTypeLabel(provider.type) }}{{ provider.scanSupported === false ? '（不可扫描）' : '' }}
+                </option>
+              </select>
+              <button
+                @click="triggerScan"
+                :disabled="scanning || !scanActionSupported"
+                class="w-full px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60 border border-blue-500/30"
+              >
                 {{ scanning ? '扫描中…' : '立即触发扫描' }}
-            </button>
+              </button>
+            </div>
             </div>
           </div>
         </div>
       </section>
 
-        <!-- 数据管理和API测试工具 -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- 数据管理 -->
+      <div class="grid grid-cols-1 gap-4">
         <div class="glass-panel p-4 admin-card-animate admin-card-4">
           <h2 class="text-lg font-light mb-3">数据管理</h2>
           <div class="grid grid-cols-2 gap-2">
@@ -153,120 +185,6 @@
           </router-link>
           </div>
         </div>
-
-        <div class="glass-panel p-4 admin-card-animate admin-card-4">
-        <h2 class="text-lg font-light mb-3">API测试工具</h2>
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm text-gray-400 mb-2">选择API端点</label>
-            <select
-              v-model="selectedApi"
-              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">-- 选择API --</option>
-              <option value="GET /albums">获取所有相册</option>
-              <option value="GET /photos">获取所有图片</option>
-              <option value="GET /tags">获取所有标签</option>
-              <option value="POST /admin/scan">触发扫描</option>
-              <option value="POST /admin/scan/force">强制扫描（重新处理所有图片）</option>
-              <option value="POST /admin/thumbnails/clear">清空缩略图（重新生成三级缩略图）</option>
-              <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
-              <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
-              <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
-              <option value="POST /admin/cleanup/duplicate-faces">清理重复人脸（删除同一照片的重复人脸记录）</option>
-              <option value="POST /admin/albums/update-times">更新相册时间（重新计算拍摄时间和相册名时间）</option>
-              <option value="POST /admin/photos/update-times">更新照片时间（重新从EXIF和路径提取拍摄时间）</option>
-              <!-- 同步更新照片时间已移除；仅保留异步接口 -->
-              <option value="POST /admin/update-exif-data">更新 EXIF 数值字段（回填历史图片）</option>
-              <option value="POST /admin/update-color-categories">更新颜色分类（为历史图片设置颜色分类）</option>
-              <option value="POST /admin/recalculate-photo-colors">更新照片颜色（重新计算色调、分类、相册氛围等）</option>
-              <option value="POST /admin/ai-analysis/clear-all">清空照片AI分析</option>
-              <option value="POST /admin/ai-analysis/update-all">更新所有照片AI分析</option>
-              <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
-              <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
-              <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
-              <option value="POST /admin/background-removal/batch">批量移除背景（抠图处理）</option>
-              <option value="DELETE /admin/photos/clear-background-cache">清空抠图缓存（删除所有抠图文件）</option>
-            </select>
-          </div>
-          <div v-if="showPathInput">
-            <label class="block text-sm text-gray-400 mb-2">可选：指定扫描路径</label>
-            <input
-              v-model="pathInput"
-              placeholder="不填则使用配置的 base-path"
-              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <!-- 相册ID输入框（用于背景移除） -->
-          <div v-if="showAlbumIdInput">
-            <label class="block text-sm text-gray-400 mb-2">相册ID（选填，留空处理所有图片）</label>
-            <input
-              v-model="albumIdInput"
-              type="number"
-              placeholder="留空则处理所有图片"
-              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div v-if="showFaceSimilarInputs" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label class="block text-sm text-gray-400 mb-1">人脸ID</label>
-              <input
-                v-model="faceIdInput"
-                placeholder="必填"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label class="block text-sm text-gray-400 mb-1">Top</label>
-              <input
-                v-model="topInput"
-                type="number"
-                min="1"
-                placeholder="默认10"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label class="block text-sm text-gray-400 mb-1">阈值</label>
-              <input
-                v-model="thresholdInput"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                placeholder="默认0.6"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-          <button
-            @click="testApi"
-            :disabled="!selectedApi || testing"
-            class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {{ testing ? '请求中...' : '发送请求' }}
-          </button>
-          <div v-if="apiResponse" class="mt-4">
-            <label class="block text-sm text-gray-400 mb-2">响应结果</label>
-            <pre class="bg-gray-900 p-4 rounded-lg overflow-auto text-sm">{{ JSON.stringify(apiResponse, null, 2) }}</pre>
-          </div>
-          <div v-if="taskStatus" class="mt-4 bg-gray-900 p-3 rounded-lg">
-            <div class="flex items-center justify-between mb-2">
-              <div>
-                <div class="text-sm text-gray-200">任务 ID: <span class="text-sky-300">{{ taskStatus.taskId }}</span></div>
-                <div class="text-xs text-gray-400">状态: <span class="text-sky-300">{{ taskStatus.status }}</span></div>
-                <div class="text-xs text-gray-400">进度: <span class="text-sky-300">{{ taskStatus.current }} / {{ taskStatus.total }}</span></div>
-              </div>
-              <div>
-                <button @click="stopTaskPoll" class="px-2 py-1 text-xs bg-red-600 rounded">停止</button>
-              </div>
-            </div>
-            <div class="text-xs text-gray-300 max-h-48 overflow-auto">
-              <pre class="whitespace-pre-wrap break-words">{{ taskStatus.logs.join('\n') }}</pre>
-            </div>
-          </div>
-        </div>
-      </div>
       </div>
     </div>
 
@@ -344,6 +262,365 @@
           </table>
         </div>
       </div>
+
+      <div
+        v-if="showTaskDetailModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="closeTaskDetailModal"
+      >
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-5xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+            <div>
+              <h3 class="text-base font-medium text-white">
+                扫描任务详情
+                <span v-if="selectedTaskDetail" class="text-sky-300 ml-2">#{{ selectedTaskDetail.id }}</span>
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">
+                单任务视角查看恢复游标、检查点与实时状态。
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                @click="refreshSelectedTaskDetail"
+                :disabled="loadingTaskDetail || !selectedTaskDetail"
+                class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10 disabled:opacity-60"
+              >
+                {{ loadingTaskDetail ? '刷新中…' : '刷新详情' }}
+              </button>
+              <button @click="closeTaskDetailModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-auto flex-1 p-5" v-if="selectedTaskDetail">
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 text-sm">
+              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                <div class="text-slate-400 text-xs">基础信息</div>
+                <div class="text-white">{{ taskTypeLabel(selectedTaskDetail.taskType) }} · {{ taskStatusLabel(selectedTaskDetail.status) }}</div>
+                <div class="text-slate-300 break-all">根路径：{{ selectedTaskDetail.rootPathDisplay || selectedTaskDetail.rootPath || '—' }}</div>
+                <div class="text-slate-300">优先级：{{ selectedTaskDetail.priority ?? '—' }}</div>
+                <div class="text-slate-300">归属：{{ selectedTaskDetail.ownerLabel || '系统任务' }}</div>
+                <div class="text-slate-300">用户 ID：{{ selectedTaskDetail.userId ?? '全局' }}</div>
+                <div class="text-slate-300">请求者：{{ selectedTaskDetail.requestedByUserNickname || selectedTaskDetail.requestedByUsername || selectedTaskDetail.requestedByUserId || '系统' }}</div>
+                <div class="text-slate-300">存储：{{ selectedTaskDetail.storageProviderName || selectedTaskDetail.storageProviderId || '默认' }}<span v-if="selectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(selectedTaskDetail.storageProviderType) }}</span></div>
+              </div>
+
+              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                <div class="text-slate-400 text-xs">恢复状态</div>
+                <div class="text-slate-300 break-all">
+                  恢复游标：{{ selectedTaskDetail.resumeFromPathDisplay || selectedTaskDetail.resumeFromPath || '—' }}
+                  <span v-if="selectedTaskDetail.resumeFromType" class="ml-2 text-[11px] px-2 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300">
+                    {{ pathTypeLabel(selectedTaskDetail.resumeFromType) }}
+                  </span>
+                </div>
+                <div class="text-slate-300 break-all">
+                  最近断点：{{ selectedTaskDetail.lastProcessedPathDisplay || selectedTaskDetail.lastProcessedPath || '—' }}
+                  <span v-if="selectedTaskDetail.lastProcessedType" class="ml-2 text-[11px] px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-300">
+                    {{ pathTypeLabel(selectedTaskDetail.lastProcessedType) }}
+                  </span>
+                </div>
+                <div class="text-slate-300 break-all">检查点根路径：{{ selectedTaskDetail.checkpoint?.rootPathDisplay || selectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
+                <div class="text-slate-300">检查点更新时间：{{ formatDateTime(selectedTaskDetail.checkpointUpdatedAt || selectedTaskDetail.checkpoint?.updatedAt) }}</div>
+                <div v-if="selectedTaskDetail.errorMessage" class="text-rose-300 break-all">
+                  错误：{{ selectedTaskDetail.errorMessage }}
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                <div class="text-slate-400 text-xs">进度统计</div>
+                <div class="text-white text-lg">{{ selectedTaskDetail.progressPercent || 0 }}%</div>
+                <div class="text-slate-300">已处理：{{ selectedTaskDetail.processedItems || 0 }} / {{ selectedTaskDetail.totalItems || 0 }}</div>
+                <div class="text-slate-300">跳过：{{ selectedTaskDetail.skippedItems || 0 }}</div>
+                <div class="text-slate-300">失败：{{ selectedTaskDetail.failedItems || 0 }}</div>
+                <div class="text-slate-500 text-xs">创建：{{ formatDateTime(selectedTaskDetail.createdAt) }}</div>
+                <div class="text-slate-500 text-xs">开始：{{ formatDateTime(selectedTaskDetail.startedAt) }}</div>
+                <div class="text-slate-500 text-xs">完成：{{ formatDateTime(selectedTaskDetail.finishedAt) }}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+              <div class="text-slate-400 text-xs mb-3">检查点快照</div>
+              <pre class="text-xs text-slate-200 whitespace-pre-wrap break-words">{{ JSON.stringify(selectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
+            </div>
+          </div>
+
+          <div v-else class="flex-1 flex items-center justify-center text-slate-400 text-sm">
+            {{ loadingTaskDetail ? '加载任务详情…' : '暂无任务详情' }}
+          </div>
+        </div>
+      </div>
+
+      <section class="glass-panel p-4 admin-card-animate admin-card-4 space-y-4">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-light">扫描任务队列</h2>
+            <p class="text-xs text-slate-400 mt-1">查看最近任务，支持对失败或暂停任务重新入队。</p>
+          </div>
+          <button
+            @click="fetchScanTasks"
+            :disabled="loadingScanTasks"
+            class="px-3 py-1.5 text-xs bg-gray-900/70 hover:bg-gray-800 rounded-lg transition-colors border border-white/15 disabled:opacity-60"
+          >
+            {{ loadingScanTasks ? '刷新中…' : '刷新列表' }}
+          </button>
+        </div>
+
+        <div v-if="scanTasks.length === 0" class="text-sm text-slate-400 py-6 text-center">
+          暂无扫描任务
+        </div>
+
+        <div v-else class="overflow-auto">
+          <table class="w-full text-sm text-slate-200">
+            <thead class="text-slate-400 border-b border-slate-800">
+              <tr>
+                <th class="text-left py-3 pr-4">任务</th>
+                <th class="text-left py-3 pr-4">状态</th>
+                <th class="text-left py-3 pr-4">归属</th>
+                <th class="text-left py-3 pr-4">路径</th>
+                <th class="text-left py-3 pr-4">进度</th>
+                <th class="text-left py-3 pr-4">时间</th>
+                <th class="text-right py-3">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="task in scanTasks" :key="task.id">
+                <tr class="border-b border-slate-900/80 align-top">
+                  <td class="py-3 pr-4">
+                    <button
+                      @click="openTaskDetail(task.id)"
+                      class="font-medium text-white hover:text-sky-300 transition-colors"
+                    >#{{ task.id }}</button>
+                    <div class="text-xs text-slate-400 mt-1">{{ taskTypeLabel(task.taskType) }}</div>
+                  </td>
+                  <td class="py-3 pr-4">
+                    <span class="px-2 py-1 rounded-full text-xs border" :class="taskStatusClass(task.status)">
+                      {{ taskStatusLabel(task.status) }}
+                    </span>
+                    <div v-if="task.errorMessage" class="text-xs text-rose-300 mt-2 max-w-xs break-all">
+                      {{ task.errorMessage }}
+                    </div>
+                  </td>
+                  <td class="py-3 pr-4 text-xs text-slate-300">
+                    <div>{{ task.ownerLabel || '系统任务' }}</div>
+                    <div class="text-slate-500 mt-1">
+                      存储：{{ task.storageProviderName || task.storageProviderId || '默认' }}
+                      <span v-if="task.storageProviderType"> · {{ storageTypeLabel(task.storageProviderType) }}</span>
+                    </div>
+                    <div
+                      v-if="task.scanSupported === false"
+                      class="mt-2 inline-flex max-w-xs rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-100"
+                    >
+                      {{ task.supportMessage || '当前存储暂不支持扫描' }}
+                    </div>
+                  </td>
+                  <td class="py-3 pr-4">
+                    <div class="max-w-sm break-all text-xs text-slate-300">{{ task.rootPathDisplay || task.rootPath }}</div>
+                    <div v-if="task.lastProcessedPath" class="text-xs text-slate-500 mt-1 break-all">
+                      断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
+                      <span v-if="task.lastProcessedType" class="ml-1 text-[10px] text-purple-300">· {{ pathTypeLabel(task.lastProcessedType) }}</span>
+                    </div>
+                  </td>
+                  <td class="py-3 pr-4">
+                    <div>{{ task.processedItems || 0 }} / {{ task.totalItems || 0 }}</div>
+                    <div class="text-xs text-slate-500 mt-1">
+                      跳过 {{ task.skippedItems || 0 }} / 失败 {{ task.failedItems || 0 }}
+                    </div>
+                    <div class="text-xs text-sky-300 mt-1">
+                      {{ task.progressPercent || 0 }}%
+                    </div>
+                  </td>
+                  <td class="py-3 pr-4 text-xs text-slate-400 whitespace-nowrap">
+                    <div>创建：{{ formatDateTime(task.createdAt) }}</div>
+                    <div class="mt-1">开始：{{ formatDateTime(task.startedAt) }}</div>
+                    <div class="mt-1">完成：{{ formatDateTime(task.finishedAt) }}</div>
+                  </td>
+                  <td class="py-3 text-right">
+                    <div class="flex justify-end gap-2">
+                      <button
+                        @click="toggleTaskExpanded(task.id)"
+                        class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10"
+                      >
+                        {{ isTaskExpanded(task.id) ? '收起详情' : '查看详情' }}
+                      </button>
+                      <button
+                        v-if="canPauseTask(task)"
+                        @click="pauseScanTask(task)"
+                        class="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
+                      >
+                        暂停
+                      </button>
+                      <button
+                        v-if="canRetryTask(task)"
+                        @click="retryScanTask(task)"
+                        class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                      >
+                        重新入队
+                      </button>
+                      <button
+                        v-if="canCancelTask(task)"
+                        @click="cancelScanTask(task)"
+                        class="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr
+                  v-if="isTaskExpanded(task.id)"
+                  class="border-b border-slate-900/80 bg-slate-950/30"
+                >
+                  <td colspan="6" class="px-4 py-4">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+                      <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div class="text-slate-400">恢复信息</div>
+                        <div class="text-slate-200 break-all">
+                          恢复游标：{{ task.resumeFromPathDisplay || task.resumeFromPath || '—' }}
+                          <span v-if="task.resumeFromType" class="ml-1 text-[10px] text-sky-300">· {{ pathTypeLabel(task.resumeFromType) }}</span>
+                        </div>
+                        <div class="text-slate-200 break-all">
+                          检查点断点：{{ task.checkpoint?.lastProcessedPathDisplay || task.checkpoint?.lastProcessedPath || '—' }}
+                          <span v-if="task.checkpoint?.lastProcessedType" class="ml-1 text-[10px] text-purple-300">· {{ pathTypeLabel(task.checkpoint?.lastProcessedType) }}</span>
+                        </div>
+                        <div class="text-slate-200 break-all">检查点根路径：{{ task.checkpoint?.rootPathDisplay || task.checkpoint?.rootPath || '—' }}</div>
+                        <div class="text-slate-500">检查点更新时间：{{ formatDateTime(task.checkpointUpdatedAt || task.checkpoint?.updatedAt) }}</div>
+                      </div>
+                      <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div class="text-slate-400">任务元数据</div>
+                        <div class="text-slate-200">优先级：{{ task.priority ?? '—' }}</div>
+                        <div class="text-slate-200">用户 ID：{{ task.userId ?? '全局' }}</div>
+                        <div class="text-slate-200">请求者：{{ task.requestedByUserId ?? '系统' }}</div>
+                        <div class="text-slate-200">存储提供者：{{ task.storageProviderName || task.storageProviderId || '默认' }}<span v-if="task.storageProviderType"> · {{ storageTypeLabel(task.storageProviderType) }}</span></div>
+                        <div v-if="task.scanSupported === false" class="text-amber-200 break-all">扫描限制：{{ task.supportMessage || '当前存储暂不支持扫描' }}</div>
+                        <div class="text-slate-200">计划任务：{{ task.scheduledTask ? '是' : '否' }}</div>
+                      </div>
+                      <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                        <div class="text-slate-400">检查点计数</div>
+                        <div class="text-slate-200">已处理：{{ task.checkpoint?.processedItems ?? task.processedItems ?? 0 }}</div>
+                        <div class="text-slate-200">总数：{{ task.checkpoint?.totalItems ?? task.totalItems ?? 0 }}</div>
+                        <div class="text-slate-200">跳过：{{ task.checkpoint?.skippedItems ?? task.skippedItems ?? 0 }}</div>
+                        <div class="text-slate-200">失败：{{ task.checkpoint?.failedItems ?? task.failedItems ?? 0 }}</div>
+                        <button
+                          @click="openTaskDetail(task.id)"
+                          class="mt-2 px-3 py-1.5 text-xs bg-sky-700/70 hover:bg-sky-600 rounded-lg transition-colors"
+                        >
+                          弹窗查看
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="glass-panel p-4 admin-card-animate admin-card-4 space-y-4">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-light">最近操作记录</h2>
+            <p class="text-xs text-slate-400 mt-1">展示最近上传、删除、扫描等操作。</p>
+          </div>
+          <button
+            @click="fetchOperationLogs"
+            :disabled="loadingOperationLogs"
+            class="px-3 py-1.5 text-xs bg-gray-900/70 hover:bg-gray-800 rounded-lg transition-colors border border-white/15 disabled:opacity-60"
+          >
+            {{ loadingOperationLogs ? '刷新中…' : '刷新记录' }}
+          </button>
+        </div>
+
+        <div v-if="operationLogs.length === 0" class="text-sm text-slate-400 py-6 text-center">
+          暂无操作记录
+        </div>
+
+        <div v-else class="space-y-3">
+          <div
+            v-for="log in operationLogs"
+            :key="log.id"
+            class="rounded-xl border border-slate-800 bg-slate-950/40 p-3"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="text-sm text-white">
+                  {{ operationTypeLabel(log.operationType) }}
+                  <span class="text-slate-500 ml-2">{{ log.operatorUsername || '系统' }}</span>
+                </div>
+                <div class="text-xs text-slate-400 mt-1 break-all">
+                  {{ log.targetPath || '—' }}
+                </div>
+                <div v-if="log.detailJson" class="text-xs text-slate-500 mt-2 break-all">
+                  {{ log.detailJson }}
+                </div>
+              </div>
+              <div class="text-xs text-slate-500 whitespace-nowrap">
+                {{ formatDateTime(log.createdAt) }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-panel p-4 admin-card-animate admin-card-4 space-y-4">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-light">最近登录记录</h2>
+            <p class="text-xs text-slate-400 mt-1">展示当前账号最近登录成功/失败情况。</p>
+          </div>
+          <button
+            @click="fetchLoginRecords"
+            :disabled="loadingLoginRecords"
+            class="px-3 py-1.5 text-xs bg-gray-900/70 hover:bg-gray-800 rounded-lg transition-colors border border-white/15 disabled:opacity-60"
+          >
+            {{ loadingLoginRecords ? '刷新中…' : '刷新记录' }}
+          </button>
+        </div>
+
+        <div v-if="loginRecords.length === 0" class="text-sm text-slate-400 py-6 text-center">
+          暂无登录记录
+        </div>
+
+        <div v-else class="space-y-3">
+          <div
+            v-for="record in loginRecords"
+            :key="record.id"
+            class="rounded-xl border border-slate-800 bg-slate-950/40 p-3"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="text-sm text-white">
+                  {{ loginMethodLabel(record.loginMethod) }}
+                  <span
+                    class="ml-2 px-2 py-0.5 rounded-full text-xs border"
+                    :class="record.success
+                      ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                      : 'text-rose-300 border-rose-500/40 bg-rose-500/10'"
+                  >
+                    {{ record.success ? '成功' : '失败' }}
+                  </span>
+                </div>
+                <div class="text-xs text-slate-400 mt-1 break-all">
+                  {{ record.ipAddress || '未知 IP' }} · {{ record.phoneSnapshot || record.usernameSnapshot || '未知账号' }}
+                </div>
+                <div v-if="record.failureReason" class="text-xs text-rose-300 mt-2 break-all">
+                  {{ record.failureReason }}
+                </div>
+                <div v-if="record.userAgent" class="text-xs text-slate-500 mt-2 break-all">
+                  {{ record.userAgent }}
+                </div>
+              </div>
+              <div class="text-xs text-slate-500 whitespace-nowrap">
+                {{ formatDateTime(record.createdAt) }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -354,6 +631,8 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { api } from '@/api'
+import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
+import { storageTypeLabel } from '@/utils/providerLabels'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -368,15 +647,69 @@ const stats = ref({
 })
 
 const scanning = ref(false)
+const scanProviderOptions = ref<Array<{
+  id: number
+  name: string
+  type: string
+  scanSupported?: boolean
+  supportMessage?: string | null
+}>>([])
+const selectedScanProviderId = ref<number | null>(null)
+const queueCount = ref(0)
+const queuedOwnerCount = ref(0)
+const queuedOwnerSummaries = ref<any[]>([])
+const pausedTaskCount = ref(0)
+const runningTaskCount = ref(0)
+const runningTasks = ref<any[]>([])
+const currentScanTask = ref<any | null>(null)
+const scanTasks = ref<any[]>([])
+const expandedTaskIds = ref<number[]>([])
+const showTaskDetailModal = ref(false)
+const selectedTaskDetail = ref<any | null>(null)
+const loadingTaskDetail = ref(false)
+const loadingScanTasks = ref(false)
+const loginRecords = ref<any[]>([])
+const loadingLoginRecords = ref(false)
+const operationLogs = ref<any[]>([])
+const loadingOperationLogs = ref(false)
 const isCleaningUp = ref(false)
 const lastScanTime = ref<string | null>(null)
 const scanProgress = ref<{ current: number; total: number }>({ current: 0, total: 0 })
-const scanStatus = computed(() => (scanning.value ? '扫描中' : '空闲'))
+const scanStatus = computed(() => {
+  if (currentScanTask.value) return '扫描中'
+  if (queueCount.value > 0) return '排队中'
+  if (pausedTaskCount.value > 0) return '已暂停'
+  return scanning.value ? '扫描中' : '空闲'
+})
 const scanProgressText = computed(() => {
   const { current, total } = scanProgress.value
   if (!total) return '0 / 0'
   const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0
   return `${current} / ${total} (${percentage}%)`
+})
+const queuedOwnerSummaryText = computed(() =>
+  queuedOwnerSummaries.value
+    .slice(0, 3)
+    .map((item: any) => `${item.ownerLabel || '未知'} ${item.taskCount}`)
+    .join('，')
+)
+const runningTaskSummaryText = computed(() =>
+  runningTasks.value
+    .slice(0, 3)
+    .map((item: any) => `${item.requestedByUserNickname || item.requestedByUsername || item.ownerLabel || `任务 ${item.id}`} · ${item.taskType}`)
+    .join('，')
+)
+const selectedScanProvider = computed(() => {
+  if (selectedScanProviderId.value == null) return null
+  return scanProviderOptions.value.find((provider) => provider.id === selectedScanProviderId.value) ?? null
+})
+const scanActionSupported = computed(() => selectedScanProvider.value?.scanSupported !== false)
+const scanDisabledReason = computed(() => {
+  if (!authStore.isSuperAdmin) return ''
+  if (selectedScanProvider.value?.scanSupported === false) {
+    return selectedScanProvider.value.supportMessage || '当前存储暂不支持扫描，请切换到可扫描的存储配置。'
+  }
+  return ''
 })
 
 const scanCurrentVal = computed(() => scanProgress.value.current)
@@ -400,7 +733,120 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
+const formatDateTime = (value?: string | null): string => {
+  if (!value) return '—'
+  return new Date(value).toLocaleString('zh-CN')
+}
+
+const taskTypeLabel = (taskType?: string): string => {
+  switch (taskType) {
+    case 'FULL_SCAN':
+      return '强制扫描'
+    case 'UPLOAD_SCAN':
+      return '上传扫描'
+    case 'RESUME_SCAN':
+      return '续扫任务'
+    default:
+      return '增量扫描'
+  }
+}
+
+const taskStatusLabel = (status?: string): string => {
+  switch (status) {
+    case 'RUNNING':
+      return '执行中'
+    case 'QUEUED':
+      return '排队中'
+    case 'PENDING':
+      return '待处理'
+    case 'PAUSED':
+      return '已暂停'
+    case 'FAILED':
+      return '失败'
+    case 'COMPLETED':
+      return '已完成'
+    case 'CANCELED':
+      return '已取消'
+    default:
+      return status || '未知'
+  }
+}
+
+const pathTypeLabel = (pathType?: string): string => {
+  switch (pathType) {
+    case 'DIRECTORY':
+      return '目录'
+    case 'FILE':
+      return '文件'
+    default:
+      return pathType || '未知'
+  }
+}
+
+const taskStatusClass = (status?: string): string => {
+  if (status === 'RUNNING') return 'text-sky-300 border-sky-500/40 bg-sky-500/10'
+  if (status === 'QUEUED' || status === 'PENDING') return 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+  if (status === 'PAUSED') return 'text-purple-300 border-purple-500/40 bg-purple-500/10'
+  if (status === 'FAILED') return 'text-rose-300 border-rose-500/40 bg-rose-500/10'
+  if (status === 'COMPLETED') return 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+  if (status === 'CANCELED') return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
+  return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
+}
+
+const operationTypeLabel = (operationType?: string): string => {
+  switch (operationType) {
+    case 'UPLOAD':
+      return '上传文件'
+    case 'DELETE':
+      return '删除内容'
+    case 'UPDATE':
+      return '修改内容'
+    case 'SCAN_START':
+      return '发起扫描'
+    case 'SCAN_RESUME':
+      return '恢复扫描'
+    case 'SCAN_FINISH':
+      return '扫描完成'
+    case 'CONFIG_UPDATE':
+      return '更新配置'
+    default:
+      return operationType || '操作'
+  }
+}
+
+const loginMethodLabel = (method?: string): string => {
+  switch (method) {
+    case 'PHONE_PASSWORD':
+      return '手机号+密码'
+    case 'SMS_CODE':
+      return '短信验证码'
+    default:
+      return '账号+密码'
+  }
+}
+
+const canRetryTask = (task: any): boolean =>
+  ['FAILED', 'PAUSED', 'CANCELED'].includes(task.status)
+
+const canPauseTask = (task: any): boolean =>
+  task.status === 'RUNNING'
+
+const canCancelTask = (task: any): boolean =>
+  ['RUNNING', 'QUEUED', 'PENDING'].includes(task.status)
+
+const isTaskExpanded = (taskId: number): boolean =>
+  expandedTaskIds.value.includes(taskId)
+
+const toggleTaskExpanded = (taskId: number) => {
+  if (isTaskExpanded(taskId)) {
+    expandedTaskIds.value = expandedTaskIds.value.filter(id => id !== taskId)
+    return
+  }
+  expandedTaskIds.value = [...expandedTaskIds.value, taskId]
+}
+
 let skippedPollTimer: number | null = null
+let taskDetailPollTimer: number | null = null
 
 const fetchSkippedFiles = async () => {
   try {
@@ -408,6 +854,130 @@ const fetchSkippedFiles = async () => {
     skippedFiles.value = res.data || []
   } catch (e) {
     skippedFiles.value = []
+  }
+}
+
+const fetchScanTasks = async () => {
+  loadingScanTasks.value = true
+  try {
+    const res = await api.get('/admin/scan/tasks')
+    scanTasks.value = res.data || []
+    expandedTaskIds.value = expandedTaskIds.value.filter(taskId =>
+      scanTasks.value.some(task => task.id === taskId)
+    )
+  } catch (error) {
+    console.error('加载扫描任务失败:', error)
+  } finally {
+    loadingScanTasks.value = false
+  }
+}
+
+const shouldPollTaskDetail = (task: any | null): boolean =>
+  !!task && ['RUNNING', 'QUEUED', 'PENDING', 'PAUSED'].includes(task.status)
+
+const stopTaskDetailPoll = () => {
+  if (taskDetailPollTimer) {
+    clearInterval(taskDetailPollTimer)
+    taskDetailPollTimer = null
+  }
+}
+
+const fetchTaskDetail = async (taskId: number) => {
+  loadingTaskDetail.value = true
+  try {
+    const res = await api.get(`/admin/scan/tasks/${taskId}`)
+    selectedTaskDetail.value = res.data || null
+    if (!shouldPollTaskDetail(selectedTaskDetail.value)) {
+      stopTaskDetailPoll()
+    }
+  } catch (error) {
+    console.error('加载任务详情失败:', error)
+  } finally {
+    loadingTaskDetail.value = false
+  }
+}
+
+const refreshSelectedTaskDetail = async () => {
+  if (!selectedTaskDetail.value?.id) return
+  await fetchTaskDetail(selectedTaskDetail.value.id)
+}
+
+const openTaskDetail = async (taskId: number) => {
+  showTaskDetailModal.value = true
+  await fetchTaskDetail(taskId)
+  stopTaskDetailPoll()
+  if (shouldPollTaskDetail(selectedTaskDetail.value)) {
+    taskDetailPollTimer = window.setInterval(() => {
+      if (selectedTaskDetail.value?.id) {
+        fetchTaskDetail(selectedTaskDetail.value.id)
+      }
+    }, 3000)
+  }
+}
+
+const closeTaskDetailModal = () => {
+  showTaskDetailModal.value = false
+  selectedTaskDetail.value = null
+  stopTaskDetailPoll()
+}
+
+const fetchOperationLogs = async () => {
+  loadingOperationLogs.value = true
+  try {
+    const res = await api.get('/admin/operation-logs')
+    operationLogs.value = res.data || []
+  } catch (error) {
+    console.error('加载操作日志失败:', error)
+  } finally {
+    loadingOperationLogs.value = false
+  }
+}
+
+const fetchLoginRecords = async () => {
+  loadingLoginRecords.value = true
+  try {
+    const res = await api.get('/admin/login-records')
+    loginRecords.value = res.data || []
+  } catch (error) {
+    console.error('加载登录记录失败:', error)
+  } finally {
+    loadingLoginRecords.value = false
+  }
+}
+
+const retryScanTask = async (task: any) => {
+  if (!confirm(`确认重新入队扫描任务 #${task.id} 吗？`)) return
+  try {
+    await api.post(`/admin/scan/tasks/${task.id}/retry`)
+    await Promise.all([fetchScanStatus(), fetchScanTasks()])
+  } catch (error: any) {
+    alert('重新入队失败: ' + (error.response?.data?.error || error.message))
+  }
+}
+
+const pauseScanTask = async (task: any) => {
+  if (!confirm(`确认暂停扫描任务 #${task.id} 吗？`)) return
+  try {
+    const res = await api.post(`/admin/scan/tasks/${task.id}/pause`)
+    if (res.data?.message) {
+      alert(res.data.message)
+    }
+    await Promise.all([fetchScanStatus(), fetchScanTasks()])
+  } catch (error: any) {
+    alert('暂停失败: ' + (error.response?.data?.error || error.message))
+  }
+}
+
+const cancelScanTask = async (task: any) => {
+  if (!confirm(`确认取消扫描任务 #${task.id} 吗？`)) return
+  try {
+    const res = await api.post(`/admin/scan/tasks/${task.id}/cancel`)
+    if (res.data?.message) {
+      alert(res.data.message)
+    }
+    await Promise.all([fetchScanStatus(), fetchScanTasks()])
+  } catch (error: any) {
+    alert('取消失败: ' + (error.response?.data?.error || error.message))
   }
 }
 
@@ -434,67 +1004,6 @@ const openSkippedFilesModal = async () => {
 const closeSkippedModal = () => {
   showSkippedModal.value = false
   if (skippedPollTimer) { clearInterval(skippedPollTimer); skippedPollTimer = null }
-}
-const selectedApi = ref('')
-const testing = ref(false)
-const apiResponse = ref<any>(null)
-const pathInput = ref('')
-const faceIdInput = ref('')
-const topInput = ref('')
-const thresholdInput = ref('')
-const albumIdInput = ref('')
-
-// 显示相册ID输入框
-const showAlbumIdInput = computed(() => 
-  selectedApi.value.includes('/admin/background-removal')
-)
-
-const taskStatus = ref<any | null>(null)
-let taskPollTimer: number | null = null
-
-const stopTaskPoll = async () => {
-  if (taskPollTimer) {
-    clearInterval(taskPollTimer)
-    taskPollTimer = null
-  }
-  // 如果有任务ID，通知后端停止任务
-  if (taskStatus.value?.taskId) {
-    try {
-      await api.post(`/admin/tasks/${taskStatus.value.taskId}/stop`)
-    } catch (e) {
-      // ignore
-    }
-  }
-  taskStatus.value = null
-}
-
-const pollTask = async (taskId: string) => {
-  stopTaskPoll()
-  taskStatus.value = { taskId, status: 'pending', logs: [] }
-  taskPollTimer = window.setInterval(async () => {
-    try {
-      const res = await api.get(`/admin/tasks/${taskId}`)
-      const data = res.data
-      if (data && data.found) {
-        taskStatus.value = {
-          taskId: data.taskId,
-          status: data.status,
-          current: data.current,
-          total: data.total,
-          complete: data.complete,
-          logs: data.logs || []
-        }
-        if (data.complete) {
-          stopTaskPoll()
-        }
-      } else {
-        // not found -> stop polling
-        stopTaskPoll()
-      }
-    } catch (e) {
-      // ignore transient errors but stop after repeated failures could be added
-    }
-  }, 2000)
 }
 
 const loadStats = async () => {
@@ -546,29 +1055,61 @@ const cleanupOrphaned = async () => {
   isCleaningUp.value = true
   try {
     const response = await api.post('/admin/cleanup/orphaned')
-    apiResponse.value = response.data
     await loadStats()
     alert(response.data.message || '清理完成！')
   } catch (error: any) {
-    apiResponse.value = {
-      error: true,
-      message: error.message,
-      response: error.response?.data
-    }
+    alert('清理失败: ' + (error.response?.data?.error || error.message))
   } finally {
     isCleaningUp.value = false
   }
 }
 
 const triggerScan = async () => {
+  if (!scanActionSupported.value) {
+    alert(scanDisabledReason.value || '当前存储暂不支持扫描')
+    return
+  }
   scanning.value = true
   lastScanTime.value = new Date().toLocaleString('zh-CN')
   try {
-    await api.post('/admin/scan')
+    const params = authStore.isSuperAdmin && selectedScanProviderId.value != null
+      ? { storageProviderId: selectedScanProviderId.value }
+      : undefined
+    await api.post('/admin/scan', null, { params })
   } catch (error: any) {
     alert('触发扫描失败: ' + (error.response?.data?.message || error.message))
   } finally {
     scanning.value = false
+  }
+}
+
+const loadScanProviderOptions = async () => {
+  if (!authStore.isSuperAdmin) {
+    scanProviderOptions.value = []
+    selectedScanProviderId.value = null
+    return
+  }
+  try {
+    const { data } = await api.get('/admin/folders/base-path')
+    const providers = Array.isArray(data?.availableStorageProviders) ? data.availableStorageProviders : []
+    scanProviderOptions.value = providers
+      .filter((item: any) => item?.browserSupported)
+      .map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        type: item.type,
+        scanSupported: item.scanSupported !== false,
+        supportMessage: item.supportMessage || null
+      }))
+    selectedScanProviderId.value = data?.storageProviderId ?? null
+    if (selectedScanProviderId.value != null) {
+      const exists = scanProviderOptions.value.some((provider) => provider.id === selectedScanProviderId.value)
+      if (!exists) {
+        selectedScanProviderId.value = null
+      }
+    }
+  } catch (error) {
+    console.warn('加载扫描存储提供者失败', error)
   }
 }
 
@@ -577,6 +1118,13 @@ const fetchScanStatus = async () => {
     const res = await api.get('/admin/scan/status')
     const data = res.data || {}
     scanning.value = !!data.scanning
+    queueCount.value = data.queuedTaskCount ?? 0
+    queuedOwnerCount.value = data.queuedOwnerCount ?? 0
+    queuedOwnerSummaries.value = Array.isArray(data.queuedOwnerSummaries) ? data.queuedOwnerSummaries : []
+    pausedTaskCount.value = data.pausedTaskCount ?? 0
+    runningTaskCount.value = data.runningTaskCount ?? 0
+    runningTasks.value = Array.isArray(data.runningTasks) ? data.runningTasks : []
+    currentScanTask.value = data.currentTask ?? null
     scanProgress.value = {
       current: data.current ?? 0,
       total: data.total ?? 0
@@ -589,306 +1137,6 @@ const fetchScanStatus = async () => {
   }
 }
 
-const testApi = async () => {
-  if (!selectedApi.value) return
-  
-  // 清理所有数据需要二次确认
-  if (selectedApi.value === 'POST /admin/cleanup/all') {
-    const confirmed = confirm(
-      '⚠️ 危险操作警告 ⚠️\n\n' +
-      '此操作将删除所有数据，包括：\n' +
-      '• 所有照片\n' +
-      '• 所有相册\n' +
-      '• 所有标签\n' +
-      '• 所有人脸\n' +
-      '• 所有人物\n\n' +
-      '只保留账号数据（AdminUser）\n\n' +
-      '此操作不可恢复！\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-    // 再次确认
-    const doubleConfirmed = confirm('请再次确认：你真的要删除所有数据吗？')
-    if (!doubleConfirmed) {
-      return
-    }
-  }
-
-  // 清空缩略图需要确认
-  if (selectedApi.value === 'POST /admin/thumbnails/clear') {
-    const confirmed = confirm(
-      '🖼️ 清空缩略图数据\n\n' +
-      '此操作将：\n' +
-      '• 删除所有缩略图文件（小图、中图、大图）\n' +
-      '• 清空数据库中的缩略图路径字段\n' +
-      '• 为重新生成三级缩略图做准备\n\n' +
-      '⚠️ 执行后需要运行强制扫描来重新生成缩略图。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  // 清空人脸数据需要确认
-  if (selectedApi.value === 'POST /admin/faces/clear') {
-    const confirmed = confirm(
-      '👤 清空人脸识别数据\n\n' +
-      '此操作将：\n' +
-      '• 删除所有人脸检测结果\n' +
-      '• 删除所有人物聚类数据\n' +
-      '• 清空照片中的人脸关联信息\n\n' +
-      '⚠️ 执行后需要运行强制扫描来重新生成人脸识别。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  // 清空智能标签需要确认
-  if (selectedApi.value === 'POST /admin/smart-tags/clear') {
-    const confirmed = confirm(
-      '🏷️ 清空智能标签数据\n\n' +
-      '此操作将：\n' +
-      '• 删除所有AI生成的智能标签\n' +
-      '• 保留用户手动添加的标签\n' +
-      '• 清空照片中的智能标签关联\n\n' +
-      '⚠️ 执行后需要运行强制扫描来重新生成AI标签。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  // 清理残留数据需要确认
-  if (selectedApi.value === 'POST /admin/cleanup/orphaned') {
-    const confirmed = confirm(
-      '🧹 清理删除残留数据\n\n' +
-      '此操作将：\n' +
-      '• 扫描所有照片记录，检查文件是否还存在\n' +
-      '• 删除不存在文件的照片记录\n' +
-      '• 删除相关的人脸识别数据\n' +
-      '• 删除相关的标签关联\n' +
-      '• 删除没有照片的空相册\n' +
-      '• 删除文件夹路径不存在的相册\n\n' +
-      '⚠️ 此操作不可恢复，请谨慎使用！\n' +
-      '建议在删除大量文件或文件夹后执行此清理。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  // 更新相册时间需要确认
-  if (selectedApi.value === 'POST /admin/albums/update-times') {
-    const confirmed = confirm(
-      '📅 更新相册时间字段\n\n' +
-      '此操作将：\n' +
-      '• 重新计算所有相册的拍摄时间（最晚照片拍摄时间，聚合相册包含所有子相册的照片）\n' +
-      '• 重新解析所有相册名称和上级路径中的时间信息（支持嵌套继承）\n' +
-      '• 更新数据库中的时间字段\n\n' +
-      '时间解析优先级：\n' +
-      '• 当前相册名称的时间 > 上级路径中的时间\n' +
-      '支持的时间格式：\n' +
-      '• 2025.01.01\n' +
-      '• 2025-01-01\n' +
-      '• 2025.01.01 9:10\n\n' +
-      '此操作是安全的，不会删除任何数据。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  // 清空AI分析需要确认
-  if (selectedApi.value === 'POST /admin/ai-analysis/clear-all') {
-    const confirmed = confirm(
-      '🗑️ 清空照片AI分析\n\n' +
-      '此操作将：\n' +
-      '• 删除所有照片的AI分析记录\n' +
-      '• 清除技术质量评分、构图美学评分、主题吸引力评分\n' +
-      '• 清除优点分析、不足分析和改进建议\n' +
-      '• 清除场景识别和情感分析结果\n\n' +
-      '⚠️ 此操作不可恢复！建议在重新分析之前执行此操作\n\n' +
-      '确定要清空所有AI分析记录吗？'
-    );
-    if (!confirmed) return;
-  }
-
-  // AI分析更新需要确认
-  if (selectedApi.value === 'POST /admin/ai-analysis/update-all') {
-    const confirmed = confirm(
-      '🤖 更新所有照片AI分析\n\n' +
-      '此操作将：\n' +
-      '• 强制重新为所有照片生成AI分析（覆盖现有分析）\n' +
-      '• 重新分析每张照片的技术质量、构图美学、主题吸引力\n' +
-      '• 重新识别场景类型（婚礼、毕业典礼、旅行等）\n' +
-      '• 重新分析情感色彩（快乐、悲伤、温暖等）\n' +
-      '• 更新优点和不足分析，重新生成改进建议\n\n' +
-      '⚠️ 此操作会覆盖所有现有的AI分析结果\n' +
-      '⚠️ 异步执行：任务在后台运行，处理大量照片可能需要较长时间\n' +
-      '⚠️ 如果没有ONNX Runtime，将使用基础分析算法\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      testing.value = false
-      return
-    }
-  }
-
-  // 更新照片时间需要确认
-  if (selectedApi.value === 'POST /admin/photos/update-times') {
-    const isAsync = true
-    const confirmed = confirm(
-      '📸 更新照片时间信息\n\n' +
-      '此操作将：\n' +
-      '• 重新读取所有照片的EXIF信息，提取拍摄时间\n' +
-      '• 如果EXIF中没有拍摄时间，从文件路径中解析时间\n' +
-      '• 最后使用文件创建时间作为兜底时间\n' +
-      '• 更新数据库中的拍摄时间字段\n\n' +
-      '时间解析优先级：\n' +
-      '• EXIF拍摄时间 (DateTimeOriginal)\n' +
-      '• 文件路径时间（优先最深层文件夹，支持嵌套继承）\n' +
-      '• 文件创建时间\n\n' +
-      '支持的路径时间格式：\n' +
-      '• 2025.01.01\n' +
-      '• 2025-01-01\n' +
-      '• 2025.01.01 10:30\n' +
-      '• 20230808 (紧凑格式)\n' +
-      '• 2023年08月08日\n\n' +
-      (isAsync ? '⚠️ 异步执行：任务在后台运行，可通过日志查看进度\n\n' : '⚠️ 同步执行：需要等待所有照片处理完成\n\n') +
-      '此操作是安全的，不会删除任何数据。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  // 更新 EXIF 数值字段需要确认（可能较慢）
-  if (selectedApi.value === 'POST /admin/update-exif-data') {
-    const confirmed = confirm(
-      '⚠️ 确认回填所有照片的 EXIF 字段？\n\n' +
-      '此操作会遍历数据库中的所有照片并尝试解析/回填EXIF字段（快门秒数、焦距mm、光圈值、ISO、镜头型号），可能需要较长时间。\n\n' +
-      '建议在低访问时段执行，确定要继续吗？'
-    )
-    if (!confirmed) return
-  }
-
-  // 更新颜色分类需要确认
-  if (selectedApi.value === 'POST /admin/update-color-categories') {
-    const confirmed = confirm(
-      '🎨 确认更新所有照片的颜色分类？\n\n' +
-      '此操作会为所有已有主色调的照片设置颜色分类（红色、蓝色、绿色等），便于按颜色分类筛选照片。\n\n' +
-      '建议在低访问时段执行，确定要继续吗？'
-    )
-    if (!confirmed) return
-  }
-
-  // 更新照片颜色需要确认（更全面的重新计算）
-  if (selectedApi.value === 'POST /admin/recalculate-photo-colors') {
-    const confirmed = confirm(
-      '🎨🖼️ 确认重新计算所有照片的颜色？\n\n' +
-      '此操作将：\n' +
-      '• 重新分析所有照片的主色调\n' +
-      '• 重新生成照片的调色板\n' +
-      '• 重新设置颜色分类\n' +
-      '• 更新所有相册的氛围效果\n' +
-      '• 更新筛选选项\n\n' +
-      '这是一个非常耗时的操作，可能需要几分钟到几十分钟。\n\n' +
-      '建议在低访问时段执行，确定要继续吗？'
-    )
-    if (!confirmed) return
-  }
-
-  // 清理重复人脸数据需要确认
-  if (selectedApi.value === 'POST /admin/cleanup/duplicate-faces') {
-    const confirmed = confirm(
-      '🧹 清理重复人脸记录\n\n' +
-      '此操作将：\n' +
-      '• 扫描所有照片，查找同一张照片有多条人脸记录的情况\n' +
-      '• 保留每张照片最新的人脸记录，删除重复的旧记录\n' +
-      '• 清理相关的人物关联和聚类数据\n\n' +
-      '此操作有助于解决人脸数量异常暴涨的问题。\n' +
-      '建议在清理前备份数据库。\n\n' +
-      '确定要继续吗？'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  testing.value = true
-  apiResponse.value = null
-  
-  try {
-    let [method, path] = selectedApi.value.split(' ')
-    const params: any = {}
-
-    if (showFaceSimilarInputs.value) {
-      if (!faceIdInput.value.trim()) {
-        alert('请填写人脸ID')
-        testing.value = false
-        return
-      }
-      path = path.replace('{id}', faceIdInput.value.trim())
-      if (topInput.value) params.top = topInput.value
-      if (thresholdInput.value) params.threshold = thresholdInput.value
-    }
-
-    const config: any = {
-      method: method.toLowerCase(),
-      url: path
-    }
-    
-    // 背景移除需要相册ID参数（可选）
-    if (showAlbumIdInput.value) {
-      // albumId 可选，不填则处理所有图片
-      const albumId = albumIdInput.value.trim()
-      config.params = { 
-        ...(albumId ? { albumId: albumId } : {}),
-        batchSize: 50,
-        saveToPhoto: true 
-      }
-    }
-    
-    if (showPathInput.value && pathInput.value.trim()) {
-      config.params = { ...(config.params || {}), path: pathInput.value.trim() }
-    }
-    if (Object.keys(params).length) {
-      config.params = { ...(config.params || {}), ...params }
-    }
-    
-    const response = await api(config)
-    apiResponse.value = response.data
-    
-    // 如果后端返回 taskId，则开始轮询任务状态
-    if (response.data && response.data.taskId) {
-      pollTask(response.data.taskId)
-    }
-    
-    // 清理成功后刷新统计数据
-    if (selectedApi.value === 'POST /admin/cleanup/all' && response.data.success) {
-      await loadStats()
-      alert('数据清理完成！')
-    }
-  } catch (error: any) {
-    apiResponse.value = {
-      error: true,
-      message: error.message,
-      response: error.response?.data
-    }
-  } finally {
-    testing.value = false
-  }
-}
-
 const handleLogout = () => {
   authStore.logout()
   router.push('/admin/login')
@@ -898,8 +1146,13 @@ let scanTimer: number | null = null
 
 onMounted(async () => {
   await loadStats()
-  await fetchScanStatus()
-  scanTimer = window.setInterval(fetchScanStatus, 5000)
+  await Promise.all([fetchScanStatus(), fetchScanTasks(), fetchOperationLogs(), fetchLoginRecords(), loadScanProviderOptions()])
+  scanTimer = window.setInterval(() => {
+    fetchScanStatus()
+    fetchScanTasks()
+    fetchOperationLogs()
+    fetchLoginRecords()
+  }, 5000)
 })
 
 onUnmounted(() => {
@@ -907,10 +1160,6 @@ onUnmounted(() => {
     clearInterval(scanTimer)
     scanTimer = null
   }
-  stopTaskPoll()
+  stopTaskDetailPoll()
 })
-
-const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))
-const showFaceSimilarInputs = computed(() => selectedApi.value.includes('/admin/faces/{id}/similar'))
 </script>
-

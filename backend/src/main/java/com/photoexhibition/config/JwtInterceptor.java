@@ -25,6 +25,11 @@ public class JwtInterceptor implements HandlerInterceptor {
         
         // 公开接口不需要认证（必须放在最前面）
         if (path.equals("/api/auth/login") || 
+            path.equals("/api/auth/register") ||
+            path.equals("/api/auth/send-code") ||
+            path.equals("/api/auth/email/send-code") ||
+            path.equals("/api/auth/public-settings") ||
+            path.equals("/api/auth/public-user") ||
             path.startsWith("/api/albums") ||
             path.startsWith("/api/photos") ||
             path.startsWith("/api/tags") ||
@@ -65,4 +70,3 @@ public class JwtInterceptor implements HandlerInterceptor {
         return true;
     }
 }
-

@@ -25,6 +25,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -59,8 +60,18 @@ public class AiSearchService {
     private final PhotoService photoService;
     private final AlbumService albumService;
     private final FaceService faceService;
-    private final RestTemplate restTemplate;
+    private final UserPathService userPathService;
+    private RestTemplate restTemplate = createDefaultRestTemplate();
     private final ObjectMapper objectMapper;
+
+    private static RestTemplate createDefaultRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10000);
+        factory.setReadTimeout(60000);
+        RestTemplate restTemplate = new RestTemplate();
+        restTemplate.setRequestFactory(factory);
+        return restTemplate;
+    }
 
     // ==================== 搜索结果缓存 ====================
     private static final int SEARCH_CACHE_TTL_SECONDS = 600; // 缓存10分钟
@@ -2100,7 +2111,7 @@ public class AiSearchService {
             for (Album a : candidates.albums) {
                 sb.append("- id:").append(a.getId()).append(" \"").append(a.getName()).append("\"");
                 if (a.getPath() != null) {
-                    sb.append(" (").append(a.getPath()).append(")");
+                    sb.append(" (").append(normalizeTenantRelativePath(a.getPath())).append(")");
                 }
                 sb.append("\n");
             }
@@ -3569,7 +3580,7 @@ public class AiSearchService {
             draft.evidenceStatus = blankToNull(answerNode.path("evidenceStatus").asText(""));
             return draft;
         } catch (Exception e) {
-            throw new RuntimeException("解析回答失败: " + e.getMessage(), e);
+            throw new RuntimeException("解析回答失败: " + userPathService.sanitizeVisibleText(e.getMessage()), e);
         }
     }
 
@@ -4095,11 +4106,7 @@ public class AiSearchService {
         if (isBlank(path)) {
             return Collections.emptyList();
         }
-        String normalized = path.replace('\\', '/');
-        int markerIndex = normalized.indexOf("/data/photos/");
-        if (markerIndex >= 0) {
-            normalized = normalized.substring(markerIndex + "/data/photos/".length());
-        }
+        String normalized = normalizeTenantRelativePath(path);
         LinkedHashSet<String> themes = new LinkedHashSet<>();
         for (String segment : normalized.split("/")) {
             themes.addAll(extractThemeCandidates(segment));
@@ -4111,16 +4118,25 @@ public class AiSearchService {
         if (isBlank(path)) {
             return Collections.emptyList();
         }
-        String normalized = path.replace('\\', '/');
-        int markerIndex = normalized.indexOf("/data/photos/");
-        if (markerIndex >= 0) {
-            normalized = normalized.substring(markerIndex + "/data/photos/".length());
-        }
+        String normalized = normalizeTenantRelativePath(path);
         LinkedHashSet<String> locations = new LinkedHashSet<>();
         for (String segment : normalized.split("/")) {
             locations.addAll(extractLocationCandidates(segment));
         }
         return new ArrayList<>(locations);
+    }
+
+    private String normalizeTenantRelativePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String relativePath = userPathService.extractTenantRelativePhotoPath(path);
+        if (relativePath != null && !relativePath.isBlank()) {
+            return relativePath.replace('\\', '/');
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     private List<String> extractThemeCandidates(String rawText) {
@@ -4330,7 +4346,7 @@ public class AiSearchService {
             }
             return message.get("content").asText();
         } catch (Exception e) {
-            throw new RuntimeException("解析回答失败: " + e.getMessage(), e);
+            throw new RuntimeException("解析回答失败: " + userPathService.sanitizeVisibleText(e.getMessage()), e);
         }
     }
 
@@ -4738,7 +4754,8 @@ public class AiSearchService {
 
     private List<Long> rankAlbumMatches(CandidateContext candidates, String subject, Set<String> tokens, int limit) {
         return candidates.albums.stream()
-            .map(album -> Map.entry(album.getId(), scoreCandidate(List.of(album.getName(), album.getPath()), subject, tokens)))
+            .map(album -> Map.entry(album.getId(),
+                scoreCandidate(List.of(album.getName(), normalizeTenantRelativePath(album.getPath())), subject, tokens)))
             .filter(entry -> entry.getValue() > 1)
             .sorted((left, right) -> Integer.compare(right.getValue(), left.getValue()))
             .limit(limit)

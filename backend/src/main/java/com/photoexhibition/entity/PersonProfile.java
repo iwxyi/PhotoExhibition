@@ -23,6 +23,9 @@ public class PersonProfile {
     @Column(nullable = false, unique = true, length = 100)
     private String name;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Column(columnDefinition = "TEXT")
     private String description;
 
@@ -65,4 +68,3 @@ public class PersonProfile {
         updatedAt = LocalDateTime.now();
     }
 }
-

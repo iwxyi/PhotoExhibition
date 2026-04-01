@@ -25,7 +25,7 @@ public class SystemConfigService {
     // 常量定义
     public static final String MAX_ALBUM_DEPTH_KEY = "max_album_depth";
     public static final String MAX_ALBUM_DEPTH_DEFAULT = "1";
-    public static final String MAX_ALBUM_DEPTH_DESCRIPTION = "最大相册层级（从base-path下的第三级目录开始计算）";
+    public static final String MAX_ALBUM_DEPTH_DESCRIPTION = "最大相册层级（从当前用户图片根目录 / 分类 / 顶级相册 之后开始计算）";
 
     public static final String PHOTO_SORT_ORDER_KEY = "photo_sort_order";
     public static final String PHOTO_SORT_ORDER_DEFAULT = "taken_at_asc";
@@ -78,6 +78,50 @@ public class SystemConfigService {
     public static final String AI_SEARCH_MODEL_KEY = "ai_search_model";
     public static final String AI_SEARCH_MODEL_DEFAULT = "gpt-4o";
     public static final String AI_SEARCH_MODEL_DESCRIPTION = "AI搜索使用的模型名称";
+
+    public static final String MULTI_USER_ENABLED_KEY = "multi_user_enabled";
+    public static final String MULTI_USER_ENABLED_DEFAULT = "false";
+    public static final String MULTI_USER_ENABLED_DESCRIPTION = "是否开启多用户模式";
+
+    public static final String SCAN_SCHEDULER_ENABLED_KEY = "scan_scheduler_enabled";
+    public static final String SCAN_SCHEDULER_ENABLED_DEFAULT = "false";
+    public static final String SCAN_SCHEDULER_ENABLED_DESCRIPTION = "是否开启定时扫描";
+
+    public static final String SCAN_WORKER_COUNT_KEY = "scan_worker_count";
+    public static final String SCAN_WORKER_COUNT_DEFAULT = "1";
+    public static final String SCAN_WORKER_COUNT_DESCRIPTION = "扫描任务工作线程数（建议 1~2）";
+
+    public static final String DEFAULT_USER_QUOTA_BYTES_KEY = "default_user_quota_bytes";
+    public static final String DEFAULT_USER_QUOTA_BYTES_DEFAULT = String.valueOf(3L * 1024 * 1024 * 1024);
+    public static final String DEFAULT_USER_QUOTA_BYTES_DESCRIPTION = "新用户默认原图空间限额（建议按 GB 输入与展示，底层按字节存储）";
+
+    public static final String DEFAULT_VIP_EXTRA_QUOTA_BYTES_KEY = "default_vip_extra_quota_bytes";
+    public static final String DEFAULT_VIP_EXTRA_QUOTA_BYTES_DEFAULT = "0";
+    public static final String DEFAULT_VIP_EXTRA_QUOTA_BYTES_DESCRIPTION = "默认 VIP 额外空间限额（建议按 GB 输入与展示，底层按字节存储）";
+
+    public static final String LOCAL_STORAGE_ROOT_KEY = "local_storage_root";
+    public static final String LOCAL_STORAGE_ROOT_DEFAULT = "./data/photos";
+    public static final String LOCAL_STORAGE_ROOT_DESCRIPTION = "本地图片存储总根目录（多用户模式下实际为该目录/{userId}/...）";
+
+    public static final String USER_DATA_ROOT_KEY = "user_data_root";
+    public static final String USER_DATA_ROOT_DEFAULT = "./data/users";
+    public static final String USER_DATA_ROOT_DESCRIPTION = "用户资料存储根目录";
+
+    public static final String FORCE_BIND_PHONE_KEY = "force_bind_phone";
+    public static final String FORCE_BIND_PHONE_DEFAULT = "false";
+    public static final String FORCE_BIND_PHONE_DESCRIPTION = "是否强制用户注册时绑定手机号";
+
+    public static final String AUTO_RENEW_SCHEDULER_ENABLED_KEY = "auto_renew_scheduler_enabled";
+    public static final String AUTO_RENEW_SCHEDULER_ENABLED_DEFAULT = "false";
+    public static final String AUTO_RENEW_SCHEDULER_ENABLED_DESCRIPTION = "是否开启自动续费建单定时任务";
+
+    public static final String SUPER_ADMIN_TABLE_PREFERENCES_KEY = "super_admin_table_preferences";
+    public static final String SUPER_ADMIN_TABLE_PREFERENCES_DEFAULT = "{}";
+    public static final String SUPER_ADMIN_TABLE_PREFERENCES_DESCRIPTION = "超级管理员表格偏好配置(JSON)";
+
+    public static final String LEGACY_MIGRATION_COMPLETED_KEY = "legacy_migration_completed";
+    public static final String LEGACY_MIGRATION_COMPLETED_DEFAULT = "false";
+    public static final String LEGACY_MIGRATION_COMPLETED_DESCRIPTION = "旧数据迁移是否已在启动阶段完成，用于避免每次重启重复执行全量迁移";
 
     // 排序方式常量
     public static final String SORT_BY_TAKEN_AT_DESC = "taken_at_desc";
@@ -144,6 +188,23 @@ public class SystemConfigService {
         config.setDescription(description);
         systemConfigRepository.save(config);
         log.info("配置已保存: key={}, value={}", key, value);
+    }
+
+    public String getSuperAdminTablePreferences() {
+        return getConfigValueWithDefault(
+            SUPER_ADMIN_TABLE_PREFERENCES_KEY,
+            SUPER_ADMIN_TABLE_PREFERENCES_DEFAULT,
+            SUPER_ADMIN_TABLE_PREFERENCES_DESCRIPTION
+        );
+    }
+
+    @Transactional
+    public void setSuperAdminTablePreferences(String json) {
+        setConfigValue(
+            SUPER_ADMIN_TABLE_PREFERENCES_KEY,
+            json == null || json.isBlank() ? SUPER_ADMIN_TABLE_PREFERENCES_DEFAULT : json,
+            SUPER_ADMIN_TABLE_PREFERENCES_DESCRIPTION
+        );
     }
 
     /**
@@ -292,6 +353,175 @@ public class SystemConfigService {
 
     public void setAtmosphereEnabled(boolean enabled) {
         setConfigValue(ATMOSPHERE_ENABLED_KEY, String.valueOf(enabled), ATMOSPHERE_ENABLED_DESCRIPTION);
+    }
+
+    public boolean isMultiUserEnabled() {
+        String value = getConfigValueWithDefault(
+            MULTI_USER_ENABLED_KEY,
+            MULTI_USER_ENABLED_DEFAULT,
+            MULTI_USER_ENABLED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setMultiUserEnabled(boolean enabled) {
+        setConfigValue(MULTI_USER_ENABLED_KEY, String.valueOf(enabled), MULTI_USER_ENABLED_DESCRIPTION);
+    }
+
+    public boolean isScanSchedulerEnabled() {
+        String value = getConfigValueWithDefault(
+            SCAN_SCHEDULER_ENABLED_KEY,
+            SCAN_SCHEDULER_ENABLED_DEFAULT,
+            SCAN_SCHEDULER_ENABLED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setScanSchedulerEnabled(boolean enabled) {
+        setConfigValue(SCAN_SCHEDULER_ENABLED_KEY, String.valueOf(enabled), SCAN_SCHEDULER_ENABLED_DESCRIPTION);
+    }
+
+    public long getDefaultUserQuotaBytes() {
+        String value = getConfigValueWithDefault(
+            DEFAULT_USER_QUOTA_BYTES_KEY,
+            DEFAULT_USER_QUOTA_BYTES_DEFAULT,
+            DEFAULT_USER_QUOTA_BYTES_DESCRIPTION
+        );
+        try {
+            return Math.max(0L, Long.parseLong(value));
+        } catch (NumberFormatException e) {
+            log.warn("无效的默认用户空间限额配置: {}, 使用默认值 {}", value, DEFAULT_USER_QUOTA_BYTES_DEFAULT);
+            return Long.parseLong(DEFAULT_USER_QUOTA_BYTES_DEFAULT);
+        }
+    }
+
+    public int getScanWorkerCount() {
+        String value = getConfigValueWithDefault(
+            SCAN_WORKER_COUNT_KEY,
+            SCAN_WORKER_COUNT_DEFAULT,
+            SCAN_WORKER_COUNT_DESCRIPTION
+        );
+        try {
+            int parsed = Integer.parseInt(value);
+            return Math.max(1, Math.min(2, parsed));
+        } catch (NumberFormatException e) {
+            log.warn("无效的扫描工作线程数配置: {}, 使用默认值 {}", value, SCAN_WORKER_COUNT_DEFAULT);
+            return Integer.parseInt(SCAN_WORKER_COUNT_DEFAULT);
+        }
+    }
+
+    @Transactional
+    public void setScanWorkerCount(int count) {
+        if (count < 1 || count > 2) {
+            throw new IllegalArgumentException("扫描工作线程数仅支持 1~2");
+        }
+        setConfigValue(SCAN_WORKER_COUNT_KEY, String.valueOf(count), SCAN_WORKER_COUNT_DESCRIPTION);
+    }
+
+    @Transactional
+    public void setDefaultUserQuotaBytes(long quotaBytes) {
+        if (quotaBytes < 0) {
+            throw new IllegalArgumentException("默认用户空间限额不能为负数");
+        }
+        setConfigValue(DEFAULT_USER_QUOTA_BYTES_KEY, String.valueOf(quotaBytes), DEFAULT_USER_QUOTA_BYTES_DESCRIPTION);
+    }
+
+    public boolean isLegacyMigrationCompleted() {
+        String value = getConfigValueWithDefault(
+            LEGACY_MIGRATION_COMPLETED_KEY,
+            LEGACY_MIGRATION_COMPLETED_DEFAULT,
+            LEGACY_MIGRATION_COMPLETED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setLegacyMigrationCompleted(boolean completed) {
+        setConfigValue(LEGACY_MIGRATION_COMPLETED_KEY, String.valueOf(completed), LEGACY_MIGRATION_COMPLETED_DESCRIPTION);
+    }
+
+    public long getDefaultVipExtraQuotaBytes() {
+        String value = getConfigValueWithDefault(
+            DEFAULT_VIP_EXTRA_QUOTA_BYTES_KEY,
+            DEFAULT_VIP_EXTRA_QUOTA_BYTES_DEFAULT,
+            DEFAULT_VIP_EXTRA_QUOTA_BYTES_DESCRIPTION
+        );
+        try {
+            return Math.max(0L, Long.parseLong(value));
+        } catch (NumberFormatException e) {
+            log.warn("无效的默认 VIP 额外空间限额配置: {}, 使用默认值 {}", value, DEFAULT_VIP_EXTRA_QUOTA_BYTES_DEFAULT);
+            return Long.parseLong(DEFAULT_VIP_EXTRA_QUOTA_BYTES_DEFAULT);
+        }
+    }
+
+    @Transactional
+    public void setDefaultVipExtraQuotaBytes(long quotaBytes) {
+        if (quotaBytes < 0) {
+            throw new IllegalArgumentException("默认 VIP 额外空间限额不能为负数");
+        }
+        setConfigValue(DEFAULT_VIP_EXTRA_QUOTA_BYTES_KEY, String.valueOf(quotaBytes), DEFAULT_VIP_EXTRA_QUOTA_BYTES_DESCRIPTION);
+    }
+
+    public String getLocalStorageRoot() {
+        return getConfigValueWithDefault(
+            LOCAL_STORAGE_ROOT_KEY,
+            LOCAL_STORAGE_ROOT_DEFAULT,
+            LOCAL_STORAGE_ROOT_DESCRIPTION
+        );
+    }
+
+    @Transactional
+    public void setLocalStorageRoot(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            throw new IllegalArgumentException("本地图片存储根目录不能为空");
+        }
+        setConfigValue(LOCAL_STORAGE_ROOT_KEY, path.trim(), LOCAL_STORAGE_ROOT_DESCRIPTION);
+    }
+
+    public String getUserDataRoot() {
+        return getConfigValueWithDefault(
+            USER_DATA_ROOT_KEY,
+            USER_DATA_ROOT_DEFAULT,
+            USER_DATA_ROOT_DESCRIPTION
+        );
+    }
+
+    @Transactional
+    public void setUserDataRoot(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            throw new IllegalArgumentException("用户资料存储根目录不能为空");
+        }
+        setConfigValue(USER_DATA_ROOT_KEY, path.trim(), USER_DATA_ROOT_DESCRIPTION);
+    }
+
+    public boolean isForceBindPhone() {
+        String value = getConfigValueWithDefault(
+            FORCE_BIND_PHONE_KEY,
+            FORCE_BIND_PHONE_DEFAULT,
+            FORCE_BIND_PHONE_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setForceBindPhone(boolean enabled) {
+        setConfigValue(FORCE_BIND_PHONE_KEY, String.valueOf(enabled), FORCE_BIND_PHONE_DESCRIPTION);
+    }
+
+    public boolean isAutoRenewSchedulerEnabled() {
+        String value = getConfigValueWithDefault(
+            AUTO_RENEW_SCHEDULER_ENABLED_KEY,
+            AUTO_RENEW_SCHEDULER_ENABLED_DEFAULT,
+            AUTO_RENEW_SCHEDULER_ENABLED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setAutoRenewSchedulerEnabled(boolean enabled) {
+        setConfigValue(AUTO_RENEW_SCHEDULER_ENABLED_KEY, String.valueOf(enabled), AUTO_RENEW_SCHEDULER_ENABLED_DESCRIPTION);
     }
 
     /**

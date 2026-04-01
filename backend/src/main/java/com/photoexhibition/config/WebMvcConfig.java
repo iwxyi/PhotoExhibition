@@ -16,11 +16,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(jwtInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns(
-                    "/api/auth/login", 
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/email/send-code",
                     "/api/files/**",
                     "/api/admin/init-admin",
                     "/api/admin/test-password"
                 );
     }
 }
-

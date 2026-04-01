@@ -1,7 +1,7 @@
 <template>
   <div class="flex items-center space-x-2 transition-opacity duration-300" :style="{ opacity: navOpacity }">
     <router-link
-      to="/"
+      :to="buildPublicPath('/', route.path)"
       class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/')"
     >
@@ -9,7 +9,7 @@
       <div class="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
     </router-link>
     <router-link
-      to="/wall"
+      :to="buildPublicPath('/wall', route.path)"
       class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/wall')"
     >
@@ -17,7 +17,7 @@
       <div class="absolute inset-0 bg-gradient-to-r from-green-500/10 to-teal-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
     </router-link>
     <router-link
-      to="/random"
+      :to="buildPublicPath('/random', route.path)"
       class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/random')"
     >
@@ -25,7 +25,7 @@
       <div class="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
     </router-link>
     <router-link
-      to="/persons"
+      :to="buildPublicPath('/persons', route.path)"
       class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/persons')"
     >
@@ -38,6 +38,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { buildPublicPath, stripPublicSlug } from '@/utils/publicRoute'
 
 const route = useRoute()
 const navOpacity = ref(1)
@@ -45,7 +46,7 @@ let lastScrollY = 0
 let ticking = false
 
 const linkClass = (path: string) => {
-  const active = route.path === path
+  const active = stripPublicSlug(route.path) === path
   return active
     ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
     : 'text-gray-700 dark:text-gray-300 bg-gray-100/60 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-700'
@@ -99,4 +100,3 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScrollToTop)
 })
 </script>
-

@@ -615,8 +615,8 @@
                   >
                     <div class="aspect-square bg-gray-800 rounded-lg overflow-hidden mb-2">
                       <img
-                        v-if="item.photo.thumbnailPath"
-                        :src="`/api/files${item.photo.thumbnailPath}`"
+                        v-if="getThumbUrl(item.photo)"
+                        :src="getThumbUrl(item.photo)"
                         :alt="item.photo.filename"
                         class="w-full h-full object-cover"
                       />
@@ -661,11 +661,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { buildPublicPath } from '@/utils/publicRoute'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { usePhotoStore } from '@/stores/photo'
 import { aiApi } from '@/api'
 import type { Photo } from '@/stores/photo'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 const props = defineProps<{
   photos: Photo[]
@@ -1099,20 +1101,14 @@ const clampThumbHeight = (val: number) => Math.min(260, Math.max(60, val))
 
 // 获取图片URL的工具函数
 const getImageUrl = (photo: Photo) => {
-  if (viewingOriginal.value && photo.originalPath) {
-    return `/api/files${photo.originalPath}`
+  if (viewingOriginal.value) {
+    return buildPhotoAssetUrl(photo, 'original') || ''
   }
-  if (photo.largeThumbPath) {
-    return `/api/files${photo.largeThumbPath}`
-  }
-  if (photo.webpPath) return `/api/files${photo.webpPath}`
-  if (photo.originalPath) return `/api/files${photo.originalPath}`
-  return ''
+  return buildPhotoAssetUrl(photo, 'large') || ''
 }
 
 const getThumbUrl = (photo: Photo) => {
-  if (photo.thumbnailPath) return `/api/files${photo.thumbnailPath}`
-  return getImageUrl(photo)
+  return buildPhotoAssetUrl(photo, 'thumbnail') || getImageUrl(photo)
 }
 
 // 焦点框样式
@@ -2089,27 +2085,27 @@ const router = useRouter()
 const openAlbum = () => {
   if (!currentPhoto.value) return
   // 使用短路由 /a/ID
-  const route = router.resolve({ path: `/a/${currentPhoto.value.albumId}` })
+  const route = router.resolve({ path: buildPublicPath(`/a/${currentPhoto.value.albumId}`) })
   window.open(route.href, '_blank')
 }
 
 // 打开照片详情页
 const openPhotoPage = () => {
   if (!currentPhoto.value?.id) return
-  const route = router.resolve({ path: `/photo/${currentPhoto.value.id}` })
+  const route = router.resolve({ path: buildPublicPath(`/photo/${currentPhoto.value.id}`) })
   window.open(route.href, '_blank')
 }
 
 const openTag = (tag: any) => {
   if (!tag?.id) return
-  const route = router.resolve({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  const route = router.resolve({ path: buildPublicPath('/wall'), query: { tagId: tag.id, tagName: tag.name } })
   window.open(route.href, '_blank')
 }
 
 const openPersonByFace = (face: { personId?: number; personName?: string }) => {
   if (!face.personId || !face.personName) return
   const route = router.resolve({
-    path: '/wall',
+    path: buildPublicPath('/wall'),
     query: {
       personId: face.personId,
       personName: face.personName
@@ -2122,7 +2118,7 @@ const openPersonByFace = (face: { personId?: number; personName?: string }) => {
 const findSimilarFaces = (face: { id?: number }) => {
   if (!face.id) return
   const route = router.resolve({
-    path: '/search',
+    path: buildPublicPath('/search'),
     query: {
       faceId: face.id.toString()
     }
@@ -2142,21 +2138,21 @@ const filterByTakenAt = () => {
     endDate: dateStr
   }
   // 打开随机页面
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
 }
 
 const filterByCamera = () => {
   if (!currentPhoto.value?.cameraMake && !currentPhoto.value?.cameraModel) return
   const cameraModel = currentPhoto.value.cameraModel || ''
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify({ cameraModel }) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify({ cameraModel }) } })
   window.open(route.href, '_blank')
 }
 
 const filterByLens = () => {
   if (!currentPhoto.value?.lensModel) return
   const lensModel = currentPhoto.value.lensModel
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify({ lensModel }) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify({ lensModel }) } })
   window.open(route.href, '_blank')
 }
 
@@ -2167,7 +2163,7 @@ const filterByFocalLength = () => {
     minFocalLength: focalLength,
     maxFocalLength: focalLength
   }
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
 }
 
@@ -2178,7 +2174,7 @@ const filterByAperture = () => {
     minAperture: aperture,
     maxAperture: aperture
   }
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
 }
 
@@ -2192,7 +2188,7 @@ const filterByShutterSpeed = () => {
     minShutterSpeed: parseFloat(shutterSpeed),
     maxShutterSpeed: parseFloat(shutterSpeed)
   }
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
 }
 
@@ -2202,7 +2198,7 @@ const filterByIso = () => {
     minIso: currentPhoto.value.iso,
     maxIso: currentPhoto.value.iso
   }
-  const route = router.resolve({ path: '/random', query: { filters: JSON.stringify(filters) } })
+  const route = router.resolve({ path: buildPublicPath('/random'), query: { filters: JSON.stringify(filters) } })
   window.open(route.href, '_blank')
 }
 
@@ -2236,24 +2232,12 @@ const getColorTooltip = (color: string) => {
 const resolveFaceAvatarUrl = (face: any) => {
   const photo = currentPhoto.value
   if (!photo) return ''
-  // 直接使用当前显示的图片
-  const firstPath = [
-    photo.originalPath,
-    photo.webpPath,
-    photo.thumbnailPath,
-    face.photoOriginalPath,
-    face.photoThumbnailPath
-  ].find(p => p && typeof p === 'string' && p.length > 0) || ''
-  const base = firstPath
-    ? firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
-    : ''
-  if (!base) return ''
-  const prefix = '/api/files'
-  if (base.startsWith(prefix)) {
-    const raw = base.slice(prefix.length)
-    return `${prefix}${encodeURI(raw)}`
-  }
-  return encodeURI(base)
+  return buildPhotoAssetUrl({
+    id: photo.id || face?.photoId,
+    originalPath: photo.originalPath || face?.photoOriginalPath,
+    thumbnailPath: face?.photoThumbnailPath || photo.thumbnailPath,
+    webpPath: photo.webpPath
+  }, 'thumbnail') || ''
 }
 
 const getFaceAvatarStyle = (face: any) => {

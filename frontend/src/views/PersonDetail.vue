@@ -40,7 +40,7 @@
             >
               <img
                 v-if="person?.sampleThumbnailPath"
-                :src="convertImagePath(person.sampleThumbnailPath)"
+                :src="convertImagePath(person.sampleThumbnailPath, person.samplePhotoId, person.sampleOriginalPath)"
                 :alt="person.name"
                 class="w-full h-full object-cover"
                 :class="avatarEnterComplete ? 'avatar-scale-in' : 'avatar-hidden'"
@@ -87,7 +87,7 @@
               >
                 <img
                   v-if="person?.sampleThumbnailPath"
-                  :src="convertImagePath(person.sampleThumbnailPath)"
+                  :src="convertImagePath(person.sampleThumbnailPath, person.samplePhotoId, person.sampleOriginalPath)"
                   :alt="person.name"
                   class="w-full h-full object-cover"
                   :class="avatarEnterComplete ? 'avatar-scale-in' : 'avatar-hidden'"
@@ -261,7 +261,7 @@
               <!-- 背景图容器（负责裁切） -->
               <div class="absolute inset-0 overflow-hidden rounded-xl">
               <img
-                :src="convertImagePath(face.photoThumbnailPath || '')"
+                :src="convertImagePath(face.photoThumbnailPath || '', face.photoId, face.photoOriginalPath)"
                 :alt="face.photoFilename"
                   class="w-full h-full object-cover"
                 :style="{ 
@@ -333,16 +333,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useLanguageStore } from '@/stores/language'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { personApi, PersonSummary, AlbumRecommendation, FaceFace, backgroundRemovalApi } from '@/api'
+import { buildPublicPath, stripPublicSlug } from '@/utils/publicRoute'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import AlbumRecommendationCard from '@/components/AlbumRecommendationCard.vue'
 import { useMobileNav } from '@/composables/useMobileNav'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const languageStore = useLanguageStore()
 const { coverSize } = useUiSettings()
@@ -413,7 +417,9 @@ const person = ref<PersonSummary | null>(null)
 // 监听人物数据变化，更新页面标题
 watch(person, (newPerson) => {
   if (newPerson?.name) {
-    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    const baseTitle = languageStore.language === 'zh'
+      ? (authStore.projectNameZh || authStore.projectNameEn || '光忆集')
+      : (authStore.projectNameEn || authStore.projectNameZh || 'Aurellic Memoriq')
     document.title = `${baseTitle} - ${newPerson.name}`
   }
 }, { immediate: true })
@@ -661,31 +667,32 @@ const goBack = () => {
   sessionStorage.removeItem('person-entry-page')
 
   // 根据来源决定去向
-  if (targetPage && targetPage !== '/persons' && targetPage !== '') {
+  const normalizedTarget = targetPage ? stripPublicSlug(targetPage) : ''
+  if (targetPage && normalizedTarget !== '/persons' && normalizedTarget !== '') {
     // 从其他页面来的，返回该页面
     console.log('[PersonDetail] goBack - navigating to:', targetPage)
-    router.push(targetPage)
+    router.push(buildPublicPath(targetPage, route.path))
   } else {
     // 默认返回人物列表
     console.log('[PersonDetail] goBack - navigating to /persons')
-    router.push('/persons')
+    router.push(buildPublicPath('/persons', route.path))
   }
 }
 
 const goToAlbum = (albumId: number) => {
-  window.open(`/a/${albumId}`, '_blank')
+  window.open(buildPublicPath(`/a/${albumId}`, route.path), '_blank')
 }
 
 const goToPhoto = (photoId: number) => {
-  window.open(`/photo/${photoId}`, '_blank')
+  window.open(buildPublicPath(`/photo/${photoId}`, route.path), '_blank')
 }
 
-const convertImagePath = (path: string) => {
-  if (!path) return path
-  if (path.startsWith('/')) {
-    return `/api/files${path}`
-  }
-  return path
+const convertImagePath = (path: string, photoId?: number | null, originalPath?: string | null) => {
+  return buildPhotoAssetUrl({
+    id: photoId,
+    originalPath: originalPath,
+    mediumThumbPath: path
+  }, 'medium') || path
 }
 
 // 头像图片加载完成后的动画
@@ -818,7 +825,7 @@ onMounted(async () => {
   // 检查人物 ID 是否有效
   if (!targetPersonId) {
     console.error('[PersonDetail] 无法确定人物 ID')
-    router.push('/persons')
+    router.push(buildPublicPath('/persons', route.path))
     return
   }
 
@@ -845,7 +852,7 @@ onMounted(async () => {
       entryPage = referrerUrl.pathname
       console.log('[PersonDetail] onMounted - entry from referrer:', entryPage)
     } catch {
-      entryPage = '/persons'
+      entryPage = buildPublicPath('/persons', route.path)
       console.log('[PersonDetail] onMounted - entry default to /persons')
     }
   } else {

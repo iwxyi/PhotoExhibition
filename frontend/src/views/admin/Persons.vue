@@ -20,12 +20,15 @@
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
         <div class="mb-3 space-y-2">
-          <input
-            v-model="personKeyword"
-            @input="loadPersons"
-            placeholder="搜索..."
-            class="w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
+          <label class="block space-y-1">
+            <span class="text-[11px] text-gray-400">搜索人物</span>
+            <input
+              v-model="personKeyword"
+              @input="loadPersons"
+              placeholder="按人物姓名关键词搜索"
+              class="w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </label>
           <div class="flex items-center gap-2 text-[11px] text-gray-300">
             <span
               class="whitespace-nowrap"
@@ -176,14 +179,17 @@
           </div>
           <div>
             <div class="flex gap-2">
-              <input
-                v-model="selectedPersonName"
-                @blur="handleSelectedPersonNameBlur"
-                @keyup.enter="handleSelectedPersonNameEnter"
-                @keyup.esc="resetSelectedPersonName"
-                class="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                :placeholder="(selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId) ? '人物姓名' : '修改姓名'"
-              />
+              <label class="flex-1 space-y-1">
+                <span class="text-[11px] text-gray-400">人物姓名</span>
+                <input
+                  v-model="selectedPersonName"
+                  @blur="handleSelectedPersonNameBlur"
+                  @keyup.enter="handleSelectedPersonNameEnter"
+                  @keyup.esc="resetSelectedPersonName"
+                  class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  :placeholder="(selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId) ? '输入新人物姓名' : '修改当前人物姓名'"
+                />
+              </label>
               <button
                 v-if="selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId"
                 @click="createPersonFromSelectedCluster"
@@ -205,14 +211,17 @@
             </div>
           </div>
           <div v-if="selectedItem.type === 'confirmed' || (selectedItem as any).convertedFromClusterId">
-            <textarea
-              v-model="editingDescription"
-              @blur="savePersonDescription"
-              @keyup.esc="cancelDescriptionEdit"
-              rows="2"
-              class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-              placeholder="添加备注..."
-            ></textarea>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">人物备注</span>
+              <textarea
+                v-model="editingDescription"
+                @blur="savePersonDescription"
+                @keyup.esc="cancelDescriptionEdit"
+                rows="2"
+                class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                placeholder="添加人物说明、关系、备注等"
+              ></textarea>
+            </label>
           </div>
         </div>
       </div>
@@ -791,13 +800,16 @@
                   <span class="text-xs text-gray-400">(将选中的人脸合并为新人物)</span>
                 </div>
                 <div class="flex items-center gap-2">
-                  <input
-                    v-model="newPersonName"
-                    type="text"
-                    placeholder="输入人物名称"
-                    class="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
-                    @keyup.enter="createPersonFromSelectedUnassigned"
-                  />
+                  <label class="flex-1 space-y-1">
+                    <span class="text-[11px] text-gray-400">人物名称</span>
+                    <input
+                      v-model="newPersonName"
+                      type="text"
+                      placeholder="输入要创建的人物名称"
+                      class="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                      @keyup.enter="createPersonFromSelectedUnassigned"
+                    />
+                  </label>
                   <button
                     @click="createPersonFromSelectedUnassigned"
                     :disabled="createPersonLoading || !newPersonName.trim() || selectedUnassigned.size === 0"
@@ -1061,14 +1073,17 @@
 
       <!-- 搜索框和操作按钮 -->
       <div class="p-4 border-b border-gray-700/50 flex items-center gap-2">
-        <input
-          ref="claimDialogSearchInput"
-          v-model="claimDialogSearchKeyword"
-          @input="filterClaimDialogPersons"
-          @keyup.enter="handleClaimDialogEnter"
-          placeholder="搜索人物名字..."
-          class="flex-1 px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
-        />
+        <label class="flex-1 space-y-1">
+          <span class="text-[11px] text-gray-400">搜索人物</span>
+          <input
+            ref="claimDialogSearchInput"
+            v-model="claimDialogSearchKeyword"
+            @input="filterClaimDialogPersons"
+            @keyup.enter="handleClaimDialogEnter"
+            placeholder="输入人物姓名关键词"
+            class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
+          />
+        </label>
         <button
           @click="handleClaimDialogAction"
           :disabled="!canCreatePersonFromClaimDialog && selectedClaimPersonId === null"
@@ -1182,6 +1197,8 @@ import { api, personApi, configApi } from '@/api'
 import { usePhotoStore } from '@/stores/photo'
 import { useAuthStore } from '@/stores/auth'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const router = useRouter()
 const route = useRoute()
@@ -4647,17 +4664,23 @@ const attemptClaimOrRemove = async (e?: Event) => {
 }
 
 const getImageUrl = (path?: string) => {
-  if (!path) return ''
-  return path.startsWith('http') ? path : `/api/files${path}`
+  return path || ''
 }
 
 const getPersonThumb = (p: PersonListItem) => {
-  return getImageUrl(p.sampleThumbnailPath || p.sampleOriginalPath)
+  return buildPhotoAssetUrl({
+    id: p.samplePhotoId,
+    thumbnailPath: p.sampleThumbnailPath,
+    originalPath: p.sampleOriginalPath
+  }, 'thumbnail') || getImageUrl(p.sampleThumbnailPath || p.sampleOriginalPath)
 }
 
 const getFaceThumb = (f: FaceItem) => {
-  // 对于相册中的图片，使用 thumbnailPath；对于人脸，使用 photoThumbnailPath
-  return getImageUrl(f.thumbnailPath || f.photoThumbnailPath || f.photoOriginalPath)
+  return buildPhotoAssetUrl({
+    id: f.photoId,
+    thumbnailPath: f.thumbnailPath || f.photoThumbnailPath,
+    originalPath: f.photoOriginalPath
+  }, 'thumbnail') || getImageUrl(f.thumbnailPath || f.photoThumbnailPath || f.photoOriginalPath)
 }
 
 const getActiveFacesForViewer = () => {
@@ -4947,7 +4970,7 @@ const getFaceCropStyle = (face: FaceItem) => {
 
 const openPhoto = (photoId?: number) => {
   if (!photoId) return
-  window.open(`/photo/${photoId}`, '_blank')
+  window.open(buildPublicPath(`/photo/${photoId}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
 }
 
 // Open a photo inside the PhotoViewer (single-photo mode)
@@ -5816,4 +5839,3 @@ watch(findSimilarFaceId, async (faceId) => {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 </style>
-

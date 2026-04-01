@@ -3,6 +3,7 @@ package com.photoexhibition.controller;
 import com.photoexhibition.dto.CommentDTO;
 import com.photoexhibition.dto.CommentRequest;
 import com.photoexhibition.service.CommentService;
+import com.photoexhibition.service.PublicUserScopeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,13 +25,16 @@ import javax.validation.Valid;
 public class CommentController {
 
     private final CommentService commentService;
+    private final PublicUserScopeService publicUserScopeService;
 
     /**
      * 创建评论
      */
     @PostMapping
-    public ResponseEntity<CommentDTO> createComment(@Valid @RequestBody CommentRequest request) {
+    public ResponseEntity<CommentDTO> createComment(@Valid @RequestBody CommentRequest request,
+                                                    @RequestParam(required = false) String userSlug) {
         try {
+            Long userId = publicUserScopeService.resolveUserId(userSlug);
             // 从请求中获取IP地址
             ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
             String ipAddress = "127.0.0.1"; // 默认IP
@@ -48,16 +52,16 @@ public class CommentController {
             validateCommentContent(request.getContent());
 
             // 检查频率限制
-            commentService.validateCommentRateLimit(request.getEmail(), ipAddress);
+            commentService.validateCommentRateLimit(request.getEmail(), ipAddress, userId);
 
             // 如果是顶级评论，检查用户今天是否已经发表过评论
             if (request.getParentId() == null) {
-                if (commentService.hasUserCommentedOnAlbumToday(request.getAlbumId(), request.getEmail(), ipAddress)) {
+                if (commentService.hasUserCommentedOnAlbumToday(request.getAlbumId(), request.getEmail(), ipAddress, userId)) {
                     return ResponseEntity.badRequest().build(); // 用户今天已经发表过评论
                 }
             }
 
-            CommentDTO comment = commentService.createComment(request);
+            CommentDTO comment = commentService.createComment(request, userId);
             return ResponseEntity.ok(comment);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -70,9 +74,10 @@ public class CommentController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteComment(
             @PathVariable Long id,
-            @RequestParam String email) {
+            @RequestParam String email,
+            @RequestParam(required = false) String userSlug) {
         try {
-            commentService.deleteComment(id, email);
+            commentService.deleteComment(id, email, publicUserScopeService.resolveUserId(userSlug));
             return ResponseEntity.ok().build();
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -85,10 +90,11 @@ public class CommentController {
     @GetMapping("/albums/{albumId}")
     public ResponseEntity<Page<CommentDTO>> getAlbumComments(
             @PathVariable Long albumId,
+            @RequestParam(required = false) String userSlug,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<CommentDTO> comments = commentService.getAlbumComments(albumId, pageable);
+        Page<CommentDTO> comments = commentService.getAlbumComments(albumId, pageable, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(comments);
     }
 
@@ -96,8 +102,9 @@ public class CommentController {
      * 获取评论的回复
      */
     @GetMapping("/{parentId}/replies")
-    public ResponseEntity<java.util.List<CommentDTO>> getCommentReplies(@PathVariable Long parentId) {
-        java.util.List<CommentDTO> replies = commentService.getCommentReplies(parentId);
+    public ResponseEntity<java.util.List<CommentDTO>> getCommentReplies(@PathVariable Long parentId,
+                                                                        @RequestParam(required = false) String userSlug) {
+        java.util.List<CommentDTO> replies = commentService.getCommentReplies(parentId, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(replies);
     }
 
@@ -105,8 +112,9 @@ public class CommentController {
      * 获取相册评论总数（包括回复）
      */
     @GetMapping("/albums/{albumId}/count")
-    public ResponseEntity<Long> getAlbumCommentCount(@PathVariable Long albumId) {
-        long count = commentService.getAlbumCommentCount(albumId);
+    public ResponseEntity<Long> getAlbumCommentCount(@PathVariable Long albumId,
+                                                     @RequestParam(required = false) String userSlug) {
+        long count = commentService.getAlbumCommentCount(albumId, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(count);
     }
 
@@ -116,30 +124,33 @@ public class CommentController {
     @GetMapping("/{parentId}/has-replied")
     public ResponseEntity<Boolean> hasUserRepliedToComment(
             @PathVariable Long parentId,
+            @RequestParam(required = false) String userSlug,
             @RequestParam(required = false) String email,
             HttpServletRequest httpRequest) {
         String ipAddress = getClientIpAddress(httpRequest);
-        boolean hasReplied = commentService.hasUserRepliedToComment(parentId, email, ipAddress);
+        boolean hasReplied = commentService.hasUserRepliedToComment(parentId, email, ipAddress, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(hasReplied);
     }
 
     @PostMapping("/batch-has-replied")
     public ResponseEntity<Map<Long, Boolean>> batchHasUserRepliedToComments(
             @RequestBody List<Long> commentIds,
+            @RequestParam(required = false) String userSlug,
             @RequestParam(required = false) String email,
             HttpServletRequest httpRequest) {
         String ipAddress = getClientIpAddress(httpRequest);
-        Map<Long, Boolean> results = commentService.batchHasUserRepliedToComments(commentIds, email, ipAddress);
+        Map<Long, Boolean> results = commentService.batchHasUserRepliedToComments(commentIds, email, ipAddress, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(results);
     }
 
     @GetMapping("/albums/{albumId}/has-commented-today")
     public ResponseEntity<Boolean> hasUserCommentedOnAlbumToday(
             @PathVariable Long albumId,
+            @RequestParam(required = false) String userSlug,
             @RequestParam(required = false) String email,
             HttpServletRequest httpRequest) {
         String ipAddress = getClientIpAddress(httpRequest);
-        boolean hasCommented = commentService.hasUserCommentedOnAlbumToday(albumId, email, ipAddress);
+        boolean hasCommented = commentService.hasUserCommentedOnAlbumToday(albumId, email, ipAddress, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(hasCommented);
     }
 

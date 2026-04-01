@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getCurrentPublicSlug, shouldAttachUserSlug } from '@/utils/publicRoute'
 
 // 类型定义
 export interface FaceFace {
@@ -34,6 +35,10 @@ export interface Photo {
   mediumThumbPath?: string
   largeThumbPath?: string
   fileSize?: number
+  contentHash?: string
+  canonicalPhotoId?: number | null
+  canonicalSource?: boolean
+  duplicateContent?: boolean
   width?: number
   height?: number
   format?: string
@@ -87,6 +92,16 @@ export interface Tag {
   color?: string
 }
 
+export interface PageResponse<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  first: boolean
+  last: boolean
+}
+
 // 获取服务器地址，支持多种配置方式
 function getServerUrl(): string {
   // 1. 从URL参数获取（如 ?server=192.168.1.100:6060）
@@ -124,9 +139,17 @@ export const api = axios.create({
 api.interceptors.request.use(
   config => {
     // 添加认证token
-    const token = localStorage.getItem('admin_token')
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('admin_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+
+    const currentSlug = getCurrentPublicSlug()
+    if (currentSlug && config.url && shouldAttachUserSlug(config.url)) {
+      const currentParams = config.params || {}
+      if (!('userSlug' in currentParams)) {
+        config.params = { ...currentParams, userSlug: currentSlug }
+      }
     }
     return config
   },
@@ -353,6 +376,726 @@ export const configApi = {
 
   // AI搜索状态
   getAiSearchStatus: () => api.get<{ enabled: boolean }>('/photos/ai-search/status')
+}
+
+export interface SuperAdminOverview {
+  userCount: number
+  activeUserCount: number
+  disabledUserCount: number
+  lockedUserCount: number
+  storageProviderCount: number
+  enabledStorageProviderCount: number
+  multiUserEnabled: boolean
+  scanSchedulerEnabled: boolean
+  scanWorkerCount: number
+  forceBindPhone: boolean
+  autoRenewSchedulerEnabled: boolean
+  smsProviderType: 'ALIYUN' | 'TENCENT_CLOUD' | 'TWILIO' | 'HUAWEI_CLOUD' | 'VOLCENGINE' | 'CLOOPEN' | 'AWS_SNS' | 'YUNPIAN' | 'SUBMAIL' | 'MESSAGEBIRD' | 'VONAGE' | 'INFOBIP' | 'PLIVO' | 'SINCH' | 'TELNYX' | 'SMSAERO' | 'HTTP_WEBHOOK'
+  smsEnabled: boolean
+  smsMockEnabled: boolean
+  emailProviderType: 'SMTP' | 'ALIYUN_DIRECTMAIL' | 'TENCENT_EXMAIL' | 'AWS_SES' | 'SENDGRID' | 'MAILGUN' | 'RESEND' | 'POSTMARK' | 'BREVO' | 'MAILERSEND' | 'ZEPTOMAIL' | 'MAILJET' | 'SPARKPOST' | 'ELASTIC_EMAIL' | 'SMTP2GO' | 'SENDLAYER' | 'QQ_EXMAIL' | 'NETEASE_EXMAIL' | 'CUSTOM_SMTP'
+  emailEnabled: boolean
+  emailMockEnabled?: boolean
+  emailCodeLoginEnabled?: boolean
+  emailCodeExpireMinutes?: number
+  paymentProviderType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+  paymentEnabled: boolean
+  paymentMockEnabled: boolean
+  defaultUserQuotaBytes: number
+  defaultVipExtraQuotaBytes: number
+  localStorageRoot: string
+  userDataRoot: string
+  totalQuotaBytes: number
+  totalUsedBytes: number
+}
+
+export interface SuperAdminSettings {
+  multiUserEnabled: boolean
+  scanSchedulerEnabled: boolean
+  scanWorkerCount: number
+  forceBindPhone: boolean
+  autoRenewSchedulerEnabled: boolean
+  smsProviderType: 'ALIYUN' | 'TENCENT_CLOUD' | 'TWILIO' | 'HUAWEI_CLOUD' | 'VOLCENGINE' | 'CLOOPEN' | 'AWS_SNS' | 'YUNPIAN' | 'SUBMAIL' | 'MESSAGEBIRD' | 'VONAGE' | 'INFOBIP' | 'PLIVO' | 'SINCH' | 'TELNYX' | 'SMSAERO' | 'HTTP_WEBHOOK'
+  smsEnabled: boolean
+  smsMockEnabled: boolean
+  smsEndpoint: string
+  smsRegionId: string
+  smsAccessKeyId: string
+  smsAccessKeySecret: string
+  smsSignName: string
+  smsTemplateCode: string
+  smsTemplateParamName: string
+  smsSdkAppId: string
+  smsCodeExpireMinutes: number
+  emailProviderType: 'SMTP' | 'ALIYUN_DIRECTMAIL' | 'TENCENT_EXMAIL' | 'AWS_SES' | 'SENDGRID' | 'MAILGUN' | 'RESEND' | 'POSTMARK' | 'BREVO' | 'MAILERSEND' | 'ZEPTOMAIL' | 'MAILJET' | 'SPARKPOST' | 'ELASTIC_EMAIL' | 'SMTP2GO' | 'SENDLAYER' | 'QQ_EXMAIL' | 'NETEASE_EXMAIL' | 'CUSTOM_SMTP'
+  emailEnabled: boolean
+  emailMockEnabled?: boolean
+  emailCodeLoginEnabled?: boolean
+  emailCodeExpireMinutes?: number
+  emailHost: string
+  emailPort: number
+  emailUsername: string
+  emailPassword: string
+  emailProtocol: string
+  emailFromAddress: string
+  emailFromName: string
+  emailReplyTo: string
+  emailSslEnabled: boolean
+  emailStarttlsEnabled: boolean
+  emailTestRecipient: string
+  paymentProviderType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+  paymentEnabled: boolean
+  paymentMockEnabled: boolean
+  paymentAppId: string
+  paymentMerchantId: string
+  paymentMerchantName: string
+  paymentPrivateKey: string
+  paymentPublicKey: string
+  paymentApiBaseUrl: string
+  paymentNotifyUrl: string
+  paymentReturnUrl: string
+  paymentWebhookSecret: string
+  paymentCurrency: string
+  paymentVerificationMode: 'AUTO' | 'HMAC' | 'RSA' | 'CERTIFICATE' | 'CUSTOM'
+  paymentApiSecret: string
+  paymentCertificateSerialNo: string
+  paymentPlatformCertificate: string
+  defaultUserQuotaBytes: number
+  defaultVipExtraQuotaBytes: number
+  localStorageRoot: string
+  userDataRoot: string
+  defaultStorageProviderId?: number | null
+}
+
+export interface SendEmailPayload {
+  recipient: string
+  subject: string
+  content: string
+  html?: boolean
+}
+
+export interface AuthPublicSettings {
+  multiUserEnabled: boolean
+  forceBindPhone: boolean
+  smsLoginEnabled: boolean
+  emailCodeLoginEnabled?: boolean
+}
+
+export interface CurrentUserProfile {
+  userId: number
+  slug: string
+  username: string
+  phone?: string | null
+  email?: string | null
+  nickname?: string | null
+  phoneVerified?: boolean
+  emailVerified?: boolean
+  projectNameZh?: string | null
+  projectNameEn?: string | null
+  avatarPath?: string | null
+  role: string
+  multiUserEnabled: boolean
+  currentVipPlanId?: number | null
+  currentVipPlanName?: string | null
+  currentVipPlanCode?: string | null
+  vipExpireAt?: string | null
+  effectiveStorageQuotaBytes?: number
+  storageUsedBytes?: number
+}
+
+export interface UserVipOverview {
+  userId: number
+  username: string
+  nickname?: string | null
+  storageUsedBytes: number
+  storageQuotaBytes: number
+  baseQuotaBytes: number
+  vipExtraQuotaBytes: number
+  currentVipPlanId?: number | null
+  currentVipPlanName?: string | null
+  currentVipPlanCode?: string | null
+  currentVipPlanExtraQuotaBytes?: number
+  vipExpireAt?: string | null
+  paymentEnabled: boolean
+  paymentMockEnabled: boolean
+  paymentProviderType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+}
+
+export interface UserVipPlan {
+  id: number
+  code: string
+  name: string
+  description?: string | null
+  extraQuotaBytes: number
+  durationDays: number
+  priceFen: number
+  priceYuan: string
+  enabled: boolean
+  sortOrder: number
+}
+
+export interface UserVipCheckoutPreview {
+  order: VipOrderSummary
+  payment: VipOrderPaymentPreview
+}
+
+export interface PaymentInitiationResponse {
+  orderId: number
+  orderNo: string
+  providerType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+  providerLabel: string
+  httpMethod: string
+  launchUrl: string
+  redirect: boolean
+  actionType?: 'API_REQUEST' | 'REDIRECT_FORM' | 'REDIRECT_GET' | 'QR_CODE' | string
+  mockMode: boolean
+  liveModeReady: boolean
+  message: string
+  headers?: Record<string, any> | null
+  formFields?: Record<string, any> | null
+  qrCodeText?: string | null
+  payload: Record<string, any>
+  preview: VipOrderPaymentPreview
+}
+
+export interface PaymentRefundPreview {
+  orderId: number
+  orderNo: string
+  status?: string | null
+  providerType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+  providerLabel: string
+  mockMode: boolean
+  liveModeReady: boolean
+  refundReady?: boolean
+  refundMode?: string | null
+  verificationMode?: string | null
+  missingFields?: string[] | null
+  readinessWarnings?: string[] | null
+  stageReadiness?: Array<{
+    stageKey: string
+    stageLabel: string
+    ready: boolean
+    checks?: Array<{
+      label: string
+      passed: boolean
+      failureReason?: string | null
+    }> | null
+  }> | null
+  recommendedConfigFields?: string[] | null
+  nextActionHints?: string[] | null
+  supportMessage?: string | null
+  refundAmountFen: number
+  refundAmountYuan: string
+  httpMethod: string
+  launchUrl: string
+  headers?: Record<string, any> | null
+  payload: Record<string, any>
+  capabilityTags?: string[] | null
+  integrationSteps?: string[] | null
+  message: string
+}
+
+export interface PaymentReturnResult {
+  success: boolean
+  providerType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+  providerLabel?: string | null
+  orderNo?: string | null
+  resolvedOrderNoSource?: string | null
+  status?: string | null
+  gatewayStatus?: string | null
+  externalTradeNo?: string | null
+  paymentNotifiedAt?: string | null
+  paidAt?: string | null
+  cancelledAt?: string | null
+  refundStatus?: string | null
+  refundAmountFen?: number | null
+  refundedAt?: string | null
+  autoRenewEnabled?: boolean
+  nextRenewalAt?: string | null
+  renewalSourceOrderId?: number | null
+  renewalSourceOrderNo?: string | null
+  renewalSourceOrderStatus?: string | null
+  renewalChildOrderId?: number | null
+  renewalChildOrderNo?: string | null
+  renewalChildOrderStatus?: string | null
+  orderStageLabel?: string | null
+  renewalChainType?: 'PRIMARY' | 'RENEWAL_CHILD' | string | null
+  canInitiatePayment?: boolean
+  canToggleAutoRenew?: boolean
+  expireAt?: string | null
+  remark?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  returnQuery?: Record<string, string> | null
+  terminal?: boolean
+  suggestedPollIntervalSeconds?: number | null
+  recommendedActions?: string[] | null
+  paid?: boolean
+  message?: string | null
+}
+
+export interface PaymentNotifyPreviewResult {
+  success: boolean
+  preview: true
+  providerType: PaymentReturnResult['providerType']
+  providerLabel?: string | null
+  recognized: boolean
+  verified: boolean
+  verificationMode?: string | null
+  verificationMessage?: string | null
+  orderNo?: string | null
+  resolvedOrderNoSource?: string | null
+  recognizedStatus?: string | null
+  externalTradeNo?: string | null
+  eventTime?: string | null
+  refundAmountFen?: number | null
+  orderExists?: boolean
+  currentOrderStatus?: string | null
+  predictedLifecycleAction?: 'MARK_PAID' | 'MARK_CANCELLED' | 'MARK_REFUNDED' | 'NONE' | string | null
+  wouldUpdateOrder?: boolean
+  predictedFinalStatus?: string | null
+  recommendedActions?: string[] | null
+  message?: string | null
+}
+
+export interface PaymentNotifyExecutionResult {
+  success: boolean
+  recognized?: boolean
+  verified?: boolean
+  verificationMode?: string | null
+  verificationMessage?: string | null
+  orderNo?: string | null
+  status?: string | null
+  externalTradeNo?: string | null
+  gatewayStatus?: string | null
+  refundStatus?: string | null
+  refundAmountFen?: number | null
+  message?: string | null
+}
+
+export interface BrowserStorageProviderSummary {
+  id: number
+  name: string
+  type: 'LOCAL' | 'FTP' | 'WEBDAV' | 'COS' | 'SFTP' | 'S3_COMPATIBLE' | 'MINIO' | 'OSS' | 'R2' | 'SMB' | 'NFS' | 'AZURE_BLOB' | 'GCS' | 'OBS' | 'TOS' | 'BOS' | 'UCLOUD_US3' | 'JD_JSS' | 'WASABI' | 'QINIU_KODO' | 'B2' | 'UPYUN' | 'DROPBOX' | 'ONEDRIVE'
+  enabled: boolean
+  baseDirectory?: string | null
+  browserSupported: boolean
+  uploadSupported: boolean
+  supportMessage?: string | null
+  scopedBasePath?: string | null
+}
+
+export interface PublicUserProfile {
+  userId: number
+  slug: string
+  username: string
+  nickname?: string | null
+  projectNameZh?: string | null
+  projectNameEn?: string | null
+  avatarPath?: string | null
+}
+
+export interface UserAccountSummary {
+  id: number
+  slug: string
+  username: string
+  phone?: string | null
+  email?: string | null
+  nickname?: string | null
+  role: 'SUPER_ADMIN' | 'USER_ADMIN'
+  status: 'PENDING' | 'ACTIVE' | 'DISABLED' | 'LOCKED'
+  phoneVerified: boolean
+  emailVerified?: boolean
+  storageQuotaBytes: number
+  vipExtraQuotaBytes: number
+  currentVipPlanId?: number | null
+  currentVipPlanName?: string | null
+  currentVipPlanCode?: string | null
+  vipPlanExtraQuotaBytes?: number
+  vipExpireAt?: string | null
+  effectiveStorageQuotaBytes: number
+  storageQuotaGb?: number
+  vipExtraQuotaGb?: number
+  pendingPassword?: string
+  pendingPasswordConfirm?: string
+  storageUsedBytes: number
+  remainingStorageBytes: number
+  preferredStorageProviderId?: number | null
+  preferredStorageProviderName?: string | null
+  preferredStorageProviderType?: 'LOCAL' | 'FTP' | 'WEBDAV' | 'COS' | 'SFTP' | 'S3_COMPATIBLE' | 'MINIO' | 'OSS' | 'R2' | 'SMB' | 'NFS' | 'AZURE_BLOB' | 'GCS' | 'OBS' | 'TOS' | 'BOS' | 'UCLOUD_US3' | 'JD_JSS' | 'WASABI' | 'QINIU_KODO' | 'B2' | 'UPYUN' | 'DROPBOX' | 'ONEDRIVE' | null
+  multiUserVisible: boolean
+  projectNameZh?: string | null
+  projectNameEn?: string | null
+  lastLoginAt?: string | null
+  lastLoginIp?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VipPlanSummary {
+  id: number
+  code: string
+  name: string
+  description?: string | null
+  extraQuotaBytes: number
+  durationDays: number
+  priceFen: number
+  enabled: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+  extraQuotaGb?: number
+  priceYuan?: number
+}
+
+export interface VipOrderSummary {
+  id: number
+  orderNo: string
+  userId: number
+  username?: string | null
+  nickname?: string | null
+  userSlug?: string | null
+  vipPlanId: number
+  vipPlanName?: string | null
+  vipPlanCode?: string | null
+  amountFen: number
+  amountYuan?: number
+  status: string
+  source: string
+  paymentProviderType?: string | null
+  externalTradeNo?: string | null
+  gatewayStatus?: string | null
+  callbackPayloadJson?: string | null
+  paymentNotifiedAt?: string | null
+  paidAt?: string | null
+  cancelledAt?: string | null
+  refundStatus?: string | null
+  refundAmountFen?: number | null
+  refundedAt?: string | null
+  autoRenewEnabled?: boolean
+  nextRenewalAt?: string | null
+  renewalSourceOrderId?: number | null
+  renewalSourceOrderNo?: string | null
+  renewalSourceOrderStatus?: string | null
+  renewalChildOrderId?: number | null
+  renewalChildOrderNo?: string | null
+  renewalChildOrderStatus?: string | null
+  dueForRenewal?: boolean
+  canInitiatePayment?: boolean
+  canToggleAutoRenew?: boolean
+  orderStageLabel?: string | null
+  renewalChainType?: 'PRIMARY' | 'RENEWAL_CHILD' | string
+  expireAt?: string | null
+  remark?: string | null
+  message?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VipRenewalCandidate {
+  orderId: number
+  orderNo: string
+  userId: number
+  username?: string | null
+  nickname?: string | null
+  userSlug?: string | null
+  vipPlanId: number
+  vipPlanCode?: string | null
+  vipPlanName?: string | null
+  status: string
+  amountFen: number
+  amountYuan?: number
+  paymentProviderType?: string | null
+  autoRenewEnabled: boolean
+  nextRenewalAt?: string | null
+  expireAt?: string | null
+  paidAt?: string | null
+  daysOverdue: number
+  hoursOverdue: number
+  renewalAction: string
+  renewalBlocked?: boolean
+  renewalMessage?: string | null
+  paymentProviderLabel?: string | null
+  paymentMockMode?: boolean
+  paymentEnabled?: boolean
+  paymentLiveModeReady?: boolean
+  paymentMissingFields?: string[] | null
+  paymentReadinessWarnings?: string[] | null
+  existingRenewalOrderId?: number | null
+  existingRenewalOrderNo?: string | null
+  existingRenewalOrderStatus?: string | null
+  existingRenewalOrderCreatedAt?: string | null
+  remark?: string | null
+}
+
+export interface VipRenewalPreviewResponse {
+  generatedAt: string
+  content: VipRenewalCandidate[]
+  limit: number
+  dueCount: number
+  returnedCount: number
+  activeAutoRenewOrderCount: number
+  dryRun: boolean
+  supportedStatuses: string[]
+  message: string
+}
+
+export interface VipRenewalExecuteItem {
+  sourceOrderId: number
+  sourceOrderNo: string
+  userId: number
+  vipPlanId: number
+  created: boolean
+  reason: string
+  createdOrderId?: number
+  createdOrderNo?: string
+  paymentProviderLabel?: string | null
+  paymentMockMode?: boolean
+  paymentEnabled?: boolean
+  paymentLiveModeReady?: boolean
+  paymentMissingFields?: string[] | null
+  paymentReadinessWarnings?: string[] | null
+  initiationAttempted?: boolean
+  initiationSuccess?: boolean
+  initiationMessage?: string | null
+  initiationActionType?: string | null
+  initiationLaunchUrl?: string | null
+  initiationRedirect?: boolean
+  initiationMockMode?: boolean
+  initiationProviderType?: string | null
+  existingRenewalOrderId?: number | null
+  existingRenewalOrderNo?: string | null
+  existingRenewalOrderStatus?: string | null
+  username?: string | null
+  nickname?: string | null
+  vipPlanName?: string | null
+}
+
+export interface VipRenewalExecuteResponse {
+  executedAt: string
+  limit: number
+  candidateCount: number
+  createdCount: number
+  skippedCount: number
+  createdOrders: VipRenewalExecuteItem[]
+  skippedOrders: VipRenewalExecuteItem[]
+  message: string
+}
+
+export interface VipOrderPaymentPreview {
+  orderId: number
+  orderNo: string
+  userId: number
+  username?: string | null
+  vipPlanId: number
+  vipPlanName?: string | null
+  providerType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'
+  providerLabel: string
+  enabled: boolean
+  mockEnabled: boolean
+  liveModeReady: boolean
+  currency: string
+  apiBaseUrl: string
+  missingFields: string[]
+  readinessWarnings?: string[] | null
+  signatureReady?: boolean
+  callbackVerificationReady?: boolean
+  refundReady?: boolean
+  stageReadiness?: Array<{
+    stageKey: string
+    stageLabel: string
+    ready: boolean
+    checks?: Array<{
+      label: string
+      passed: boolean
+      failureReason?: string | null
+    }> | null
+  }> | null
+  recommendedConfigFields?: string[] | null
+  nextActionHints?: string[] | null
+  supportMessage: string
+  verificationMode?: string | null
+  initiationMode?: string | null
+  refundMode?: string | null
+  capabilityTags?: string[] | null
+  integrationSteps?: string[] | null
+  requestPayload: Record<string, any>
+  callbackPayload: Record<string, any>
+}
+
+export interface LoginRecordSummary {
+  id: number
+  userId?: number | null
+  userSlug?: string | null
+  usernameSnapshot?: string | null
+  phoneSnapshot?: string | null
+  nickname?: string | null
+  loginMethod: 'USERNAME_PASSWORD' | 'PHONE_PASSWORD' | 'SMS_CODE'
+  success: boolean
+  ipAddress?: string | null
+  userAgent?: string | null
+  failureReason?: string | null
+  createdAt: string
+}
+
+export interface OperationLogSummary {
+  id: number
+  userId?: number | null
+  username?: string | null
+  nickname?: string | null
+  userSlug?: string | null
+  operatorUsername?: string | null
+  operationType?: string | null
+  targetType?: string | null
+  targetId?: number | null
+  targetPath?: string | null
+  detailJson?: string | null
+  ipAddress?: string | null
+  createdAt: string
+}
+
+export interface StorageProviderSummary {
+  id: number
+  name: string
+  type: 'LOCAL' | 'FTP' | 'WEBDAV' | 'COS' | 'SFTP' | 'S3_COMPATIBLE' | 'MINIO' | 'OSS' | 'R2' | 'SMB' | 'NFS' | 'AZURE_BLOB' | 'GCS' | 'OBS' | 'TOS' | 'BOS' | 'UCLOUD_US3' | 'JD_JSS' | 'WASABI' | 'QINIU_KODO' | 'B2' | 'UPYUN' | 'DROPBOX' | 'ONEDRIVE'
+  enabled: boolean
+  isDefault: boolean
+  priority: number
+  endpoint?: string | null
+  bucketName?: string | null
+  baseDirectory?: string | null
+  configJson?: string | null
+  browserSupported?: boolean
+  uploadSupported?: boolean
+  scanSupported?: boolean
+  previewSupported?: boolean
+  supportMessage?: string | null
+  resolvedBaseDirectory?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LegacyMigrationSummary {
+  success: boolean
+  message?: string | null
+  startedAt?: string | null
+  finishedAt?: string | null
+  ownerUserId?: number | null
+  ownerUsername?: string | null
+  migratedAlbumOwnershipCount?: number
+  migratedPhotoOwnershipCount?: number
+  migratedPersonOwnershipCount?: number
+  migratedFaceOwnershipCount?: number
+  migratedCommentOwnershipCount?: number
+  migratedTagOwnershipCount?: number
+  movedTopLevelEntryCount?: number
+  movedAlbumDirectoryCount?: number
+  movedPhotoFileCount?: number
+  rewrittenAlbumPathCount?: number
+  rewrittenPhotoPathCount?: number
+  rewrittenPhotoStorageRefCount?: number
+  totalOwnershipMigrationCount?: number
+  totalPathRewriteCount?: number
+}
+
+export interface ConfigurableTablePreference {
+  columnOrder: string[]
+  hiddenColumns: string[]
+  sortKey?: string | null
+  sortDirection?: 'asc' | 'desc' | null
+}
+
+export type SuperAdminTablePreferences = Record<string, ConfigurableTablePreference>
+
+export const superAdminApi = {
+  getOverview: () => api.get<SuperAdminOverview>('/admin/super-admin/overview'),
+  getSettings: () => api.get<SuperAdminSettings>('/admin/super-admin/settings'),
+  updateSettings: (data: Partial<SuperAdminSettings>) => api.put<SuperAdminSettings>('/admin/super-admin/settings', data),
+  getTablePreferences: () => api.get<SuperAdminTablePreferences>('/admin/super-admin/table-preferences'),
+  updateTablePreferences: (data: SuperAdminTablePreferences) => api.put<SuperAdminTablePreferences>('/admin/super-admin/table-preferences', data),
+  getUsers: (page = 0, size = 10, keyword = '') =>
+    api.get<PageResponse<UserAccountSummary>>('/admin/super-admin/users', { params: { page, size, keyword: keyword || undefined } }),
+  getLoginRecords: (userId?: number | null, page = 0, size = 20) =>
+    api.get<PageResponse<LoginRecordSummary>>('/admin/super-admin/login-records', { params: { userId: userId ?? undefined, page, size } }),
+  getOperationLogs: (userId?: number | null, page = 0, size = 20) =>
+    api.get<PageResponse<OperationLogSummary>>('/admin/super-admin/operation-logs', { params: { userId: userId ?? undefined, page, size } }),
+  getVipPlans: () => api.get<{ vipPlans: VipPlanSummary[] }>('/admin/super-admin/vip-plans'),
+  createVipPlan: (data: Partial<VipPlanSummary>) => api.post<VipPlanSummary>('/admin/super-admin/vip-plans', data),
+  updateVipPlan: (planId: number, data: Partial<VipPlanSummary>) => api.put<VipPlanSummary>(`/admin/super-admin/vip-plans/${planId}`, data),
+  getVipOrders: (userId?: number | null, page = 0, size = 20, autoRenewEnabled?: boolean, dueForRenewal?: boolean) =>
+    api.get<PageResponse<VipOrderSummary>>('/admin/super-admin/vip-orders', { params: { userId: userId ?? undefined, page, size, autoRenewEnabled: autoRenewEnabled || undefined, dueForRenewal: dueForRenewal || undefined } }),
+  getVipOrderByOrderNo: (orderNo: string) =>
+    api.get<VipOrderSummary>('/admin/super-admin/vip-orders/by-order-no', { params: { orderNo } }),
+  getVipRenewalPreview: (limit = 20) =>
+    api.get<VipRenewalPreviewResponse>('/admin/super-admin/vip-orders/renewal-preview', { params: { limit } }),
+  executeVipRenewals: (limit = 20) =>
+    api.post<VipRenewalExecuteResponse>('/admin/super-admin/vip-orders/renewal-execute', { limit }),
+  createVipOrder: (data: Partial<VipOrderSummary>) => api.post<VipOrderSummary>('/admin/super-admin/vip-orders', data),
+  updateVipOrder: (orderId: number, data: Partial<VipOrderSummary>) => api.put<VipOrderSummary>(`/admin/super-admin/vip-orders/${orderId}`, data),
+  previewVipOrderPayment: (orderId: number) => api.get<VipOrderPaymentPreview>(`/admin/super-admin/vip-orders/${orderId}/payment-preview`),
+  initiateVipOrderPayment: (orderId: number) => api.post<PaymentInitiationResponse>(`/admin/super-admin/vip-orders/${orderId}/payment-initiate`),
+  previewVipOrderRefund: (orderId: number, refundAmountFen?: number) =>
+    api.get<PaymentRefundPreview>(`/admin/super-admin/vip-orders/${orderId}/refund-preview`, { params: { refundAmountFen: refundAmountFen ?? undefined } }),
+  previewPaymentNotify: (providerType: string, payload: Record<string, any> | string, headers: Record<string, string>) =>
+    api.post<PaymentNotifyPreviewResult>(`/admin/super-admin/payments/notify-preview/${providerType}`, payload, { headers }),
+  mockPayVipOrder: (orderId: number) => api.post<VipOrderSummary>(`/admin/super-admin/vip-orders/${orderId}/mock-pay`),
+  cancelVipOrder: (orderId: number, remark?: string) => api.post<VipOrderSummary>(`/admin/super-admin/vip-orders/${orderId}/cancel`, { remark }),
+  refundVipOrder: (orderId: number, refundAmountFen?: number, remark?: string) => api.post<VipOrderSummary>(`/admin/super-admin/vip-orders/${orderId}/refund`, { refundAmountFen, remark }),
+  confirmVipOrderRefund: (orderId: number, refundAmountFen?: number, remark?: string) =>
+    api.post<VipOrderSummary>(`/admin/super-admin/vip-orders/${orderId}/refund-confirm`, { refundAmountFen, remark }),
+  markVipOrderRefundFailed: (orderId: number, remark?: string) =>
+    api.post<VipOrderSummary>(`/admin/super-admin/vip-orders/${orderId}/refund-failed`, { remark }),
+  updateUser: (userId: number, data: Partial<UserAccountSummary>) => api.put<UserAccountSummary>(`/admin/super-admin/users/${userId}`, data),
+  resetUserPassword: (userId: number, newPassword: string) => api.post<Record<string, any>>(`/admin/super-admin/users/${userId}/password`, { newPassword }),
+  getStorageProviders: () => api.get<{ storageProviders: StorageProviderSummary[] }>('/admin/super-admin/storage-providers'),
+  createStorageProvider: (data: Partial<StorageProviderSummary>) => api.post<StorageProviderSummary>('/admin/super-admin/storage-providers', data),
+  runLegacyMigration: () => api.post<LegacyMigrationSummary>('/admin/super-admin/legacy-migration/run'),
+  sendTestEmail: (recipient?: string) => api.post<Record<string, any>>('/admin/super-admin/email/test', { recipient }),
+  sendEmail: (payload: SendEmailPayload) => api.post<Record<string, any>>('/admin/super-admin/email/send', payload),
+  updateStorageProvider: (providerId: number, data: Partial<StorageProviderSummary>) =>
+    api.put<StorageProviderSummary>(`/admin/super-admin/storage-providers/${providerId}`, data)
+}
+
+export const authPublicApi = {
+  getSettings: () => api.get<AuthPublicSettings>('/auth/public-settings')
+}
+
+export const authProfileApi = {
+  getCurrent: () => api.get<CurrentUserProfile>('/auth/me'),
+  updateProfile: (data: Partial<CurrentUserProfile>) => api.put<CurrentUserProfile>('/auth/profile', data),
+  sendPhoneCode: () => api.post<{ message: string; expiresInSeconds: number; debugCode?: string | null }>('/auth/phone/send-code'),
+  verifyPhoneCode: (code: string) => api.post<CurrentUserProfile>('/auth/phone/verify', { code }),
+  sendEmailCode: (email: string) => api.post<{ message: string; expiresInSeconds: number; debugCode?: string | null }>('/auth/email/send-code', { email }),
+  sendBindEmailCode: () => api.post<{ message: string; expiresInSeconds: number; debugCode?: string | null }>('/auth/email/verify/send-code'),
+  verifyEmailCode: (code: string) => api.post<CurrentUserProfile>('/auth/email/verify', { code }),
+  uploadAvatar: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<CurrentUserProfile>('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  getVipOverview: () => api.get<UserVipOverview>('/auth/vip/overview'),
+  getVipPlans: () => api.get<{ plans: UserVipPlan[] }>('/auth/vip/plans'),
+  getVipOrders: () => api.get<{ orders: VipOrderSummary[] }>('/auth/vip/orders'),
+  createVipOrder: (planId: number) => api.post<VipOrderSummary>('/auth/vip/orders', { planId }),
+  getVipCheckout: (orderId: number) => api.get<UserVipCheckoutPreview>(`/auth/vip/orders/${orderId}/checkout`),
+  initiateVipCheckout: (orderId: number) => api.post<PaymentInitiationResponse>(`/auth/vip/orders/${orderId}/checkout/initiate`),
+  mockPayVipOrder: (orderId: number) => api.post<VipOrderSummary>(`/auth/vip/orders/${orderId}/mock-pay`),
+  updateVipOrderAutoRenew: (orderId: number, autoRenewEnabled: boolean) =>
+    api.put<VipOrderSummary>(`/auth/vip/orders/${orderId}/auto-renew`, { autoRenewEnabled })
+}
+
+export const paymentApi = {
+  notify: (providerType: PaymentReturnResult['providerType'], payload: Record<string, any> | string, headers?: Record<string, string>) =>
+    api.post<PaymentNotifyExecutionResult>(`/payments/notify/${providerType}`, payload, { headers: headers || {} }),
+  getReturnResult: (providerType: PaymentReturnResult['providerType'], queryParams?: Record<string, any>) =>
+    api.get<PaymentReturnResult>(`/payments/return/${providerType}`, { params: queryParams || {} })
+}
+
+export const publicUserApi = {
+  getProfile: (userSlug: string) => api.get<PublicUserProfile>(`/auth/public-user?userSlug=${encodeURIComponent(userSlug)}`),
+  listUsers: () => api.get<{ users: PublicUserProfile[] }>('/auth/public-users')
 }
 
 // AI搜索相关API

@@ -139,9 +139,9 @@ public class ONNXDiagnosticUtil {
         try {
             File tempDir = new File(System.getProperty("java.io.tmpdir"));
             if (tempDir.canWrite()) {
-                log.info("✅ 临时目录可写: {}", tempDir.getAbsolutePath());
+                log.info("✅ 临时目录可写: {}", sanitizePath(tempDir.getAbsolutePath()));
             } else {
-                log.error("❌ 临时目录不可写: {}", tempDir.getAbsolutePath());
+                log.error("❌ 临时目录不可写: {}", sanitizePath(tempDir.getAbsolutePath()));
             }
         } catch (Exception e) {
             log.error("❌ 检查临时目录权限时出错: ", e);
@@ -156,13 +156,22 @@ public class ONNXDiagnosticUtil {
 
         // 检查当前工作目录
         File currentDir = new File(System.getProperty("user.dir"));
-        log.info("当前工作目录: {}", currentDir.getAbsolutePath());
+        log.info("当前工作目录: {}", sanitizePath(currentDir.getAbsolutePath()));
         log.info("工作目录可读: {}, 可写: {}", currentDir.canRead(), currentDir.canWrite());
 
         // 检查用户主目录
         File homeDir = new File(System.getProperty("user.home"));
-        log.info("用户主目录: {}", homeDir.getAbsolutePath());
+        log.info("用户主目录: {}", sanitizePath(homeDir.getAbsolutePath()));
         log.info("主目录可读: {}, 可写: {}", homeDir.canRead(), homeDir.canWrite());
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     /**

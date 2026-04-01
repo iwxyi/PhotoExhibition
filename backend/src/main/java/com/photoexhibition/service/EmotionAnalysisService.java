@@ -54,7 +54,7 @@ public class EmotionAnalysisService implements AutoCloseable {
         try {
             File modelFile = new File(modelPath);
             if (!modelFile.exists()) {
-                log.info("情感分析模型文件不存在: {}，将使用基于规则的方法", modelPath);
+                log.info("情感分析模型文件不存在: {}，将使用基于规则的方法", sanitizePath(modelPath));
                 return;
             }
 
@@ -63,7 +63,7 @@ public class EmotionAnalysisService implements AutoCloseable {
             session = env.createSession(modelPath, opts);
 
             loadEmotionLabels();
-            log.info("情感分析模型已加载: {}", modelPath);
+            log.info("情感分析模型已加载: {}", sanitizePath(modelPath));
         } catch (Exception e) {
             log.warn("情感分析模型加载失败，将使用基于规则的方法: {}", e.getMessage());
         }
@@ -372,6 +372,15 @@ public class EmotionAnalysisService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     /**

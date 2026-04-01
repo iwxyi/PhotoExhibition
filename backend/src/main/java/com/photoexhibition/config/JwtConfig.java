@@ -27,8 +27,18 @@ public class JwtConfig {
     }
 
     public String generateToken(String username, String role) {
+        return generateToken(null, username, role, null);
+    }
+
+    public String generateToken(Long userId, String username, String role, String slug) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", role);
+        if (userId != null) {
+            claims.put("userId", userId);
+        }
+        if (slug != null && !slug.trim().isEmpty()) {
+            claims.put("slug", slug);
+        }
         return createToken(claims, username);
     }
 
@@ -48,6 +58,32 @@ public class JwtConfig {
 
     public Date extractExpiration(String token) {
         return extractClaim(token, Claims::getExpiration);
+    }
+
+    public String extractRole(String token) {
+        return extractAllClaims(token).get("role", String.class);
+    }
+
+    public Long extractUserId(String token) {
+        Object raw = extractAllClaims(token).get("userId");
+        if (raw instanceof Integer) {
+            return ((Integer) raw).longValue();
+        }
+        if (raw instanceof Long) {
+            return (Long) raw;
+        }
+        if (raw instanceof String) {
+            try {
+                return Long.parseLong((String) raw);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    public String extractSlug(String token) {
+        return extractAllClaims(token).get("slug", String.class);
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
@@ -72,4 +108,3 @@ public class JwtConfig {
         return (extractedUsername.equals(username) && !isTokenExpired(token));
     }
 }
-

@@ -14,7 +14,7 @@
             @click="goToPath(basePath)"
             class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
           >
-            根目录
+            {{ rootButtonLabel }}
           </button>
           <span class="text-gray-500">/</span>
           <div class="flex items-center gap-2 flex-wrap">
@@ -40,9 +40,27 @@
 
       <!-- 工具栏 -->
       <div class="glass-panel p-4 mb-4 flex items-center gap-2 flex-wrap">
+        <div v-if="canSelectStorageProvider" class="min-w-[240px] mr-2">
+          <div class="text-xs text-gray-400 mb-1">管理员指定写入位置</div>
+          <select
+            v-model.number="selectedProviderId"
+            @change="changeStorageProvider"
+            class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+          >
+            <option
+              v-for="provider in availableStorageProviders"
+              :key="provider.id"
+              :value="provider.id"
+              :disabled="!provider.enabled || !provider.browserSupported"
+            >
+              {{ provider.name }} · {{ storageTypeLabel(provider.type) }}{{ provider.browserSupported ? '' : '（暂不支持浏览）' }}
+            </option>
+          </select>
+        </div>
         <button
-          @click="showCreateDialog = true"
-          class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm"
+          @click="openCreateDialog"
+          :disabled="!supportsDirectoryCreation"
+          class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           + 新建文件夹
         </button>
@@ -54,52 +72,109 @@
         </button>
         <button
           @click="triggerFileInput(false)"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+          :disabled="!activeProviderSupported"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
           上传文件
         </button>
         <button
           @click="triggerFileInput(true)"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+          :disabled="!activeProviderSupported"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
           上传文件夹
         </button>
         <button
           @click="toggleMultiSelect"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+          :disabled="!supportsItemManagement"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
         >
           {{ multiSelect ? '关闭多选' : '开启多选' }}
         </button>
         <template v-if="multiSelect">
           <button
             @click="moveSelected"
-            :disabled="!selectedPaths.size"
+            :disabled="!selectedPaths.size || !supportsItemManagement"
             class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
           >
             移动已选 ({{ selectedPaths.size }})
           </button>
           <button
             @click="deleteSelected"
-            :disabled="!selectedPaths.size"
+            :disabled="!selectedPaths.size || !supportsItemManagement"
             class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
           >
             删除已选 ({{ selectedPaths.size }})
           </button>
           <button
             @click="selectAll"
+            :disabled="!supportsItemManagement"
             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+            :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
           >
             全选
           </button>
           <button
             @click="invertSelection"
+            :disabled="!supportsItemManagement"
             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+            :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
           >
             反选
           </button>
         </template>
         <input ref="fileInput" type="file" multiple class="hidden" @change="handleFileInput(false, $event)" />
         <input ref="dirInput" type="file" multiple webkitdirectory class="hidden" @change="handleFileInput(true, $event)" />
+        <div class="ml-auto text-right text-xs text-gray-400">
+          <div>当前生效存储：{{ storageProviderName || '未选择' }}<span v-if="storageProviderType"> · {{ storageTypeLabel(storageProviderType) }}</span></div>
+          <div class="truncate max-w-[360px]" :title="rootPathSummary">
+            根目录：{{ rootPathSummary }}
+          </div>
+          <div v-if="selectedStorageProvider" class="flex flex-wrap justify-end gap-2 mt-2">
+            <span class="px-2 py-1 rounded-full border text-[11px]"
+              :class="selectedStorageProvider.browserSupported ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
+              浏览 {{ selectedStorageProvider.browserSupported ? '可用' : '未接通' }}
+            </span>
+            <span class="px-2 py-1 rounded-full border text-[11px]"
+              :class="selectedStorageProvider.uploadSupported ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
+              上传 {{ selectedStorageProvider.uploadSupported ? '可用' : '未接通' }}
+            </span>
+            <span class="px-2 py-1 rounded-full border text-[11px]"
+              :class="selectedStorageProvider.scanSupported ? 'border-emerald-500/30 text-emerald-200' : 'border-amber-500/30 text-amber-200'">
+              扫描 {{ selectedStorageProvider.scanSupported ? '可用' : '受限' }}
+            </span>
+            <span class="px-2 py-1 rounded-full border text-[11px]"
+              :class="supportsItemManagement ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
+              管理 {{ supportsItemManagement ? '可用' : '未接通' }}
+            </span>
+            <span class="px-2 py-1 rounded-full border text-[11px]"
+              :class="supportsPreview ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
+              预览 {{ supportsPreview ? '可用' : '未接通' }}
+            </span>
+          </div>
+          <div class="truncate max-w-[360px] text-[11px] text-gray-500">
+            移动时请输入相对当前存储根目录的路径，不再要求绝对路径
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="selectedStorageProvider?.supportMessage"
+        class="glass-panel p-4 mb-4 text-sm border"
+        :class="selectedStorageProvider.uploadSupported && supportsItemManagement
+          ? 'text-sky-200 border-sky-500/20'
+          : 'text-amber-300 border-amber-500/20'"
+      >
+        {{ selectedStorageProvider.supportMessage }}
+      </div>
+      <div
+        v-if="!supportsDirectoryCreation || !supportsItemManagement || !activeProviderSupported"
+        class="glass-panel p-4 mb-4 text-xs text-gray-300 border border-white/10 space-y-1"
+      >
+        <div v-if="!activeProviderSupported">上传受限：{{ uploadDisabledReason }}</div>
+        <div v-if="!supportsDirectoryCreation">建目录受限：{{ directoryCreationDisabledReason }}</div>
+        <div v-if="!supportsItemManagement">批量管理受限：{{ managementDisabledReason }}</div>
       </div>
 
       <!-- 上传进度 -->
@@ -257,14 +332,25 @@
         打开
       </button>
       <button
-        @click="startRename"
+        v-if="contextMenu.item && !contextMenu.item.isDirectory"
+        @click="downloadContextFile"
         class="w-full text-left px-4 py-2 hover:bg-gray-700"
+      >
+        下载
+      </button>
+      <button
+        @click="startRename"
+        :disabled="!supportsItemManagement"
+        class="w-full text-left px-4 py-2 hover:bg-gray-700"
+        :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
       >
         重命名
       </button>
       <button
         @click="confirmDelete"
+        :disabled="!supportsItemManagement"
         class="w-full text-left px-4 py-2 hover:bg-red-600 rounded-b-lg text-red-300"
+        :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
       >
         删除
       </button>
@@ -278,13 +364,21 @@
     >
       <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 class="text-xl font-light mb-4">新建文件夹</h2>
-        <input
-          v-model="newFolderName"
-          @keyup.enter="createFolder"
-          placeholder="文件夹名称"
-          ref="newFolderInput"
-          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        <div class="mb-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
+          <div>当前目录：{{ rootPathSummary }}</div>
+          <div>仅会在当前目录下创建一层新文件夹。</div>
+        </div>
+        <label class="block space-y-2 mb-4">
+          <span class="text-sm text-gray-300">文件夹名称</span>
+          <input
+            v-model="newFolderName"
+            @keyup.enter="createFolder"
+            placeholder="请输入新文件夹名称"
+            ref="newFolderInput"
+            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <span class="block text-xs text-gray-400">只填写名称，不要包含 `/` 或完整路径。</span>
+        </label>
         <div class="flex gap-2 justify-end">
           <button
             @click="showCreateDialog = false"
@@ -311,13 +405,21 @@
     >
       <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 class="text-xl font-light mb-4">重命名</h2>
-        <input
-          v-model="renameValue"
-          @keyup.enter="renameItem"
-          placeholder="新名称"
-          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autofocus
-        />
+        <div class="mb-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
+          <div>当前对象：{{ itemToRename?.name || '—' }}</div>
+          <div>所在目录：{{ rootPathSummary }}</div>
+        </div>
+        <label class="block space-y-2 mb-4">
+          <span class="text-sm text-gray-300">新名称</span>
+          <input
+            v-model="renameValue"
+            @keyup.enter="renameItem"
+            placeholder="请输入新的文件或文件夹名称"
+            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            autofocus
+          />
+          <span class="block text-xs text-gray-400">只修改名称，不要输入目录路径。</span>
+        </label>
         <div class="flex gap-2 justify-end">
           <button
             @click="showRenameDialog = false"
@@ -341,6 +443,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { api } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { storageTypeLabel } from '@/utils/providerLabels'
 
 interface PhotoInfo {
   id?: number
@@ -364,9 +470,39 @@ interface FileItem {
   thumbnail?: PhotoInfo
 }
 
+interface BrowserStorageProvider {
+  id: number
+  name: string
+  type: 'LOCAL' | 'FTP' | 'WEBDAV' | 'COS' | 'SFTP' | 'S3_COMPATIBLE' | 'MINIO' | 'OSS' | 'R2' | 'SMB' | 'NFS' | 'AZURE_BLOB' | 'GCS' | 'OBS' | 'TOS' | 'BOS' | 'UCLOUD_US3' | 'JD_JSS' | 'WASABI' | 'QINIU_KODO' | 'B2' | 'UPYUN' | 'DROPBOX' | 'ONEDRIVE'
+  enabled: boolean
+  baseDirectory?: string | null
+  browserSupported: boolean
+  uploadSupported: boolean
+  scanSupported?: boolean
+  previewSupported?: boolean
+  supportMessage?: string | null
+  scopedBasePath?: string | null
+}
+
+interface UploadResponse {
+  saved?: number
+  message?: string
+  scanQueued?: boolean
+  scanMessage?: string
+  storageProviderId?: number | null
+  storageProviderName?: string | null
+  storageProviderType?: string | null
+}
+
+const authStore = useAuthStore()
 const basePath = ref('')
 const currentPath = ref('')
 const parentPath = ref<string | null>(null)
+const selectedProviderId = ref<number | null>(null)
+const storageProviderName = ref('')
+const storageProviderType = ref('')
+const storageProviderBaseDirectory = ref('')
+const availableStorageProviders = ref<BrowserStorageProvider[]>([])
 const loading = ref(false)
 const error = ref('')
 const items = ref<FileItem[]>([])
@@ -398,8 +534,45 @@ const contextMenu = ref({
 const fileInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 
+const selectedStorageProvider = computed(() => (
+  availableStorageProviders.value.find(provider => provider.id === selectedProviderId.value) || null
+))
+const canSelectStorageProvider = computed(() => authStore.role === 'SUPER_ADMIN')
 const directories = computed(() => items.value.filter(item => item.isDirectory))
 const files = computed(() => items.value.filter(item => !item.isDirectory))
+const activeProviderSupported = computed(() => (
+  selectedStorageProvider.value ? selectedStorageProvider.value.uploadSupported : false
+))
+const supportsItemManagement = computed(() => (
+  selectedStorageProvider.value ? !!selectedStorageProvider.value.browserSupported : true
+))
+const supportsDirectoryCreation = computed(() => (
+  selectedStorageProvider.value ? !!selectedStorageProvider.value.browserSupported : true
+))
+const supportsPreview = computed(() => (
+  selectedStorageProvider.value ? (selectedStorageProvider.value.type === 'LOCAL' || !!selectedStorageProvider.value.previewSupported) : true
+))
+const uploadDisabledReason = computed(() => (
+  selectedStorageProvider.value?.supportMessage || '当前存储位置暂不支持上传'
+))
+const directoryCreationDisabledReason = computed(() => (
+  selectedStorageProvider.value?.supportMessage || '当前存储位置暂不支持创建目录'
+))
+const managementDisabledReason = computed(() => (
+  selectedStorageProvider.value?.supportMessage || '当前存储位置暂不支持批量管理'
+))
+const rootButtonLabel = computed(() => canSelectStorageProvider.value ? '根目录' : '我的相册')
+const currentRelativePath = computed(() => pathParts.value.join('/'))
+const rootPathSummary = computed(() => {
+  if (!canSelectStorageProvider.value) {
+    return currentPath.value && currentPath.value !== basePath.value
+      ? `我的目录 / ${pathParts.value.join(' / ')}`
+      : '我的目录'
+  }
+  return currentRelativePath.value
+    ? `${storageProviderName.value || '存储根目录'} / ${currentRelativePath.value}`
+    : `${storageProviderName.value || '存储根目录'}`
+})
 const isAtRoot = computed(() => {
   if (!currentPath.value || !basePath.value) return true
   return normalizePath(currentPath.value) === normalizePath(basePath.value)
@@ -410,14 +583,14 @@ const normalizePath = (p: string | null | undefined) => {
   return p.replace(/\\/g, '/')
 }
 
-const isUnderBase = (p: string | null | undefined) => {
+const isUnderBase = (p: string | null | undefined, base = basePath.value) => {
   if (!p) return false
-  if (!basePath.value) return true
-  const base = normalizePath(basePath.value)
-  const target = normalizePath(p)
   if (!base) return true
-  const baseWithSlash = base.endsWith('/') ? base : base + '/'
-  return target === base || target.startsWith(baseWithSlash)
+  const normalizedBase = normalizePath(base)
+  const target = normalizePath(p)
+  if (!normalizedBase) return true
+  const baseWithSlash = normalizedBase.endsWith('/') ? normalizedBase : normalizedBase + '/'
+  return target === normalizedBase || target.startsWith(baseWithSlash)
 }
 
 const pathParts = computed(() => {
@@ -428,15 +601,31 @@ const pathParts = computed(() => {
   return relative.split(/[\/\\]+/).filter(p => p)
 })
 
-const loadBasePath = async () => {
+const applyStorageContext = (data: any, resetCurrentPath = false) => {
+  if (!data) return
+  const nextBasePath = data.basePath || basePath.value || ''
+  basePath.value = nextBasePath
+  storageProviderName.value = data.storageProviderName || ''
+  storageProviderType.value = data.storageProviderType || ''
+  storageProviderBaseDirectory.value = data.storageProviderBaseDirectory || ''
+  availableStorageProviders.value = data.availableStorageProviders || []
+  selectedProviderId.value = data.storageProviderId ?? selectedProviderId.value
+
+  if (resetCurrentPath || !currentPath.value || !isUnderBase(currentPath.value, nextBasePath)) {
+    currentPath.value = nextBasePath
+  }
+}
+
+const loadBasePath = async (providerId = selectedProviderId.value, resetCurrentPath = false) => {
   try {
-    const res = await api.get('/admin/folders/base-path')
-    basePath.value = res.data?.basePath || ''
-    if (basePath.value && !currentPath.value) {
-      currentPath.value = basePath.value
-    }
+    const res = await api.get('/admin/folders/base-path', {
+      params: { providerId: canSelectStorageProvider.value ? (providerId ?? undefined) : undefined }
+    })
+    applyStorageContext(res.data, resetCurrentPath)
+    return res.data
   } catch (e: any) {
     console.error('加载基础路径失败:', e)
+    throw e
   }
 }
 
@@ -447,10 +636,14 @@ const loadFiles = async (path?: string) => {
   error.value = ''
   try {
     const res = await api.get('/admin/folders/browser/list', {
-      params: { path: path || currentPath.value }
+      params: {
+        path: path || currentPath.value,
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
     })
     if (requestId !== loadFilesRequestId) return
     const data = res.data
+    applyStorageContext(data)
     const serverPath = data.path || currentPath.value || basePath.value
     if (serverPath && basePath.value && !/^(\/|[A-Za-z]:[\\/])/.test(basePath.value)) {
       basePath.value = normalizePath(serverPath)
@@ -531,14 +724,27 @@ const refresh = () => {
   loadFiles()
 }
 
+const openCreateDialog = () => {
+  if (!supportsDirectoryCreation.value) {
+    alert(directoryCreationDisabledReason.value)
+    return
+  }
+  showCreateDialog.value = true
+}
+
 const createFolder = async () => {
+  if (!supportsDirectoryCreation.value) {
+    alert(directoryCreationDisabledReason.value)
+    return
+  }
   if (!newFolderName.value.trim()) return
   creating.value = true
   try {
     await api.post('/admin/folders/browser/create', null, {
       params: {
         path: currentPath.value,
-        name: newFolderName.value.trim()
+        name: newFolderName.value.trim(),
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
       }
     })
     showCreateDialog.value = false
@@ -562,6 +768,7 @@ const showContextMenu = (event: MouseEvent, item: FileItem) => {
 }
 
 const startRename = () => {
+  if (!supportsItemManagement.value) return
   if (!contextMenu.value.item) return
   itemToRename.value = contextMenu.value.item
   renameValue.value = contextMenu.value.item.name
@@ -576,7 +783,8 @@ const renameItem = async () => {
     await api.post('/admin/folders/browser/rename', null, {
       params: {
         path: itemToRename.value.path,
-        newName: renameValue.value.trim()
+        newName: renameValue.value.trim(),
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
       }
     })
     showRenameDialog.value = false
@@ -591,6 +799,7 @@ const renameItem = async () => {
 }
 
 const confirmDelete = () => {
+  if (!supportsItemManagement.value) return
   if (!contextMenu.value.item) return
   const item = contextMenu.value.item
   const itemType = item.isDirectory ? '文件夹' : '文件'
@@ -605,7 +814,10 @@ const deleteItem = async (item: FileItem) => {
   contextMenu.value.show = false
   try {
     await api.delete('/admin/folders/browser/delete', {
-      params: { path: item.path }
+      params: {
+        path: item.path,
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
     })
     await loadFiles()
   } catch (e: any) {
@@ -613,10 +825,36 @@ const deleteItem = async (item: FileItem) => {
   }
 }
 
-const openFile = (file: FileItem) => {
+const openFile = async (file: FileItem) => {
+  if (!supportsPreview.value) {
+    alert(selectedStorageProvider.value?.supportMessage || '当前存储位置暂未接通文件预览，请先使用已支持预览的存储查看文件内容。')
+    return
+  }
   // 如果是图片并且有对应的 Photo 记录，跳转到图片详情
   if (file.thumbnail && file.thumbnail.id) {
-    window.open(`/photo/${file.thumbnail.id}`, '_blank')
+    window.open(buildPublicPath(`/photo/${file.thumbnail.id}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
+    return
+  }
+  if (selectedStorageProvider.value && selectedStorageProvider.value.type !== 'LOCAL') {
+    try {
+      const response = await api.get('/admin/folders/browser/preview', {
+        params: {
+          path: file.path,
+          providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+        },
+        responseType: 'blob'
+      })
+      if (response.data) {
+        const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
+        const blobUrl = URL.createObjectURL(blob)
+        window.open(blobUrl, '_blank')
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000)
+        return
+      }
+      alert('未获取到可用的预览内容')
+    } catch (e: any) {
+      alert('打开文件失败: ' + (e.response?.data?.error || e.message))
+    }
     return
   }
   // 尝试直接打开文件
@@ -624,6 +862,49 @@ const openFile = (file: FileItem) => {
   if (url) {
     window.open(url, '_blank')
   }
+}
+
+const downloadFile = async (file: FileItem) => {
+  contextMenu.value.show = false
+  try {
+    const response = await api.get('/admin/folders/browser/download', {
+      params: {
+        path: file.path,
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      },
+      responseType: 'blob'
+    })
+    const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
+    const blobUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = resolveDownloadFilename(response.headers?.['content-disposition'], file.name || 'download')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000)
+  } catch (e: any) {
+    alert('下载失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const downloadContextFile = () => {
+  if (!contextMenu.value.item || contextMenu.value.item.isDirectory) return
+  downloadFile(contextMenu.value.item)
+}
+
+const resolveDownloadFilename = (contentDisposition?: string, fallback = 'download') => {
+  if (!contentDisposition) return fallback
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim())
+    } catch {
+      return utf8Match[1].trim()
+    }
+  }
+  const filenameMatch = contentDisposition.match(/filename="([^"]+)"/i) || contentDisposition.match(/filename=([^;]+)/i)
+  return filenameMatch?.[1]?.trim() || fallback
 }
 
 const handleClickOutside = () => {
@@ -640,11 +921,15 @@ const toggleSelect = (path: string) => {
 }
 
 const deleteSelected = async () => {
+  if (!supportsItemManagement.value) return
   if (!selectedPaths.value.size) return
   if (!confirm(`确认删除选中的 ${selectedPaths.value.size} 项？`)) return
   try {
     await api.delete('/admin/folders/browser/delete-items', {
-      params: { paths: Array.from(selectedPaths.value) }
+      params: {
+        paths: Array.from(selectedPaths.value),
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
     })
     selectedPaths.value.clear()
     await loadFiles()
@@ -654,6 +939,7 @@ const deleteSelected = async () => {
 }
 
 const toggleMultiSelect = () => {
+  if (!supportsItemManagement.value) return
   multiSelect.value = !multiSelect.value
   if (!multiSelect.value) {
     selectedPaths.value.clear()
@@ -661,14 +947,14 @@ const toggleMultiSelect = () => {
 }
 
 const selectAll = () => {
-  if (!multiSelect.value) return
+  if (!multiSelect.value || !supportsItemManagement.value) return
   const set = new Set<string>()
   items.value.forEach(i => set.add(i.path))
   selectedPaths.value = set
 }
 
 const invertSelection = () => {
-  if (!multiSelect.value) return
+  if (!multiSelect.value || !supportsItemManagement.value) return
   const set = new Set<string>()
   const current = selectedPaths.value
   items.value.forEach(i => {
@@ -684,18 +970,50 @@ const invertSelection = () => {
 }
 
 const moveSelected = async () => {
+  if (!supportsItemManagement.value) {
+    alert(selectedStorageProvider.value?.supportMessage || '当前存储位置暂不支持批量管理。')
+    return
+  }
   if (!selectedPaths.value.size) return
-  const target = prompt('输入目标目录绝对路径', currentPath.value)
-  if (!target) return
+  const targetInput = prompt(
+    '输入目标目录（相对当前存储根目录，不支持 .. 回退）',
+    currentRelativePath.value || ''
+  )
+  if (!targetInput) return
+  let target = ''
+  try {
+    target = resolveTargetPath(targetInput)
+  } catch (e: any) {
+    alert(e?.message || '目标目录格式不合法')
+    return
+  }
   try {
     await api.post('/admin/folders/browser/move-items', null, {
-      params: { paths: Array.from(selectedPaths.value), target }
+      params: {
+        paths: Array.from(selectedPaths.value),
+        target,
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
     })
     selectedPaths.value.clear()
     await loadFiles()
   } catch (e: any) {
     alert('移动失败: ' + (e.response?.data?.error || e.message))
   }
+}
+
+const resolveTargetPath = (input: string) => {
+  const trimmed = input.trim()
+  if (!trimmed || trimmed === '/') return basePath.value
+  if (trimmed.includes('..')) {
+    throw new Error('目标目录不支持使用 .. 回退，请输入根目录下的相对路径')
+  }
+  if (isUnderBase(trimmed)) {
+    return trimmed
+  }
+  const normalizedBase = normalizePath(basePath.value).replace(/[\/\\]+$/, '')
+  const normalizedRelative = normalizePath(trimmed).replace(/^[\/\\]+/, '')
+  return normalizedRelative ? `${normalizedBase}/${normalizedRelative}` : normalizedBase
 }
 
 const formatFileSize = (bytes?: number) => {
@@ -717,17 +1035,16 @@ const formatDate = (timestamp?: number) => {
 
 const getImageUrl = (photo: PhotoInfo) => {
   if (!photo) return ''
-  const build = (p?: string) => {
-    if (!p) return ''
-    if (p.startsWith('http://') || p.startsWith('https://')) return p
-    const normalized = p.startsWith('/') ? p : `/${p}`
-    return `/api/files${normalized}`
-  }
-  // 优先使用WebP，其次缩略图，最后原图
-  return build(photo.webpPath) || build(photo.thumbnailPath) || build(photo.originalPath)
+  return buildPhotoAssetUrl({
+    id: photo.id,
+    webpPath: photo.webpPath,
+    thumbnailPath: photo.thumbnailPath,
+    originalPath: photo.originalPath
+  }, 'auto') || ''
 }
 
 const triggerFileInput = (isDir: boolean) => {
+  if (!activeProviderSupported.value) return
   if (isDir) {
     dirInput.value?.click()
   } else {
@@ -745,10 +1062,12 @@ const handleFileInput = async (isDir: boolean, event: Event) => {
 }
 
 const onDragOver = () => {
+  if (!activeProviderSupported.value) return
   if (dragLeaveTimer) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null }
   isDragOver.value = true
 }
 const onDragLeave = () => {
+  if (!activeProviderSupported.value) return
   dragLeaveTimer = setTimeout(() => { isDragOver.value = false }, 100)
 }
 
@@ -779,6 +1098,10 @@ const readEntryRecursive = async (entry: any, basePath: string): Promise<{file: 
 
 const handleDrop = async (event: DragEvent) => {
   isDragOver.value = false
+  if (!activeProviderSupported.value) {
+    alert(uploadDisabledReason.value)
+    return
+  }
   const dt = event.dataTransfer
   if (!dt) return
 
@@ -810,11 +1133,18 @@ const handleDrop = async (event: DragEvent) => {
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
   if (!fileList.length) return
+  if (!activeProviderSupported.value) {
+    alert(selectedStorageProvider.value?.supportMessage || '当前存储位置暂不支持上传')
+    return
+  }
   const uploadUrl = '/api/admin/folders/browser/upload'
   const BATCH_SIZE = 10
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('admin_token')
   uploading.value = true
   uploadStatus.value = `正在上传 0 / ${fileList.length} 个文件...`
   let totalSaved = 0
+  let finalScanQueued = true
+  let finalScanMessage = ''
   try {
     for (let i = 0; i < fileList.length; i += BATCH_SIZE) {
       const slice = fileList.slice(i, i + BATCH_SIZE)
@@ -826,21 +1156,35 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
         relSlice.forEach(p => form.append('relativePaths', p))
       }
       form.append('target', currentPath.value)
+      if (canSelectStorageProvider.value && selectedProviderId.value != null) {
+        form.append('providerId', String(selectedProviderId.value))
+      }
 
       const res = await fetch(uploadUrl, {
         method: 'POST',
         body: form,
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
       })
       if (!res.ok) {
         const text = await res.text()
         throw new Error(text || res.statusText)
       }
-      const data = await res.json()
+      const data: UploadResponse = await res.json()
       totalSaved += data.saved || slice.length
+      if (data.scanQueued === false) {
+        finalScanQueued = false
+      }
+      if (data.scanMessage) {
+        finalScanMessage = data.scanMessage
+      } else if (data.message) {
+        finalScanMessage = data.message
+      }
       uploadStatus.value = `正在上传 ${Math.min(i + BATCH_SIZE, fileList.length)} / ${fileList.length} 个文件...`
     }
-    uploadStatus.value = `已保存 ${totalSaved} 个文件，后台处理中...`
+    uploadStatus.value = finalScanQueued
+      ? `已保存 ${totalSaved} 个文件，已加入后台扫描...`
+      : (finalScanMessage || `已保存 ${totalSaved} 个文件，但当前存储未加入自动扫描`)
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(() => loadFiles(), 500)
   } catch (e: any) {
@@ -851,6 +1195,15 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
   }
 }
 
+const changeStorageProvider = async () => {
+  selectedPaths.value.clear()
+  items.value = []
+  parentPath.value = null
+  error.value = ''
+  await loadBasePath(selectedProviderId.value, true)
+  await loadFiles(basePath.value)
+}
+
 watch(showCreateDialog, (val) => {
   if (val) {
     nextTick(() => newFolderInput.value?.focus())
@@ -858,7 +1211,7 @@ watch(showCreateDialog, (val) => {
 })
 
 onMounted(async () => {
-  await loadBasePath()
+  await loadBasePath(selectedProviderId.value, true)
   await loadFiles()
   document.addEventListener('click', handleClickOutside)
   const escHandler = (e: KeyboardEvent) => {
@@ -880,4 +1233,3 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
 })
 </script>
-

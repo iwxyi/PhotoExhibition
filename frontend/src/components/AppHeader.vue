@@ -89,20 +89,20 @@
       <!-- 默认显示：紧凑的中文 -->
       <span
         ref="shortTextRef"
-        class="text-xl font-light tracking-wider text-gray-900 dark:text-white whitespace-nowrap transition-all duration-300"
+        class="text-xl font-light tracking-wider text-gray-900 dark:text-white whitespace-nowrap transition-all duration-300 max-w-[240px] truncate"
         :class="{
           'text-2xl': isDetailPage,
-          'opacity-0': isExpanded,
-          'opacity-100': !isExpanded
+          'opacity-0': enableAnimatedBrand && isExpanded,
+          'opacity-100': !enableAnimatedBrand || !isExpanded
         }"
       >
-        光忆集
+        {{ shortTitle }}
       </span>
 
       <!-- 悬浮显示：两行英文 - 带逐字母弹入动画 -->
       <div
         :key="animationKey"
-        v-show="isExpanded"
+        v-show="enableAnimatedBrand && isExpanded"
         class="absolute left-0 top-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden"
         :style="{ width: expandedWidth + 'px' }"
       >
@@ -136,9 +136,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import NavLinks from './NavLinks.vue'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { useAuthStore } from '@/stores/auth'
+import { useLanguageStore } from '@/stores/language'
+import { usePublicSiteStore } from '@/stores/publicSite'
 
 defineProps<{
   showNavLinks?: boolean
@@ -146,6 +150,10 @@ defineProps<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
+const languageStore = useLanguageStore()
+const publicSiteStore = usePublicSiteStore()
 
 const isExpanded = ref(false)
 const expandedWidth = ref(0)
@@ -154,6 +162,17 @@ const shortTextRef = ref<HTMLElement | null>(null)
 const expandedTextRef = ref<HTMLElement | null>(null)
 let hoverTimeout: ReturnType<typeof setTimeout> | null = null
 let leaveTimeout: ReturnType<typeof setTimeout> | null = null
+
+const activeProjectTitle = computed(() =>
+  publicSiteStore.displayTitle || authStore.projectDisplayName || null
+)
+const enableAnimatedBrand = computed(() => !activeProjectTitle.value)
+const shortTitle = computed(() => {
+  if (activeProjectTitle.value) {
+    return activeProjectTitle.value
+  }
+  return languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+})
 
 // 相机图标交互状态
 const cameraHover = ref(false)
@@ -177,7 +196,7 @@ const handleCameraClickEnd = () => {
 
 // 返回主页
 const goToHome = () => {
-  router.push('/')
+  router.push(buildPublicPath('/', route.path))
 }
 
 // 测量文字宽度
@@ -196,6 +215,7 @@ const measureText = (text: string, fontSize: string) => {
 }
 
 const handleMouseEnter = () => {
+  if (!enableAnimatedBrand.value) return
   if (leaveTimeout) {
     clearTimeout(leaveTimeout)
     leaveTimeout = null
@@ -208,6 +228,7 @@ const handleMouseEnter = () => {
 }
 
 const handleMouseLeave = () => {
+  if (!enableAnimatedBrand.value) return
   if (hoverTimeout) {
     clearTimeout(hoverTimeout)
     hoverTimeout = null

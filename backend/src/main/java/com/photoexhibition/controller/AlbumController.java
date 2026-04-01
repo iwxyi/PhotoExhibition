@@ -5,9 +5,13 @@ import com.photoexhibition.dto.AlbumMoveRequest;
 import com.photoexhibition.dto.AlbumMoveResult;
 import com.photoexhibition.dto.CoverImagesDTO;
 import com.photoexhibition.dto.FilterRequest;
+import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.service.AlbumMoveService;
 import com.photoexhibition.service.AlbumService;
+import com.photoexhibition.service.AuthService;
+import com.photoexhibition.service.PublicUserScopeService;
 import com.photoexhibition.service.SystemConfigService;
+import com.photoexhibition.service.UserPathService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +36,9 @@ public class AlbumController {
     private final AlbumService albumService;
     private final AlbumMoveService albumMoveService;
     private final SystemConfigService systemConfigService;
+    private final PublicUserScopeService publicUserScopeService;
+    private final AuthService authService;
+    private final UserPathService userPathService;
 
     /**
      * 获取所有相册（相册模式）
@@ -42,13 +49,15 @@ public class AlbumController {
             @RequestParam(defaultValue = "12") int size,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String sort,
-            @RequestParam(defaultValue = "false") boolean includeHidden) {
+            @RequestParam(defaultValue = "false") boolean includeHidden,
+            @RequestParam(required = false) String userSlug) {
         log.info("获取相册列表 - 页码: {}, 数量: {}, 分类: {}, 排序: {}, includeHidden: {}", page, size, category, sort, includeHidden);
         // 参数校验，确保 page 和 size 至少为 1
         if (page < 0) page = 0;
         if (size < 1) size = 12;
         Pageable pageable = PageRequest.of(page, size);
-        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort, includeHidden);
+        Long userId = publicUserScopeService.resolveUserId(userSlug);
+        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort, includeHidden, userId);
         log.info("返回 {} 个相册, 总数: {}", albums.getNumberOfElements(), albums.getTotalElements());
         return ResponseEntity.ok(albums);
     }
@@ -72,8 +81,9 @@ public class AlbumController {
      * 获取相册详情
      */
     @GetMapping("/{id}")
-    public ResponseEntity<AlbumDTO> getAlbumById(@PathVariable Long id) {
-        AlbumDTO album = albumService.getAlbumById(id);
+    public ResponseEntity<AlbumDTO> getAlbumById(@PathVariable Long id,
+                                                 @RequestParam(required = false) String userSlug) {
+        AlbumDTO album = albumService.getAlbumById(id, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(album);
     }
 
@@ -81,8 +91,9 @@ public class AlbumController {
      * 根据名称搜索相册（用于短链接）
      */
     @GetMapping("/search")
-    public ResponseEntity<AlbumDTO> searchAlbumByName(@RequestParam String name) {
-        AlbumDTO album = albumService.searchAlbumByName(name);
+    public ResponseEntity<AlbumDTO> searchAlbumByName(@RequestParam String name,
+                                                      @RequestParam(required = false) String userSlug) {
+        AlbumDTO album = albumService.searchAlbumByName(name, publicUserScopeService.resolveUserId(userSlug));
         if (album == null) {
             return ResponseEntity.notFound().build();
         }
@@ -102,8 +113,11 @@ public class AlbumController {
      * 更新相册（名称/描述）
      */
     @PutMapping("/{id}")
-    public ResponseEntity<AlbumDTO> updateAlbum(@PathVariable Long id, @RequestBody AlbumDTO dto) {
-        return ResponseEntity.ok(albumService.updateAlbum(id, dto));
+    public ResponseEntity<AlbumDTO> updateAlbum(@RequestHeader("Authorization") String authorization,
+                                                @PathVariable Long id,
+                                                @RequestBody AlbumDTO dto) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        return ResponseEntity.ok(albumService.updateAlbum(id, dto, albumService.resolveScopedUserId(currentUser)));
     }
 
     /**
@@ -111,8 +125,10 @@ public class AlbumController {
      */
     @PostMapping("/{id}/rename")
     public ResponseEntity<Map<String, Object>> renameAlbum(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody Map<String, String> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         String newName = request.get("newName");
         if (newName == null || newName.trim().isEmpty()) {
             Map<String, Object> error = new HashMap<>();
@@ -120,7 +136,7 @@ public class AlbumController {
             error.put("message", "新名称不能为空");
             return ResponseEntity.badRequest().body(error);
         }
-        Map<String, Object> result = albumService.renameAlbum(id, newName.trim());
+        Map<String, Object> result = albumService.renameAlbum(id, newName.trim(), albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(result);
     }
 
@@ -129,13 +145,15 @@ public class AlbumController {
      */
     @PutMapping("/{id}/aggregate-sub-albums")
     public ResponseEntity<AlbumDTO> setAggregateSubAlbums(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody java.util.Map<String, Boolean> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         Boolean aggregate = request.get("aggregateSubAlbums");
         if (aggregate == null) {
             return ResponseEntity.badRequest().build();
         }
-        AlbumDTO album = albumService.setAggregateSubAlbums(id, aggregate);
+        AlbumDTO album = albumService.setAggregateSubAlbums(id, aggregate, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(album);
     }
 
@@ -143,8 +161,10 @@ public class AlbumController {
      * 获取相册的直接子相册（不经过聚合过滤）
      */
     @GetMapping("/{id}/sub-albums")
-    public ResponseEntity<List<AlbumDTO>> getSubAlbums(@PathVariable Long id) {
-        List<AlbumDTO> subAlbums = albumService.getSubAlbums(id);
+    public ResponseEntity<List<AlbumDTO>> getSubAlbums(@RequestHeader("Authorization") String authorization,
+                                                       @PathVariable Long id) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        List<AlbumDTO> subAlbums = albumService.getSubAlbums(id, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(subAlbums);
     }
 
@@ -153,10 +173,12 @@ public class AlbumController {
      */
     @PutMapping("/{id}/photo-sort-order")
     public ResponseEntity<AlbumDTO> setAlbumPhotoSortOrder(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody java.util.Map<String, Object> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         String sortOrder = (String) request.get("photoSortOrder");
-        AlbumDTO album = albumService.setAlbumPhotoSortOrder(id, sortOrder);
+        AlbumDTO album = albumService.setAlbumPhotoSortOrder(id, sortOrder, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(album);
     }
 
@@ -165,13 +187,15 @@ public class AlbumController {
      */
     @PutMapping("/{id}/download-allowed")
     public ResponseEntity<AlbumDTO> setAlbumDownloadAllowed(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody java.util.Map<String, Boolean> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         Boolean downloadAllowed = request.get("downloadAllowed");
         if (downloadAllowed == null) {
             return ResponseEntity.badRequest().build();
         }
-        AlbumDTO album = albumService.setAlbumDownloadAllowed(id, downloadAllowed);
+        AlbumDTO album = albumService.setAlbumDownloadAllowed(id, downloadAllowed, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(album);
     }
 
@@ -180,13 +204,15 @@ public class AlbumController {
      */
     @PutMapping("/{id}/hidden")
     public ResponseEntity<AlbumDTO> setAlbumHidden(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody java.util.Map<String, Boolean> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         Boolean isHidden = request.get("isHidden");
         if (isHidden == null) {
             return ResponseEntity.badRequest().build();
         }
-        AlbumDTO album = albumService.setAlbumHidden(id, isHidden);
+        AlbumDTO album = albumService.setAlbumHidden(id, isHidden, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(album);
     }
 
@@ -200,7 +226,7 @@ public class AlbumController {
             resp.put("albumSortOrder", systemConfigService.getAlbumSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", userPathService.sanitizeVisibleText(e.getMessage() == null ? "获取配置失败" : e.getMessage()));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -227,8 +253,10 @@ public class AlbumController {
      * 删除相册
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteAlbum(@PathVariable Long id) {
-        albumService.deleteAlbum(id);
+    public ResponseEntity<Void> deleteAlbum(@RequestHeader("Authorization") String authorization,
+                                            @PathVariable Long id) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        albumService.deleteAlbum(id, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok().build();
     }
 
@@ -237,10 +265,13 @@ public class AlbumController {
      */
     @PostMapping("/{id}/move")
     public ResponseEntity<AlbumMoveResult> moveAlbum(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody AlbumMoveRequest request) {
-        log.info("移动相册 {} 到 {}, 冲突处理: {}", id, request.getTargetPath(), request.getConflictResolution());
-        AlbumMoveResult result = albumMoveService.moveAlbum(id, request.getTargetPath(), request.getConflictResolution());
+        UserAccount currentUser = requireCurrentUser(authorization);
+        log.info("移动相册 {} 到 {}, 冲突处理: {}",
+                id, userPathService.toDisplayPath(request.getTargetPath(), true), request.getConflictResolution());
+        AlbumMoveResult result = albumMoveService.moveAlbum(currentUser, id, request.getTargetPath(), request.getConflictResolution());
         return ResponseEntity.ok(result);
     }
 
@@ -249,9 +280,11 @@ public class AlbumController {
      */
     @GetMapping("/{id}/move/check")
     public ResponseEntity<AlbumMoveResult> checkMoveAlbum(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestParam String targetPath) {
-        AlbumMoveResult result = albumMoveService.checkMove(id, targetPath);
+        UserAccount currentUser = requireCurrentUser(authorization);
+        AlbumMoveResult result = albumMoveService.checkMove(currentUser, id, targetPath);
         return ResponseEntity.ok(result);
     }
 
@@ -259,24 +292,29 @@ public class AlbumController {
      * 获取分类列表（用于移动至分类）
      */
     @GetMapping("/move/categories")
-    public ResponseEntity<List<Map<String, String>>> getMoveCategories() {
-        return ResponseEntity.ok(albumMoveService.getCategories());
+    public ResponseEntity<List<Map<String, String>>> getMoveCategories(@RequestHeader("Authorization") String authorization) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        return ResponseEntity.ok(albumMoveService.getCategories(currentUser));
     }
 
     /**
      * 获取相册的下一级子目录（用于移动至下一级）
      */
     @GetMapping("/{id}/move/children")
-    public ResponseEntity<List<Map<String, String>>> getMoveChildren(@PathVariable Long id) {
-        return ResponseEntity.ok(albumMoveService.getChildDirectories(id));
+    public ResponseEntity<List<Map<String, String>>> getMoveChildren(@RequestHeader("Authorization") String authorization,
+                                                                     @PathVariable Long id) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        return ResponseEntity.ok(albumMoveService.getChildDirectories(currentUser, id));
     }
 
     /**
      * 获取相册的同级目录（用于合并至同级）
      */
     @GetMapping("/{id}/move/siblings")
-    public ResponseEntity<List<Map<String, String>>> getMoveSiblings(@PathVariable Long id) {
-        return ResponseEntity.ok(albumMoveService.getSiblingDirectories(id));
+    public ResponseEntity<List<Map<String, String>>> getMoveSiblings(@RequestHeader("Authorization") String authorization,
+                                                                     @PathVariable Long id) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        return ResponseEntity.ok(albumMoveService.getSiblingDirectories(currentUser, id));
     }
 
     /**
@@ -284,8 +322,10 @@ public class AlbumController {
      */
     @PostMapping("/{id}/merge")
     public ResponseEntity<Map<String, Object>> mergeAlbum(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
             @RequestBody Map<String, String> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         String targetPath = request.get("targetPath");
         if (targetPath == null || targetPath.isEmpty()) {
             Map<String, Object> error = new HashMap<>();
@@ -293,7 +333,7 @@ public class AlbumController {
             error.put("message", "目标路径不能为空");
             return ResponseEntity.badRequest().body(error);
         }
-        Map<String, Object> result = albumMoveService.mergeAlbum(id, targetPath);
+        Map<String, Object> result = albumMoveService.mergeAlbum(currentUser, id, targetPath);
         return ResponseEntity.ok(result);
     }
 
@@ -302,16 +342,19 @@ public class AlbumController {
      */
     @GetMapping("/move/directories")
     public ResponseEntity<Map<String, Object>> listMoveDirectories(
+            @RequestHeader("Authorization") String authorization,
             @RequestParam(required = false) String path) {
-        return ResponseEntity.ok(albumMoveService.listDirectories(path));
+        UserAccount currentUser = requireCurrentUser(authorization);
+        return ResponseEntity.ok(albumMoveService.listDirectories(currentUser, path));
     }
 
     /**
      * 获取相册总数
      */
     @GetMapping("/count")
-    public ResponseEntity<Long> getAlbumsCount(@RequestParam(required = false) String category) {
-        long count = albumService.getAlbumsCount(category);
+    public ResponseEntity<Long> getAlbumsCount(@RequestParam(required = false) String category,
+                                               @RequestParam(required = false) String userSlug) {
+        long count = albumService.getAlbumsCount(category, false, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(count);
     }
 
@@ -319,8 +362,8 @@ public class AlbumController {
      * 获取所有一级分类
      */
     @GetMapping("/categories")
-    public ResponseEntity<java.util.List<String>> getCategories() {
-        return ResponseEntity.ok(albumService.getCategories());
+    public ResponseEntity<java.util.List<String>> getCategories(@RequestParam(required = false) String userSlug) {
+        return ResponseEntity.ok(albumService.getCategories(publicUserScopeService.resolveUserId(userSlug)));
     }
 
     /**
@@ -328,9 +371,11 @@ public class AlbumController {
      */
     @PostMapping("/{albumId}/tags/{tagId}")
     public ResponseEntity<AlbumDTO> addTagToAlbum(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long albumId,
             @PathVariable Long tagId) {
-        AlbumDTO album = albumService.addTagToAlbum(albumId, tagId);
+        UserAccount currentUser = requireCurrentUser(authorization);
+        AlbumDTO album = albumService.addTagToAlbum(albumId, tagId, currentUser.getId());
         return ResponseEntity.ok(album);
     }
 
@@ -339,10 +384,19 @@ public class AlbumController {
      */
     @DeleteMapping("/{albumId}/tags/{tagId}")
     public ResponseEntity<AlbumDTO> removeTagFromAlbum(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long albumId,
             @PathVariable Long tagId) {
-        AlbumDTO album = albumService.removeTagFromAlbum(albumId, tagId);
+        UserAccount currentUser = requireCurrentUser(authorization);
+        AlbumDTO album = albumService.removeTagFromAlbum(albumId, tagId, currentUser.getId());
         return ResponseEntity.ok(album);
+    }
+
+    private UserAccount requireCurrentUser(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new RuntimeException("未授权，请先登录");
+        }
+        return authService.getCurrentUserEntity(authorization.substring(7));
     }
 
     /**
@@ -352,8 +406,10 @@ public class AlbumController {
      */
     @PutMapping("/{albumId}/cover")
     public ResponseEntity<AlbumDTO> setAlbumCover(
+            @RequestHeader("Authorization") String authorization,
             @PathVariable Long albumId,
             @RequestBody java.util.Map<String, java.util.List<Long>> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
         java.util.List<Long> coverImageIds = request.get("coverImageIds");
         if (coverImageIds == null) {
             coverImageIds = new java.util.ArrayList<>();
@@ -364,8 +420,7 @@ public class AlbumController {
             coverImageIds = coverImageIds.subList(0, 4);
         }
         
-        AlbumDTO album = albumService.setAlbumCover(albumId, coverImageIds);
+        AlbumDTO album = albumService.setAlbumCover(albumId, coverImageIds, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(album);
     }
 }
-

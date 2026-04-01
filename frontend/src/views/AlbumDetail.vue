@@ -89,7 +89,7 @@
             <a
               v-for="(person, index) in albumPersons"
               :key="person.id"
-              :href="`/p/${person.id}?from=${encodeURIComponent(route.fullPath)}`"
+              :href="buildPublicPath(`/p/${person.id}?from=${encodeURIComponent(route.fullPath)}`, route.path)"
               target="_blank"
               rel="noopener noreferrer"
               class="album-person-card"
@@ -237,11 +237,15 @@ import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import MasonryLayout from '@/components/MasonryLayout.vue'
 import CommentSection from '@/components/CommentSection.vue'
 import { commentApi, api, personApi, albumApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { useLanguageStore } from '@/stores/language'
+import { buildPublicPath, stripPublicSlug } from '@/utils/publicRoute'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 const route = useRoute()
 const router = useRouter()
 const photoStore = usePhotoStore()
+const authStore = useAuthStore()
 const languageStore = useLanguageStore()
 
 const album = computed(() => photoStore.currentAlbum)
@@ -250,7 +254,9 @@ const photos = computed(() => photoStore.photos)
 // 监听相册数据变化，更新页面标题
 watch(album, (newAlbum) => {
   if (newAlbum?.name) {
-    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    const baseTitle = languageStore.language === 'zh'
+      ? (authStore.projectNameZh || authStore.projectNameEn || '光忆集')
+      : (authStore.projectNameEn || authStore.projectNameZh || 'Aurellic Memoriq')
     document.title = `${baseTitle} - ${newAlbum.name}`
   }
   // 当相册数据加载后，清除预存的背景色（避免覆盖真实数据）
@@ -767,19 +773,7 @@ const selectRange = (fromIdx: number | null, toIdx: number) => {
 }
 
 const getImageUrl = (photo: any) => {
-  // 优先使用中缩略图（用于瀑布流显示）
-  if (photo.mediumThumbPath) {
-    return `/api/files${photo.mediumThumbPath}`
-  }
-  // 回退到webp
-  if (photo.webpPath) {
-    return `/api/files${photo.webpPath}`
-  }
-  // 最后回退到小缩略图或原图
-  if (photo.thumbnailPath) {
-    return `/api/files${photo.thumbnailPath}`
-  }
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'medium') || ''
 }
 
 const getPhotoStyle = (photo: any) => {
@@ -1207,12 +1201,13 @@ const handleBack = async () => {
     sessionStorage.removeItem('album-entry-page')
     
     // 根据来源决定去向
-    if (targetPage && targetPage !== '/') {
+    const normalizedTargetPage = targetPage ? stripPublicSlug(targetPage) : ''
+    if (targetPage && normalizedTargetPage !== '/') {
       // 从其他页面来的，返回该页面
-      router.push(targetPage)
+      router.push(buildPublicPath(targetPage, route.path))
     } else {
       // 直接 URL 进入或无来源，返回相册列表
-      router.push('/')
+      router.push(buildPublicPath('/', route.path))
     }
   }
 }
@@ -1500,7 +1495,7 @@ const performCoverTransition = async (): Promise<boolean> => {
 const startBackTransitionAndNavigate = () => {
   const targetAlbumId = albumId.value
   if (!targetAlbumId) {
-    router.push('/')
+    router.push(buildPublicPath('/', route.path))
     return
   }
 
@@ -1520,10 +1515,10 @@ const startBackTransitionAndNavigate = () => {
     
     // 根据来源决定去向
     const entryPage = sessionStorage.getItem('album-entry-page')
-    if (entryPage && entryPage !== '/') {
-      router.push(entryPage)
+    if (entryPage && stripPublicSlug(entryPage) !== '/') {
+      router.push(buildPublicPath(entryPage, route.path))
     } else {
-      router.push('/')
+      router.push(buildPublicPath('/', route.path))
     }
     return
   }
@@ -1636,10 +1631,10 @@ const startBackTransitionAndNavigate = () => {
         sessionStorage.removeItem('album-entry-page')
 
         const entryPage = sessionStorage.getItem('album-entry-page')
-        if (entryPage && entryPage !== '/') {
-          router.push(entryPage)
+        if (entryPage && stripPublicSlug(entryPage) !== '/') {
+          router.push(buildPublicPath(entryPage, route.path))
         } else {
-          router.push('/')
+          router.push(buildPublicPath('/', route.path))
         }
         return
       }
@@ -1659,7 +1654,7 @@ const startBackTransitionAndNavigate = () => {
 
       // 使用 router.push('/') 确保导航成功（router.back() 在某些情况下可能无效）
       console.log('[返回动画] 导航到 Home')
-      router.push('/')
+      router.push(buildPublicPath('/', route.path))
 
       // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
       setTimeout(() => {
@@ -1678,10 +1673,10 @@ const startBackTransitionAndNavigate = () => {
     sessionStorage.removeItem('album-entry-page')
     
     const entryPage = sessionStorage.getItem('album-entry-page')
-    if (entryPage && entryPage !== '/') {
-      router.push(entryPage)
+    if (entryPage && stripPublicSlug(entryPage) !== '/') {
+      router.push(buildPublicPath(entryPage, route.path))
     } else {
-      router.push('/')
+      router.push(buildPublicPath('/', route.path))
     }
   }
 }
@@ -1692,7 +1687,7 @@ const loadAlbumData = async () => {
   const targetAlbumId = await resolveAlbumId()
   if (!targetAlbumId) {
     console.error('[AlbumDetail] 无效的相册 ID')
-    router.push('/')
+    router.push(buildPublicPath('/', route.path))
     return
   }
 
@@ -1960,4 +1955,3 @@ const getBrightness = (hex: string) => {
   return (rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114) / 255
 }
 </script>
-

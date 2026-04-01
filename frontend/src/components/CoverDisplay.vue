@@ -36,6 +36,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Photo {
   id: number
@@ -293,14 +294,10 @@ const getPhotoUrl = (photo?: Photo): string => {
   const coverCount = displayPhotos.value.length
   const useMediumThumb = coverCount === 1
 
-  if (useMediumThumb && photo.mediumThumbPath) {
-    return `/api/files${photo.mediumThumbPath}`
+  if (useMediumThumb) {
+    return buildPhotoAssetUrl(photo, 'medium') || ''
   }
-  if (photo.smallThumbPath) return `/api/files${photo.smallThumbPath}`
-  if (photo.webpPath) return `/api/files${photo.webpPath}`
-  if (photo.mediumThumbPath) return `/api/files${photo.mediumThumbPath}`
-  if (photo.thumbnailPath) return `/api/files${photo.thumbnailPath}`
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'small') || ''
 }
 
 const handleError = (event: Event) => {

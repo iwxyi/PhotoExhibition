@@ -6,7 +6,7 @@
   >
     <div class="flex items-center justify-around py-0.5 px-4">
       <router-link
-        to="/"
+        :to="buildPublicPath('/', route.path)"
         class="flex flex-col items-center justify-center p-1.5 rounded-lg transition-all duration-200 hover:scale-105 transform-gpu group relative overflow-hidden min-w-[50px]"
         :class="linkClass('/')"
       >
@@ -18,7 +18,7 @@
       </router-link>
 
       <router-link
-        to="/wall"
+        :to="buildPublicPath('/wall', route.path)"
         class="flex flex-col items-center justify-center p-1.5 rounded-lg transition-all duration-200 hover:scale-105 transform-gpu group relative overflow-hidden min-w-[50px]"
         :class="linkClass('/wall')"
       >
@@ -30,7 +30,7 @@
       </router-link>
 
       <router-link
-        to="/random"
+        :to="buildPublicPath('/random', route.path)"
         class="flex flex-col items-center justify-center p-1.5 rounded-lg transition-all duration-200 hover:scale-105 transform-gpu group relative overflow-hidden min-w-[50px]"
         :class="linkClass('/random')"
       >
@@ -42,7 +42,7 @@
       </router-link>
 
       <router-link
-        to="/persons"
+        :to="buildPublicPath('/persons', route.path)"
         class="flex flex-col items-center justify-center p-1.5 rounded-lg transition-all duration-200 hover:scale-105 transform-gpu group relative overflow-hidden min-w-[50px]"
         :class="linkClass('/persons')"
       >
@@ -59,6 +59,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { buildPublicPath, stripPublicSlug } from '@/utils/publicRoute'
 
 const route = useRoute()
 const isHidden = ref(false)
@@ -69,7 +70,7 @@ let navigationProtectionTimeout: number | null = null
 let isNavigationProtected = false
 
 const linkClass = (path: string) => {
-  const active = route.path === path
+  const active = stripPublicSlug(route.path) === path
   return active
     ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900 shadow-lg'
     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'

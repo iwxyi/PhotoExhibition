@@ -4,9 +4,12 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
           <AppHeader :is-detail-page="true" />
-          <button @click="$router.back()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300 hover:scale-105 active:scale-95">
-            返回
-          </button>
+          <div class="flex items-center gap-3">
+            <PublicAccountMenu />
+            <button @click="$router.back()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300 hover:scale-105 active:scale-95">
+              返回
+            </button>
+          </div>
         </div>
       </div>
     </nav>
@@ -135,7 +138,7 @@
               <a
                 v-for="t in photo.tags"
                 :key="t.id"
-                :href="`/search?tagId=${t.id}&tagName=${encodeURIComponent(t.name)}`"
+                :href="getTagSearchPath(t)"
                 target="_blank"
                 class="px-4 py-1.5 rounded-full text-sm cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-lg"
                 :style="{ backgroundColor: t.color || 'rgba(59,130,246,0.1)', color: t.color ? '#fff' : '#2563eb' }"
@@ -157,7 +160,7 @@
               <a
                 v-for="(face, idx) in photo.faces"
                 :key="face.id"
-                :href="face.personId ? `/wall?personId=${face.personId}&personName=${encodeURIComponent(face.personName || '')}` : `/search?faceId=${face.id}`"
+                :href="getFaceSearchPath(face)"
                 target="_blank"
                 class="group flex flex-col items-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors duration-200"
               >
@@ -182,11 +185,16 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
+import { useAuthStore } from '@/stores/auth'
 import { useLanguageStore } from '@/stores/language'
 import AppHeader from '@/components/AppHeader.vue'
+import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 const route = useRoute()
 const photoStore = usePhotoStore()
+const authStore = useAuthStore()
 const languageStore = useLanguageStore()
 
 const photo = computed(() => photoStore.currentPhoto)
@@ -195,7 +203,9 @@ const loading = computed(() => photoStore.loading)
 // 监听照片数据变化，更新页面标题
 watch(photo, (newPhoto) => {
   if (newPhoto?.filename) {
-    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    const baseTitle = languageStore.language === 'zh'
+      ? (authStore.projectNameZh || authStore.projectNameEn || '光忆集')
+      : (authStore.projectNameEn || authStore.projectNameZh || 'Aurellic Memoriq')
     document.title = `${baseTitle} - ${newPhoto.filename}`
   }
 }, { immediate: true })
@@ -222,30 +232,29 @@ const formatDate = (dateStr: string) => {
 }
 
 const getImageUrl = (photo: any) => {
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'original') || ''
+}
+
+const getTagSearchPath = (tag: { id: number; name: string }) =>
+  buildPublicPath(`/search?tagId=${tag.id}&tagName=${encodeURIComponent(tag.name)}`, route.path)
+
+const getFaceSearchPath = (face: { id: number; personId?: number; personName?: string }) => {
+  if (face.personId) {
+    return buildPublicPath(`/wall?personId=${face.personId}&personName=${encodeURIComponent(face.personName || '')}`, route.path)
+  }
+  return buildPublicPath(`/search?faceId=${face.id}`, route.path)
 }
 
 // 人脸头像 URL 解析 - 直接使用当前显示的图片
 const resolveFaceAvatarUrl = (face: any) => {
   if (!photo.value) return ''
   // 直接使用当前显示的图片
-  const firstPath = [
-    photo.value.originalPath,
-    photo.value.webpPath,
-    photo.value.thumbnailPath,
-    face.photoOriginalPath,
-    face.photoThumbnailPath
-  ].find(p => p && typeof p === 'string' && p.length > 0) || ''
-  const base = firstPath
-    ? firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
-    : ''
-  if (!base) return ''
-  const prefix = '/api/files'
-  if (base.startsWith(prefix)) {
-    const raw = base.slice(prefix.length)
-    return `${prefix}${encodeURI(raw)}`
-  }
-  return encodeURI(base)
+  return buildPhotoAssetUrl({
+    id: photo.value.id || face?.photoId,
+    originalPath: photo.value.originalPath || face?.photoOriginalPath,
+    thumbnailPath: face?.photoThumbnailPath || photo.value.thumbnailPath,
+    webpPath: photo.value.webpPath
+  }, 'thumbnail') || ''
 }
 
 // 人脸头像样式（使用背景图实现裁剪）
@@ -298,4 +307,3 @@ onMounted(async () => {
   await photoStore.fetchPhotoById(photoId)
 })
 </script>
-

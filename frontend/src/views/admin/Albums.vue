@@ -14,7 +14,10 @@
 
       <div class="glass-panel p-4 mb-6">
         <div class="flex flex-wrap gap-4">
-          <input v-model="keyword" placeholder="搜索名称/路径" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label class="space-y-2">
+            <span class="text-sm text-gray-300">搜索相册</span>
+            <input v-model="keyword" placeholder="按名称或路径关键词搜索" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
           <button v-on:click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
           <span v-if="loading && albums.length === 0" class="text-sm text-gray-400 py-2">加载中...</span>
         </div>
@@ -429,14 +432,17 @@
         <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">添加标签</h3>
           <div class="mb-4">
-            <input
-              ref="tagInputRef"
-              v-model="tagKeyword"
-              v-on:input="searchTags"
-              placeholder="搜索或输入新标签名称"
-              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              v-on:keyup.enter="confirmAddTag"
-            />
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">标签名称</span>
+              <input
+                ref="tagInputRef"
+                v-model="tagKeyword"
+                v-on:input="searchTags"
+                placeholder="搜索已有标签或输入新标签名称"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                v-on:keyup.enter="confirmAddTag"
+              />
+            </label>
           </div>
           <!-- 标签候选：瀑布流胶囊布局 -->
           <div class="max-h-60 overflow-auto mb-4 border border-gray-700 rounded bg-gray-900/60">
@@ -750,13 +756,16 @@
       >
         <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">编辑备注</h3>
-          <textarea
-            ref="descriptionInputRef"
-            v-model="descriptionInput"
-            rows="4"
-            placeholder="输入相册备注"
-            class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-          ></textarea>
+          <label class="block space-y-2">
+            <span class="text-sm text-gray-300">相册备注</span>
+            <textarea
+              ref="descriptionInputRef"
+              v-model="descriptionInput"
+              rows="4"
+              placeholder="输入相册说明、拍摄背景或其它备注"
+              class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            ></textarea>
+          </label>
           <div class="flex gap-3 mt-4">
             <button
               @click="saveDescription"
@@ -784,13 +793,16 @@
       >
         <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">重命名相册</h3>
-          <input
-            ref="nameInputRef"
-            v-model="nameInput"
-            placeholder="输入新名称"
-            class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            @keyup.enter="saveName"
-          />
+          <label class="block space-y-2">
+            <span class="text-sm text-gray-300">相册新名称</span>
+            <input
+              ref="nameInputRef"
+              v-model="nameInput"
+              placeholder="输入新的相册名称"
+              class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              @keyup.enter="saveName"
+            />
+          </label>
           <div class="flex gap-3 mt-4">
             <button
               @click="saveName"
@@ -1183,6 +1195,7 @@ import { api, albumApi } from '@/api'
 import { getEffectParamDefs } from '@/config/particlePresets'
 import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
 import CoverDisplay from '@/components/CoverDisplay.vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import DropMenu from '@/components/DropMenu.vue'
 
 const router = useRouter()
@@ -1485,16 +1498,7 @@ const editAlbumTags = (album: any) => {
 
 const getPhotoUrl = (photo: any): string => {
   if (!photo) return ''
-  if (photo.smallThumbPath) {
-    return `/api/files${photo.smallThumbPath}`
-  }
-  if (photo.webpPath) {
-    return `/api/files${photo.webpPath}`
-  }
-  if (photo.thumbnailPath) {
-    return `/api/files${photo.thumbnailPath}`
-  }
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'small') || ''
 }
 
 // 获取相册的自定义封面列表
@@ -2117,16 +2121,12 @@ const doMoveToCategory = (album: any, category: any) => {
 
 const doMoveToParent = (album: any) => {
   if (!album) return
-  const pathInfo = splitPath(album.path)
-  if (pathInfo.parts.length < 2) {
+  const displayParts = splitPath(getAlbumDisplayPath(album))
+  if (displayParts.length < 2) {
     alert('已经在最顶层，无法向上移动')
     return
   }
-  const parentOfParent = joinPath(
-    pathInfo.parts.slice(0, -2),
-    pathInfo.isAbsolute,
-    pathInfo.hasLeadingSlash
-  )
+  const parentOfParent = joinPath(splitPath(getAlbumRawPath(album)).slice(0, -2))
   doMoveAlbum(album, parentOfParent)
 }
 
@@ -2145,8 +2145,7 @@ const openPathPicker = async (album: any) => {
   closeAllMenus()
   pathPickerVisible.value = true
   // 默认定位到当前相册的上级目录
-  const pathInfo = splitPath(album.path)
-  const parentPath = joinPath(pathInfo.parts.slice(0, -1), pathInfo.isAbsolute, pathInfo.hasLeadingSlash)
+  const parentPath = joinPath(splitPath(getAlbumRawPath(album)).slice(0, -1))
   await navigatePathPicker(parentPath)
 }
 
@@ -2289,18 +2288,16 @@ const toggleAggregateSubAlbums = async (album: any) => {
       })
     } else {
       // 关闭聚合：需要从后端获取子相册（因为开启聚合时子相册不显示）
-      const albumPathInfo = splitPath(album.path)
-      const albumPathParts = albumPathInfo.parts
-      const albumPathPrefix = album.path.replace(/\\/g, '/')
+      const albumPathParts = splitPath(getAlbumDisplayPath(album))
+      const albumPathPrefix = joinPath(albumPathParts)
 
       // 先从当前列表过滤
       let subAlbums = albums.value.filter(a => {
         // 跳过自己
         if (a.id === album.id) return false
 
-        const aPath = a.path.replace(/\\/g, '/')
-        const aPathInfo = splitPath(a.path)
-        const aPathParts = aPathInfo.parts
+        const aPathParts = splitPath(getAlbumDisplayPath(a))
+        const aPath = joinPath(aPathParts)
 
         // 直接子相册必须是：
         // 1. 路径以当前相册路径 + '/' 开头
@@ -2357,88 +2354,58 @@ const toggleAggregateSubAlbums = async (album: any) => {
   }
 }
 
-// 统一的路径分割函数，同时支持 Windows(\) 和 Unix(/) 分隔符
-// 返回路径分段和是否为绝对路径
-const splitPath = (path: string): { parts: string[]; isAbsolute: boolean; hasLeadingSlash: boolean } => {
-  // 检测是否有前导斜杠（对于 /D:/ 这种 Windows 路径）
-  const hasLeadingSlash = /^\//.test(path)
-  // 检测是否是绝对路径（以 / 开头，或者是 Windows 的 D: 这种格式）
-  // 注意：Windows 路径可能是 D:\ 或 D:/ 或 /D:/ (带前导斜杠)
-  const isAbsolute = hasLeadingSlash || /^[a-zA-Z]:/.test(path)
-  // 先将反斜杠替换为正斜杠，然后分割
-  const parts = path.replace(/\\/g, '/').split('/').filter(p => p.length > 0)
-  return { parts, isAbsolute, hasLeadingSlash }
+const getAlbumDisplayPath = (album: any) => album?.relativePath || album?.path || ''
+const getAlbumRawPath = (album: any) => album?.path || ''
+
+const splitPath = (path: string): string[] => {
+  return (path || '').replace(/\\/g, '/').split('/').filter(p => p.length > 0)
 }
 
-// 统一的路径连接函数，保留绝对路径标识
-// 对于 Windows 盘符路径 (D: 开头)，保持原始格式（有前导斜杠就保留，没有就不加）
-// 对于 Unix 绝对路径 (/ 开头)，保持前导斜杠
-const joinPath = (parts: string[], isAbsolute: boolean, hasLeadingSlash?: boolean): string => {
-  const joined = parts.join('/')
-  if (!isAbsolute) {
-    return joined
-  }
-  // 对于 Windows 盘符路径 (如 D:)，保持原始的前导斜杠状态
-  if (parts.length > 0 && /^[a-zA-Z]:$/.test(parts[0])) {
-    // 如果原始路径有前导斜杠（如 /D:/xxx），就保留
-    if (hasLeadingSlash) {
-      return '/' + joined
-    }
-    return joined
-  }
-  // 对于 Unix 绝对路径，添加前导斜杠
-  return '/' + joined
-}
+const joinPath = (parts: string[]): string => parts.filter(Boolean).join('/')
 
 const aggregateToParent = async (album: any) => {
   // 先关闭菜单
   closeAllMenus()
 
+  const displayPath = getAlbumDisplayPath(album)
+  const rawPath = getAlbumRawPath(album)
+
   // 调试信息：打印相册路径，帮助诊断问题
-  console.log('聚合到上一级 - 相册路径:', album.path)
+  console.log('聚合到上一级 - 相册路径:', displayPath)
   console.log('聚合到上一级 - 相册名称:', album.name)
   console.log('聚合到上一级 - isTopLevel:', album.isTopLevel)
 
   // 首先使用后端的 isTopLevel 字段进行判断（如果后端正确计算了的话）
   if (album.isTopLevel === true) {
-    alert(`该相册"${album.displayTitle || album.name}"已经是顶级相册，无法聚合到上一级。\n\n路径: ${album.path}\n\n注意：顶级相册是指位于基础路径分类目录下的相册（如：基础路径/人像/相册名）`)
+    alert(`该相册"${album.displayTitle || album.name}"已经是顶级相册，无法聚合到上一级。\n\n路径: ${displayPath}\n\n注意：顶级相册是指位于当前用户根目录分类下的相册（如：人像/相册名）`)
     return
   }
 
-  // 使用统一的路径分割函数（保留绝对路径信息）
-  const pathInfo = splitPath(album.path)
-  const pathParts = pathInfo.parts
-  const isAbsolutePath = pathInfo.isAbsolute
-  const hasLeadingSlash = pathInfo.hasLeadingSlash
-  console.log('路径分割结果:', pathParts, '长度:', pathParts.length, '是否绝对路径:', isAbsolutePath, '有前导斜杠:', hasLeadingSlash)
+  const displayPathParts = splitPath(displayPath)
+  console.log('路径分割结果:', displayPathParts, '长度:', displayPathParts.length)
 
-  // 检查路径层级：至少需要 base/分类/相册名 三级才能有父相册
-  // 也就是 pathParts.length >= 4（例如：/photos/base/分类/相册名/子相册）
-  // 注意：Windows 路径可能是 D:/photos/base/...，所以要考虑盘符的情况
-  const minDepth = isAbsolutePath ? 4 : 3 // 绝对路径需要 base/分类/相册名/子相册
+  // 对当前后台展示而言，按“用户根目录下的分类/相册/子相册”计算
+  const minDepth = 3
 
-  if (pathParts.length < minDepth) {
+  if (displayPathParts.length < minDepth) {
     const detailMsg = `\n\n详细信息：\n` +
-      `- 当前路径: ${album.path}\n` +
-      `- 路径层级数: ${pathParts.length}\n` +
+      `- 当前路径: ${displayPath}\n` +
+      `- 路径层级数: ${displayPathParts.length}\n` +
       `- 最小需要层级: ${minDepth}\n` +
-      `- 路径分段: ${JSON.stringify(pathParts)}`
+      `- 路径分段: ${JSON.stringify(displayPathParts)}`
     alert(`该相册"${album.displayTitle || album.name}"已经是顶级相册，无法聚合到上一级。${detailMsg}`)
     return
   }
 
-  // 构造父相册路径（保留绝对路径标识）
-  const parentPath = joinPath(pathParts.slice(0, -1), isAbsolutePath, hasLeadingSlash)
-  console.log('父相册路径:', parentPath)
+  const parentPath = joinPath(splitPath(rawPath).slice(0, -1))
+  const parentDisplayPath = joinPath(displayPathParts.slice(0, -1))
+  console.log('父相册路径:', parentDisplayPath)
 
   // 查找父相册（使用统一处理后的路径比较）
   // 同时尝试原始路径和标准化后的路径
   let parentAlbum = albums.value.find(a => {
-    const aPathInfo = splitPath(a.path)
-    const normalizedPath = joinPath(aPathInfo.parts, aPathInfo.isAbsolute, aPathInfo.hasLeadingSlash)
-    return a.path === parentPath ||
-      normalizedPath === parentPath ||
-      a.path.replace(/\\/g, '/') === parentPath
+    const candidateDisplayPath = getAlbumDisplayPath(a).replace(/\\/g, '/')
+    return candidateDisplayPath === parentDisplayPath.replace(/\\/g, '/')
   })
 
   // 如果父相册不存在，尝试创建它
@@ -2451,7 +2418,7 @@ const aggregateToParent = async (album: any) => {
       parentAlbum = createResponse.data
 
       if (!parentAlbum) {
-        alert(`无法创建父相册，请检查文件夹路径是否正确。\n\n父相册路径: ${parentPath}\n子相册路径: ${album.path}`)
+        alert(`无法创建父相册，请检查文件夹路径是否正确。\n\n父相册路径: ${parentDisplayPath}\n子相册路径: ${displayPath}`)
         return
       }
 
@@ -2459,15 +2426,15 @@ const aggregateToParent = async (album: any) => {
     } catch (createError: any) {
       console.error('创建父相册失败:', createError)
       const errorDetail = createError.response?.data?.error || createError.response?.data?.message || createError.message
-      alert(`创建父相册失败: ${errorDetail}\n\n父相册路径: ${parentPath}\n子相册路径: ${album.path}`)
+      alert(`创建父相册失败: ${errorDetail}\n\n父相册路径: ${parentDisplayPath}\n子相册路径: ${displayPath}`)
       return
     }
   }
 
   // 找出同一层级的所有相册（父路径相同的相册）
   const siblingAlbums = albums.value.filter(a => {
-    const aPathInfo = splitPath(a.path)
-    return aPathInfo.parts.slice(0, -1).join('/') === pathParts.slice(0, -1).join('/')
+    const aPathParts = splitPath(getAlbumDisplayPath(a))
+    return joinPath(aPathParts.slice(0, -1)) === joinPath(displayPathParts.slice(0, -1))
   })
   const siblingIds = siblingAlbums.map(a => a.id)
   console.log('同一层级的相册:', siblingIds)
@@ -2552,7 +2519,7 @@ const toggleAlbumHidden = async (album: any, isHidden: boolean) => {
 }
 
 const openAlbum = (albumId: number) => {
-  const url = `/album/${albumId}`
+  const url = buildPublicPath(`/album/${albumId}`, authStore.slug ? `/${authStore.slug}` : undefined)
   window.open(url, '_blank')
 }
 

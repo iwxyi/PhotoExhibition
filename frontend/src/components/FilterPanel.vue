@@ -58,7 +58,10 @@
           <div class="flex-1 overflow-y-auto p-6">
             <!-- 搜索框 -->
             <div class="mb-4">
-              <input v-model="tagSearchQuery" type="text" placeholder="搜索标签..." class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              <label class="block space-y-2">
+                <span class="text-sm text-gray-500 dark:text-gray-300">搜索标签</span>
+                <input v-model="tagSearchQuery" type="text" placeholder="输入标签名称关键词" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </label>
             </div>
 
             <!-- 标签气泡瀑布流 -->
@@ -2216,4 +2219,3 @@ defineExpose({
   border-color: #374151 !important;
 }
 </style>
-

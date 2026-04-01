@@ -15,6 +15,8 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     List<Face> findByPhotoId(Long photoId);
 
+    List<Face> findByUserIdIsNull();
+
     void deleteByPhotoId(Long photoId);
 
     @Query("SELECT f FROM Face f LEFT JOIN f.person p LEFT JOIN f.photo ph " +
@@ -94,6 +96,9 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     @Query("SELECT f.person.id, COUNT(f) FROM Face f WHERE f.person IS NOT NULL GROUP BY f.person.id")
     List<Object[]> countFacesByPersonGrouped();
 
+    @Query("SELECT f.person.id, COUNT(f) FROM Face f WHERE f.person IS NOT NULL AND f.userId = :userId GROUP BY f.person.id")
+    List<Object[]> countFacesByPersonGroupedByUserId(@Param("userId") Long userId);
+
     /**
      * 查找重复的人脸记录（按照片分组，统计每张照片的人脸数量）
      */
@@ -135,4 +140,3 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
            "GROUP BY p.id ORDER BY cnt DESC")
     List<Object[]> findPersonIdsWithFaceCountByAlbumId(@Param("albumId") Long albumId);
 }
-

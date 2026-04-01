@@ -6,14 +6,17 @@ import type { AiSearchResponse, AiSearchSuggestionAction } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePhotoStore } from '@/stores/photo'
 import { useLanguageStore } from '@/stores/language'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import AppHeader from '@/components/AppHeader.vue'
-import SettingsMenu from '@/components/SettingsMenu.vue'
+import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import AlbumCard from '@/components/AlbumCard.vue'
 import type { Photo } from '@/stores/photo'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const photoStore = usePhotoStore()
 const languageStore = useLanguageStore()
 
@@ -150,8 +153,6 @@ interface PhotoDTO {
   createdAt?: string
 }
 
-const authStore = useAuthStore()
-
 // 用于模板中的全局 window 访问
 const globalWindow = typeof window !== 'undefined' ? window : null
 
@@ -231,11 +232,13 @@ const clusterThreshold = ref<number>(0.7)
 // 监听关键词变化，更新页面标题
 watch(keyword, (newKeyword) => {
   editableKeyword.value = newKeyword ? decodeURIComponent(newKeyword) : ''
+  const baseTitle = languageStore.language === 'zh'
+    ? (authStore.projectNameZh || authStore.projectNameEn || '光忆集')
+    : (authStore.projectNameEn || authStore.projectNameZh || 'Aurellic Memoriq')
   if (newKeyword) {
-    const baseTitle = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
     document.title = `${baseTitle} - 搜索: ${decodeURIComponent(newKeyword)}`
   } else {
-    document.title = languageStore.language === 'zh' ? '光忆集' : 'Aurellic Memoriq'
+    document.title = baseTitle
   }
 })
 
@@ -372,7 +375,7 @@ const submitKeywordSearch = async () => {
   }
 
   await router.push({
-    path: '/search',
+    path: buildPublicPath('/search', route.path),
     query: { q: nextKeyword }
   })
 }
@@ -693,28 +696,21 @@ const hasResults = computed(() => {
 })
 
 const getPersonPhotoUrl = (person: PersonSummary) => {
-  if (person.sampleThumbnailPath) {
-    return `/api/photos/${person.sampleThumbnailPath.replace(/^\/+/, '')}`
-  }
-  return ''
+  return buildPhotoAssetUrl({
+    thumbnailPath: person.sampleThumbnailPath
+  }, 'thumbnail') || ''
 }
 
 const goToAlbum = (albumId: number) => {
-  window.open(`/a/${albumId}`, '_blank')
+  window.open(buildPublicPath(`/a/${albumId}`, route.path), '_blank')
 }
 
 const getAlbumCoverUrl = (album: AlbumDTO) => {
   // 优先使用 coverImages
   if (album.coverImages) {
     const cover = album.coverImages.cover1 || album.coverImages.cover2 || album.coverImages.cover3
-    if (cover?.thumbnailPath) {
-      return `/api/files${cover.thumbnailPath}`
-    }
-    if (cover?.mediumThumbPath) {
-      return `/api/files${cover.mediumThumbPath}`
-    }
-    if (cover?.originalPath) {
-      return `/api/files${cover.originalPath}`
+    if (cover) {
+      return buildPhotoAssetUrl(cover, 'thumbnail') || ''
     }
   }
   // 降级使用 coverImageId
@@ -725,41 +721,23 @@ const getAlbumCoverUrl = (album: AlbumDTO) => {
 }
 
 const getFacePhotoUrl = (photo: FacePhoto) => {
-  if (photo.mediumThumbPath) {
-    return `/api/photos/${photo.mediumThumbPath.replace(/^\/+/, '')}`
-  }
-  if (photo.thumbnailPath) {
-    return `/api/photos/${photo.thumbnailPath.replace(/^\/+/, '')}`
-  }
-  return ''
+  return buildPhotoAssetUrl(photo as Photo, 'medium') || buildPhotoAssetUrl(photo as Photo, 'thumbnail') || ''
 }
 
 const getPhotoUrl = (photo: PhotoDTO) => {
-  if (photo.largeThumbPath) {
-    return `/api/files${photo.largeThumbPath}`
-  }
-  if (photo.webpPath) return `/api/files${photo.webpPath}`
-  if (photo.mediumThumbPath) {
-    return `/api/photos/${photo.mediumThumbPath.replace(/^\/+/, '')}`
-  }
-  if (photo.originalPath) return `/api/files${photo.originalPath}`
-  return ''
+  return buildPhotoAssetUrl(photo as Photo, 'large') || ''
 }
 
 const getPhotoThumbUrl = (photo: PhotoDTO) => {
-  if (photo.thumbnailPath) {
-    return `/api/files${photo.thumbnailPath}`
-  }
-  return getPhotoUrl(photo)
+  return buildPhotoAssetUrl(photo as Photo, 'thumbnail') || getPhotoUrl(photo)
 }
 
 const getFaceUrl = (face: FaceFace) => {
-  const path = face.photoMediumThumbPath || face.photoThumbnailPath
-  if (path) {
-    // 移除开头的斜杠，避免URL中出现双斜杠
-    return `/api/photos/${path.replace(/^\/+/, '')}`
-  }
-  return ''
+  return buildPhotoAssetUrl({
+    mediumThumbPath: face.photoMediumThumbPath,
+    thumbnailPath: face.photoThumbnailPath,
+    originalPath: face.photoOriginalPath
+  }, 'medium') || ''
 }
 
 // 体型变化分析辅助函数
@@ -979,7 +957,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
         <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
-            <SettingsMenu />
+            <PublicAccountMenu />
           </div>
         </div>
       </div>
@@ -993,13 +971,16 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input
-              v-model="editableKeyword"
-              type="text"
-              placeholder="搜索相册、人物、照片..."
-              class="flex-1 bg-transparent text-base text-gray-800 dark:text-white outline-none placeholder-gray-400 dark:placeholder-gray-500"
-              @keyup.enter="submitKeywordSearch"
-            />
+            <div class="flex-1">
+              <div class="text-xs text-gray-400 dark:text-gray-500 mb-1">搜索关键词</div>
+              <input
+                v-model="editableKeyword"
+                type="text"
+                placeholder="输入相册、人物或照片关键词"
+                class="w-full bg-transparent text-base text-gray-800 dark:text-white outline-none placeholder-gray-400 dark:placeholder-gray-500"
+                @keyup.enter="submitKeywordSearch"
+              />
+            </div>
           </div>
           <button
             @click="submitKeywordSearch"
@@ -1194,7 +1175,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             <a
               v-for="photo in facePhotos"
               :key="photo.id"
-              :href="`/photo/${photo.albumId}/${photo.id}`"
+              :href="buildPublicPath(`/photo/${photo.id}`, route.path)"
               target="_blank"
               class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
             >
@@ -1300,7 +1281,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             <a
               v-for="photo in tagPhotos"
               :key="photo.id"
-              :href="`/photo/${photo.albumId}/${photo.id}`"
+              :href="buildPublicPath(`/photo/${photo.id}`, route.path)"
               target="_blank"
               class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
             >
@@ -1355,7 +1336,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             <router-link
               v-for="person in persons"
               :key="person.id"
-              :to="`/p/${person.id}`"
+              :to="buildPublicPath(`/p/${person.id}`, route.path)"
               class="block group"
             >
               <div class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">

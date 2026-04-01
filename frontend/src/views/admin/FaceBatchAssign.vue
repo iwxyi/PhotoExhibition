@@ -40,7 +40,7 @@
             <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-600 flex-shrink-0">
               <img
                 v-if="person.sampleThumbnailPath"
-                :src="`/api/photos/${person.sampleThumbnailPath.replace(/^\/+/, '')}`"
+                :src="buildPhotoAssetUrl({ thumbnailPath: person.sampleThumbnailPath }, 'thumbnail') || ''"
                 class="w-full h-full object-cover"
               />
               <div v-else class="w-full h-full flex items-center justify-center">
@@ -71,7 +71,7 @@
             <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-600 flex-shrink-0">
               <img
                 v-if="person.sampleThumbnailPath"
-                :src="`/api/photos/${person.sampleThumbnailPath.replace(/^\/+/, '')}`"
+                :src="buildPhotoAssetUrl({ thumbnailPath: person.sampleThumbnailPath }, 'thumbnail') || ''"
                 class="w-full h-full object-cover"
               />
               <div v-else class="w-full h-full flex items-center justify-center">
@@ -104,14 +104,18 @@
         </div>
         <!-- 搜索框 + 跳过按钮 -->
         <div class="mt-2 flex items-center justify-between gap-2">
-          <input
-            v-model="searchQuery"
-            @input="onSearchInput"
-            @keydown.enter="onEnterKey"
-            type="text"
-            placeholder="搜索或新建人物..."
-            class="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 flex-1 max-w-xs"
-          />
+          <label class="flex-1 max-w-xs space-y-1">
+            <span class="text-[11px] text-gray-400">搜索或新建人物</span>
+            <input
+              ref="assignSearchInput"
+              v-model="searchQuery"
+              @input="onSearchInput"
+              @keydown.enter="onEnterKey"
+              type="text"
+              placeholder="输入人物姓名关键词"
+              class="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full"
+            />
+          </label>
           <button
             @click="skipCluster"
             class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm"
@@ -199,15 +203,18 @@
             下一个 →
           </button>
           <div class="flex items-center gap-1 ml-2">
-            <input
-              v-model.number="pageInput"
-              @keyup.enter="goToPage(pageInput - 1)"
-              type="number"
-              min="1"
-              :max="totalClusters"
-              placeholder="页码"
-              class="w-14 px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white focus:outline-none focus:border-blue-500"
-            />
+            <label class="space-y-1">
+              <span class="text-[11px] text-gray-400">页码</span>
+              <input
+                v-model.number="pageInput"
+                @keyup.enter="goToPage(pageInput - 1)"
+                type="number"
+                min="1"
+                :max="totalClusters"
+                placeholder="输入页码"
+                class="w-14 px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+              />
+            </label>
             <span class="text-sm text-gray-400">/ {{ totalClusters }}</span>
           </div>
         </div>
@@ -231,6 +238,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, aiApi, configApi } from '@/api'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Face {
   id: number
@@ -307,6 +315,7 @@ const selectedPersonId = ref<number | null>(null)
 
 // 搜索功能
 const searchQuery = ref('')
+const assignSearchInput = ref<HTMLInputElement | null>(null)
 const searchResults = ref<SearchPerson[]>([])
 const searchTimeout = ref<number | null>(null)
 
@@ -534,8 +543,7 @@ const createAndAssignPerson = async () => {
     searchQuery.value = ''
     searchResults.value = []
     // 取消聚焦搜索框
-    const inputEl = document.querySelector('input[placeholder="搜索或新建人物..."]') as HTMLInputElement
-    if (inputEl) inputEl.blur()
+    assignSearchInput.value?.blur()
     await skipCluster()
   } catch (e) {
     console.error('创建人物失败:', e)
@@ -553,8 +561,7 @@ const joinExistingPerson = async () => {
   selectedPersonId.value = firstMatch.id
 
   // 取消聚焦搜索框
-  const inputEl = document.querySelector('input[placeholder="搜索或新建人物..."]') as HTMLInputElement
-  if (inputEl) inputEl.blur()
+  assignSearchInput.value?.blur()
 
   await confirmAssign()
 }
@@ -589,13 +596,10 @@ const skipCluster = async () => {
 
 // 人脸图片URL
 const getFaceUrl = (face: Face) => {
-  if (face.photoThumbnailPath) {
-    return `/api/photos/${face.photoThumbnailPath.replace(/^\/+/, '')}`
-  }
-  if (face.thumbnailPath) {
-    return `/api/photos/${face.thumbnailPath.replace(/^\/+/, '')}`
-  }
-  return ''
+  return buildPhotoAssetUrl({
+    thumbnailPath: face.photoThumbnailPath || face.thumbnailPath,
+    originalPath: face.photoOriginalPath
+  }, 'thumbnail') || ''
 }
 
 // PhotoViewer

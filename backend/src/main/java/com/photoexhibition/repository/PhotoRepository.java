@@ -16,6 +16,11 @@ import java.util.Optional;
 
 @Repository
 public interface PhotoRepository extends JpaRepository<Photo, Long> {
+    interface ValueCountProjection {
+        String getValue();
+        Long getPhotoCount();
+    }
+
     /**
      * 一次性加载 Photo 及其关联集合，避免在非事务/异步线程里触发懒加载异常。
      *
@@ -34,9 +39,53 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     Optional<Photo> findByContentHash(String contentHash);
 
+    @Query("SELECT COALESCE(SUM(p.fileSize), 0) FROM Photo p WHERE p.userId = :userId")
+    Long sumFileSizeByUserId(@Param("userId") Long userId);
+
     Optional<Photo> findByPathHash(String pathHash);
 
+    List<Photo> findByUserIdIsNull();
+
+    List<Photo> findByUserIdIsNotNull();
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId")
+    Page<Photo> findByUserId(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId")
+    List<Photo> findByUserId(@Param("userId") Long userId, org.springframework.data.domain.Sort sort);
+
+    Optional<Photo> findByIdAndUserId(Long id, Long userId);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (REPLACE(p.originalPath, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') OR REPLACE(p.originalPath, '\\\\', '/') LIKE CONCAT('/', CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%')))")
+    List<Photo> findByUserIdAndOriginalPathStartingWith(@Param("userId") Long userId, @Param("pathPrefix") String pathPrefix);
+
+    Long countByUserId(Long userId);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (p.isHidden IS NULL OR p.isHidden = false)")
+    Page<Photo> findVisibleByUserId(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (p.isHidden IS NULL OR p.isHidden = false)")
+    List<Photo> findVisibleByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (p.isHidden IS NULL OR p.isHidden = false)")
+    List<Photo> findVisibleByUserId(@Param("userId") Long userId, org.springframework.data.domain.Sort sort);
+
+    @Query(
+        value = "SELECT * FROM photo WHERE user_id = :userId AND (is_hidden = 0 OR is_hidden IS NULL) ORDER BY RAND()",
+        countQuery = "SELECT count(*) FROM photo WHERE user_id = :userId AND (is_hidden = 0 OR is_hidden IS NULL)",
+        nativeQuery = true
+    )
+    Page<Photo> findVisibleRandomByUserId(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND p.qualityScore >= :minScore AND (p.isHidden IS NULL OR p.isHidden = false) ORDER BY RAND()")
+    List<Photo> findRandomHighQualityPhotosNotHiddenByUserId(@Param("userId") Long userId,
+                                                             @Param("minScore") Double minScore,
+                                                             Pageable pageable);
+
     Page<Photo> findByAlbumId(Long albumId, Pageable pageable);
+
+    @Query("SELECT p FROM Photo p WHERE p.albumId = :albumId AND p.userId = :userId")
+    Page<Photo> findByAlbumIdAndUserId(@Param("albumId") Long albumId, @Param("userId") Long userId, Pageable pageable);
 
     /**
      * 获取相册中未隐藏的照片（排除隐藏的照片）
@@ -52,6 +101,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
 
     Long countByAlbumId(Long albumId);
 
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.albumId = :albumId AND p.userId = :userId")
+    Long countByAlbumIdAndUserId(@Param("albumId") Long albumId, @Param("userId") Long userId);
+
     /**
      * 批量清除所有照片的背景移除路径记录
      */
@@ -59,6 +111,24 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Transactional
     @Query("UPDATE Photo p SET p.backgroundRemovedPath = NULL WHERE p.backgroundRemovedPath IS NOT NULL")
     int clearAllBackgroundRemovedPath();
+
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.backgroundRemovedPath IS NOT NULL AND p.backgroundRemovedPath <> ''")
+    long countByBackgroundRemovedPathPresent();
+
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.userId = :userId AND p.backgroundRemovedPath IS NOT NULL AND p.backgroundRemovedPath <> ''")
+    long countByUserIdAndBackgroundRemovedPathPresent(@Param("userId") Long userId);
+
+    @Query("SELECT p FROM Photo p WHERE p.backgroundRemovedPath IS NOT NULL AND p.backgroundRemovedPath <> ''")
+    Page<Photo> findByBackgroundRemovedPathPresent(Pageable pageable);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND p.backgroundRemovedPath IS NOT NULL AND p.backgroundRemovedPath <> ''")
+    Page<Photo> findByUserIdAndBackgroundRemovedPathPresent(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT p.originalPath FROM Photo p")
+    Page<String> findAllOriginalPaths(Pageable pageable);
+
+    @Query("SELECT p.originalPath FROM Photo p WHERE p.userId = :userId")
+    Page<String> findOriginalPathsByUserId(@Param("userId") Long userId, Pageable pageable);
 
     @Query("SELECT p FROM Photo p WHERE p.qualityScore >= :minScore ORDER BY RAND()")
     List<Photo> findRandomHighQualityPhotos(@Param("minScore") Double minScore, Pageable pageable);
@@ -85,6 +155,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.qualityScore >= :minScore")
     Long countByQualityScoreGreaterThanEqual(@Param("minScore") Double minScore);
+
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.userId = :userId AND p.qualityScore >= :minScore")
+    Long countByQualityScoreGreaterThanEqualAndUserId(@Param("userId") Long userId, @Param("minScore") Double minScore);
 
     @Query("SELECT p.id FROM Photo p WHERE p.isHidden = false OR p.isHidden IS NULL")
     List<Long> findAllIdsNotHidden();
@@ -125,6 +198,40 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                   Pageable pageable);
 
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (p.isHidden IS NULL OR p.isHidden = false) AND " +
+           "(:cameraModel IS NULL OR p.cameraModel = :cameraModel) AND " +
+           "(:lensModel IS NULL OR p.lensModel = :lensModel) AND " +
+           "(:minAperture IS NULL OR p.apertureValue >= :minAperture) AND " +
+           "(:maxAperture IS NULL OR p.apertureValue <= :maxAperture) AND " +
+           "(:minFocalLength IS NULL OR p.focalLengthMm >= :minFocalLength) AND " +
+           "(:maxFocalLength IS NULL OR p.focalLengthMm <= :maxFocalLength) AND " +
+           "(:minShutterSpeed IS NULL OR p.shutterSpeedSeconds >= :minShutterSpeed) AND " +
+           "(:maxShutterSpeed IS NULL OR p.shutterSpeedSeconds <= :maxShutterSpeed) AND " +
+           "(:minIso IS NULL OR p.iso >= :minIso) AND " +
+           "(:maxIso IS NULL OR p.iso <= :maxIso) AND " +
+           "(:colorCategory IS NULL OR p.colorCategory = :colorCategory) AND " +
+           "(:minQualityScore IS NULL OR p.qualityScore >= :minQualityScore) AND " +
+           "(:startDate IS NULL OR p.takenAt >= :startDate) AND " +
+           "(:endDate IS NULL OR p.takenAt <= :endDate) AND " +
+           "(:excludePhotoIds IS NULL OR p.id NOT IN :excludePhotoIds)")
+    Page<Photo> findByExifFiltersAndUserId(@Param("userId") Long userId,
+                                           @Param("cameraModel") String cameraModel,
+                                           @Param("lensModel") String lensModel,
+                                           @Param("minAperture") Double minAperture,
+                                           @Param("maxAperture") Double maxAperture,
+                                           @Param("minFocalLength") Double minFocalLength,
+                                           @Param("maxFocalLength") Double maxFocalLength,
+                                           @Param("minShutterSpeed") Double minShutterSpeed,
+                                           @Param("maxShutterSpeed") Double maxShutterSpeed,
+                                           @Param("minIso") Integer minIso,
+                                           @Param("maxIso") Integer maxIso,
+                                           @Param("colorCategory") String colorCategory,
+                                           @Param("minQualityScore") Double minQualityScore,
+                                           @Param("startDate") java.time.LocalDateTime startDate,
+                                           @Param("endDate") java.time.LocalDateTime endDate,
+                                           @Param("excludePhotoIds") List<Long> excludePhotoIds,
+                                           Pageable pageable);
+
     @Query(
         value = "SELECT DISTINCT p.* FROM photo p " +
                 "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
@@ -135,6 +242,17 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
         nativeQuery = true
     )
     Page<Photo> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
+
+    @Query(
+        value = "SELECT DISTINCT p.* FROM photo p " +
+                "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
+                "WHERE pt.tag_id IN (:tagIds) AND p.user_id = :userId AND (p.is_hidden = 0 OR p.is_hidden IS NULL)",
+        countQuery = "SELECT COUNT(DISTINCT p.id) FROM photo p " +
+                "INNER JOIN photo_tag pt ON p.id = pt.photo_id " +
+                "WHERE pt.tag_id IN (:tagIds) AND p.user_id = :userId AND (p.is_hidden = 0 OR p.is_hidden IS NULL)",
+        nativeQuery = true
+    )
+    Page<Photo> findByTagIdsAndUserId(@Param("tagIds") List<Long> tagIds, @Param("userId") Long userId, Pageable pageable);
 
     @Query(
         value = "SELECT DISTINCT p.* FROM photo p " +
@@ -185,21 +303,50 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                    @Param("excludePhotoIds") List<Long> excludePhotoIds,
                                    Pageable pageable);
 
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (p.isHidden IS NULL OR p.isHidden = false) " +
+           "AND p.colorCategory = :colorCategory " +
+           "AND (:minQualityScore IS NULL OR p.qualityScore >= :minQualityScore) " +
+           "AND (:excludePhotoIds IS NULL OR p.id NOT IN :excludePhotoIds)")
+    Page<Photo> findByColorCategoryAndUserId(@Param("colorCategory") String colorCategory,
+                                             @Param("userId") Long userId,
+                                             @Param("minQualityScore") Double minQualityScore,
+                                             @Param("excludePhotoIds") List<Long> excludePhotoIds,
+                                             Pageable pageable);
+
     @Query("SELECT p FROM Photo p WHERE p.albumId IN :albumIds AND (p.isHidden IS NULL OR p.isHidden = false)")
     Page<Photo> findByAlbumIds(@Param("albumIds") List<Long> albumIds, Pageable pageable);
 
     // ---- 统计/聚合：用于过滤项（避免 photoRepository.findAll().stream() 全表加载） ----
-    @Query("SELECT MIN(p.focalLengthMm), MAX(p.focalLengthMm) FROM Photo p WHERE p.focalLengthMm IS NOT NULL")
-    Object[] findFocalLengthRange();
+    @Query("SELECT p.cameraModel AS value, COUNT(p) AS photoCount FROM Photo p " +
+        "WHERE p.cameraModel IS NOT NULL AND trim(p.cameraModel) <> '' AND (:userId IS NULL OR p.userId = :userId) " +
+        "GROUP BY p.cameraModel")
+    List<ValueCountProjection> findCameraModelCountsByScopedUserId(@Param("userId") Long userId);
 
-    @Query("SELECT MIN(p.shutterSpeedSeconds), MAX(p.shutterSpeedSeconds) FROM Photo p WHERE p.shutterSpeedSeconds IS NOT NULL")
-    Object[] findShutterSpeedRange();
+    @Query("SELECT p.lensModel AS value, COUNT(p) AS photoCount FROM Photo p " +
+        "WHERE p.lensModel IS NOT NULL AND trim(p.lensModel) <> '' AND (:userId IS NULL OR p.userId = :userId) " +
+        "GROUP BY p.lensModel")
+    List<ValueCountProjection> findLensModelCountsByScopedUserId(@Param("userId") Long userId);
 
-    @Query("SELECT MIN(p.apertureValue), MAX(p.apertureValue) FROM Photo p WHERE p.apertureValue IS NOT NULL")
-    Object[] findApertureRange();
+    @Query("SELECT p.colorCategory AS value, COUNT(p) AS photoCount FROM Photo p " +
+        "WHERE p.colorCategory IS NOT NULL AND trim(p.colorCategory) <> '' AND (:userId IS NULL OR p.userId = :userId) " +
+        "GROUP BY p.colorCategory")
+    List<ValueCountProjection> findColorCategoryCountsByScopedUserId(@Param("userId") Long userId);
 
-    @Query("SELECT MIN(p.iso), MAX(p.iso) FROM Photo p WHERE p.iso IS NOT NULL")
-    Object[] findIsoRange();
+    @Query("SELECT MIN(p.focalLengthMm), MAX(p.focalLengthMm) FROM Photo p " +
+        "WHERE p.focalLengthMm IS NOT NULL AND (:userId IS NULL OR p.userId = :userId)")
+    Object[] findFocalLengthRangeByScopedUserId(@Param("userId") Long userId);
+
+    @Query("SELECT MIN(p.shutterSpeedSeconds), MAX(p.shutterSpeedSeconds) FROM Photo p " +
+        "WHERE p.shutterSpeedSeconds IS NOT NULL AND (:userId IS NULL OR p.userId = :userId)")
+    Object[] findShutterSpeedRangeByScopedUserId(@Param("userId") Long userId);
+
+    @Query("SELECT MIN(p.apertureValue), MAX(p.apertureValue) FROM Photo p " +
+        "WHERE p.apertureValue IS NOT NULL AND (:userId IS NULL OR p.userId = :userId)")
+    Object[] findApertureRangeByScopedUserId(@Param("userId") Long userId);
+
+    @Query("SELECT MIN(p.iso), MAX(p.iso) FROM Photo p " +
+        "WHERE p.iso IS NOT NULL AND (:userId IS NULL OR p.userId = :userId)")
+    Object[] findIsoRangeByScopedUserId(@Param("userId") Long userId);
 
     List<Photo> findByIsFeaturedTrueOrderByQualityScoreDesc();
 
@@ -261,6 +408,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT p FROM Photo p WHERE p.processingStatus = 'FAILED'")
     List<Photo> findFailedPhotos();
 
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND p.processingStatus = 'FAILED'")
+    List<Photo> findFailedPhotosByUserId(@Param("userId") Long userId);
+
     /**
      * 查找未完成处理的照片（不包括失败的）
      */
@@ -279,11 +429,17 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus = 'FAILED'")
     Long countFailedPhotos();
 
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.userId = :userId AND p.processingStatus = 'FAILED'")
+    Long countFailedPhotosByUserId(@Param("userId") Long userId);
+
     /**
      * 统计未完成处理的照片数量
      */
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus != 'COMPLETED' AND p.processingStatus != 'FAILED'")
     Long countIncompletePhotos();
+
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.userId = :userId AND p.processingStatus != 'COMPLETED' AND p.processingStatus != 'FAILED'")
+    Long countIncompletePhotosByUserId(@Param("userId") Long userId);
 
     /**
      * 统计指定处理状态的照片数量
@@ -291,17 +447,26 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query("SELECT COUNT(p) FROM Photo p WHERE p.processingStatus = :status")
     Long countPhotosByProcessingStatus(@Param("status") ProcessingStatus status);
 
+    @Query("SELECT COUNT(p) FROM Photo p WHERE p.userId = :userId AND p.processingStatus = :status")
+    Long countPhotosByProcessingStatusAndUserId(@Param("status") ProcessingStatus status, @Param("userId") Long userId);
+
     /**
      * 获取所有不重复的相机型号
      */
     @Query(value = "SELECT DISTINCT p.camera_model FROM photo p WHERE p.camera_model IS NOT NULL AND p.camera_model != '' ORDER BY p.camera_model", nativeQuery = true)
     List<String> findDistinctCameraModels();
 
+    @Query(value = "SELECT DISTINCT p.camera_model FROM photo p WHERE p.user_id = :userId AND p.camera_model IS NOT NULL AND p.camera_model != '' ORDER BY p.camera_model", nativeQuery = true)
+    List<String> findDistinctCameraModelsByUserId(@Param("userId") Long userId);
+
     /**
      * 获取所有不重复的镜头型号
      */
     @Query(value = "SELECT DISTINCT p.lens_model FROM photo p WHERE p.lens_model IS NOT NULL AND p.lens_model != '' ORDER BY p.lens_model", nativeQuery = true)
     List<String> findDistinctLensModels();
+
+    @Query(value = "SELECT DISTINCT p.lens_model FROM photo p WHERE p.user_id = :userId AND p.lens_model IS NOT NULL AND p.lens_model != '' ORDER BY p.lens_model", nativeQuery = true)
+    List<String> findDistinctLensModelsByUserId(@Param("userId") Long userId);
 
     /**
      * 获取相机型号及对应的照片数量
@@ -330,14 +495,26 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     @Query(value = "SELECT COUNT(*) FROM photo WHERE focal_length_mm IS NOT NULL", nativeQuery = true)
     Long countPhotosWithFocalLength();
 
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE user_id = :userId AND focal_length_mm IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithFocalLengthByUserId(@Param("userId") Long userId);
+
     @Query(value = "SELECT COUNT(*) FROM photo WHERE aperture_value IS NOT NULL", nativeQuery = true)
     Long countPhotosWithAperture();
+
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE user_id = :userId AND aperture_value IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithApertureByUserId(@Param("userId") Long userId);
 
     @Query(value = "SELECT COUNT(*) FROM photo WHERE shutter_speed_seconds IS NOT NULL", nativeQuery = true)
     Long countPhotosWithShutterSpeed();
 
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE user_id = :userId AND shutter_speed_seconds IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithShutterSpeedByUserId(@Param("userId") Long userId);
+
     @Query(value = "SELECT COUNT(*) FROM photo WHERE iso IS NOT NULL", nativeQuery = true)
     Long countPhotosWithIso();
+
+    @Query(value = "SELECT COUNT(*) FROM photo WHERE user_id = :userId AND iso IS NOT NULL", nativeQuery = true)
+    Long countPhotosWithIsoByUserId(@Param("userId") Long userId);
 
     /**
      * 查找包含人脸的照片
@@ -356,6 +533,9 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      */
     @Query("SELECT p FROM Photo p WHERE p.filename LIKE %:filename% AND (p.isHidden IS NULL OR p.isHidden = false)")
     List<Photo> searchByFilename(@Param("filename") String filename);
+
+    @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND p.filename LIKE %:filename% AND (p.isHidden IS NULL OR p.isHidden = false)")
+    List<Photo> searchByFilenameAndUserId(@Param("filename") String filename, @Param("userId") Long userId);
 
     /**
      * 按ID列表查询未隐藏的照片

@@ -13,11 +13,14 @@
         <!-- 顶部操作栏 -->
         <div class="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0">
           <div class="flex flex-wrap items-center gap-3">
-            <input
-              v-model="keyword"
-              placeholder="搜索标签"
-              class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label class="space-y-2">
+              <span class="text-sm text-gray-300">搜索标签</span>
+              <input
+                v-model="keyword"
+                placeholder="输入标签名称关键词"
+                class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </label>
             <button
               @click="load"
               :disabled="loading"
@@ -114,6 +117,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const tags = ref<any[]>([])
 const loading = ref(false)
@@ -121,6 +126,7 @@ const keyword = ref('')
 const selectedIds = ref<number[]>([])
 const lastClickedIndex = ref<number | null>(null)
 const router = useRouter()
+const authStore = useAuthStore()
 const listContainer = ref<HTMLElement | null>(null)
 const tagItemEls = ref<HTMLElement[]>([])
 
@@ -331,7 +337,10 @@ const deleteSelected = async () => {
 
 const openTag = (tag: any) => {
   if (!tag?.id) return
-  const route = router.resolve({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  const route = router.resolve({
+    path: buildPublicPath('/wall', authStore.slug ? `/${authStore.slug}` : undefined),
+    query: { tagId: tag.id, tagName: tag.name }
+  })
   window.open(route.href, '_blank')
 }
 
@@ -344,5 +353,3 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
-
-

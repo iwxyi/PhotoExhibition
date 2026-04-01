@@ -38,7 +38,13 @@ public class SimilarPhotoSearchService {
      * 搜索相似照片
      */
     public List<SimilarPhotoResult> findSimilarPhotos(Long photoId, int limit) {
-        Photo targetPhoto = photoRepository.findById(photoId).orElse(null);
+        return findSimilarPhotos(photoId, limit, null);
+    }
+
+    public List<SimilarPhotoResult> findSimilarPhotos(Long photoId, int limit, Long userId) {
+        Photo targetPhoto = userId == null
+            ? photoRepository.findById(photoId).orElse(null)
+            : photoRepository.findByIdAndUserId(photoId, userId).orElse(null);
         if (targetPhoto == null) {
             return new ArrayList<>();
         }
@@ -46,19 +52,19 @@ public class SimilarPhotoSearchService {
         List<SimilarPhotoResult> candidates = new ArrayList<>();
 
         // 1. 基于颜色的相似性搜索
-        List<SimilarPhotoResult> colorSimilar = findColorSimilarPhotos(targetPhoto, limit * 2);
+        List<SimilarPhotoResult> colorSimilar = findColorSimilarPhotos(targetPhoto, limit * 2, userId);
         candidates.addAll(colorSimilar);
 
         // 2. 基于标签的相似性搜索
-        List<SimilarPhotoResult> tagSimilar = findTagSimilarPhotos(targetPhoto, limit * 2);
+        List<SimilarPhotoResult> tagSimilar = findTagSimilarPhotos(targetPhoto, limit * 2, userId);
         candidates.addAll(tagSimilar);
 
         // 3. 基于人脸的相似性搜索
-        List<SimilarPhotoResult> faceSimilar = findFaceSimilarPhotos(targetPhoto, limit * 2);
+        List<SimilarPhotoResult> faceSimilar = findFaceSimilarPhotos(targetPhoto, limit * 2, userId);
         candidates.addAll(faceSimilar);
 
         // 4. 基于场景/相册的相似性搜索
-        List<SimilarPhotoResult> albumSimilar = findAlbumSimilarPhotos(targetPhoto, limit * 2);
+        List<SimilarPhotoResult> albumSimilar = findAlbumSimilarPhotos(targetPhoto, limit * 2, userId);
         candidates.addAll(albumSimilar);
 
         // 5. 合并和排序结果
@@ -87,7 +93,7 @@ public class SimilarPhotoSearchService {
     /**
      * 基于颜色相似性搜索
      */
-    private List<SimilarPhotoResult> findColorSimilarPhotos(Photo targetPhoto, int limit) {
+    private List<SimilarPhotoResult> findColorSimilarPhotos(Photo targetPhoto, int limit, Long userId) {
         List<SimilarPhotoResult> results = new ArrayList<>();
 
         if (targetPhoto.getDominantColor() == null) {
@@ -99,10 +105,9 @@ public class SimilarPhotoSearchService {
             Color targetColor = Color.decode(targetPhoto.getDominantColor());
 
             // 搜索具有相似颜色的照片
-            Pageable pageable = PageRequest.of(0, limit * 2);
-            Page<Photo> candidates = photoRepository.findAll(pageable);
+            List<Photo> candidates = loadScopedVisibleCandidates(userId, limit * 2);
 
-            for (Photo photo : candidates.getContent()) {
+            for (Photo photo : candidates) {
                 if (photo.getId().equals(targetPhoto.getId())) {
                     continue; // 跳过自己
                 }
@@ -131,7 +136,7 @@ public class SimilarPhotoSearchService {
     /**
      * 基于标签相似性搜索
      */
-    private List<SimilarPhotoResult> findTagSimilarPhotos(Photo targetPhoto, int limit) {
+    private List<SimilarPhotoResult> findTagSimilarPhotos(Photo targetPhoto, int limit, Long userId) {
         List<SimilarPhotoResult> results = new ArrayList<>();
 
         if (targetPhoto.getTags() == null || targetPhoto.getTags().isEmpty()) {
@@ -143,10 +148,9 @@ public class SimilarPhotoSearchService {
                 .collect(Collectors.toSet());
 
         // 搜索具有相似标签的照片
-        Pageable pageable = PageRequest.of(0, limit * 3);
-        Page<Photo> candidates = photoRepository.findAll(pageable);
+        List<Photo> candidates = loadScopedVisibleCandidates(userId, limit * 3);
 
-        for (Photo photo : candidates.getContent()) {
+        for (Photo photo : candidates) {
             if (photo.getId().equals(targetPhoto.getId())) {
                 continue;
             }
@@ -182,7 +186,7 @@ public class SimilarPhotoSearchService {
     /**
      * 基于人脸相似性搜索
      */
-    private List<SimilarPhotoResult> findFaceSimilarPhotos(Photo targetPhoto, int limit) {
+    private List<SimilarPhotoResult> findFaceSimilarPhotos(Photo targetPhoto, int limit, Long userId) {
         List<SimilarPhotoResult> results = new ArrayList<>();
 
         try {
@@ -193,10 +197,11 @@ public class SimilarPhotoSearchService {
             }
 
             // 搜索包含人脸的照片
-            Pageable pageable = PageRequest.of(0, limit * 2);
-            Page<Photo> candidates = photoRepository.findPhotosWithFaces(pageable);
+            List<Photo> candidates = loadScopedVisibleCandidates(userId, limit * 3).stream()
+                .filter(photo -> photo.getFaces() != null && !photo.getFaces().isEmpty())
+                .collect(Collectors.toList());
 
-            for (Photo photo : candidates.getContent()) {
+            for (Photo photo : candidates) {
                 if (photo.getId().equals(targetPhoto.getId())) {
                     continue;
                 }
@@ -228,12 +233,14 @@ public class SimilarPhotoSearchService {
     /**
      * 基于相册/场景相似性搜索
      */
-    private List<SimilarPhotoResult> findAlbumSimilarPhotos(Photo targetPhoto, int limit) {
+    private List<SimilarPhotoResult> findAlbumSimilarPhotos(Photo targetPhoto, int limit, Long userId) {
         List<SimilarPhotoResult> results = new ArrayList<>();
 
         // 基于相册ID搜索
         Pageable pageable = PageRequest.of(0, limit);
-        Page<Photo> albumPhotos = photoRepository.findByAlbumId(targetPhoto.getAlbumId(), pageable);
+        Page<Photo> albumPhotos = userId == null
+            ? photoRepository.findByAlbumId(targetPhoto.getAlbumId(), pageable)
+            : photoRepository.findByAlbumIdAndUserId(targetPhoto.getAlbumId(), userId, pageable);
 
         for (Photo photo : albumPhotos.getContent()) {
             if (photo.getId().equals(targetPhoto.getId())) {
@@ -249,6 +256,15 @@ public class SimilarPhotoSearchService {
         }
 
         return results;
+    }
+
+    private List<Photo> loadScopedVisibleCandidates(Long userId, int limit) {
+        int safeLimit = Math.max(1, limit);
+        if (userId == null) {
+            Page<Photo> candidates = photoRepository.findAll(PageRequest.of(0, safeLimit));
+            return candidates.getContent();
+        }
+        return photoRepository.findVisibleByUserId(userId, PageRequest.of(0, safeLimit)).getContent();
     }
 
     /**

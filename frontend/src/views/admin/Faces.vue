@@ -10,12 +10,15 @@
 
       <div class="glass-panel p-4 mb-6">
         <div class="flex flex-wrap gap-4 items-center">
-          <input
-            v-model="keyword"
-            placeholder="搜索姓名或文件名"
-            class="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
-            @keyup.enter="load"
-          />
+          <label class="space-y-2">
+            <span class="text-sm text-gray-300">搜索人脸</span>
+            <input
+              v-model="keyword"
+              placeholder="按人物姓名或文件名搜索"
+              class="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+              @keyup.enter="load"
+            />
+          </label>
           <button @click="load" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50">
             {{ loading ? '加载中...' : '搜索' }}
           </button>
@@ -52,7 +55,7 @@
                   >
                     <img
                       v-if="face.photoThumbnailPath"
-                      :src="getImageUrl(face.photoThumbnailPath)"
+                      :src="getImageUrl(face)"
                       :alt="face.photoFilename"
                       class="absolute"
                       :style="getFaceCropStyle(face)"
@@ -134,8 +137,12 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { useAuthStore } from '@/stores/auth'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 interface FaceItem {
   id: number
@@ -214,9 +221,12 @@ const jumpTo = (p: number) => {
   load()
 }
 
-const getImageUrl = (path?: string) => {
-  if (!path) return ''
-  return path.startsWith('http') ? path : `/api/files${path}`
+const getImageUrl = (face?: FaceItem | null) => {
+  return buildPhotoAssetUrl({
+    id: face?.photoId,
+    thumbnailPath: face?.photoThumbnailPath,
+    originalPath: face?.photoOriginalPath
+  }, 'thumbnail') || ''
 }
 
 const formatConfidence = (v?: number) => {
@@ -301,11 +311,11 @@ const getPreviewBoxStyle = (face: FaceItem) => {
 }
 
 const openPhoto = (photoId: number) => {
-  window.open(`/photo/${photoId}`, '_blank')
+  window.open(buildPublicPath(`/photo/${photoId}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
 }
 
 const showPreview = (face: FaceItem) => {
-  previewUrl.value = getImageUrl(face.photoThumbnailPath || face.photoOriginalPath || '')
+  previewUrl.value = getImageUrl(face)
   previewVisible.value = !!previewUrl.value
   previewFace.value = face
 }
@@ -368,4 +378,3 @@ textarea {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 </style>
-

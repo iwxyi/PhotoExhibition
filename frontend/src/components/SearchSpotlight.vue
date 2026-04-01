@@ -77,7 +77,7 @@
               ref="searchInputRef"
               v-model="searchKeyword"
               type="text"
-              placeholder="搜索相册、人物、照片..."
+              placeholder="输入相册、人物或照片关键词"
               class="flex-1 bg-transparent text-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none"
               @keyup.enter="doSearch"
               @keyup.escape="closeSpotlight"
@@ -104,11 +104,15 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const showSpotlight = ref(false)
 const searchHover = ref(false)
 const searchKeyword = ref('')
 const searchInputRef = ref<HTMLInputElement>()
+const route = useRoute()
+const router = useRouter()
 
 const openSpotlight = () => {
   showSpotlight.value = true
@@ -125,8 +129,11 @@ const closeSpotlight = () => {
 
 const doSearch = () => {
   if (searchKeyword.value.trim()) {
-    const searchUrl = `/search?q=${encodeURIComponent(searchKeyword.value.trim())}`
-    window.open(searchUrl, '_blank')
+    const targetRoute = router.resolve({
+      path: buildPublicPath('/search', route.path),
+      query: { q: searchKeyword.value.trim() }
+    })
+    window.open(targetRoute.href, '_blank')
     closeSpotlight()
   }
 }

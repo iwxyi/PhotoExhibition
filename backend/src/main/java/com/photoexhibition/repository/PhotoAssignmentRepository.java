@@ -16,9 +16,23 @@ public interface PhotoAssignmentRepository extends JpaRepository<PhotoAssignment
 
     Optional<PhotoAssignment> findByPhotoId(Long photoId);
 
+    @Query("SELECT pa FROM PhotoAssignment pa JOIN Photo p ON p.id = pa.photoId " +
+        "WHERE pa.photoId = :photoId AND (:userId IS NULL OR p.userId = :userId)")
+    Optional<PhotoAssignment> findByPhotoIdAndScopedUserId(@Param("photoId") Long photoId, @Param("userId") Long userId);
+
     Page<PhotoAssignment> findByPersonId(Long personId, Pageable pageable);
 
     List<PhotoAssignment> findByPersonId(Long personId);
+
+    List<PhotoAssignment> findTop20ByOrderByCreatedAtDesc();
+
+    @Query("SELECT pa FROM PhotoAssignment pa JOIN Photo p ON p.id = pa.photoId " +
+        "WHERE (:userId IS NULL OR p.userId = :userId) ORDER BY pa.createdAt DESC")
+    List<PhotoAssignment> findRecentByScopedUserId(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT COUNT(pa) FROM PhotoAssignment pa JOIN Photo p ON p.id = pa.photoId " +
+        "WHERE (:userId IS NULL OR p.userId = :userId)")
+    long countByScopedUserId(@Param("userId") Long userId);
 
     void deleteByPhotoId(Long photoId);
 

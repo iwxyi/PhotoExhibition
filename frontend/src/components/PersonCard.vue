@@ -74,6 +74,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { PersonSummary, Photo, personApi } from '@/api'
 import CoverDisplay from './CoverDisplay.vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Props {
   person: PersonSummary
@@ -201,11 +202,10 @@ onMounted(async () => {
 
 // 转换图片路径，将数据库中的绝对路径转换为可访问的API路径
 const convertImagePath = (path: string) => {
-  if (!path) return path
-  // 如果路径以/开头，去掉开头的/，然后加上/api/files/前缀
-  if (path.startsWith('/')) {
-    return `/api/files${path}`
-  }
-  return path
+  return buildPhotoAssetUrl({
+    id: props.person.samplePhotoId,
+    originalPath: props.person.sampleOriginalPath,
+    mediumThumbPath: path
+  }, 'medium') || path
 }
 </script>

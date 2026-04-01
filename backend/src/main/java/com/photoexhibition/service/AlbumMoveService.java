@@ -4,6 +4,8 @@ import com.photoexhibition.dto.AlbumMoveResult;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
@@ -11,7 +13,6 @@ import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,15 +36,13 @@ public class AlbumMoveService {
     private final FaceRepository faceRepository;
     private final PhotoAIScoringRepository photoAIScoringRepository;
     private final PhotoAssignmentRepository photoAssignmentRepository;
-
-    @Value("${photo.scan.base-path}")
-    private String basePath;
+    private final UserPathService userPathService;
 
     /**
      * 获取分类列表（base-path下的一级目录）
      */
-    public List<Map<String, String>> getCategories() {
-        Path base = resolveBasePath();
+    public List<Map<String, String>> getCategories(UserAccount currentUser) {
+        Path base = getScopedRoot(currentUser);
         List<Map<String, String>> categories = new ArrayList<>();
         try (Stream<Path> stream = Files.list(base)) {
             stream.filter(Files::isDirectory)
@@ -52,7 +51,7 @@ public class AlbumMoveService {
                   .forEach(p -> {
                       Map<String, String> cat = new HashMap<>();
                       cat.put("name", p.getFileName().toString());
-                      cat.put("path", p.toString());
+                      cat.put("path", toClientPath(p));
                       categories.add(cat);
                   });
         } catch (IOException e) {
@@ -64,10 +63,12 @@ public class AlbumMoveService {
     /**
      * 获取相册的同级目录（同一父目录下的其他目录，用于合并至同级）
      */
-    public List<Map<String, String>> getSiblingDirectories(Long albumId) {
+    public List<Map<String, String>> getSiblingDirectories(UserAccount currentUser, Long albumId) {
         Album album = albumRepository.findById(albumId)
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
-        Path albumPath = Paths.get(album.getPath()).toAbsolutePath().normalize();
+        assertAlbumAccessible(currentUser, album);
+        Path albumPath = resolveAlbumPath(album);
+        ensureWithinScope(albumPath, currentUser);
         Path parentPath = albumPath.getParent();
 
         List<Map<String, String>> dirs = new ArrayList<>();
@@ -81,7 +82,7 @@ public class AlbumMoveService {
                   .forEach(p -> {
                       Map<String, String> dir = new HashMap<>();
                       dir.put("name", p.getFileName().toString());
-                      dir.put("path", p.toString());
+                      dir.put("path", toClientPath(p));
                       dirs.add(dir);
                   });
         } catch (IOException e) {
@@ -94,24 +95,25 @@ public class AlbumMoveService {
      * 合并相册到同级目录（将源相册的所有照片移动到目标目录）
      */
     @Transactional
-    public Map<String, Object> mergeAlbum(Long albumId, String targetPathStr) {
+    public Map<String, Object> mergeAlbum(UserAccount currentUser, Long albumId, String targetPathStr) {
         Map<String, Object> result = new HashMap<>();
 
         Album sourceAlbum = albumRepository.findById(albumId)
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
+        assertAlbumAccessible(currentUser, sourceAlbum);
 
-        Path sourcePath = Paths.get(sourceAlbum.getPath()).toAbsolutePath().normalize();
-        Path targetPath = Paths.get(targetPathStr).toAbsolutePath().normalize();
+        Path sourcePath = resolveAlbumPath(sourceAlbum);
+        Path targetPath = resolveRequestedPathWithinScope(targetPathStr, currentUser);
 
         // 验证
         if (!Files.isDirectory(sourcePath)) {
             result.put("success", false);
-            result.put("message", "源目录不存在: " + sourcePath);
+            result.put("message", "源目录不存在: " + toClientPath(sourcePath));
             return result;
         }
         if (!Files.isDirectory(targetPath)) {
             result.put("success", false);
-            result.put("message", "目标目录不存在: " + targetPath);
+            result.put("message", "目标目录不存在: " + toClientPath(targetPath));
             return result;
         }
         if (sourcePath.equals(targetPath)) {
@@ -121,7 +123,7 @@ public class AlbumMoveService {
         }
 
         // 获取源相册的所有照片
-        List<Photo> sourcePhotos = photoRepository.findByAlbumId(albumId, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+        List<Photo> sourcePhotos = loadAllPhotosByAlbumId(albumId);
         int photoCount = sourcePhotos.size();
 
         if (photoCount == 0) {
@@ -136,14 +138,7 @@ public class AlbumMoveService {
             String normalizedTargetPath = targetPath.toString().replace("\\", "/");
 
             // 先获取目标相册（用于更新照片的albumId）
-            Album targetAlbum = albumRepository.findAll().stream()
-                .filter(a -> {
-                    if (a.getPath() == null) return false;
-                    String normalizedDbPath = a.getPath().replace("\\", "/");
-                    return normalizedDbPath.equals(normalizedTargetPath);
-                })
-                .findFirst()
-                .orElse(null);
+            Album targetAlbum = findAccessibleAlbumByNormalizedPath(currentUser, normalizedTargetPath).orElse(null);
             Long targetAlbumId = targetAlbum != null ? targetAlbum.getId() : null;
 
             // 1. 将源相册的所有文件移动到目标目录
@@ -157,14 +152,14 @@ public class AlbumMoveService {
             String newPrefix = normalizedTargetPath;
 
             for (Photo p : sourcePhotos) {
-                p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                p.setOriginalPath(rewriteStoredPathForMerge(p.getOriginalPath(), sourcePath, targetPath, p.getUserId()));
                 p.setPathHash(computeSha256(p.getOriginalPath()));
-                p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
-                p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
-                p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
-                p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
-                p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
-                p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+                p.setThumbnailPath(rewriteStoredPathForMerge(p.getThumbnailPath(), sourcePath, targetPath, p.getUserId()));
+                p.setWebpPath(rewriteStoredPathForMerge(p.getWebpPath(), sourcePath, targetPath, p.getUserId()));
+                p.setSmallThumbPath(rewriteStoredPathForMerge(p.getSmallThumbPath(), sourcePath, targetPath, p.getUserId()));
+                p.setMediumThumbPath(rewriteStoredPathForMerge(p.getMediumThumbPath(), sourcePath, targetPath, p.getUserId()));
+                p.setLargeThumbPath(rewriteStoredPathForMerge(p.getLargeThumbPath(), sourcePath, targetPath, p.getUserId()));
+                p.setBackgroundRemovedPath(rewriteStoredPathForMerge(p.getBackgroundRemovedPath(), sourcePath, targetPath, p.getUserId()));
                 // 更新照片的albumId到目标相册
                 if (targetAlbumId != null) {
                     p.setAlbumId(targetAlbumId);
@@ -183,7 +178,7 @@ public class AlbumMoveService {
                 if (targetAlbum != null) {
                     // 更新目标相册的照片数量（加上合并过来的照片数量）
                     // 需要减去因文件名冲突被覆盖的照片数量
-                    int mergedPhotoCount = photoRepository.findByAlbumId(targetAlbumId, PageRequest.of(0, Integer.MAX_VALUE)).getContent().size();
+                    int mergedPhotoCount = Math.toIntExact(photoRepository.countByAlbumId(targetAlbumId));
                     targetAlbum.setPhotoCount(mergedPhotoCount);
                     albumRepository.save(targetAlbum);
                     log.info("合并相册: 更新目标相册 {} 的照片数量为 {}", targetAlbumId, mergedPhotoCount);
@@ -201,7 +196,7 @@ public class AlbumMoveService {
         } catch (IOException e) {
             log.error("合并相册失败", e);
             result.put("success", false);
-            result.put("message", "合并失败: " + e.getMessage());
+            result.put("message", "合并失败: " + sanitizeErrorMessage(e.getMessage()));
         }
 
         return result;
@@ -210,10 +205,12 @@ public class AlbumMoveService {
     /**
      * 获取相册的下一级子目录（文件系统中的子目录，不只是数据库中有记录的）
      */
-    public List<Map<String, String>> getChildDirectories(Long albumId) {
+    public List<Map<String, String>> getChildDirectories(UserAccount currentUser, Long albumId) {
         Album album = albumRepository.findById(albumId)
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
-        Path albumPath = Paths.get(album.getPath()).toAbsolutePath().normalize();
+        assertAlbumAccessible(currentUser, album);
+        Path albumPath = resolveAlbumPath(album);
+        ensureWithinScope(albumPath, currentUser);
         List<Map<String, String>> dirs = new ArrayList<>();
         if (!Files.isDirectory(albumPath)) return dirs;
         try (Stream<Path> stream = Files.list(albumPath)) {
@@ -223,7 +220,7 @@ public class AlbumMoveService {
                   .forEach(p -> {
                       Map<String, String> dir = new HashMap<>();
                       dir.put("name", p.getFileName().toString());
-                      dir.put("path", p.toString());
+                      dir.put("path", toClientPath(p));
                       dirs.add(dir);
                   });
         } catch (IOException e) {
@@ -235,16 +232,17 @@ public class AlbumMoveService {
     /**
      * 列出指定路径的子目录（用于路径选择器）
      */
-    public Map<String, Object> listDirectories(String dirPath) {
+    public Map<String, Object> listDirectories(UserAccount currentUser, String dirPath) {
         Map<String, Object> result = new HashMap<>();
         Path dir;
         if (dirPath == null || dirPath.isEmpty()) {
-            dir = resolveBasePath();
+            dir = getScopedRoot(currentUser);
         } else {
-            dir = Paths.get(dirPath).toAbsolutePath().normalize();
+            dir = resolveRequestedPathWithinScope(dirPath, currentUser);
         }
-        result.put("currentPath", dir.toString());
-        result.put("parent", dir.getParent() != null ? dir.getParent().toString() : null);
+        result.put("currentPath", toClientPath(dir));
+        Path scopedRoot = getScopedRoot(currentUser);
+        result.put("parent", dir.getParent() != null && dir.getParent().startsWith(scopedRoot) ? toClientPath(dir.getParent()) : null);
 
         List<Map<String, String>> dirs = new ArrayList<>();
         if (Files.isDirectory(dir)) {
@@ -255,7 +253,7 @@ public class AlbumMoveService {
                       .forEach(p -> {
                           Map<String, String> d = new HashMap<>();
                           d.put("name", p.getFileName().toString());
-                          d.put("path", p.toString());
+                          d.put("path", toClientPath(p));
                           dirs.add(d);
                       });
             } catch (IOException e) {
@@ -269,27 +267,29 @@ public class AlbumMoveService {
     /**
      * 检查移动是否有冲突（预检）
      */
-    public AlbumMoveResult checkMove(Long albumId, String targetParentPath) {
+    public AlbumMoveResult checkMove(UserAccount currentUser, Long albumId, String targetParentPath) {
         Album album = albumRepository.findById(albumId)
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
-        return checkConflict(album, targetParentPath);
+        assertAlbumAccessible(currentUser, album);
+        return checkConflict(currentUser, album, targetParentPath);
     }
 
     /**
      * 执行移动相册操作
      */
     @Transactional
-    public AlbumMoveResult moveAlbum(Long albumId, String targetParentPath, String conflictResolution) {
+    public AlbumMoveResult moveAlbum(UserAccount currentUser, Long albumId, String targetParentPath, String conflictResolution) {
         Album album = albumRepository.findById(albumId)
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
+        assertAlbumAccessible(currentUser, album);
 
-        Path sourcePath = Paths.get(album.getPath()).toAbsolutePath().normalize();
-        Path targetParent = Paths.get(targetParentPath).toAbsolutePath().normalize();
+        Path sourcePath = resolveAlbumPath(album);
+        Path targetParent = resolveRequestedPathWithinScope(targetParentPath, currentUser);
         Path targetPath = targetParent.resolve(sourcePath.getFileName());
 
         // 验证
         if (!Files.isDirectory(sourcePath)) {
-            return errorResult("源目录不存在: " + sourcePath);
+            return errorResult("源目录不存在: " + toClientPath(sourcePath));
         }
         if (sourcePath.equals(targetPath)) {
             return errorResult("源路径与目标路径相同");
@@ -301,12 +301,12 @@ public class AlbumMoveService {
         // 检查冲突
         if (Files.exists(targetPath)) {
             if (conflictResolution == null || conflictResolution.isEmpty()) {
-                return checkConflict(album, targetParentPath);
+                return checkConflict(currentUser, album, targetParentPath);
             }
 
             switch (conflictResolution) {
                 case "overwrite":
-                    return executeOverwriteMove(album, sourcePath, targetPath);
+                    return executeOverwriteMove(currentUser, album, sourcePath, targetPath);
                 case "rename":
                     String newName = findUniqueDirectoryName(targetParent, sourcePath.getFileName().toString());
                     targetPath = targetParent.resolve(newName);
@@ -316,12 +316,12 @@ public class AlbumMoveService {
             }
         }
 
-        return executeMove(album, sourcePath, targetPath);
+        return executeMove(currentUser, album, sourcePath, targetPath);
     }
 
     // ======================== 核心移动逻辑 ========================
 
-    private AlbumMoveResult executeMove(Album album, Path sourcePath, Path targetPath) {
+    private AlbumMoveResult executeMove(UserAccount currentUser, Album album, Path sourcePath, Path targetPath) {
         String oldPrefix = sourcePath.toString();
         String newPrefix = targetPath.toString();
 
@@ -335,14 +335,14 @@ public class AlbumMoveService {
             try {
                 moveDirectoryRecursive(sourcePath, targetPath);
             } catch (IOException ex) {
-                return errorResult("移动目录失败: " + ex.getMessage());
+                return errorResult("移动目录失败: " + sanitizeErrorMessage(ex.getMessage()));
             }
         } catch (IOException e) {
-            return errorResult("移动目录失败: " + e.getMessage());
+            return errorResult("移动目录失败: " + sanitizeErrorMessage(e.getMessage()));
         }
 
         // 3. 更新数据库中所有相关路径
-        updateAllPaths(oldPrefix, newPrefix);
+        updateAllPaths(currentUser, oldPrefix, newPrefix);
 
         // 4. 返回结果
         AlbumMoveResult result = new AlbumMoveResult();
@@ -355,18 +355,18 @@ public class AlbumMoveService {
         return result;
     }
 
-    private AlbumMoveResult executeOverwriteMove(Album album, Path sourcePath, Path targetPath) {
+    private AlbumMoveResult executeOverwriteMove(UserAccount currentUser, Album album, Path sourcePath, Path targetPath) {
         String oldPrefix = sourcePath.toString();
         String newPrefix = targetPath.toString();
 
         // 1. 清理目标位置已有的数据
-        cleanupTargetAlbumData(targetPath.toString());
+        cleanupTargetAlbumData(currentUser, targetPath.toString());
 
         // 2. 删除目标目录的内容（但保留目录本身）
         try {
             deleteDirectoryContents(targetPath);
         } catch (IOException e) {
-            return errorResult("清理目标目录失败: " + e.getMessage());
+            return errorResult("清理目标目录失败: " + sanitizeErrorMessage(e.getMessage()));
         }
 
         // 3. 将源目录内容移动到目标目录
@@ -375,11 +375,11 @@ public class AlbumMoveService {
             // 删除空的源目录
             Files.deleteIfExists(sourcePath);
         } catch (IOException e) {
-            return errorResult("移动目录内容失败: " + e.getMessage());
+            return errorResult("移动目录内容失败: " + sanitizeErrorMessage(e.getMessage()));
         }
 
         // 4. 更新数据库中所有相关路径
-        updateAllPaths(oldPrefix, newPrefix);
+        updateAllPaths(currentUser, oldPrefix, newPrefix);
 
         AlbumMoveResult result = new AlbumMoveResult();
         result.setSuccess(true);
@@ -389,23 +389,25 @@ public class AlbumMoveService {
 
     // ======================== 路径更新 ========================
 
-    private void updateAllPaths(String oldPrefix, String newPrefix) {
+    private void updateAllPaths(UserAccount currentUser, String oldPrefix, String newPrefix) {
         // 标准化前缀
         String normalizedOldPrefix = oldPrefix.replace("\\", "/");
-        String normalizedNewPrefix = newPrefix.replace("\\", "/");
+        Path oldRoot = Paths.get(oldPrefix).toAbsolutePath().normalize();
+        Path newRoot = Paths.get(newPrefix).toAbsolutePath().normalize();
+        Long managedUserId = userPathService.extractUserIdFromPath(oldRoot.toString());
 
         // 更新相册路径和pathHash（使用标准化路径比较）
-        List<Album> allAlbums = albumRepository.findAll();
+        List<Album> allAlbums = listAccessibleAlbumsByPrefix(currentUser, normalizedOldPrefix, managedUserId);
         List<Album> albumsToUpdate = new ArrayList<>();
         for (Album a : allAlbums) {
-            if (a.getPath() != null) {
-                String normalizedDbPath = a.getPath().replace("\\", "/");
-                if (normalizedDbPath.startsWith(normalizedOldPrefix)) {
-                    String newPath = replacePrefix(a.getPath(), oldPrefix, newPrefix);
-                    a.setPath(newPath);
-                    a.setPathHash(computeSha256(newPath));
-                    albumsToUpdate.add(a);
-                }
+            if (a.getPath() == null || a.getPath().isBlank()) {
+                continue;
+            }
+            String rewrittenPath = rewriteStoredPathForMove(a.getPath(), oldRoot, newRoot, a.getUserId());
+            if (!Objects.equals(rewrittenPath, a.getPath())) {
+                a.setPath(rewrittenPath);
+                a.setPathHash(computeSha256(rewrittenPath));
+                albumsToUpdate.add(a);
             }
         }
         if (!albumsToUpdate.isEmpty()) {
@@ -415,25 +417,38 @@ public class AlbumMoveService {
 
         // 更新照片的所有路径字段和pathHash（使用标准化路径比较）
         // 需要查询所有相册，然后检查哪些照片的路径需要更新
-        List<Photo> allPhotos = photoRepository.findAll();
+        List<Photo> allPhotos = listAccessiblePhotosByPrefix(currentUser, normalizedOldPrefix, managedUserId);
         List<Photo> photosToUpdate = new ArrayList<>();
         for (Photo p : allPhotos) {
             boolean needsUpdate = false;
             if (p.getOriginalPath() != null) {
-                String normalizedPath = p.getOriginalPath().replace("\\", "/");
-                if (normalizedPath.startsWith(normalizedOldPrefix)) {
+                String rewrittenOriginalPath = rewriteStoredPathForMove(p.getOriginalPath(), oldRoot, newRoot, p.getUserId());
+                if (!Objects.equals(rewrittenOriginalPath, p.getOriginalPath())) {
                     needsUpdate = true;
-                    p.setOriginalPath(replacePrefix(p.getOriginalPath(), oldPrefix, newPrefix));
+                    p.setOriginalPath(rewrittenOriginalPath);
                     p.setPathHash(computeSha256(p.getOriginalPath()));
                 }
             }
-            if (needsUpdate || (p.getThumbnailPath() != null && p.getThumbnailPath().replace("\\", "/").startsWith(normalizedOldPrefix))) {
-                p.setThumbnailPath(replacePrefix(p.getThumbnailPath(), oldPrefix, newPrefix));
-                p.setWebpPath(replacePrefix(p.getWebpPath(), oldPrefix, newPrefix));
-                p.setSmallThumbPath(replacePrefix(p.getSmallThumbPath(), oldPrefix, newPrefix));
-                p.setMediumThumbPath(replacePrefix(p.getMediumThumbPath(), oldPrefix, newPrefix));
-                p.setLargeThumbPath(replacePrefix(p.getLargeThumbPath(), oldPrefix, newPrefix));
-                p.setBackgroundRemovedPath(replacePrefix(p.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+            String rewrittenThumbnailPath = rewriteStoredPathForMove(p.getThumbnailPath(), oldRoot, newRoot, p.getUserId());
+            String rewrittenWebpPath = rewriteStoredPathForMove(p.getWebpPath(), oldRoot, newRoot, p.getUserId());
+            String rewrittenSmallThumbPath = rewriteStoredPathForMove(p.getSmallThumbPath(), oldRoot, newRoot, p.getUserId());
+            String rewrittenMediumThumbPath = rewriteStoredPathForMove(p.getMediumThumbPath(), oldRoot, newRoot, p.getUserId());
+            String rewrittenLargeThumbPath = rewriteStoredPathForMove(p.getLargeThumbPath(), oldRoot, newRoot, p.getUserId());
+            String rewrittenBackgroundRemovedPath = rewriteStoredPathForMove(p.getBackgroundRemovedPath(), oldRoot, newRoot, p.getUserId());
+
+            if (needsUpdate ||
+                !Objects.equals(rewrittenThumbnailPath, p.getThumbnailPath()) ||
+                !Objects.equals(rewrittenWebpPath, p.getWebpPath()) ||
+                !Objects.equals(rewrittenSmallThumbPath, p.getSmallThumbPath()) ||
+                !Objects.equals(rewrittenMediumThumbPath, p.getMediumThumbPath()) ||
+                !Objects.equals(rewrittenLargeThumbPath, p.getLargeThumbPath()) ||
+                !Objects.equals(rewrittenBackgroundRemovedPath, p.getBackgroundRemovedPath())) {
+                p.setThumbnailPath(rewrittenThumbnailPath);
+                p.setWebpPath(rewrittenWebpPath);
+                p.setSmallThumbPath(rewrittenSmallThumbPath);
+                p.setMediumThumbPath(rewrittenMediumThumbPath);
+                p.setLargeThumbPath(rewrittenLargeThumbPath);
+                p.setBackgroundRemovedPath(rewrittenBackgroundRemovedPath);
                 photosToUpdate.add(p);
             }
         }
@@ -448,12 +463,12 @@ public class AlbumMoveService {
     /**
      * 清理目标路径下的所有相册和照片数据（包括人脸、标签、AI评分等关联）
      */
-    private void cleanupTargetAlbumData(String targetPathStr) {
+    private void cleanupTargetAlbumData(UserAccount currentUser, String targetPathStr) {
         // 标准化路径
         String normalizedTargetPath = targetPathStr.replace("\\", "/");
 
         // 使用标准化路径匹配
-        List<Album> allAlbums = albumRepository.findAll();
+        List<Album> allAlbums = listAccessibleAlbumsByPrefix(currentUser, normalizedTargetPath);
         List<Album> targetAlbums = new ArrayList<>();
         for (Album a : allAlbums) {
             if (a.getPath() != null) {
@@ -470,8 +485,7 @@ public class AlbumMoveService {
         log.info("覆盖移动 - 需要清理 {} 个目标相册", albumIds.size());
 
         for (Long albumId : albumIds) {
-            List<Photo> photos = photoRepository.findByAlbumId(albumId,
-                    PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+            List<Photo> photos = loadAllPhotosByAlbumId(albumId);
 
             for (Photo photo : photos) {
                 // 删除人脸记录
@@ -500,9 +514,9 @@ public class AlbumMoveService {
 
     // ======================== 冲突检查 ========================
 
-    private AlbumMoveResult checkConflict(Album album, String targetParentPath) {
-        Path sourcePath = Paths.get(album.getPath()).toAbsolutePath().normalize();
-        Path targetParent = Paths.get(targetParentPath).toAbsolutePath().normalize();
+    private AlbumMoveResult checkConflict(UserAccount currentUser, Album album, String targetParentPath) {
+        Path sourcePath = resolveAlbumPath(album);
+        Path targetParent = resolveRequestedPathWithinScope(targetParentPath, currentUser);
         Path targetPath = targetParent.resolve(sourcePath.getFileName());
 
         AlbumMoveResult result = new AlbumMoveResult();
@@ -518,7 +532,7 @@ public class AlbumMoveService {
         result.setSuccess(false);
         result.setConflict(true);
         result.setConflictType("same_name_folder");
-        result.setConflictPath(targetPath.toString());
+        result.setConflictPath(toClientPath(targetPath));
 
         // 列出冲突目录下的文件
         List<String> files = new ArrayList<>();
@@ -574,6 +588,46 @@ public class AlbumMoveService {
             return newPrefix + suffix;
         }
         return path;
+    }
+
+    private String rewriteStoredPathForMove(String currentPath, Path oldRoot, Path newRoot, Long userId) {
+        if (currentPath == null || currentPath.isBlank() || oldRoot == null || newRoot == null) {
+            return currentPath;
+        }
+        try {
+            Path currentAbsolute = resolveStoredPath(currentPath);
+            if (!currentAbsolute.startsWith(oldRoot)) {
+                return currentPath;
+            }
+            Path relative = oldRoot.relativize(currentAbsolute);
+            Path targetAbsolute = newRoot.resolve(relative).normalize();
+            return toStoredPath(targetAbsolute, userId);
+        } catch (IOException e) {
+            return currentPath;
+        }
+    }
+
+    private String rewriteStoredPathForMerge(String currentPath, Path sourceAlbumPath, Path targetAlbumPath, Long userId) {
+        return rewriteStoredPathForMove(currentPath, sourceAlbumPath, targetAlbumPath, userId);
+    }
+
+    private String toStoredPath(Path path, Long userId) {
+        if (path == null) {
+            return null;
+        }
+        String absolute = path.toAbsolutePath().normalize().toString();
+        return userPathService.tryBuildStoragePathReference(absolute, userId).orElse(absolute);
+    }
+
+    private Path resolveStoredPath(String path) throws IOException {
+        if (path == null || path.isBlank()) {
+            throw new IOException("路径为空");
+        }
+        try {
+            return userPathService.resolveStoredPhotoPath(path);
+        } catch (Exception e) {
+            throw new IOException("解析存储路径失败: " + path, e);
+        }
     }
 
     private String computeSha256(String input) {
@@ -654,15 +708,226 @@ public class AlbumMoveService {
     }
 
     private Path resolveBasePath() {
-        Path base = Paths.get(basePath);
-        if (!base.isAbsolute()) {
-            String projectRoot = System.getProperty("user.dir");
-            if (projectRoot.endsWith("backend")) {
-                projectRoot = Paths.get(projectRoot).getParent().toString();
-            }
-            String clean = basePath.startsWith("./") ? basePath.substring(2) : basePath;
-            base = Paths.get(projectRoot, clean).toAbsolutePath().normalize();
+        return userPathService.resolvePhotoBasePath();
+    }
+
+    private Path resolveAlbumPath(Album album) {
+        if (album.getPath() == null || album.getPath().isBlank()) {
+            throw new RuntimeException("相册路径不存在");
         }
-        return base.toAbsolutePath().normalize();
+        try {
+            return userPathService.resolveStoredPhotoPath(album.getPath());
+        } catch (Exception e) {
+            return Paths.get(album.getPath()).toAbsolutePath().normalize();
+        }
+    }
+
+    private Path getScopedRoot(UserAccount currentUser) {
+        if (currentUser != null && currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return resolveBasePath();
+        }
+        return userPathService.getScopedPhotoRoot(currentUser).toAbsolutePath().normalize();
+    }
+
+    private String toClientPath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        return userPathService.toDisplayPath(path.toAbsolutePath().normalize().toString(), true);
+    }
+
+    private Path resolveRequestedPathWithinScope(String requestedPath, UserAccount currentUser) {
+        Path scopedRoot = getScopedRoot(currentUser);
+        if (requestedPath == null || requestedPath.isBlank()) {
+            return scopedRoot;
+        }
+        Path candidate = Paths.get(requestedPath.trim());
+        if (!candidate.isAbsolute()) {
+            String clean = requestedPath.startsWith("./") ? requestedPath.substring(2) : requestedPath;
+            Path relative = Paths.get(clean).normalize();
+            if (currentUser != null) {
+                relative = userPathService.stripLeadingUserSegment(relative, currentUser.getId());
+            }
+            candidate = scopedRoot.resolve(relative);
+        }
+        candidate = candidate.toAbsolutePath().normalize();
+        ensureWithinScope(candidate, currentUser);
+        return candidate;
+    }
+
+    private void ensureWithinScope(Path candidate, UserAccount currentUser) {
+        Path scopedRoot = getScopedRoot(currentUser);
+        if (!candidate.startsWith(scopedRoot)) {
+            throw new RuntimeException("路径超出当前用户可操作范围");
+        }
+    }
+
+    private void assertAlbumAccessible(UserAccount currentUser, Album album) {
+        if (!isAlbumAccessible(currentUser, album)) {
+            throw new RuntimeException("无权操作该相册");
+        }
+        ensureWithinScope(resolveAlbumPath(album), currentUser);
+    }
+
+    private boolean isAlbumAccessible(UserAccount currentUser, Album album) {
+        if (album == null) {
+            return false;
+        }
+        if (currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return true;
+        }
+        if (Objects.equals(album.getUserId(), currentUser.getId())) {
+            return true;
+        }
+        try {
+            return resolveAlbumPath(album).startsWith(getScopedRoot(currentUser));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isPhotoAccessible(UserAccount currentUser, Photo photo) {
+        if (photo == null) {
+            return false;
+        }
+        if (currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return true;
+        }
+        if (Objects.equals(photo.getUserId(), currentUser.getId())) {
+            return true;
+        }
+        try {
+            Path absolute = resolveStoredPath(photo.getOriginalPath());
+            return absolute.startsWith(getScopedRoot(currentUser));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private List<Album> listAccessibleAlbums(UserAccount currentUser) {
+        Long userId = currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN
+            ? null
+            : currentUser.getId();
+        return loadAlbumsByUserId(userId);
+    }
+
+    private List<Photo> listAccessiblePhotos(UserAccount currentUser) {
+        Long userId = currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN
+            ? null
+            : currentUser.getId();
+        return loadPhotosByUserId(userId);
+    }
+
+    private List<Photo> loadAllPhotosByAlbumId(Long albumId) {
+        List<Photo> photos = new ArrayList<>();
+        int pageNumber = 0;
+        org.springframework.data.domain.Page<Photo> page;
+        do {
+            page = photoRepository.findByAlbumId(albumId, PageRequest.of(pageNumber, 200));
+            photos.addAll(page.getContent());
+            pageNumber++;
+        } while (page.hasNext());
+        return photos;
+    }
+
+    private List<Album> loadAlbumsByUserId(Long userId) {
+        List<Album> albums = new ArrayList<>();
+        int pageNumber = 0;
+        org.springframework.data.domain.Page<Album> page;
+        do {
+            org.springframework.data.domain.Pageable pageable = PageRequest.of(pageNumber, 200);
+            page = userId == null ? albumRepository.findAll(pageable) : albumRepository.findByUserId(userId, pageable);
+            albums.addAll(page.getContent());
+            pageNumber++;
+        } while (page.hasNext());
+        return albums;
+    }
+
+    private List<Photo> loadPhotosByUserId(Long userId) {
+        List<Photo> photos = new ArrayList<>();
+        int pageNumber = 0;
+        org.springframework.data.domain.Page<Photo> page;
+        do {
+            org.springframework.data.domain.Pageable pageable = PageRequest.of(pageNumber, 200);
+            page = userId == null ? photoRepository.findAll(pageable) : photoRepository.findByUserId(userId, pageable);
+            photos.addAll(page.getContent());
+            pageNumber++;
+        } while (page.hasNext());
+        return photos;
+    }
+
+    private List<Album> listAccessibleAlbumsByPrefix(UserAccount currentUser, String normalizedPathPrefix) {
+        Long userId = currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN ? null : currentUser.getId();
+        return listAccessibleAlbumsByPrefix(currentUser, normalizedPathPrefix, userId);
+    }
+
+    private List<Album> listAccessibleAlbumsByPrefix(UserAccount currentUser,
+                                                     String normalizedPathPrefix,
+                                                     Long managedUserId) {
+        if (normalizedPathPrefix == null || normalizedPathPrefix.isBlank()) {
+            return listAccessibleAlbums(currentUser);
+        }
+        LinkedHashSet<Album> matched = new LinkedHashSet<>();
+        for (String candidatePrefix : buildManagedPathCandidates(normalizedPathPrefix, managedUserId)) {
+            if (currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN) {
+                matched.addAll(albumRepository.findByPathStartingWithNormalized(candidatePrefix));
+            } else {
+                matched.addAll(albumRepository.findByUserIdAndPathStartingWithNormalized(currentUser.getId(), candidatePrefix));
+            }
+        }
+        return new ArrayList<>(matched);
+    }
+
+    private List<Photo> listAccessiblePhotosByPrefix(UserAccount currentUser, String normalizedPathPrefix) {
+        Long userId = currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN ? null : currentUser.getId();
+        return listAccessiblePhotosByPrefix(currentUser, normalizedPathPrefix, userId);
+    }
+
+    private List<Photo> listAccessiblePhotosByPrefix(UserAccount currentUser,
+                                                     String normalizedPathPrefix,
+                                                     Long managedUserId) {
+        if (normalizedPathPrefix == null || normalizedPathPrefix.isBlank()) {
+            return listAccessiblePhotos(currentUser);
+        }
+        LinkedHashSet<Photo> matched = new LinkedHashSet<>();
+        for (String candidatePrefix : buildManagedPathCandidates(normalizedPathPrefix, managedUserId)) {
+            if (currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN) {
+                matched.addAll(photoRepository.findByOriginalPathStartingWith(candidatePrefix));
+            } else {
+                matched.addAll(photoRepository.findByUserIdAndOriginalPathStartingWith(currentUser.getId(), candidatePrefix));
+            }
+        }
+        return new ArrayList<>(matched);
+    }
+
+    private Optional<Album> findAccessibleAlbumByNormalizedPath(UserAccount currentUser, String normalizedPath) {
+        if (normalizedPath == null || normalizedPath.isBlank()) {
+            return Optional.empty();
+        }
+        Long managedUserId = userPathService.extractUserIdFromPath(normalizedPath);
+        LinkedHashSet<String> exactCandidates = buildManagedPathCandidates(normalizedPath, managedUserId);
+        return listAccessibleAlbumsByPrefix(currentUser, normalizedPath, managedUserId).stream()
+            .filter(album -> album.getPath() != null && exactCandidates.contains(album.getPath().replace("\\", "/")))
+            .findFirst();
+    }
+
+    private LinkedHashSet<String> buildManagedPathCandidates(String normalizedPath, Long managedUserId) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        if (normalizedPath == null || normalizedPath.isBlank()) {
+            return candidates;
+        }
+        String clean = normalizedPath.replace("\\", "/");
+        candidates.add(clean);
+        userPathService.tryBuildStoragePathReference(clean, managedUserId).ifPresent(ref ->
+            candidates.add(ref.replace("\\", "/"))
+        );
+        return candidates;
+    }
+
+    private String sanitizeErrorMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "系统异常";
+        }
+        return userPathService.sanitizeVisibleText(message);
     }
 }

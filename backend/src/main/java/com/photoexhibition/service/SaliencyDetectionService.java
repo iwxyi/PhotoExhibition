@@ -274,7 +274,7 @@ public class SaliencyDetectionService implements AutoCloseable {
         try {
             File modelFile = new File(modelPath);
             if (!modelFile.exists()) {
-                log.debug("显著性检测模型文件不存在: {}，将回退到混合策略", modelPath);
+                log.debug("显著性检测模型文件不存在: {}，将回退到混合策略", sanitizePath(modelPath));
                 return;
             }
 
@@ -325,7 +325,7 @@ public class SaliencyDetectionService implements AutoCloseable {
             }
             
             log.info("显著性检测模型已加载: {}，输入名称: {}，使用输入尺寸: {}x{}",
-                    modelPath, inputName, actualInputSize, actualInputSize);
+                    sanitizePath(modelPath), inputName, actualInputSize, actualInputSize);
         } catch (NoClassDefFoundError e) {
             log.warn("ONNX Runtime类初始化失败，显著性检测功能将被禁用。错误: {}", e.getMessage());
             log.warn("请检查: 1) ONNX Runtime JAR文件是否完整, 2) Java版本是否兼容 (>=11), 3) 系统权限是否足够");
@@ -343,9 +343,18 @@ public class SaliencyDetectionService implements AutoCloseable {
             log.warn("详细错误信息: ", e);
             session = null;
         } catch (Exception e) {
-            log.warn("加载显著性检测模型失败: {}，将回退到混合策略。错误: {}", modelPath, e.getMessage());
+            log.warn("加载显著性检测模型失败: {}，将回退到混合策略。错误: {}", sanitizePath(modelPath), e.getMessage());
             session = null;
         }
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     /**
@@ -437,4 +446,3 @@ public class SaliencyDetectionService implements AutoCloseable {
         }
     }
 }
-

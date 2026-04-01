@@ -11,9 +11,29 @@
 
       <div class="glass-panel p-4">
         <div class="flex flex-wrap gap-4 mb-4">
-          <input v-model="keyword" placeholder="搜索文件名/相机/镜头" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label class="space-y-2">
+            <span class="text-sm text-gray-300">搜索图片</span>
+            <input v-model="keyword" placeholder="按文件名、相机或镜头搜索" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
+          <label class="space-y-2">
+            <span class="text-sm text-gray-300">去重视图</span>
+            <select
+              v-model="dedupFilter"
+              class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-40 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">全部</option>
+              <option value="canonical">仅规范源</option>
+              <option value="duplicate">仅重复副本</option>
+            </select>
+          </label>
           <button @click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
           <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50">删除</button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
+          <span>当前页 {{ photos.length }} 项</span>
+          <span>规范源 {{ canonicalCount }}</span>
+          <span>重复副本 {{ duplicateCount }}</span>
         </div>
 
         <div class="overflow-auto">
@@ -26,6 +46,7 @@
                 <th class="py-2 pr-4">ID</th>
                 <th class="py-2 pr-4">缩略图</th>
                 <th class="py-2 pr-4">文件名</th>
+                <th class="py-2 pr-4">去重</th>
                 <th class="py-2 pr-4">尺寸</th>
                 <th class="py-2 pr-4">格式</th>
                 <th class="py-2 pr-4">拍摄时间</th>
@@ -72,11 +93,28 @@
                     </div>
                   </div>
                 </td>
+                <td class="py-2 pr-4 whitespace-nowrap">
+                  <div class="flex flex-col gap-1 text-xs">
+                    <span
+                      class="inline-flex w-fit px-2 py-0.5 rounded-full border"
+                      :class="p.duplicateContent ? 'border-amber-500/40 text-amber-300 bg-amber-500/10' : 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'"
+                    >
+                      {{ p.duplicateContent ? '重复副本' : '规范源' }}
+                    </span>
+                    <span v-if="p.canonicalPhotoId" class="text-gray-400">源ID: {{ p.canonicalPhotoId }}</span>
+                    <span v-if="p.contentHash" class="text-gray-500 font-mono">{{ shortHash(p.contentHash) }}</span>
+                  </div>
+                </td>
                 <td class="py-2 pr-4">{{ p.width }} x {{ p.height }}</td>
                 <td class="py-2 pr-4">{{ p.format }}</td>
                 <td class="py-2 pr-4 whitespace-nowrap">{{ formatDate(p.takenAt) }}</td>
                 <td class="py-2 pr-4 space-x-2">
                   <button @click="openFaceDialog(p)" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">人脸</button>
+                </td>
+              </tr>
+              <tr v-if="!loading && photos.length === 0">
+                <td colspan="9" class="py-10 text-center text-sm text-gray-400">
+                  当前筛选条件下没有图片
                 </td>
               </tr>
             </tbody>
@@ -137,17 +175,23 @@
             </div>
             <!-- 名字和说明输入框 -->
             <div class="flex-1 min-w-0 flex flex-col gap-3">
-              <input
-                v-model="face.personName"
-                placeholder="输入姓名，留空则移除关联"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
-              <textarea
-                v-model="face.personDescription"
-                rows="2"
-                placeholder="备注（例如：家庭成员、朋友、客户等）"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              ></textarea>
+              <label class="block space-y-1">
+                <span class="text-xs text-gray-400">关联人物姓名</span>
+                <input
+                  v-model="face.personName"
+                  placeholder="留空则移除当前人物关联"
+                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </label>
+              <label class="block space-y-1">
+                <span class="text-xs text-gray-400">备注</span>
+                <textarea
+                  v-model="face.personDescription"
+                  rows="2"
+                  placeholder="例如：家庭成员、朋友、客户等"
+                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                ></textarea>
+              </label>
               <!-- 位置、置信度信息 -->
               <div class="text-xs text-gray-500">
                 位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
@@ -191,8 +235,12 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { useAuthStore } from '@/stores/auth'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const photos = ref<any[]>([])
 const loading = ref(false)
@@ -200,6 +248,7 @@ const page = ref(0)
 const size = ref(20)
 const totalPages = ref(1)
 const keyword = ref('')
+const dedupFilter = ref<'all' | 'canonical' | 'duplicate'>('all')
 const selectedIds = ref<number[]>([])
 const showFaceDialog = ref(false)
 const faces = ref<any[]>([])
@@ -225,6 +274,9 @@ const pageNumbers = computed(() => {
   return list
 })
 
+const canonicalCount = computed(() => photos.value.filter((p: any) => !p.duplicateContent).length)
+const duplicateCount = computed(() => photos.value.filter((p: any) => !!p.duplicateContent).length)
+
 const load = async () => {
   loading.value = true
   try {
@@ -239,6 +291,11 @@ const load = async () => {
         (p.lensModel || '').toLowerCase().includes(kw)
       )
     }
+    if (dedupFilter.value === 'canonical') {
+      content = content.filter((p: any) => !p.duplicateContent)
+    } else if (dedupFilter.value === 'duplicate') {
+      content = content.filter((p: any) => !!p.duplicateContent)
+    }
     photos.value = content
     totalPages.value = res.data.totalPages || 1
   } finally {
@@ -252,10 +309,7 @@ const formatDate = (val?: string) => {
 }
 
 const getThumbUrl = (p: any) => {
-  if (p.thumbnailPath) return `/api/files${p.thumbnailPath}`
-  if (p.webpPath) return `/api/files${p.webpPath}`
-  if (p.originalPath) return `/api/files${p.originalPath}`
-  return ''
+  return buildPhotoAssetUrl(p, 'thumbnail') || ''
 }
 
 const formatPercent = (val?: number) => {
@@ -263,18 +317,18 @@ const formatPercent = (val?: number) => {
   return `${(val * 100).toFixed(0)}%`
 }
 
+const shortHash = (value?: string | null) => {
+  if (!value) return '-'
+  return value.length <= 12 ? value : `${value.slice(0, 6)}...${value.slice(-6)}`
+}
+
 const getFaceImageUrl = (face: any) => {
-  const paths = [
-    face.photoThumbnailPath,
-    face.photoOriginalPath,
-    activePhoto.value?.thumbnailPath,
-    activePhoto.value?.webpPath,
-    activePhoto.value?.originalPath
-  ]
-  const firstPath = paths.find(p => p && typeof p === 'string' && p.length > 0)
-  if (!firstPath) return ''
-  const base = firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
-  return encodeURI(base)
+  return buildPhotoAssetUrl({
+    id: activePhoto.value?.id || face?.photoId,
+    thumbnailPath: face?.photoThumbnailPath || activePhoto.value?.thumbnailPath,
+    originalPath: face?.photoOriginalPath || activePhoto.value?.originalPath,
+    webpPath: activePhoto.value?.webpPath
+  }, 'thumbnail') || ''
 }
 
 const getFaceCropStyle = (face: any) => {
@@ -327,7 +381,7 @@ const deleteSelected = async () => {
 }
 
 const openPhoto = (photoId: number) => {
-  window.open(`/photo/${photoId}`, '_blank')
+  window.open(buildPublicPath(`/photo/${photoId}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
 }
 
 const openFaceDialog = async (photo: any) => {
@@ -400,7 +454,10 @@ const next = () => {
 }
 const openTag = (tag: any) => {
   if (!tag?.id) return
-  const route = router.resolve({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  const route = router.resolve({
+    path: buildPublicPath('/wall', authStore.slug ? `/${authStore.slug}` : undefined),
+    query: { tagId: tag.id, tagName: tag.name }
+  })
   window.open(route.href, '_blank')
 }
 

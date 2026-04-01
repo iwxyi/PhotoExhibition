@@ -68,6 +68,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Photo {
   id: number
@@ -213,10 +214,7 @@ const getItemClass = (index: number) => {
 // 获取普通图片URL
 const getPhotoUrl = (photo?: Photo): string => {
   if (!photo) return ''
-  if (photo.smallThumbPath) return `/api/files${photo.smallThumbPath}`
-  if (photo.webpPath) return `/api/files${photo.webpPath}`
-  if (photo.thumbnailPath) return `/api/files${photo.thumbnailPath}`
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'small') || ''
 }
 
 // 获取背景移除后的图片URL
@@ -224,7 +222,7 @@ const getBackgroundRemovedUrl = (photo?: Photo): string => {
   if (!photo) return ''
   // 优先使用已处理的透明背景图片
   if (photo.backgroundRemovedPath) {
-    return `/api/files${photo.backgroundRemovedPath}`
+    return buildPhotoAssetUrl(photo, 'backgroundRemoved') || getPhotoUrl(photo)
   }
   // 回退到普通图片（不带3D效果）
   return getPhotoUrl(photo)

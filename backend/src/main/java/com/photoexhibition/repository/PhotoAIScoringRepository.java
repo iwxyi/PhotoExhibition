@@ -38,6 +38,9 @@ public interface PhotoAIScoringRepository extends JpaRepository<PhotoAIScoring, 
     @Query("SELECT COUNT(s) FROM PhotoAIScoring s WHERE s.scoringStatus = 'COMPLETED'")
     Long countCompletedScorings();
 
+    @Query("SELECT COUNT(s) FROM PhotoAIScoring s, Photo p WHERE p.id = s.photoId AND p.userId = :userId AND s.scoringStatus = 'COMPLETED'")
+    Long countCompletedScoringsByUserId(@Param("userId") Long userId);
+
     /**
      * 查找综合评分最高的照片
      */

@@ -112,9 +112,13 @@ public class SmartTagService {
             log.info("AI分类生成 {} 个标签: [{}]", names.size(), String.join(", ", names));
 
             for (String name : names) {
-                Tag tag = tagRepository.findByName(name)
+                Long userId = photo.getUserId();
+                Tag tag = (userId == null
+                    ? tagRepository.findByName(name)
+                    : tagRepository.findByNameAndUserId(name, userId))
                     .orElseGet(() -> {
                         Tag t = new Tag();
+                        t.setUserId(userId);
                         t.setName(name);
                         return tagRepository.save(t);
                     });
@@ -253,4 +257,3 @@ public class SmartTagService {
         return tags;
     }
 }
-

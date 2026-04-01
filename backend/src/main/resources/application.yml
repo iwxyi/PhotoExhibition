@@ -157,6 +157,19 @@ jwt:
   secret: photo-exhibition-secret-key-change-in-production-environment
   expiration: 86400000 # 24小时（毫秒）
 
+sms:
+  aliyun:
+    enabled: false
+    mock-enabled: true
+    endpoint: https://dysmsapi.aliyuncs.com/
+    region-id: cn-hangzhou
+    access-key-id:
+    access-key-secret:
+    sign-name:
+    template-code:
+    template-param-name: code
+    code-expire-minutes: 5
+
 # 人脸识别配置
 face:
   # 人脸检测模型配置（ONNX格式，如RetinaFace）

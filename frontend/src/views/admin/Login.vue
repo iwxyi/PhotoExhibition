@@ -12,7 +12,7 @@
       <form class="mt-8 space-y-6" @submit.prevent="handleLogin">
         <div class="rounded-md shadow-sm space-y-4">
           <div>
-            <label for="username" class="sr-only">用户名</label>
+            <label for="username" class="block text-sm mb-2 text-gray-300">用户名</label>
             <input
               id="username"
               v-model="username"
@@ -20,11 +20,11 @@
               type="text"
               required
               class="appearance-none rounded-lg relative block w-full px-4 py-3 border border-gray-700 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="用户名"
+              placeholder="输入管理员用户名"
             />
           </div>
           <div>
-            <label for="password" class="sr-only">密码</label>
+            <label for="password" class="block text-sm mb-2 text-gray-300">密码</label>
             <input
               id="password"
               v-model="password"
@@ -32,7 +32,7 @@
               type="password"
               required
               class="appearance-none rounded-lg relative block w-full px-4 py-3 border border-gray-700 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="密码"
+              placeholder="输入管理员密码"
             />
           </div>
         </div>
@@ -141,7 +141,11 @@ const handleLogin = async () => {
   loading.value = true
 
   try {
-    const result = await authStore.login(username.value, password.value)
+    const result = await authStore.login({
+      username: username.value,
+      password: password.value,
+      loginType: 'password'
+    })
     if (result.success) {
       // 检查是否是初始化消息
       if (result.message && result.message.includes('系统初始化完成')) {
@@ -171,4 +175,3 @@ const handleLogin = async () => {
   }
 }
 </script>
-

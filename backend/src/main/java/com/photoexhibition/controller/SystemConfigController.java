@@ -1,6 +1,7 @@
 package com.photoexhibition.controller;
 
 import com.photoexhibition.service.SystemConfigService;
+import com.photoexhibition.service.UserPathService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -8,6 +9,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/admin/config")
@@ -16,7 +19,11 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class SystemConfigController {
 
+    private static final Pattern EMBEDDED_PATH_PATTERN =
+        Pattern.compile("(storage://[^\\s,;]+|[A-Za-z]:\\\\[^\\s,;]+|/(?:[^\\s,;])+)");
+
     private final SystemConfigService systemConfigService;
+    private final UserPathService userPathService;
 
     /**
      * 获取所有系统配置
@@ -45,7 +52,7 @@ public class SystemConfigController {
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -60,7 +67,7 @@ public class SystemConfigController {
             resp.put("maxAlbumDepth", systemConfigService.getMaxAlbumDepth());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -83,10 +90,10 @@ public class SystemConfigController {
             resp.put("maxAlbumDepth", depth);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -101,7 +108,7 @@ public class SystemConfigController {
             resp.put("photoSortOrder", systemConfigService.getPhotoSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -124,10 +131,10 @@ public class SystemConfigController {
             resp.put("photoSortOrder", sortOrder.trim());
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -142,7 +149,7 @@ public class SystemConfigController {
             resp.put("albumSortOrder", systemConfigService.getAlbumSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -168,11 +175,11 @@ public class SystemConfigController {
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
             log.warn("相册排序设置参数错误: {}", e.getMessage());
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
             log.error("相册排序设置失败: {}", e.getMessage(), e);
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -187,7 +194,7 @@ public class SystemConfigController {
             resp.put("wallSortOrder", systemConfigService.getWallSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -210,10 +217,10 @@ public class SystemConfigController {
             resp.put("wallSortOrder", sortOrder.trim());
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -228,7 +235,7 @@ public class SystemConfigController {
             resp.put("minClusterFaceCount", systemConfigService.getMinClusterFaceCount());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -251,10 +258,10 @@ public class SystemConfigController {
             resp.put("minClusterFaceCount", minCount);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -269,7 +276,7 @@ public class SystemConfigController {
             resp.put("globalDownloadAllowed", systemConfigService.isGlobalDownloadAllowed());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -292,7 +299,7 @@ public class SystemConfigController {
             resp.put("globalDownloadAllowed", allowed);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -307,7 +314,7 @@ public class SystemConfigController {
             resp.put("albumCategorySortOrder", systemConfigService.getAlbumCategorySortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -325,7 +332,7 @@ public class SystemConfigController {
             resp.put("albumCategorySortOrder", sortOrder != null ? sortOrder.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -340,7 +347,7 @@ public class SystemConfigController {
             resp.put("tagIgnoreList", systemConfigService.getTagIgnoreList());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -358,7 +365,7 @@ public class SystemConfigController {
             resp.put("tagIgnoreList", tagIgnoreList != null ? tagIgnoreList.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -373,7 +380,7 @@ public class SystemConfigController {
             resp.put("atmosphereEnabled", systemConfigService.isAtmosphereEnabled());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -396,7 +403,7 @@ public class SystemConfigController {
             resp.put("atmosphereEnabled", enabled);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -411,7 +418,7 @@ public class SystemConfigController {
             resp.put("faceClusterThreshold", systemConfigService.getFaceClusterThreshold());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -439,10 +446,10 @@ public class SystemConfigController {
             resp.put("faceClusterThreshold", threshold);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -456,7 +463,7 @@ public class SystemConfigController {
             resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -475,7 +482,7 @@ public class SystemConfigController {
             resp.put("aiSearchEnabled", enabled);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -487,7 +494,7 @@ public class SystemConfigController {
             resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -502,7 +509,7 @@ public class SystemConfigController {
             resp.put("aiSearchApiUrl", url != null ? url.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -519,7 +526,7 @@ public class SystemConfigController {
             }
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -533,7 +540,7 @@ public class SystemConfigController {
             resp.put("message", "AI搜索API密钥设置成功");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -545,7 +552,7 @@ public class SystemConfigController {
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -560,8 +567,27 @@ public class SystemConfigController {
             resp.put("aiSearchModel", model != null ? model.trim() : "gpt-4o");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
+    }
+
+    private String sanitizeErrorMessage(String message, String fallback) {
+        if (message == null || message.isBlank()) {
+            return fallback;
+        }
+        Matcher matcher = EMBEDDED_PATH_PATTERN.matcher(message);
+        StringBuffer buffer = new StringBuffer();
+        boolean replaced = false;
+        while (matcher.find()) {
+            String candidate = matcher.group(1);
+            String sanitizedCandidate = userPathService.toDisplayPath(candidate, true);
+            if (!candidate.equals(sanitizedCandidate)) {
+                replaced = true;
+            }
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(sanitizedCandidate));
+        }
+        matcher.appendTail(buffer);
+        return replaced ? buffer.toString() : message;
     }
 }

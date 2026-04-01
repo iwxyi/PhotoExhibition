@@ -16,6 +16,8 @@
         </router-link>
       </div>
 
+      <AdminSectionTabs />
+
       <!-- 相册排序方式设置 -->
       <section class="glass-panel p-6 space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-4">
@@ -145,7 +147,7 @@
               控制相册创建的层级深度，默认为1。超过此层级的子文件夹将不再创建独立相册，其中的图片会归属到上级相册。
             </p>
             <p class="text-xs text-gray-400 mt-1">
-              路径结构：base-path/分类/顶级相册名/1级层级/2级层级/...，从"1级层级"开始计数。
+              路径结构：当前用户图片根目录/分类/顶级相册名/1级层级/2级层级/...，从“1级层级”开始计数。
             </p>
           </div>
           <div class="flex items-center gap-3">
@@ -247,12 +249,15 @@
             </p>
           </div>
           <div class="flex items-center gap-3 min-w-[300px]">
-            <input
-              v-model="albumCategorySortOrder"
-              type="text"
-              placeholder="例如：人像,风景 静物 或 人像，风景，静物"
-              class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label class="w-full space-y-2">
+              <span class="text-sm text-gray-300">分类排序值</span>
+              <input
+                v-model="albumCategorySortOrder"
+                type="text"
+                placeholder="例如：人像,风景 静物 或 人像，风景，静物"
+                class="flex-1 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </label>
           </div>
         </div>
       </section>
@@ -270,12 +275,15 @@
             </p>
           </div>
           <div class="flex items-center gap-3 min-w-[300px]">
-            <input
-              v-model="tagIgnoreList"
-              type="text"
-              placeholder="例如：横图 竖图 全景 或 横图，竖图，全景"
-              class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label class="w-full space-y-2">
+              <span class="text-sm text-gray-300">忽略标签列表</span>
+              <input
+                v-model="tagIgnoreList"
+                type="text"
+                placeholder="例如：横图 竖图 全景 或 横图，竖图，全景"
+                class="flex-1 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </label>
           </div>
         </div>
       </section>
@@ -365,7 +373,7 @@
                 v-model="currentUsername"
                 type="text"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="输入当前用户名"
+                placeholder="当前管理员用户名"
                 readonly
               />
             </div>
@@ -375,7 +383,7 @@
                 v-model="newUsername"
                 type="text"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="输入新用户名"
+                placeholder="输入新的管理员用户名"
                 :class="{ 'border-red-500': newUsername && !isValidUsername }"
               />
               <p v-if="newUsername && !isValidUsername" class="text-xs text-red-400 mt-1">
@@ -388,7 +396,7 @@
                 v-model="usernameChangePassword"
                 type="password"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="输入当前密码"
+                placeholder="输入当前密码以确认"
               />
             </div>
           </div>
@@ -439,7 +447,7 @@
                 v-model="currentPassword"
                 type="password"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="输入当前密码"
+                placeholder="输入当前管理员密码"
               />
             </div>
             <div>
@@ -448,7 +456,7 @@
                 v-model="newPassword"
                 type="password"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="输入新密码"
+                placeholder="输入新的管理员密码"
               />
             </div>
             <div>
@@ -457,7 +465,7 @@
                 v-model="confirmPassword"
                 type="password"
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="再次输入新密码"
+                placeholder="再次输入上面的新密码"
               />
             </div>
           </div>
@@ -542,6 +550,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
 
 const router = useRouter()
 
@@ -883,7 +892,7 @@ const changePassword = async () => {
   changingPassword.value = true
   try {
     const response = await api.post('/admin/change-password', {
-      username: 'admin', // 默认管理员用户名
+      username: currentUsername.value,
       oldPassword: currentPassword.value,
       newPassword: newPassword.value
     })
@@ -896,7 +905,13 @@ const changePassword = async () => {
     confirmPassword.value = ''
 
     // 退出登录
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_username')
+    localStorage.removeItem('auth_role')
+    localStorage.removeItem('auth_user_id')
+    localStorage.removeItem('auth_slug')
     localStorage.removeItem('admin_token')
+    localStorage.removeItem('admin_username')
     router.push('/admin/login')
 
   } catch (error: any) {
@@ -929,8 +944,11 @@ const changeUsername = async () => {
 
     // 更新本地存储的token
     if (response.data.token) {
+      localStorage.setItem('auth_token', response.data.token)
       localStorage.setItem('admin_token', response.data.token)
     }
+    localStorage.setItem('auth_username', newUsername.value.trim())
+    localStorage.setItem('admin_username', newUsername.value.trim())
 
     // 清空表单
     newUsername.value = ''
@@ -951,7 +969,7 @@ const changeUsername = async () => {
 const initCurrentUsername = () => {
   // 从localStorage或API获取当前用户名
   // 这里可以从已有的用户信息中获取，或者从token中解析
-  const token = localStorage.getItem('admin_token')
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('admin_token')
   if (token) {
     try {
       // 简单解析JWT token获取用户名（实际项目中建议使用专门的解析方法）

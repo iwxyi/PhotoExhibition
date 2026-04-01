@@ -77,6 +77,9 @@ public class PhotoAIScoringService implements AutoCloseable {
     @Autowired
     private PhotoRepository photoRepository;
 
+    @Autowired
+    private UserPathService userPathService;
+
     private OrtEnvironment env;
     private boolean onnxAvailable = false;
 
@@ -272,7 +275,7 @@ public class PhotoAIScoringService implements AutoCloseable {
      * 执行AI评分的核心逻辑
      */
     private ScoringResult performAIScoring(Photo inputPhoto) throws IOException {
-        File imageFile = new File(inputPhoto.getOriginalPath());
+        File imageFile = resolveOriginalFile(inputPhoto);
         if (!imageFile.exists()) {
             throw new IOException("Image file not found: " + inputPhoto.getOriginalPath());
         }
@@ -376,6 +379,18 @@ public class PhotoAIScoringService implements AutoCloseable {
                 result.improvementSuggestions.size());
 
         return result;
+    }
+
+    private File resolveOriginalFile(Photo photo) throws IOException {
+        if (photo == null || photo.getOriginalPath() == null || photo.getOriginalPath().isBlank()) {
+            throw new IOException("Photo original path is empty");
+        }
+        var resolved = userPathService.tryResolveLocalStoredPhotoPath(photo.getOriginalPath());
+        if (resolved.isEmpty()) {
+            throw new IOException("Photo path is not a locally resolvable storage path: "
+                + userPathService.toDisplayPath(photo.getOriginalPath(), true));
+        }
+        return resolved.get().toFile();
     }
 
 

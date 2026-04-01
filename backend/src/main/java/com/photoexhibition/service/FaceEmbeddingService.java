@@ -84,11 +84,20 @@ public class FaceEmbeddingService implements AutoCloseable {
         try {
             env = OrtEnvironment.getEnvironment();
             session = env.createSession(modelPath, new OrtSession.SessionOptions());
-            log.info("人脸特征模型已加载: {}", modelPath);
+            log.info("人脸特征模型已加载: {}", sanitizePath(modelPath));
         } catch (Exception e) {
-            log.warn("加载人脸特征模型失败: {}", modelPath, e);
+            log.warn("加载人脸特征模型失败: {}", sanitizePath(modelPath), e);
             session = null;
         }
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     private BufferedImage cropFace(BufferedImage img, Face face) {

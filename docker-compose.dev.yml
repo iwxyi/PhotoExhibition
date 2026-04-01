@@ -36,7 +36,7 @@ services:
     working_dir: /app
     command: >
       mvn spring-boot:run
-      -Dspring-boot.run.jvmArguments="-Djava.awt.headless=true -Dspring.devtools.restart.enabled=true"
+      -Dspring-boot.run.jvmArguments="-Djava.awt.headless=true -Dspring.devtools.restart.enabled=false"
       -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:mysql://mysql:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true --spring.datasource.username=root --spring.datasource.password=root --spring.redis.host=redis --spring.redis.port=6379 --photo.scan.base-path=/data/photos"
     environment:
       MAVEN_OPTS: -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8

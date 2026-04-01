@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { api } from '@/api'
+import { stripPublicSlug } from '@/utils/publicRoute'
 
 export interface Album {
   id: number
@@ -126,6 +127,11 @@ export const usePhotoStore = defineStore('photo', () => {
   const currentPhoto = ref<Photo | null>(null)
   const loading = ref(false)
 
+  const getNormalizedPublicPath = () => {
+    const path = typeof window !== 'undefined' ? window.location.pathname : ''
+    return stripPublicSlug(path)
+  }
+
   const fetchAlbums = async (page = 0, size = 12, category?: string, sort?: string, setLoading = true) => {
     console.log(`获取相册列表 - 页码: ${page}, 数量: ${size}, 分类: ${category || '全部'}, 排序: ${sort || '默认'}`)
     const wasLoading = loading.value
@@ -210,8 +216,8 @@ export const usePhotoStore = defineStore('photo', () => {
     // 仅当当前路由在 /wall 且当前活跃视图是 'wall' 时才真正请求 wall 接口，
     // 这样可以防止在路由已变更但旧的异步任务尚未取消时触发请求造成闪烁。
     try {
-      const path = typeof window !== 'undefined' ? window.location.pathname : ''
-      if (path.indexOf('/wall') !== 0 || currentView.value !== 'wall') {
+      const path = getNormalizedPublicPath()
+      if (!path.startsWith('/wall') || currentView.value !== 'wall') {
         return { content: [], last: true }
       }
     } catch (e) {
@@ -253,8 +259,8 @@ export const usePhotoStore = defineStore('photo', () => {
 
   const fetchRandomPhotos = async (page = 0, size = 12, minQualityScore = 70) => {
     try {
-      const path = typeof window !== 'undefined' ? window.location.pathname : ''
-      if (path.indexOf('/random') !== 0 || currentView.value !== 'random') {
+      const path = getNormalizedPublicPath()
+      if (!path.startsWith('/random') || currentView.value !== 'random') {
         return { content: [], last: true }
       }
     } catch (e) {
@@ -313,8 +319,8 @@ export const usePhotoStore = defineStore('photo', () => {
       const response = await api.post('/photos/filter', { tagIds: [tagId], page, size })
       // Assign filter results to the appropriate list depending on currentView
       try {
-        const path = typeof window !== 'undefined' ? window.location.pathname : ''
-        if (path.indexOf('/random') === 0 || currentView.value === 'random') {
+        const path = getNormalizedPublicPath()
+        if (path.startsWith('/random') || currentView.value === 'random') {
           if (page === 0) photosRandom.value = response.data.content
           else photosRandom.value = [...photosRandom.value, ...response.data.content]
         } else {
@@ -338,8 +344,8 @@ export const usePhotoStore = defineStore('photo', () => {
       const response = await api.post('/photos/filter', { personId, page, size })
       // Assign filter results to the appropriate list depending on currentView
       try {
-        const path = typeof window !== 'undefined' ? window.location.pathname : ''
-        if (path.indexOf('/random') === 0 || currentView.value === 'random') {
+        const path = getNormalizedPublicPath()
+        if (path.startsWith('/random') || currentView.value === 'random') {
           if (page === 0) photosRandom.value = response.data.content
           else photosRandom.value = [...photosRandom.value, ...response.data.content]
         } else {
@@ -369,8 +375,8 @@ export const usePhotoStore = defineStore('photo', () => {
       lastFilters.value = filters
       lastFiltersActive.value = true
       // 检查是否需要随机排序（在随机页面时）
-      const path = typeof window !== 'undefined' ? window.location.pathname : ''
-      const isRandomPage = path.indexOf('/random') === 0 || currentView.value === 'random'
+      const path = getNormalizedPublicPath()
+      const isRandomPage = path.startsWith('/random') || currentView.value === 'random'
       const response = await api.post('/photos/filter', {
         ...filters,
         page,
@@ -380,8 +386,8 @@ export const usePhotoStore = defineStore('photo', () => {
 
       // Assign filter results to the appropriate list depending on currentView
       try {
-        const path = typeof window !== 'undefined' ? window.location.pathname : ''
-        if (path.indexOf('/random') === 0 || currentView.value === 'random') {
+        const path = getNormalizedPublicPath()
+        if (path.startsWith('/random') || currentView.value === 'random') {
           if (page === 0) photosRandom.value = response.data.content
           else photosRandom.value = [...photosRandom.value, ...response.data.content]
         } else {
@@ -472,4 +478,3 @@ export const usePhotoStore = defineStore('photo', () => {
     setCurrentView
   }
 })
-

@@ -18,6 +18,9 @@ public class PhotoDTO {
     private String largeThumbPath;
     private Long fileSize;
     private String contentHash;
+    private Long canonicalPhotoId;
+    private boolean canonicalSource;
+    private boolean duplicateContent;
     private Integer width;
     private Integer height;
     private String format;
@@ -59,4 +62,3 @@ public class PhotoDTO {
     private List<FaceDTO> faces;
     private LocalDateTime createdAt;
 }
-
