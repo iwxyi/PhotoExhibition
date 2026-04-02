@@ -185,6 +185,120 @@
           </router-link>
           </div>
         </div>
+        <div class="glass-panel p-4 admin-card-animate admin-card-4">
+        <h2 class="text-lg font-light mb-3">API测试工具</h2>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm text-gray-400 mb-2">选择API端点</label>
+            <select
+              v-model="selectedApi"
+              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- 选择API --</option>
+              <option value="GET /albums">获取所有相册</option>
+              <option value="GET /photos">获取所有图片</option>
+              <option value="GET /tags">获取所有标签</option>
+              <option value="POST /admin/scan">触发扫描</option>
+              <option value="POST /admin/scan/force">强制扫描（重新处理所有图片）</option>
+              <option value="POST /admin/faces/rebuild-all">重建所有人脸（默认保留人物绑定）</option>
+              <option value="POST /admin/thumbnails/clear">清空缩略图（重新生成三级缩略图）</option>
+              <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
+              <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
+              <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
+              <option value="POST /admin/cleanup/duplicate-faces">清理重复人脸（删除同一照片的重复人脸记录）</option>
+              <option value="POST /admin/albums/update-times">更新相册时间（重新计算拍摄时间和相册名时间）</option>
+              <option value="POST /admin/photos/update-times">更新照片时间（重新从EXIF和路径提取拍摄时间）</option>
+              <!-- 同步更新照片时间已移除；仅保留异步接口 -->
+              <option value="POST /admin/update-exif-data">更新 EXIF 数值字段（回填历史图片）</option>
+              <option value="POST /admin/update-color-categories">更新颜色分类（为历史图片设置颜色分类）</option>
+              <option value="POST /admin/recalculate-photo-colors">更新照片颜色（重新计算色调、分类、相册氛围等）</option>
+              <option value="POST /admin/ai-analysis/clear-all">清空照片AI分析</option>
+              <option value="POST /admin/ai-analysis/update-all">更新所有照片AI分析</option>
+              <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
+              <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
+              <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
+              <option value="POST /admin/background-removal/batch">批量移除背景（抠图处理）</option>
+              <option value="DELETE /admin/photos/clear-background-cache">清空抠图缓存（删除所有抠图文件）</option>
+            </select>
+          </div>
+          <div v-if="showPathInput">
+            <label class="block text-sm text-gray-400 mb-2">可选：指定扫描路径</label>
+            <input
+              v-model="pathInput"
+              placeholder="不填则使用配置的 base-path"
+              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <!-- 相册ID输入框（用于背景移除） -->
+          <div v-if="showAlbumIdInput">
+            <label class="block text-sm text-gray-400 mb-2">相册ID（选填，留空处理所有图片）</label>
+            <input
+              v-model="albumIdInput"
+              type="number"
+              placeholder="留空则处理所有图片"
+              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div v-if="showFaceSimilarInputs" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">人脸ID</label>
+              <input
+                v-model="faceIdInput"
+                placeholder="必填"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Top</label>
+              <input
+                v-model="topInput"
+                type="number"
+                min="1"
+                placeholder="默认10"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">阈值</label>
+              <input
+                v-model="thresholdInput"
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                placeholder="默认0.6"
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <button
+            @click="testApi"
+            :disabled="!selectedApi || testing"
+            class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {{ testing ? '请求中...' : '发送请求' }}
+          </button>
+          <div v-if="apiResponse" class="mt-4">
+            <label class="block text-sm text-gray-400 mb-2">响应结果</label>
+            <pre class="bg-gray-900 p-4 rounded-lg overflow-auto text-sm">{{ JSON.stringify(apiResponse, null, 2) }}</pre>
+          </div>
+          <div v-if="taskStatus" class="mt-4 bg-gray-900 p-3 rounded-lg">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <div class="text-sm text-gray-200">任务 ID: <span class="text-sky-300">{{ taskStatus.taskId }}</span></div>
+                <div class="text-xs text-gray-400">状态: <span class="text-sky-300">{{ taskStatus.status }}</span></div>
+                <div class="text-xs text-gray-400">进度: <span class="text-sky-300">{{ taskStatus.current }} / {{ taskStatus.total }}</span></div>
+              </div>
+              <div>
+                <button @click="stopTaskPoll" class="px-2 py-1 text-xs bg-red-600 rounded">停止</button>
+              </div>
+            </div>
+            <div class="text-xs text-gray-300 max-h-48 overflow-auto">
+              <pre class="whitespace-pre-wrap break-words">{{ taskStatus.logs.join('\n') }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
       </div>
     </div>
 
@@ -1005,6 +1119,64 @@ const closeSkippedModal = () => {
   showSkippedModal.value = false
   if (skippedPollTimer) { clearInterval(skippedPollTimer); skippedPollTimer = null }
 }
+const selectedApi = ref('')
+const testing = ref(false)
+const apiResponse = ref<any>(null)
+const pathInput = ref('')
+const faceIdInput = ref('')
+const topInput = ref('')
+const thresholdInput = ref('')
+const albumIdInput = ref('')
+
+const showAlbumIdInput = computed(() =>
+  selectedApi.value.includes('/admin/background-removal')
+)
+
+const taskStatus = ref<any | null>(null)
+let taskPollTimer: number | null = null
+
+const stopTaskPoll = async () => {
+  if (taskPollTimer) {
+    clearInterval(taskPollTimer)
+    taskPollTimer = null
+  }
+  if (taskStatus.value?.taskId) {
+    try {
+      await api.post(`/admin/tasks/${taskStatus.value.taskId}/stop`)
+    } catch (e) {
+      // ignore
+    }
+  }
+  taskStatus.value = null
+}
+
+const pollTask = async (taskId: string) => {
+  await stopTaskPoll()
+  taskStatus.value = { taskId, status: 'pending', logs: [] }
+  taskPollTimer = window.setInterval(async () => {
+    try {
+      const res = await api.get(`/admin/tasks/${taskId}`)
+      const data = res.data
+      if (data && data.found) {
+        taskStatus.value = {
+          taskId: data.taskId,
+          status: data.status,
+          current: data.current,
+          total: data.total,
+          complete: data.complete,
+          logs: data.logs || []
+        }
+        if (data.complete) {
+          await stopTaskPoll()
+        }
+      } else {
+        await stopTaskPoll()
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, 2000)
+}
 
 const loadStats = async () => {
   const results = await Promise.allSettled([
@@ -1152,6 +1324,323 @@ const fetchScanStatus = async () => {
   }
 }
 
+const testApi = async () => {
+  if (!selectedApi.value) return
+  
+  // 清理所有数据需要二次确认
+  if (selectedApi.value === 'POST /admin/cleanup/all') {
+    const confirmed = confirm(
+      '⚠️ 危险操作警告 ⚠️\n\n' +
+      '此操作将删除所有数据，包括：\n' +
+      '• 所有照片\n' +
+      '• 所有相册\n' +
+      '• 所有标签\n' +
+      '• 所有人脸\n' +
+      '• 所有人物\n\n' +
+      '只保留账号数据（AdminUser）\n\n' +
+      '此操作不可恢复！\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+    // 再次确认
+    const doubleConfirmed = confirm('请再次确认：你真的要删除所有数据吗？')
+    if (!doubleConfirmed) {
+      return
+    }
+  }
+
+  // 清空缩略图需要确认
+  if (selectedApi.value === 'POST /admin/thumbnails/clear') {
+    const confirmed = confirm(
+      '🖼️ 清空缩略图数据\n\n' +
+      '此操作将：\n' +
+      '• 删除所有缩略图文件（小图、中图、大图）\n' +
+      '• 清空数据库中的缩略图路径字段\n' +
+      '• 为重新生成三级缩略图做准备\n\n' +
+      '⚠️ 执行后需要运行强制扫描来重新生成缩略图。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清空人脸数据需要确认
+  if (selectedApi.value === 'POST /admin/faces/clear') {
+    const confirmed = confirm(
+      '👤 清空人脸识别数据\n\n' +
+      '此操作将：\n' +
+      '• 删除所有人脸检测结果\n' +
+      '• 删除所有人物聚类数据\n' +
+      '• 清空照片中的人脸关联信息\n\n' +
+      '⚠️ 执行后需要运行强制扫描来重新生成人脸识别。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 重建所有人脸需要确认
+  if (selectedApi.value === 'POST /admin/faces/rebuild-all') {
+    const confirmed = confirm(
+      '👤 重建所有人脸数据\n\n' +
+      '此操作将：\n' +
+      '• 对所有照片重新执行人脸检测\n' +
+      '• 默认保留可匹配到的已有人物绑定与确认状态\n' +
+      '• 对新算法不再认为是人脸的旧记录进行移除\n' +
+      '• 使用新的人脸前处理与特征提取重新生成 embedding\n\n' +
+      '⚠️ 该任务会在后台异步运行，图片多时可能耗时较长。\n' +
+      '⚠️ 这是“只重建人脸”的操作，不会重建缩略图、标签或EXIF。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清空智能标签需要确认
+  if (selectedApi.value === 'POST /admin/smart-tags/clear') {
+    const confirmed = confirm(
+      '🏷️ 清空智能标签数据\n\n' +
+      '此操作将：\n' +
+      '• 删除所有AI生成的智能标签\n' +
+      '• 保留用户手动添加的标签\n' +
+      '• 清空照片中的智能标签关联\n\n' +
+      '⚠️ 执行后需要运行强制扫描来重新生成AI标签。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清理残留数据需要确认
+  if (selectedApi.value === 'POST /admin/cleanup/orphaned') {
+    const confirmed = confirm(
+      '🧹 清理删除残留数据\n\n' +
+      '此操作将：\n' +
+      '• 扫描所有照片记录，检查文件是否还存在\n' +
+      '• 删除不存在文件的照片记录\n' +
+      '• 删除相关的人脸识别数据\n' +
+      '• 删除相关的标签关联\n' +
+      '• 删除没有照片的空相册\n' +
+      '• 删除文件夹路径不存在的相册\n\n' +
+      '⚠️ 此操作不可恢复，请谨慎使用！\n' +
+      '建议在删除大量文件或文件夹后执行此清理。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 更新相册时间需要确认
+  if (selectedApi.value === 'POST /admin/albums/update-times') {
+    const confirmed = confirm(
+      '📅 更新相册时间字段\n\n' +
+      '此操作将：\n' +
+      '• 重新计算所有相册的拍摄时间（最晚照片拍摄时间，聚合相册包含所有子相册的照片）\n' +
+      '• 重新解析所有相册名称和上级路径中的时间信息（支持嵌套继承）\n' +
+      '• 更新数据库中的时间字段\n\n' +
+      '时间解析优先级：\n' +
+      '• 当前相册名称的时间 > 上级路径中的时间\n' +
+      '支持的时间格式：\n' +
+      '• 2025.01.01\n' +
+      '• 2025-01-01\n' +
+      '• 2025.01.01 9:10\n\n' +
+      '此操作是安全的，不会删除任何数据。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 清空AI分析需要确认
+  if (selectedApi.value === 'POST /admin/ai-analysis/clear-all') {
+    const confirmed = confirm(
+      '🗑️ 清空照片AI分析\n\n' +
+      '此操作将：\n' +
+      '• 删除所有照片的AI分析记录\n' +
+      '• 清除技术质量评分、构图美学评分、主题吸引力评分\n' +
+      '• 清除优点分析、不足分析和改进建议\n' +
+      '• 清除场景识别和情感分析结果\n\n' +
+      '⚠️ 此操作不可恢复！建议在重新分析之前执行此操作\n\n' +
+      '确定要清空所有AI分析记录吗？'
+    );
+    if (!confirmed) return;
+  }
+
+  // AI分析更新需要确认
+  if (selectedApi.value === 'POST /admin/ai-analysis/update-all') {
+    const confirmed = confirm(
+      '🤖 更新所有照片AI分析\n\n' +
+      '此操作将：\n' +
+      '• 强制重新为所有照片生成AI分析（覆盖现有分析）\n' +
+      '• 重新分析每张照片的技术质量、构图美学、主题吸引力\n' +
+      '• 重新识别场景类型（婚礼、毕业典礼、旅行等）\n' +
+      '• 重新分析情感色彩（快乐、悲伤、温暖等）\n' +
+      '• 更新优点和不足分析，重新生成改进建议\n\n' +
+      '⚠️ 此操作会覆盖所有现有的AI分析结果\n' +
+      '⚠️ 异步执行：任务在后台运行，处理大量照片可能需要较长时间\n' +
+      '⚠️ 如果没有ONNX Runtime，将使用基础分析算法\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      testing.value = false
+      return
+    }
+  }
+
+  // 更新照片时间需要确认
+  if (selectedApi.value === 'POST /admin/photos/update-times') {
+    const isAsync = true
+    const confirmed = confirm(
+      '📸 更新照片时间信息\n\n' +
+      '此操作将：\n' +
+      '• 重新读取所有照片的EXIF信息，提取拍摄时间\n' +
+      '• 如果EXIF中没有拍摄时间，从文件路径中解析时间\n' +
+      '• 最后使用文件创建时间作为兜底时间\n' +
+      '• 更新数据库中的拍摄时间字段\n\n' +
+      '时间解析优先级：\n' +
+      '• EXIF拍摄时间 (DateTimeOriginal)\n' +
+      '• 文件路径时间（优先最深层文件夹，支持嵌套继承）\n' +
+      '• 文件创建时间\n\n' +
+      '支持的路径时间格式：\n' +
+      '• 2025.01.01\n' +
+      '• 2025-01-01\n' +
+      '• 2025.01.01 10:30\n' +
+      '• 20230808 (紧凑格式)\n' +
+      '• 2023年08月08日\n\n' +
+      (isAsync ? '⚠️ 异步执行：任务在后台运行，可通过日志查看进度\n\n' : '⚠️ 同步执行：需要等待所有照片处理完成\n\n') +
+      '此操作是安全的，不会删除任何数据。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  // 更新 EXIF 数值字段需要确认（可能较慢）
+  if (selectedApi.value === 'POST /admin/update-exif-data') {
+    const confirmed = confirm(
+      '⚠️ 确认回填所有照片的 EXIF 字段？\n\n' +
+      '此操作会遍历数据库中的所有照片并尝试解析/回填EXIF字段（快门秒数、焦距mm、光圈值、ISO、镜头型号），可能需要较长时间。\n\n' +
+      '建议在低访问时段执行，确定要继续吗？'
+    )
+    if (!confirmed) return
+  }
+
+  // 更新颜色分类需要确认
+  if (selectedApi.value === 'POST /admin/update-color-categories') {
+    const confirmed = confirm(
+      '🎨 确认更新所有照片的颜色分类？\n\n' +
+      '此操作会为所有已有主色调的照片设置颜色分类（红色、蓝色、绿色等），便于按颜色分类筛选照片。\n\n' +
+      '建议在低访问时段执行，确定要继续吗？'
+    )
+    if (!confirmed) return
+  }
+
+  // 更新照片颜色需要确认（更全面的重新计算）
+  if (selectedApi.value === 'POST /admin/recalculate-photo-colors') {
+    const confirmed = confirm(
+      '🎨🖼️ 确认重新计算所有照片的颜色？\n\n' +
+      '此操作将：\n' +
+      '• 重新分析所有照片的主色调\n' +
+      '• 重新生成照片的调色板\n' +
+      '• 重新设置颜色分类\n' +
+      '• 更新所有相册的氛围效果\n' +
+      '• 更新筛选选项\n\n' +
+      '这是一个非常耗时的操作，可能需要几分钟到几十分钟。\n\n' +
+      '建议在低访问时段执行，确定要继续吗？'
+    )
+    if (!confirmed) return
+  }
+
+  // 清理重复人脸数据需要确认
+  if (selectedApi.value === 'POST /admin/cleanup/duplicate-faces') {
+    const confirmed = confirm(
+      '🧹 清理重复人脸记录\n\n' +
+      '此操作将：\n' +
+      '• 扫描所有照片，查找同一张照片有多条人脸记录的情况\n' +
+      '• 保留每张照片最新的人脸记录，删除重复的旧记录\n' +
+      '• 清理相关的人物关联和聚类数据\n\n' +
+      '此操作有助于解决人脸数量异常暴涨的问题。\n' +
+      '建议在清理前备份数据库。\n\n' +
+      '确定要继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
+
+  testing.value = true
+  apiResponse.value = null
+  
+  try {
+    let [method, path] = selectedApi.value.split(' ')
+    const params: any = {}
+
+    if (showFaceSimilarInputs.value) {
+      if (!faceIdInput.value.trim()) {
+        alert('请填写人脸ID')
+        testing.value = false
+        return
+      }
+      path = path.replace('{id}', faceIdInput.value.trim())
+      if (topInput.value) params.top = topInput.value
+      if (thresholdInput.value) params.threshold = thresholdInput.value
+    }
+
+    const config: any = {
+      method: method.toLowerCase(),
+      url: path
+    }
+    
+    // 背景移除需要相册ID参数（可选）
+    if (showAlbumIdInput.value) {
+      // albumId 可选，不填则处理所有图片
+      const albumId = albumIdInput.value.trim()
+      config.params = { 
+        ...(albumId ? { albumId: albumId } : {}),
+        batchSize: 50,
+        saveToPhoto: true 
+      }
+    }
+    
+    if (showPathInput.value && pathInput.value.trim()) {
+      config.params = { ...(config.params || {}), path: pathInput.value.trim() }
+    }
+    if (Object.keys(params).length) {
+      config.params = { ...(config.params || {}), ...params }
+    }
+    
+    const response = await api(config)
+    apiResponse.value = response.data
+    
+    // 如果后端返回 taskId，则开始轮询任务状态
+    if (response.data && response.data.taskId) {
+      pollTask(response.data.taskId)
+    }
+    
+    // 清理成功后刷新统计数据
+    if (selectedApi.value === 'POST /admin/cleanup/all' && response.data.success) {
+      await loadStats()
+      alert('数据清理完成！')
+    }
+  } catch (error: any) {
+    apiResponse.value = {
+      error: true,
+      message: error.message,
+      response: error.response?.data
+    }
+  } finally {
+    testing.value = false
+  }
+}
 const handleLogout = () => {
   authStore.logout()
   router.push('/admin/login')
@@ -1175,6 +1664,10 @@ onUnmounted(() => {
     clearInterval(scanTimer)
     scanTimer = null
   }
+  stopTaskPoll()
   stopTaskDetailPoll()
 })
+
+const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))
+const showFaceSimilarInputs = computed(() => selectedApi.value.includes('/admin/faces/{id}/similar'))
 </script>
