@@ -102,6 +102,22 @@ export interface PageResponse<T> {
   last: boolean
 }
 
+export interface UploadPrecheckResponse {
+  contentHash: string
+  exists: boolean
+  canonicalPhotoId?: number | null
+  canonicalUserId?: number | null
+  canonicalSource?: boolean
+  sameOwner: boolean
+  visible: boolean
+  reusableMetadata: boolean
+  reusableDerivatives: boolean
+  photoId?: number | null
+  originalPath?: string | null
+  thumbnailPath?: string | null
+  message: string
+}
+
 // 获取服务器地址，支持多种配置方式
 function getServerUrl(): string {
   // 1. 从URL参数获取（如 ?server=192.168.1.100:6060）
@@ -407,6 +423,10 @@ export interface SuperAdminOverview {
   userDataRoot: string
   totalQuotaBytes: number
   totalUsedBytes: number
+  modelCount?: number
+  missingModelFileCount?: number
+  inactiveModelCount?: number
+  modelHealthy?: boolean
 }
 
 export interface SuperAdminSettings {
@@ -472,6 +492,36 @@ export interface SendEmailPayload {
   subject: string
   content: string
   html?: boolean
+  templateKey?: string
+  variables?: Record<string, any>
+}
+
+export interface EmailTemplateField {
+  key: string
+  label: string
+  placeholder?: string
+}
+
+export interface EmailTemplateSummary {
+  key: string
+  name: string
+  description: string
+  html: boolean
+  fields: EmailTemplateField[]
+  sampleVariables: Record<string, any>
+}
+
+export interface EmailTemplatePreview {
+  templateKey: string
+  templateName: string
+  subject: string
+  content: string
+  html: boolean
+  variables: Record<string, any>
+  recipient?: string
+  providerType?: string
+  message?: string
+  success?: boolean
 }
 
 export interface AuthPublicSettings {
@@ -515,6 +565,9 @@ export interface UserVipOverview {
   currentVipPlanName?: string | null
   currentVipPlanCode?: string | null
   currentVipPlanExtraQuotaBytes?: number
+  currentVipPlanDurationDays?: number | null
+  currentVipPlanCategory?: string | null
+  currentVipQuotaGrantMode?: string | null
   vipExpireAt?: string | null
   paymentEnabled: boolean
   paymentMockEnabled: boolean
@@ -530,8 +583,21 @@ export interface UserVipPlan {
   durationDays: number
   priceFen: number
   priceYuan: string
+  planCategory?: string
+  quotaGrantMode?: string
+  stackingMode?: string
   enabled: boolean
   sortOrder: number
+  available?: boolean
+  purchaseAction?: 'PURCHASE' | 'RENEWAL' | 'UPGRADE' | 'BLOCKED' | string
+  purchaseHint?: string
+  payableAmountFen?: number
+  payableAmountYuan?: string
+  originalAmountFen?: number
+  originalAmountYuan?: string
+  creditedAmountFen?: number
+  creditedAmountYuan?: string
+  effectiveExpireAt?: string | null
 }
 
 export interface UserVipCheckoutPreview {
@@ -740,6 +806,9 @@ export interface VipPlanSummary {
   extraQuotaBytes: number
   durationDays: number
   priceFen: number
+  planCategory?: string
+  quotaGrantMode?: string
+  stackingMode?: string
   enabled: boolean
   sortOrder: number
   createdAt: string
@@ -760,6 +829,12 @@ export interface VipOrderSummary {
   vipPlanCode?: string | null
   amountFen: number
   amountYuan?: number
+  originalAmountFen?: number | null
+  originalAmountYuan?: string | null
+  creditedAmountFen?: number | null
+  creditedAmountYuan?: string | null
+  changeType?: 'PURCHASE' | 'RENEWAL' | 'UPGRADE' | string | null
+  sourceVipPlanId?: number | null
   status: string
   source: string
   paymentProviderType?: string | null
@@ -786,6 +861,7 @@ export interface VipOrderSummary {
   orderStageLabel?: string | null
   renewalChainType?: 'PRIMARY' | 'RENEWAL_CHILD' | string
   expireAt?: string | null
+  pricingDetailJson?: string | null
   remark?: string | null
   message?: string | null
   createdAt: string
@@ -1007,6 +1083,48 @@ export interface ConfigurableTablePreference {
 
 export type SuperAdminTablePreferences = Record<string, ConfigurableTablePreference>
 
+export interface ModelRebuildTask {
+  taskId: string
+  modelKey: string
+  modelName: string
+  includeMissingItems: boolean
+  forceRebuild: boolean
+  status: string
+  message: string
+  complete: boolean
+  total: number
+  processed: number
+  skipped: number
+  failed: number
+  createdAt?: string | null
+  startedAt?: string | null
+  finishedAt?: string | null
+  logs?: string[]
+}
+
+export interface ModelValidationSummary {
+  inputs: string[]
+  outputs: string[]
+  sizeBytes: number
+  validatedAt?: string | null
+}
+
+export interface ManagedModelSummary {
+  key: string
+  name: string
+  code: string
+  configuredPath: string
+  resolvedPath: string
+  fileExists: boolean
+  sizeBytes: number
+  enabled: boolean
+  active: boolean
+  rebuildNotes: string[]
+  latestValidation?: ModelValidationSummary | null
+  latestTask?: ModelRebuildTask | null
+  taskHistory?: ModelRebuildTask[] | null
+}
+
 export const superAdminApi = {
   getOverview: () => api.get<SuperAdminOverview>('/admin/super-admin/overview'),
   getSettings: () => api.get<SuperAdminSettings>('/admin/super-admin/settings'),
@@ -1052,6 +1170,17 @@ export const superAdminApi = {
   runLegacyMigration: () => api.post<LegacyMigrationSummary>('/admin/super-admin/legacy-migration/run'),
   sendTestEmail: (recipient?: string) => api.post<Record<string, any>>('/admin/super-admin/email/test', { recipient }),
   sendEmail: (payload: SendEmailPayload) => api.post<Record<string, any>>('/admin/super-admin/email/send', payload),
+  getEmailTemplates: () => api.get<{ templates: EmailTemplateSummary[] }>('/admin/super-admin/email/templates'),
+  previewEmailTemplate: (payload: Pick<SendEmailPayload, 'templateKey' | 'variables'>) =>
+    api.post<EmailTemplatePreview>('/admin/super-admin/email/templates/preview', payload),
+  sendEmailTemplate: (payload: Pick<SendEmailPayload, 'recipient' | 'templateKey' | 'variables'>) =>
+    api.post<EmailTemplatePreview>('/admin/super-admin/email/templates/send', payload),
+  getModels: () => api.get<{ models: ManagedModelSummary[] }>('/admin/super-admin/models'),
+  downloadModel: (modelKey: string, url: string) => api.post<Record<string, any>>(`/admin/super-admin/models/${modelKey}/download`, { url }),
+  reloadModel: (modelKey: string) => api.post<Record<string, any>>(`/admin/super-admin/models/${modelKey}/reload`),
+  rebuildModel: (modelKey: string, payload: { includeMissingItems: boolean; forceRebuild: boolean }) =>
+    api.post<Record<string, any>>(`/admin/super-admin/models/${modelKey}/rebuild`, payload),
+  getModelTask: (taskId: string) => api.get<ModelRebuildTask>(`/admin/super-admin/model-tasks/${taskId}`),
   updateStorageProvider: (providerId: number, data: Partial<StorageProviderSummary>) =>
     api.put<StorageProviderSummary>(`/admin/super-admin/storage-providers/${providerId}`, data)
 }

@@ -1,6 +1,5 @@
 package com.photoexhibition.controller;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.photoexhibition.service.PaymentCallbackService;
 import com.photoexhibition.service.PaymentInitiationService;
@@ -99,29 +98,8 @@ public class PaymentController {
         return mergedPayload;
     }
 
-    private Map<String, Object> parseJsonBody(String rawBody) {
-        if (rawBody == null || rawBody.isBlank()) {
-            return new LinkedHashMap<>();
-        }
-        try {
-            return objectMapper.readValue(rawBody, new TypeReference<LinkedHashMap<String, Object>>() {});
-        } catch (Exception e) {
-            throw new RuntimeException("JSON 回调体解析失败");
-        }
-    }
-
     private Map<String, Object> resolveBodyPayload(String rawBody, HttpServletRequest request) {
-        if (rawBody == null || rawBody.isBlank()) {
-            return null;
-        }
-        String trimmed = rawBody.trim();
-        String contentType = request == null ? null : request.getContentType();
-        boolean jsonLike = (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
-        boolean jsonContentType = contentType != null && contentType.toLowerCase().contains("json");
-        if (jsonLike || jsonContentType) {
-            return parseJsonBody(rawBody);
-        }
-        return null;
+        return PaymentPayloadParser.resolveBodyPayload(rawBody, request, objectMapper);
     }
 
     private boolean prefersHtml(HttpServletRequest request, Map<String, String> queryParams) {

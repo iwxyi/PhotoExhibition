@@ -174,16 +174,16 @@ public class PaymentGatewayService {
                 hints.add("用真实商户私钥验证 `Authorization` 与 `Wechatpay-Serial` 是否匹配。");
                 break;
             case STRIPE:
-                hints.add("下一步建议直接接真实 Checkout Session 创建和 webhook 事件回放。");
+                hints.add("TODO: 下一步建议直接接真实 Checkout Session 创建和 webhook 事件回放。");
                 break;
             case PAYPAL:
-                hints.add("下一步建议串起 order create -> approve -> capture 的真实链路。");
+                hints.add("TODO: 下一步建议串起 order create -> approve -> capture 的真实链路。");
                 break;
             case UNIONPAY:
-                hints.add("下一步建议补银联证书链和前后台通知联调。");
+                hints.add("TODO: 下一步建议补银联证书链和前后台通知联调。");
                 break;
             default:
-                hints.add("下一步建议按预览参数在目标平台控制台或 SDK 中跑一次最小闭环。");
+                hints.add("TODO: 下一步建议按预览参数在目标平台控制台或 SDK 中跑一次最小闭环。");
                 break;
         }
         return hints;
@@ -947,65 +947,65 @@ public class PaymentGatewayService {
                 steps.add("退款时接 `v3/refund/domestic/refunds`");
                 break;
             case STRIPE:
-                steps.add("创建 Checkout Session 并回填 hosted URL");
-                steps.add("回调侧校验 `Stripe-Signature`");
-                steps.add("支付成功后同步 session/payment_intent");
-                steps.add("退款时接 `refunds.create`");
+                steps.add("TODO: 创建 Checkout Session 并回填 hosted URL");
+                steps.add("TODO: 回调侧校验 `Stripe-Signature`");
+                steps.add("TODO: 支付成功后同步 session/payment_intent");
+                steps.add("TODO: 退款时接 `refunds.create`");
                 break;
             case PAYPAL:
-                steps.add("创建 checkout order 并提取 approve 链接");
-                steps.add("回调/Webhook 校验 PayPal 签名");
-                steps.add("支付成功后 capture order");
-                steps.add("退款时接 capture refund API");
+                steps.add("TODO: 创建 checkout order 并提取 approve 链接");
+                steps.add("TODO: 回调/Webhook 校验 PayPal 签名");
+                steps.add("TODO: 支付成功后 capture order");
+                steps.add("TODO: 退款时接 capture refund API");
                 break;
             case UNIONPAY:
-                steps.add("补证书签名并提交前台表单");
-                steps.add("处理前台回跳和后台通知");
-                steps.add("按银联证书体系完成验签");
-                steps.add("退款时接退款交易接口");
+                steps.add("TODO: 补证书签名并提交前台表单");
+                steps.add("TODO: 处理前台回跳和后台通知");
+                steps.add("TODO: 按银联证书体系完成验签");
+                steps.add("TODO: 退款时接退款交易接口");
                 break;
             case PADDLE:
-                steps.add("创建 transaction 并回填 hosted checkout 链接");
-                steps.add("校验 Paddle Webhook Secret");
-                steps.add("联通订阅/自动续费映射");
-                steps.add("退款时接 Paddle transaction adjustment");
+                steps.add("TODO: 创建 transaction 并回填 hosted checkout 链接");
+                steps.add("TODO: 校验 Paddle Webhook Secret");
+                steps.add("TODO: 联通订阅/自动续费映射");
+                steps.add("TODO: 退款时接 Paddle transaction adjustment");
                 break;
             case LEMON_SQUEEZY:
-                steps.add("创建 checkout 并回填 hosted checkout 链接");
-                steps.add("校验 Lemon Squeezy 签名头");
-                steps.add("联通订阅与 License/Order 映射");
-                steps.add("退款优先走控制台或补官方 API");
+                steps.add("TODO: 创建 checkout 并回填 hosted checkout 链接");
+                steps.add("TODO: 校验 Lemon Squeezy 签名头");
+                steps.add("TODO: 联通订阅与 License/Order 映射");
+                steps.add("TODO: 退款优先走控制台或补官方 API");
                 break;
             case ADYEN:
-                steps.add("先拉 paymentMethods 再发起 payments");
-                steps.add("补 3DS / redirectResult 回跳处理");
-                steps.add("校验 HMAC 通知签名");
-                steps.add("退款时接 modifications/refunds");
+                steps.add("TODO: 先拉 paymentMethods 再发起 payments");
+                steps.add("TODO: 补 3DS / redirectResult 回跳处理");
+                steps.add("TODO: 校验 HMAC 通知签名");
+                steps.add("TODO: 退款时接 modifications/refunds");
                 break;
             case MOLLIE:
-                steps.add("创建 payment 并回填 checkoutUrl");
-                steps.add("回调后主动查询 payment 状态");
-                steps.add("校验 metadata 与来源单映射");
-                steps.add("退款时接 refunds API");
+                steps.add("TODO: 创建 payment 并回填 checkoutUrl");
+                steps.add("TODO: 回调后主动查询 payment 状态");
+                steps.add("TODO: 校验 metadata 与来源单映射");
+                steps.add("TODO: 退款时接 refunds API");
                 break;
             case XENDIT:
-                steps.add("创建 payment request 并回填 hosted payment 链接");
-                steps.add("校验 Xendit webhook secret");
-                steps.add("支付后根据 referenceId 回写订单");
-                steps.add("退款时接 refund / payment token API");
+                steps.add("TODO: 创建 payment request 并回填 hosted payment 链接");
+                steps.add("TODO: 校验 Xendit webhook secret");
+                steps.add("TODO: 支付后根据 referenceId 回写订单");
+                steps.add("TODO: 退款时接 refund / payment token API");
                 break;
             case MIDTRANS:
-                steps.add("选定 Snap 或 Core API 并生成 token/redirect_url");
-                steps.add("校验 transaction_status / fraud_status 回调");
-                steps.add("订单完成后根据 order_id 回写");
-                steps.add("退款时接 Midtrans refund API");
+                steps.add("TODO: 选定 Snap 或 Core API 并生成 token/redirect_url");
+                steps.add("TODO: 校验 transaction_status / fraud_status 回调");
+                steps.add("TODO: 订单完成后根据 order_id 回写");
+                steps.add("TODO: 退款时接 Midtrans refund API");
                 break;
             case CUSTOM_WEBHOOK:
             default:
-                steps.add("定义内部支付网关请求协议");
-                steps.add("约定统一回调签名头与订单号字段");
-                steps.add("完成支付后调用统一回调入口");
-                steps.add("退款时复用自定义退款回调协议");
+                steps.add("TODO: 定义内部支付网关请求协议");
+                steps.add("TODO: 约定统一回调签名头与订单号字段");
+                steps.add("TODO: 完成支付后调用统一回调入口");
+                steps.add("TODO: 退款时复用自定义退款回调协议");
                 break;
         }
         return steps;

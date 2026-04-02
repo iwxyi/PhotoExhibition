@@ -24,13 +24,14 @@ public class MidtransPaymentProviderAdapter extends AbstractPaymentProviderAdapt
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.MIDTRANS, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.MIDTRANS, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Basic <MIDTRANS_SERVER_KEY>");
         headers.put("Content-Type", "application/json");
         payload.put("transactionDetails", Map.of("order_id", order.getOrderNo(), "gross_amount", preview.getRequestPayload().get("amountYuan")));
         payload.put("customerDetails", Map.of("first_name", user.getNickname() == null ? user.getUsername() : user.getNickname(), "email", user.getUsername()));
-        payload.put("callbacks", Map.of("finish", settings.getReturnUrl()));
+        payload.put("callbacks", Map.of("finish", trackedReturnUrl));
         payload.put("notificationUrl", settings.getNotifyUrl());
 
         return PaymentInitiationService.PaymentInitiationResult.builder()

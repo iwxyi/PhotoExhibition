@@ -8,6 +8,7 @@ import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.BackgroundRemovalService;
 import com.photoexhibition.service.PhotoAssetService;
+import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.service.PhotoService;
 import com.photoexhibition.service.PublicUserScopeService;
 import com.photoexhibition.service.SystemConfigService;
@@ -52,6 +53,7 @@ public class PhotoController {
     private final UserPathService userPathService;
     private final PhotoAssetService photoAssetService;
     private final AuthService authService;
+    private final PhotoScanService photoScanService;
 
     /**
      * 图墙模式 - 获取所有图片（瀑布流）
@@ -521,13 +523,29 @@ public class PhotoController {
     }
 
     /**
-     * 获取批量处理状态（预留接口）
+     * 获取背景移除批量/异步处理状态
      */
     @GetMapping("/batch-remove-background/status")
-    public ResponseEntity<Map<String, Object>> getBatchStatus() {
+    public ResponseEntity<Map<String, Object>> getBatchStatus(@RequestParam(required = false) String taskId) {
         Map<String, Object> result = new HashMap<>();
         result.put("modelAvailable", backgroundRemovalService.isModelAvailable());
-        result.put("message", "批量处理状态查询（待实现任务队列）");
+        result.put("singlePhotoTasksInProgress", backgroundRemovalService.getActiveTaskCount());
+
+        if (taskId != null && !taskId.isBlank()) {
+            result.putAll(photoScanService.getTaskStatus(taskId.trim()));
+            Object found = result.get("found");
+            if (Boolean.TRUE.equals(found)) {
+                result.put("message", "已返回批量背景移除任务状态");
+            } else {
+                result.put("message", "未找到指定任务，可检查 taskId 是否正确");
+            }
+        } else if (backgroundRemovalService.getActiveTaskCount() > 0) {
+            result.put("message", "存在进行中的异步抠图任务");
+        } else {
+            result.put("message", "当前没有进行中的异步抠图任务");
+        }
+        result.put("supportsTaskLookup", true);
+        result.put("taskQueryHint", "批量任务可携带 taskId 查询，后台任务 ID 通常来自 /api/admin/tasks/{taskId}");
         return ResponseEntity.ok(result);
     }
 

@@ -372,6 +372,8 @@ public class EmotionAnalysisService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        session = null;
+        env = null;
     }
 
     private String sanitizePath(String path) {
@@ -402,5 +404,35 @@ public class EmotionAnalysisService implements AutoCloseable {
             this.emotion = emotion;
             this.confidence = confidence;
         }
+    }
+
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        if (enabled && session == null) {
+            initializeEmotionAnalysis();
+        }
+        return enabled && session != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (session != null) {
+                session.close();
+            }
+        } catch (Exception ignored) {
+        }
+        session = null;
+        env = null;
+        if (enabled) {
+            initializeEmotionAnalysis();
+        }
+        return enabled && session != null;
     }
 }

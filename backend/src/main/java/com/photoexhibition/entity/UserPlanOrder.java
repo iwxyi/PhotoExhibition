@@ -25,6 +25,21 @@ public class UserPlanOrder {
     @Column(name = "amount_fen", nullable = false)
     private Integer amountFen = 0;
 
+    @Column(name = "original_amount_fen")
+    private Integer originalAmountFen;
+
+    @Column(name = "credited_amount_fen")
+    private Integer creditedAmountFen;
+
+    @Column(name = "change_type", nullable = false, length = 24)
+    private String changeType = "PURCHASE";
+
+    @Column(name = "source_vip_plan_id")
+    private Long sourceVipPlanId;
+
+    @Column(name = "pricing_detail_json", columnDefinition = "TEXT")
+    private String pricingDetailJson;
+
     @Column(nullable = false, length = 20)
     private String status = "CREATED";
 

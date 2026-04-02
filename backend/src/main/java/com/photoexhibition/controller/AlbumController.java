@@ -353,8 +353,9 @@ public class AlbumController {
      */
     @GetMapping("/count")
     public ResponseEntity<Long> getAlbumsCount(@RequestParam(required = false) String category,
+                                               @RequestParam(defaultValue = "false") boolean includeHidden,
                                                @RequestParam(required = false) String userSlug) {
-        long count = albumService.getAlbumsCount(category, false, publicUserScopeService.resolveUserId(userSlug));
+        long count = albumService.getAlbumsCount(category, includeHidden, publicUserScopeService.resolveUserId(userSlug));
         return ResponseEntity.ok(count);
     }
 

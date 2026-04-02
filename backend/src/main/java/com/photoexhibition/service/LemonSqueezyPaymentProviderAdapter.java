@@ -24,6 +24,7 @@ public class LemonSqueezyPaymentProviderAdapter extends AbstractPaymentProviderA
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.LEMON_SQUEEZY, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.LEMON_SQUEEZY, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
@@ -31,7 +32,7 @@ public class LemonSqueezyPaymentProviderAdapter extends AbstractPaymentProviderA
         headers.put("Content-Type", "application/vnd.api+json");
         payload.put("storeId", settings.getAppId());
         payload.put("checkoutData", Map.of("custom", Map.of("orderNo", order.getOrderNo(), "userSlug", user.getSlug())));
-        payload.put("redirectUrl", settings.getReturnUrl());
+        payload.put("redirectUrl", trackedReturnUrl);
 
         return PaymentInitiationService.PaymentInitiationResult.builder()
             .providerType(PaymentProviderType.LEMON_SQUEEZY.name())

@@ -544,6 +544,38 @@ public class PhotoScanService {
         }
     }
 
+    @Transactional
+    public Map<String, Object> clearBackgroundCache() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            AtomicInteger totalCleared = new AtomicInteger();
+            AtomicInteger totalErrors = new AtomicInteger();
+            forEachPhotoWithBackgroundInCurrentScope(photo -> {
+                String bgRemovedPath = photo.getBackgroundRemovedPath();
+                try {
+                    File bgFile = resolveStoredPathSafely(bgRemovedPath);
+                    if (bgFile.exists() && !bgFile.delete()) {
+                        totalErrors.incrementAndGet();
+                        return;
+                    }
+                    totalCleared.incrementAndGet();
+                } catch (Exception e) {
+                    totalErrors.incrementAndGet();
+                }
+            });
+            int updatedCount = photoRepository.clearAllBackgroundRemovedPath();
+            result.put("success", true);
+            result.put("deletedFiles", totalCleared.get());
+            result.put("updatedRows", updatedCount);
+            result.put("errors", totalErrors.get());
+            result.put("message", "抠图缓存已清空");
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "清空抠图缓存失败: " + sanitizeVisibleMessage(e.getMessage()));
+        }
+        return result;
+    }
+
     /**
      * 异步批量移除背景（抠图处理）
      * @param albumId 相册ID（可选，为空则处理所有图片）
@@ -1213,6 +1245,55 @@ public class PhotoScanService {
         result.put("count", faces.size());
         result.put("message", faces.isEmpty() ? "该照片暂无可重算的人脸" : "embedding重算完成");
         return result;
+    }
+
+    @Transactional
+    public Map<String, Object> removeBackgroundForPhoto(Long photoId, boolean forceRebuild) {
+        Map<String, Object> result = new HashMap<>();
+        Optional<Photo> opt = photoRepository.findById(photoId);
+        if (opt.isEmpty()) {
+            result.put("error", "照片不存在");
+            return result;
+        }
+        if (!backgroundRemovalService.isModelAvailable()) {
+            result.put("error", "背景移除功能未启用或模型未加载");
+            return result;
+        }
+        Photo photo = opt.get();
+        try {
+            if (!forceRebuild && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank()) {
+                File existingFile = resolveStoredPathSafely(photo.getBackgroundRemovedPath());
+                if (existingFile.exists()) {
+                    result.put("message", "已有抠图缓存，跳过");
+                    result.put("skipped", true);
+                    return result;
+                }
+            }
+            File sourceFile = resolveOriginalFile(photo);
+            if (!sourceFile.exists()) {
+                result.put("error", "源文件不存在");
+                return result;
+            }
+            File parentDir = sourceFile.getParentFile();
+            File cacheDir = new File(parentDir, ".thumbnails");
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs();
+            }
+            File outputFile = new File(cacheDir, "bg_removed_" + photo.getId() + ".png");
+            if (backgroundRemovalService.removeBackground(sourceFile, outputFile)) {
+                photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
+                photoRepository.save(photo);
+                result.put("success", true);
+                result.put("message", "背景移除完成");
+                result.put("photoId", photoId);
+                return result;
+            }
+            result.put("error", "背景移除失败");
+            return result;
+        } catch (Exception e) {
+            result.put("error", "背景移除失败: " + sanitizeVisibleMessage(e.getMessage()));
+            return result;
+        }
     }
 
     /**
@@ -2114,8 +2195,11 @@ public class PhotoScanService {
         Path localCachePath = cacheRoot.resolve(relativeRemotePath).normalize();
         Files.createDirectories(localCachePath.getParent());
         Long remoteSize = longValue(remoteFile.get("size"));
+        Long remoteLastModified = longValue(remoteFile.get("lastModified"));
         boolean needsDownload = !Files.exists(localCachePath)
-            || (remoteSize != null && (!Files.isRegularFile(localCachePath) || Files.size(localCachePath) != remoteSize));
+            || !Files.isRegularFile(localCachePath)
+            || (remoteSize != null && Files.size(localCachePath) != remoteSize)
+            || hasRemoteFileChanged(localCachePath, remoteLastModified);
         if (needsDownload) {
             StorageUploadService.DownloadedFile downloadedFile = storageUploadService.downloadFile(
                 provider,
@@ -2123,8 +2207,19 @@ public class PhotoScanService {
                 relativeRemotePath
             );
             Files.write(localCachePath, downloadedFile.getBytes());
+            if (remoteLastModified != null && remoteLastModified > 0) {
+                Files.setLastModifiedTime(localCachePath, java.nio.file.attribute.FileTime.fromMillis(remoteLastModified));
+            }
         }
         return localCachePath.toFile();
+    }
+
+    private boolean hasRemoteFileChanged(Path localCachePath, Long remoteLastModified) throws IOException {
+        if (remoteLastModified == null || remoteLastModified <= 0 || !Files.exists(localCachePath) || !Files.isRegularFile(localCachePath)) {
+            return false;
+        }
+        long localLastModified = Files.getLastModifiedTime(localCachePath).toMillis();
+        return Math.abs(localLastModified - remoteLastModified) > 1000L;
     }
 
     private Path buildRemoteCacheRoot(StorageProvider provider, Long userId) {

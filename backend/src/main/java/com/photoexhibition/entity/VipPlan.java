@@ -31,6 +31,15 @@ public class VipPlan {
     @Column(name = "price_fen", nullable = false)
     private Integer priceFen = 0;
 
+    @Column(name = "plan_category", nullable = false, length = 32)
+    private String planCategory = "STANDARD";
+
+    @Column(name = "quota_grant_mode", nullable = false, length = 32)
+    private String quotaGrantMode = "FIXED_TERM";
+
+    @Column(name = "stacking_mode", nullable = false, length = 32)
+    private String stackingMode = "REPLACE_OR_EXTEND";
+
     @Column(nullable = false)
     private Boolean enabled = true;
 

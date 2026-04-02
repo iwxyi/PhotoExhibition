@@ -92,6 +92,9 @@
               <span class="chip" :class="overview.emailCodeLoginEnabled ? 'text-cyan-200' : 'text-gray-300'">
                 邮箱验证码：{{ overview.emailCodeLoginEnabled ? `开启 · ${overview.emailCodeExpireMinutes || 5} 分钟` : '关闭' }}
               </span>
+              <span class="chip" :class="overview.modelHealthy ? 'text-emerald-200' : 'text-rose-200'">
+                模型运行：{{ overview.modelHealthy ? '健康' : `异常 · 缺文件 ${overview.missingModelFileCount || 0} / 未启用 ${overview.inactiveModelCount || 0}` }}
+              </span>
             </div>
           </div>
         </div>
@@ -114,6 +117,176 @@
             <div class="text-xs text-gray-400">锁定用户：{{ overview.lockedUserCount }}</div>
             <div class="text-xs text-gray-400">禁用用户：{{ overview.disabledUserCount }}</div>
             <div class="text-xs text-gray-400">默认容量：{{ formatQuotaGb(overview.defaultUserQuotaBytes) }} / VIP 增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }}</div>
+            <div class="text-xs" :class="overview.modelHealthy ? 'text-emerald-300' : 'text-amber-200'">
+              模型健康：总计 {{ overview.modelCount || 0 }} 个，缺文件 {{ overview.missingModelFileCount || 0 }} 个，未启用 {{ overview.inactiveModelCount || 0 }} 个
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="activeTab === 'models'" class="space-y-4">
+        <div class="glass-panel p-6 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 class="text-lg font-light">模型文件管理</h2>
+              <p class="text-xs text-gray-400">支持按 URL 在线下载、ONNX 验证、热加载启用，以及针对模型影响范围发起重建任务。</p>
+            </div>
+            <button
+              class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+              :disabled="loadingModels"
+              @click="loadModels"
+            >
+              {{ loadingModels ? '刷新中...' : '刷新模型状态' }}
+            </button>
+          </div>
+
+          <div class="space-y-4">
+            <div
+              v-for="model in managedModels"
+              :key="model.key"
+              class="rounded-2xl border border-white/10 bg-gray-950/50 p-5 space-y-4"
+            >
+              <div class="flex items-start justify-between gap-4 flex-wrap">
+                <div class="space-y-2">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <h3 class="text-base text-white">{{ model.name }}</h3>
+                    <span class="chip text-xs">{{ model.code }}</span>
+                    <span class="chip text-xs" :class="model.fileExists ? 'text-emerald-200' : 'text-rose-200'">
+                      文件：{{ model.fileExists ? '已就绪' : '缺失' }}
+                    </span>
+                    <span class="chip text-xs" :class="model.active ? 'text-emerald-200' : 'text-amber-200'">
+                      运行：{{ model.active ? '已启用' : '未启用' }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-gray-400 break-all">配置路径：{{ model.configuredPath }}</div>
+                  <div class="text-xs text-gray-400 break-all">实际路径：{{ model.resolvedPath }}</div>
+                  <div class="text-xs text-gray-400">文件大小：{{ formatBytes(model.sizeBytes) }} · 开关：{{ model.enabled ? '启用' : '关闭' }}</div>
+                </div>
+                <div class="text-xs text-amber-200 max-w-xl">
+                  重建说明：{{ (model.rebuildNotes || []).join('；') }}
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div class="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
+                  <div class="text-sm text-gray-200">在线下载并启用</div>
+                  <div class="flex gap-3 flex-wrap">
+                    <input
+                      v-model="modelDownloadUrls[model.key]"
+                      type="text"
+                      placeholder="https://example.com/model.onnx"
+                      class="flex-1 min-w-[260px] px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+                    />
+                    <button
+                      class="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm"
+                      :disabled="downloadingModelKey === model.key || !String(modelDownloadUrls[model.key] || '').trim()"
+                      @click="downloadModel(model)"
+                    >
+                      {{ downloadingModelKey === model.key ? '下载中...' : '下载并验证' }}
+                    </button>
+                    <button
+                      class="px-4 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm"
+                      :disabled="reloadingModelKey === model.key"
+                      @click="reloadModel(model)"
+                    >
+                      {{ reloadingModelKey === model.key ? '重载中...' : '重新加载' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
+                  <div class="text-sm text-gray-200">重建下游数据</div>
+                  <label class="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-gray-900/40 px-4 py-3">
+                    <div>
+                      <div class="text-sm text-white">尝试无数据项</div>
+                      <div class="text-xs text-gray-400">例如人脸模型会额外尝试此前没检测到人脸的照片。</div>
+                    </div>
+                    <input v-model="modelRebuildOptions[model.key].includeMissingItems" type="checkbox" class="mt-1 w-5 h-5 rounded" />
+                  </label>
+                  <label class="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-gray-900/40 px-4 py-3">
+                    <div>
+                      <div class="text-sm text-white">彻底重建</div>
+                      <div class="text-xs text-gray-400">会覆盖已有结果；人脸重建会尽量继承历史人物绑定与确认关系。</div>
+                    </div>
+                    <input v-model="modelRebuildOptions[model.key].forceRebuild" type="checkbox" class="mt-1 w-5 h-5 rounded" />
+                  </label>
+                  <button
+                    class="w-full px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
+                    :disabled="rebuildingModelKey === model.key"
+                    @click="triggerModelRebuild(model)"
+                  >
+                    {{ rebuildingModelKey === model.key ? '已提交...' : '启动重建任务' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="model.latestValidation" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
+                <div class="text-sm text-gray-200">最近验证</div>
+                <div class="text-xs text-gray-400">验证时间：{{ formatDate(model.latestValidation.validatedAt || null) }}</div>
+                <div class="text-xs text-gray-400">验证文件大小：{{ formatBytes(model.latestValidation.sizeBytes) }}</div>
+                <div class="text-xs text-gray-400 break-all">输入节点：{{ (model.latestValidation.inputs || []).join(', ') || '—' }}</div>
+                <div class="text-xs text-gray-400 break-all">输出节点：{{ (model.latestValidation.outputs || []).join(', ') || '—' }}</div>
+              </div>
+
+              <div v-if="modelTaskDetails[model.key] || model.latestTask" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <div class="text-sm text-gray-200">最近任务</div>
+                    <span
+                      class="chip text-xs"
+                      :class="modelTaskStatusClass(modelTaskDetails[model.key] || model.latestTask)"
+                    >
+                      {{ modelTaskStatusLabel(modelTaskDetails[model.key] || model.latestTask) }}
+                    </span>
+                  </div>
+                  <button
+                    v-if="(modelTaskDetails[model.key] || model.latestTask)?.taskId"
+                    class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs"
+                    @click="refreshModelTask((modelTaskDetails[model.key] || model.latestTask)!.taskId, model.key)"
+                  >
+                    刷新任务状态
+                  </button>
+                </div>
+                <div class="text-xs text-gray-400">
+                  状态：{{ (modelTaskDetails[model.key] || model.latestTask)?.status || '—' }}
+                  · 处理 {{ (modelTaskDetails[model.key] || model.latestTask)?.processed || 0 }}/{{ (modelTaskDetails[model.key] || model.latestTask)?.total || 0 }}
+                  · 跳过 {{ (modelTaskDetails[model.key] || model.latestTask)?.skipped || 0 }}
+                  · 失败 {{ (modelTaskDetails[model.key] || model.latestTask)?.failed || 0 }}
+                </div>
+                <div class="h-2 rounded-full bg-gray-800 overflow-hidden">
+                  <div
+                    class="h-full rounded-full transition-all"
+                    :class="modelTaskProgressClass(modelTaskDetails[model.key] || model.latestTask)"
+                    :style="{ width: `${modelTaskProgress(modelTaskDetails[model.key] || model.latestTask)}%` }"
+                  />
+                </div>
+                <div class="text-xs text-gray-300">
+                  {{ (modelTaskDetails[model.key] || model.latestTask)?.message || '暂无任务说明' }}
+                </div>
+                <div v-if="(modelTaskDetails[model.key] || model.latestTask)?.logs?.length" class="max-h-40 overflow-auto rounded-lg bg-gray-950/70 p-3 text-xs text-gray-400 space-y-1">
+                  <div v-for="(log, index) in (modelTaskDetails[model.key] || model.latestTask)?.logs || []" :key="`${model.key}-${index}`">
+                    {{ log }}
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="model.taskHistory?.length" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
+                <div class="text-sm text-gray-200">任务历史</div>
+                <div class="space-y-2">
+                  <div
+                    v-for="task in model.taskHistory"
+                    :key="task.taskId"
+                    class="rounded-lg border border-white/10 px-3 py-2 text-xs text-gray-300"
+                  >
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                      <div>{{ modelTaskStatusLabel(task) }} · {{ formatDate(task.createdAt || null) }}</div>
+                      <div>处理 {{ task.processed }}/{{ task.total }} · 跳过 {{ task.skipped }} · 失败 {{ task.failed }}</div>
+                    </div>
+                    <div class="mt-1 text-gray-400">{{ task.message }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -417,6 +590,13 @@
               {{ sendingTestEmail ? '发送中...' : '发送测试邮件' }}
             </button>
             <button
+              class="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-sm"
+              :disabled="previewingEmailTemplate || sendingTemplateEmail || !selectedEmailTemplate"
+              @click="previewSelectedEmailTemplate"
+            >
+              {{ previewingEmailTemplate ? '预览中...' : '预览模板邮件' }}
+            </button>
+            <button
               class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm"
               :disabled="sendingCustomEmail"
               @click="sendCustomEmail"
@@ -616,6 +796,80 @@
           <div>推荐主机：{{ emailPreset.host || '请按服务商文档填写' }}</div>
           <div>推荐端口：{{ emailPreset.port }} · 协议：{{ emailPreset.protocol }} · SSL：{{ emailPreset.sslEnabled ? '开启' : '关闭' }} · STARTTLS：{{ emailPreset.starttlsEnabled ? '开启' : '关闭' }}</div>
           <div>{{ emailPreset.hint }}</div>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 space-y-4">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-sm text-white">模板邮件</div>
+              <div class="text-xs text-gray-400 mt-1">可直接预览并发送欢迎邮件、验证码邮件、系统通知与维护通知。</div>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <button
+                class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm border border-white/10"
+                :disabled="!emailTemplatePreview"
+                @click="applyTemplatePreviewToCustomEmail"
+              >
+                套用到自定义邮件
+              </button>
+              <button
+                class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm"
+                :disabled="sendingTemplateEmail || !selectedEmailTemplate"
+                @click="sendSelectedEmailTemplate"
+              >
+                {{ sendingTemplateEmail ? '发送中...' : '直接发送模板邮件' }}
+              </button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <label class="space-y-2">
+              <span class="text-sm text-gray-300">模板类型</span>
+              <select v-model="selectedEmailTemplateKey" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl">
+                <option v-for="template in emailTemplates" :key="template.key" :value="template.key">
+                  {{ template.name }}
+                </option>
+              </select>
+            </label>
+            <label class="space-y-2">
+              <span class="text-sm text-gray-300">模板收件人</span>
+              <input v-model="templateEmailRecipient" type="email" placeholder="user@example.com" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl" />
+            </label>
+            <label
+              v-for="field in selectedEmailTemplate?.fields || []"
+              :key="field.key"
+              class="space-y-2"
+            >
+              <span class="text-sm text-gray-300">{{ field.label }}</span>
+              <input
+                v-model="emailTemplateVariables[field.key]"
+                type="text"
+                :placeholder="field.placeholder || ''"
+                class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              />
+            </label>
+          </div>
+          <div v-if="selectedEmailTemplate" class="text-xs text-gray-400">
+            {{ selectedEmailTemplate.description }}
+          </div>
+          <div v-if="emailTemplatePreview" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-sm text-white">{{ emailTemplatePreview.templateName }}</div>
+                <div class="text-xs text-gray-400">主题：{{ emailTemplatePreview.subject }}</div>
+              </div>
+              <span class="text-[10px] px-2 py-1 rounded-full border border-white/10 text-gray-400">
+                {{ emailTemplatePreview.html ? 'HTML' : '纯文本' }}
+              </span>
+            </div>
+            <div
+              v-if="emailTemplatePreview.html"
+              class="rounded-lg bg-white text-gray-900 p-4 text-sm"
+              v-html="emailTemplatePreview.content"
+            />
+            <pre
+              v-else
+              class="rounded-lg bg-gray-950/70 p-4 text-xs text-gray-200 whitespace-pre-wrap overflow-x-auto"
+            >{{ emailTemplatePreview.content }}</pre>
+          </div>
         </div>
         <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 space-y-4">
           <div>
@@ -1228,6 +1482,10 @@
 
         <div class="rounded-2xl border border-dashed border-white/15 p-5 space-y-4">
           <div class="text-sm text-gray-200">新增套餐</div>
+          <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-100 space-y-1">
+            <div>当前线上可用规则建议保持：`STANDARD + FIXED_TERM + REPLACE_OR_EXTEND`。</div>
+            <div>活动赠送、永久容量、可叠加套餐仅先做架构预留；实际产品流程和页面后续再补。</div>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <label class="block space-y-1">
               <span class="text-[11px] text-gray-400">套餐编码</span>
@@ -1248,6 +1506,31 @@
             <label class="block space-y-1">
               <span class="text-[11px] text-gray-400">价格（元）</span>
               <input v-model.number="newVipPlan.priceYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+            </label>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">套餐分类</span>
+              <select v-model="newVipPlan.planCategory" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+                <option value="STANDARD">标准套餐</option>
+                <option value="PROMOTIONAL">活动套餐</option>
+                <option value="REWARD">赠送套餐</option>
+                <option value="PERMANENT">永久容量</option>
+              </select>
+            </label>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">容量发放模式</span>
+              <select v-model="newVipPlan.quotaGrantMode" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+                <option value="FIXED_TERM">固定时长</option>
+                <option value="RECURRING_TERM">可续期时长</option>
+                <option value="PERMANENT">永久生效</option>
+              </select>
+            </label>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">叠加模式</span>
+              <select v-model="newVipPlan.stackingMode" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+                <option value="REPLACE_OR_EXTEND">替换或续期</option>
+                <option value="STACKABLE">允许叠加</option>
+                <option value="INDEPENDENT">独立生效</option>
+              </select>
             </label>
             <label class="block space-y-1">
               <span class="text-[11px] text-gray-400">排序</span>
@@ -1290,6 +1573,33 @@
                 <span class="text-[11px] text-gray-400">套餐名称</span>
                 <input v-model="plan.name" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
               </label>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <label class="block space-y-1">
+                  <span class="text-[11px] text-gray-400">套餐分类</span>
+                  <select v-model="plan.planCategory" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                    <option value="STANDARD">标准套餐</option>
+                    <option value="PROMOTIONAL">活动套餐</option>
+                    <option value="REWARD">赠送套餐</option>
+                    <option value="PERMANENT">永久容量</option>
+                  </select>
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[11px] text-gray-400">容量发放模式</span>
+                  <select v-model="plan.quotaGrantMode" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                    <option value="FIXED_TERM">固定时长</option>
+                    <option value="RECURRING_TERM">可续期时长</option>
+                    <option value="PERMANENT">永久生效</option>
+                  </select>
+                </label>
+                <label class="block space-y-1">
+                  <span class="text-[11px] text-gray-400">叠加模式</span>
+                  <select v-model="plan.stackingMode" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                    <option value="REPLACE_OR_EXTEND">替换或续期</option>
+                    <option value="STACKABLE">允许叠加</option>
+                    <option value="INDEPENDENT">独立生效</option>
+                  </select>
+                </label>
+              </div>
               <div class="text-xs text-gray-500">创建于 {{ formatDate(plan.createdAt) }}</div>
             </div>
           </template>
@@ -1550,6 +1860,14 @@
               <input v-model.number="newVipOrder.amountYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">变更类型</span>
+              <select v-model="newVipOrder.changeType" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+                <option value="PURCHASE">PURCHASE / 新购</option>
+                <option value="RENEWAL">RENEWAL / 续费</option>
+                <option value="UPGRADE">UPGRADE / 升配</option>
+              </select>
+            </label>
+            <label class="block space-y-1">
               <span class="text-[11px] text-gray-400">订单状态</span>
               <select v-model="newVipOrder.status" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
                 <option value="CREATED">CREATED</option>
@@ -1574,10 +1892,26 @@
               <span class="text-[11px] text-gray-400">订单来源</span>
               <input v-model="newVipOrder.source" type="text" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
             </label>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">来源套餐 ID</span>
+              <input v-model.number="newVipOrder.sourceVipPlanId" type="number" min="1" step="1" placeholder="升配时填写原套餐 ID" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+            </label>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">原价（元）</span>
+              <input v-model="newVipOrder.originalAmountYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+            </label>
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">抵扣（元）</span>
+              <input v-model="newVipOrder.creditedAmountYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+            </label>
             <label class="flex items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-sm">
               <input v-model="newVipOrder.autoRenewEnabled" type="checkbox" class="w-4 h-4 rounded" />
               自动续费
             </label>
+          </div>
+          <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100 space-y-1">
+            <div>规则提示：新购 / 续费通常为原价=实付、抵扣=0；升配建议填写来源套餐 ID 与抵扣金额。</div>
+            <div>建议关系：原价 ≥ 实付，且抵扣 ≤ 原价；不同容量不同期限的复杂换购暂不建议手工混用。</div>
           </div>
           <label class="block space-y-1">
             <span class="text-[11px] text-gray-400">备注</span>
@@ -1604,10 +1938,28 @@
               <div class="font-medium">{{ order.orderNo }}</div>
               <div class="text-xs text-gray-400">{{ order.nickname || order.username || '未知用户' }}</div>
               <div class="text-xs text-gray-500">{{ order.vipPlanName || order.vipPlanCode || '未知套餐' }}</div>
+              <div class="text-xs text-indigo-300">
+                类型：{{ vipOrderChangeTypeLabel(order.changeType) }}
+                <span v-if="order.sourceVipPlanId"> · 来源套餐 ID {{ order.sourceVipPlanId }}</span>
+              </div>
+              <select v-model="order.changeType" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                <option value="PURCHASE">PURCHASE / 新购</option>
+                <option value="RENEWAL">RENEWAL / 续费</option>
+                <option value="UPGRADE">UPGRADE / 升配</option>
+              </select>
+              <input v-model.number="order.sourceVipPlanId" type="number" min="1" step="1" placeholder="来源套餐 ID（升配用）" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
             </div>
           </template>
           <template #cell-amountYuan="{ row: order }">
-            <input v-model.number="order.amountYuan" type="number" min="0" step="0.01" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+            <div class="space-y-2">
+              <input v-model.number="order.amountYuan" type="number" min="0" step="0.01" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <input v-model="order.originalAmountYuan" type="number" min="0" step="0.01" placeholder="原价（元）" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <input v-model="order.creditedAmountYuan" type="number" min="0" step="0.01" placeholder="抵扣（元）" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <div class="text-xs text-gray-400">
+                原价：¥{{ Number(order.originalAmountYuan || order.amountYuan || 0).toFixed(2) }}
+                <span class="block">抵扣：¥{{ Number(order.creditedAmountYuan || 0).toFixed(2) }}</span>
+              </div>
+            </div>
           </template>
           <template #cell-status="{ row: order }">
             <select v-model="order.status" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
@@ -1671,7 +2023,10 @@
             </div>
           </template>
           <template #cell-remark="{ row: order }">
-            <textarea v-model="order.remark" rows="3" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+            <div class="space-y-2">
+              <textarea v-model="order.remark" rows="3" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <textarea v-model="order.pricingDetailJson" rows="3" placeholder="定价明细 JSON（可选，用于记录升配折算细节）" class="w-full px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-xs font-mono" />
+            </div>
           </template>
           <template #cell-actions="{ row: order }">
             <div class="grid grid-cols-2 gap-2">
@@ -1820,6 +2175,13 @@
               <div>拉起类型：{{ paymentInitiation.actionType || 'API_REQUEST' }}</div>
               <div>跳转模式：{{ paymentInitiation.redirect ? '页面跳转' : '服务端/API' }}</div>
               <div>状态说明：{{ paymentInitiation.message }}</div>
+              <button
+                v-if="canDirectLaunchPayment(paymentInitiation)"
+                class="mt-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white"
+                @click="launchSuperAdminPayment"
+              >
+                新窗口拉起
+              </button>
             </div>
             <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.payload, null, 2) }}</pre>
           </div>
@@ -2161,15 +2523,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiTestToolPanel from '@/components/admin/ApiTestToolPanel.vue'
 import ConfigurableTable, { type ConfigurableColumn } from '@/components/admin/ConfigurableTable.vue'
 import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
 import {
   type ConfigurableTablePreference,
+  type EmailTemplatePreview,
+  type EmailTemplateSummary,
   type LegacyMigrationSummary,
   type LoginRecordSummary,
+  type ManagedModelSummary,
+  type ModelRebuildTask,
   type OperationLogSummary,
   type PageResponse,
   type SuperAdminTablePreferences,
@@ -2188,12 +2554,13 @@ import {
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { emailProviderLabel, paymentProviderLabel, smsProviderLabel, storageTypeLabel } from '@/utils/providerLabels'
+import { canDirectLaunchPayment, launchPaymentInitiation } from '@/utils/paymentLaunch'
 
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-type SuperAdminTabKey = 'overview' | 'global' | 'integrations' | 'users' | 'logins' | 'operations' | 'vip' | 'vipOrders' | 'storage'
+type SuperAdminTabKey = 'overview' | 'models' | 'global' | 'integrations' | 'users' | 'logins' | 'operations' | 'vip' | 'vipOrders' | 'storage'
 
 const loading = ref(false)
 const savingSettings = ref(false)
@@ -2204,6 +2571,12 @@ const savingVipOrderId = ref<number | null>(null)
 const runningMigration = ref(false)
 const sendingTestEmail = ref(false)
 const sendingCustomEmail = ref(false)
+const previewingEmailTemplate = ref(false)
+const sendingTemplateEmail = ref(false)
+const loadingModels = ref(false)
+const downloadingModelKey = ref<string | null>(null)
+const reloadingModelKey = ref<string | null>(null)
+const rebuildingModelKey = ref<string | null>(null)
 const statusMessage = ref('')
 const statusType = ref<'success' | 'error'>('success')
 const migrationSummary = ref<LegacyMigrationSummary | null>(null)
@@ -2218,6 +2591,7 @@ let tablePreferenceSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const superAdminTabs = [
   { key: 'overview', label: '概览' },
+  { key: 'models', label: '模型管理' },
   { key: 'global', label: '全局设置' },
   { key: 'integrations', label: '短信 / 邮件 / 迁移' },
   { key: 'users', label: '用户管理' },
@@ -2272,7 +2646,11 @@ const overview = reactive<SuperAdminOverview>({
   localStorageRoot: '',
   userDataRoot: '',
   totalQuotaBytes: 0,
-  totalUsedBytes: 0
+  totalUsedBytes: 0,
+  modelCount: 0,
+  missingModelFileCount: 0,
+  inactiveModelCount: 0,
+  modelHealthy: false
 })
 
 const settings = reactive<SuperAdminSettings>({
@@ -2337,10 +2715,16 @@ const customEmail = reactive({
   content: '',
   html: false
 })
+const emailTemplates = ref<EmailTemplateSummary[]>([])
+const selectedEmailTemplateKey = ref('WELCOME')
+const templateEmailRecipient = ref('')
+const emailTemplateVariables = reactive<Record<string, string>>({})
+const emailTemplatePreview = ref<EmailTemplatePreview | null>(null)
 
 const users = ref<UserAccountSummary[]>([])
 const loginRecords = ref<LoginRecordSummary[]>([])
 const operationLogs = ref<OperationLogSummary[]>([])
+const managedModels = ref<ManagedModelSummary[]>([])
 const storageProviders = ref<StorageProviderSummary[]>([])
 const vipPlans = ref<VipPlanSummary[]>([])
 const vipOrders = ref<VipOrderSummary[]>([])
@@ -2350,6 +2734,10 @@ const paymentInitiation = ref<PaymentInitiationResponse | null>(null)
 const paymentRefundPreview = ref<PaymentRefundPreview | null>(null)
 const vipRenewalPreview = ref<VipRenewalPreviewResponse | null>(null)
 const vipRenewalExecution = ref<VipRenewalExecuteResponse | null>(null)
+const modelDownloadUrls = reactive<Record<string, string>>({})
+const modelRebuildOptions = reactive<Record<string, { includeMissingItems: boolean; forceRebuild: boolean }>>({})
+const modelTaskDetails = reactive<Record<string, ModelRebuildTask | null>>({})
+let modelTaskPollTimer: ReturnType<typeof setInterval> | null = null
 const previewingVipOrderId = ref<number | null>(null)
 const initiatingVipOrderId = ref<number | null>(null)
 const mockingVipOrderId = ref<number | null>(null)
@@ -2379,6 +2767,9 @@ const newVipPlan = reactive<Partial<VipPlanSummary>>({
   extraQuotaGb: 0,
   durationDays: 30,
   priceYuan: 0,
+  planCategory: 'STANDARD',
+  quotaGrantMode: 'FIXED_TERM',
+  stackingMode: 'REPLACE_OR_EXTEND',
   enabled: true,
   sortOrder: 100
 })
@@ -2390,6 +2781,10 @@ const newVipOrder = reactive<Partial<VipOrderSummary>>({
   userId: undefined,
   vipPlanId: undefined,
   amountYuan: 0,
+  originalAmountYuan: '0',
+  creditedAmountYuan: '0',
+  changeType: 'PURCHASE',
+  sourceVipPlanId: undefined,
   status: 'PAID',
   source: 'MANUAL',
   paidAt: null,
@@ -2398,6 +2793,17 @@ const newVipOrder = reactive<Partial<VipOrderSummary>>({
   expireAt: null,
   remark: ''
 })
+
+watch(() => newVipOrder.changeType, () => {
+  normalizeVipOrderDraftByChangeType(newVipOrder)
+}, { immediate: true })
+
+watch(() => newVipOrder.amountYuan, value => {
+  const changeType = String(newVipOrder.changeType || 'PURCHASE').toUpperCase()
+  if (changeType === 'PURCHASE' || changeType === 'RENEWAL') {
+    newVipOrder.originalAmountYuan = Number(value || 0).toFixed(2)
+  }
+}, { immediate: true })
 
 const showMessage = (message: string, type: 'success' | 'error' = 'success') => {
   statusMessage.value = message
@@ -2514,61 +2920,61 @@ const paymentProviderCapabilityMeta = {
     initiationMode: 'API_REQUEST',
     refundMode: 'API_REFUND',
     capabilityTags: ['Hosted Checkout', 'Webhook 验签', '退款 API'],
-    integrationSteps: ['创建 Checkout Session 并回填 hosted URL', '回调侧校验 Stripe-Signature', '支付成功后同步 session/payment_intent', '退款时接 refunds.create']
+    integrationSteps: ['TODO: 创建 Checkout Session 并回填 hosted URL', 'TODO: 回调侧校验 Stripe-Signature', 'TODO: 支付成功后同步 session/payment_intent', 'TODO: 退款时接 refunds.create']
   },
   PAYPAL: {
     initiationMode: 'API_REQUEST',
     refundMode: 'API_REFUND',
     capabilityTags: ['Approve 链接', 'Webhook 验签', '退款 API'],
-    integrationSteps: ['创建 checkout order 并提取 approve 链接', '回调/Webhook 校验 PayPal 签名', '支付成功后 capture order', '退款时接 capture refund API']
+    integrationSteps: ['TODO: 创建 checkout order 并提取 approve 链接', 'TODO: 回调/Webhook 校验 PayPal 签名', 'TODO: 支付成功后 capture order', 'TODO: 退款时接 capture refund API']
   },
   UNIONPAY: {
     initiationMode: 'REDIRECT_FORM',
     refundMode: 'API_REFUND',
     capabilityTags: ['网关表单', '证书签名', '前后台通知'],
-    integrationSteps: ['补证书签名并提交前台表单', '处理前台回跳和后台通知', '按银联证书体系完成验签', '退款时接退款交易接口']
+    integrationSteps: ['TODO: 补证书签名并提交前台表单', 'TODO: 处理前台回跳和后台通知', 'TODO: 按银联证书体系完成验签', 'TODO: 退款时接退款交易接口']
   },
   PADDLE: {
     initiationMode: 'API_REQUEST',
     refundMode: 'DASHBOARD_OR_API',
     capabilityTags: ['订阅/数字商品', 'Hosted Checkout', 'Webhook 验签'],
-    integrationSteps: ['创建 transaction 并回填 hosted checkout 链接', '校验 Paddle Webhook Secret', '联通订阅/自动续费映射', '退款时接 Paddle transaction adjustment']
+    integrationSteps: ['TODO: 创建 transaction 并回填 hosted checkout 链接', 'TODO: 校验 Paddle Webhook Secret', 'TODO: 联通订阅/自动续费映射', 'TODO: 退款时接 Paddle transaction adjustment']
   },
   LEMON_SQUEEZY: {
     initiationMode: 'API_REQUEST',
     refundMode: 'DASHBOARD_OR_API',
     capabilityTags: ['订阅/数字商品', 'Hosted Checkout', 'Webhook 验签'],
-    integrationSteps: ['创建 checkout 并回填 hosted checkout 链接', '校验 Lemon Squeezy 签名头', '联通订阅与 License/Order 映射', '退款优先走控制台或补官方 API']
+    integrationSteps: ['TODO: 创建 checkout 并回填 hosted checkout 链接', 'TODO: 校验 Lemon Squeezy 签名头', 'TODO: 联通订阅与 License/Order 映射', 'TODO: 退款优先走控制台或补官方 API']
   },
   ADYEN: {
     initiationMode: 'API_REQUEST',
     refundMode: 'API_REFUND',
     capabilityTags: ['聚合收单', '3DS 扩展', 'Webhook 验签'],
-    integrationSteps: ['先拉 paymentMethods 再发起 payments', '补 3DS / redirectResult 回跳处理', '校验 HMAC 通知签名', '退款时接 modifications/refunds']
+    integrationSteps: ['TODO: 先拉 paymentMethods 再发起 payments', 'TODO: 补 3DS / redirectResult 回跳处理', 'TODO: 校验 HMAC 通知签名', 'TODO: 退款时接 modifications/refunds']
   },
   MOLLIE: {
     initiationMode: 'API_REQUEST',
     refundMode: 'API_REFUND',
     capabilityTags: ['欧洲收单', 'Hosted Checkout', '退款 API'],
-    integrationSteps: ['创建 payment 并回填 checkoutUrl', '回调后主动查询 payment 状态', '校验 metadata 与来源单映射', '退款时接 refunds API']
+    integrationSteps: ['TODO: 创建 payment 并回填 checkoutUrl', 'TODO: 回调后主动查询 payment 状态', 'TODO: 校验 metadata 与来源单映射', 'TODO: 退款时接 refunds API']
   },
   XENDIT: {
     initiationMode: 'API_REQUEST',
     refundMode: 'API_REFUND',
     capabilityTags: ['东南亚支付', 'Hosted Payment Page', 'Webhook 验签'],
-    integrationSteps: ['创建 payment request 并回填 hosted payment 链接', '校验 Xendit webhook secret', '支付后根据 referenceId 回写订单', '退款时接 refund / payment token API']
+    integrationSteps: ['TODO: 创建 payment request 并回填 hosted payment 链接', 'TODO: 校验 Xendit webhook secret', 'TODO: 支付后根据 referenceId 回写订单', 'TODO: 退款时接 refund / payment token API']
   },
   MIDTRANS: {
     initiationMode: 'API_REQUEST',
     refundMode: 'API_REFUND',
     capabilityTags: ['东南亚支付', 'Hosted Payment Page', 'Webhook 验签'],
-    integrationSteps: ['选定 Snap 或 Core API 并生成 token/redirect_url', '校验 transaction_status / fraud_status 回调', '订单完成后根据 order_id 回写', '退款时接 Midtrans refund API']
+    integrationSteps: ['TODO: 选定 Snap 或 Core API 并生成 token/redirect_url', 'TODO: 校验 transaction_status / fraud_status 回调', 'TODO: 订单完成后根据 order_id 回写', 'TODO: 退款时接 Midtrans refund API']
   },
   CUSTOM_WEBHOOK: {
     initiationMode: 'API_REQUEST',
     refundMode: 'CUSTOM_CALLBACK',
     capabilityTags: ['自定义网关', '内部收银台', '自定义验签'],
-    integrationSteps: ['定义内部支付网关请求协议', '约定统一回调签名头与订单号字段', '完成支付后调用统一回调入口', '退款时复用自定义退款回调协议']
+    integrationSteps: ['TODO: 定义内部支付网关请求协议', 'TODO: 约定统一回调签名头与订单号字段', 'TODO: 完成支付后调用统一回调入口', 'TODO: 退款时复用自定义退款回调协议']
   }
 } as const
 
@@ -2644,7 +3050,7 @@ const operationTableColumns: ConfigurableColumn[] = [
 
 const vipPlanTableColumns: ConfigurableColumn[] = [
   { key: 'code', label: '编码', sortable: true, cellClass: 'min-w-[160px]' },
-  { key: 'name', label: '名称', sortable: true, cellClass: 'min-w-[200px]' },
+  { key: 'name', label: '名称 / 架构', sortable: true, cellClass: 'min-w-[420px]' },
   { key: 'extraQuotaGb', label: '额外空间(GB)', sortable: true, cellClass: 'min-w-[130px]' },
   { key: 'durationDays', label: '时长(天)', sortable: true, cellClass: 'min-w-[120px]' },
   { key: 'priceYuan', label: '价格(元)', sortable: true, cellClass: 'min-w-[120px]' },
@@ -2910,6 +3316,10 @@ const smsTemplateLabel = computed(() => {
 
 const emailPreset = computed(() => {
   return emailProviderPresets[settings.emailProviderType] || emailProviderPresets.SMTP
+})
+
+const selectedEmailTemplate = computed(() => {
+  return emailTemplates.value.find(item => item.key === selectedEmailTemplateKey.value) || null
 })
 
 const paymentPreset = computed(() => {
@@ -3346,10 +3756,6 @@ watch(() => settings.paymentProviderType, value => {
   )
 }, { immediate: true })
 
-watch(() => newProvider.type, () => {
-  handleNewProviderTypeChange()
-}, { immediate: true })
-
 const loadOverview = async () => {
   const { data } = await superAdminApi.getOverview()
   applyOverview(data)
@@ -3432,6 +3838,8 @@ const normalizeVipOrder = (order: VipOrderSummary): VipOrderSummary => ({
   ...order,
   order: order.orderNo,
   amountYuan: Math.round((Number(order.amountFen || 0) / 100) * 100) / 100,
+  originalAmountYuan: (Math.round((Number(order.originalAmountFen ?? order.amountFen ?? 0) / 100) * 100) / 100).toFixed(2),
+  creditedAmountYuan: (Math.round((Number(order.creditedAmountFen || 0) / 100) * 100) / 100).toFixed(2),
   paidAt: normalizeDateTimeLocal(order.paidAt),
   nextRenewalAt: normalizeDateTimeLocal(order.nextRenewalAt),
   expireAt: normalizeDateTimeLocal(order.expireAt)
@@ -3570,11 +3978,231 @@ const loadStorageProviders = async () => {
   sanitizeStorageSelections()
 }
 
+const resetEmailTemplateVariables = (template?: EmailTemplateSummary | null) => {
+  Object.keys(emailTemplateVariables).forEach(key => {
+    delete emailTemplateVariables[key]
+  })
+  if (!template) {
+    emailTemplatePreview.value = null
+    return
+  }
+  Object.entries(template.sampleVariables || {}).forEach(([key, value]) => {
+    emailTemplateVariables[key] = value == null ? '' : String(value)
+  })
+  emailTemplatePreview.value = null
+}
+
+const loadEmailTemplates = async () => {
+  const { data } = await superAdminApi.getEmailTemplates()
+  emailTemplates.value = data.templates || []
+  if (!emailTemplates.value.length) {
+    selectedEmailTemplateKey.value = ''
+    resetEmailTemplateVariables(null)
+    return
+  }
+  if (!emailTemplates.value.some(item => item.key === selectedEmailTemplateKey.value)) {
+    selectedEmailTemplateKey.value = emailTemplates.value[0].key
+  }
+  resetEmailTemplateVariables(selectedEmailTemplate.value)
+}
+
+const ensureModelFormState = (models: ManagedModelSummary[]) => {
+  models.forEach(model => {
+    if (modelDownloadUrls[model.key] == null) {
+      modelDownloadUrls[model.key] = ''
+    }
+    if (modelRebuildOptions[model.key] == null) {
+      modelRebuildOptions[model.key] = {
+        includeMissingItems: true,
+        forceRebuild: false
+      }
+    }
+    modelTaskDetails[model.key] = model.latestTask || modelTaskDetails[model.key] || null
+  })
+}
+
+const loadModels = async () => {
+  loadingModels.value = true
+  try {
+    const { data } = await superAdminApi.getModels()
+    managedModels.value = data.models || []
+    ensureModelFormState(managedModels.value)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '加载模型列表失败', 'error')
+  } finally {
+    loadingModels.value = false
+  }
+}
+
+const refreshModelTask = async (taskId: string, modelKey?: string) => {
+  if (!taskId) return
+  try {
+    const { data } = await superAdminApi.getModelTask(taskId)
+    const targetKey = modelKey || data.modelKey
+    modelTaskDetails[targetKey] = data
+    const targetModel = managedModels.value.find(item => item.key === targetKey)
+    if (targetModel) {
+      targetModel.latestTask = data
+    }
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '刷新模型任务失败', 'error')
+  }
+}
+
+const startModelTaskPolling = () => {
+  if (modelTaskPollTimer) return
+  modelTaskPollTimer = setInterval(async () => {
+    const activeTasks = Object.entries(modelTaskDetails)
+      .map(([, task]) => task)
+      .filter((task): task is ModelRebuildTask => !!task && !task.complete)
+    if (!activeTasks.length) {
+      stopModelTaskPolling()
+      return
+    }
+    await Promise.all(activeTasks.map(task => refreshModelTask(task.taskId, task.modelKey)))
+    await loadModels()
+  }, 3000)
+}
+
+const stopModelTaskPolling = () => {
+  if (!modelTaskPollTimer) return
+  clearInterval(modelTaskPollTimer)
+  modelTaskPollTimer = null
+}
+
+const downloadModel = async (model: ManagedModelSummary) => {
+  const url = String(modelDownloadUrls[model.key] || '').trim()
+  if (!url) {
+    showMessage('请输入模型下载 URL', 'error')
+    return
+  }
+  downloadingModelKey.value = model.key
+  try {
+    const { data } = await superAdminApi.downloadModel(model.key, url)
+    await loadModels()
+    showMessage(data?.message || `${model.name} 下载并启用成功`)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || `下载 ${model.name} 失败`, 'error')
+  } finally {
+    downloadingModelKey.value = null
+  }
+}
+
+const reloadModel = async (model: ManagedModelSummary) => {
+  reloadingModelKey.value = model.key
+  try {
+    const { data } = await superAdminApi.reloadModel(model.key)
+    await loadModels()
+    showMessage(data?.message || `${model.name} 已重载`)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || `重载 ${model.name} 失败`, 'error')
+  } finally {
+    reloadingModelKey.value = null
+  }
+}
+
+const triggerModelRebuild = async (model: ManagedModelSummary) => {
+  const options = modelRebuildOptions[model.key]
+  if (!options.includeMissingItems && !options.forceRebuild) {
+    showMessage('请至少选择一种重建策略：尝试无数据项 或 彻底重建', 'error')
+    return
+  }
+  const warning = [
+    `确认重建「${model.name}」下游数据？`,
+    '',
+    `尝试无数据项：${options.includeMissingItems ? '是' : '否'}`,
+    `彻底重建：${options.forceRebuild ? '是' : '否'}`,
+    '',
+    '注意：',
+    '1. 尝试无数据项会补跑此前没有结果的记录。',
+    '2. 彻底重建会覆盖已有结果。',
+    '3. 人脸重建会尽量保留既有人脸与人物绑定、确认关系。'
+  ].join('\n')
+  if (!confirm(warning)) return
+  rebuildingModelKey.value = model.key
+  try {
+    const { data } = await superAdminApi.rebuildModel(model.key, {
+      includeMissingItems: !!options.includeMissingItems,
+      forceRebuild: !!options.forceRebuild
+    })
+    const task = data?.task as ModelRebuildTask | undefined
+    if (task) {
+      modelTaskDetails[model.key] = task
+      startModelTaskPolling()
+    }
+    await loadModels()
+    showMessage(data?.message || `${model.name} 重建任务已启动`)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || `启动 ${model.name} 重建失败`, 'error')
+  } finally {
+    rebuildingModelKey.value = null
+  }
+}
+
+const modelTaskProgress = (task?: ModelRebuildTask | null) => {
+  if (!task) return 0
+  if (task.complete && (!task.total || task.total <= 0)) return 100
+  const total = Number(task.total || 0)
+  if (total <= 0) return 0
+  const finished = Number(task.processed || 0) + Number(task.skipped || 0) + Number(task.failed || 0)
+  return Math.max(0, Math.min(100, Math.round((finished / total) * 100)))
+}
+
+const modelTaskStatusLabel = (task?: ModelRebuildTask | null) => {
+  if (!task) return '暂无任务'
+  switch (task.status) {
+    case 'SUCCESS':
+      return '已完成'
+    case 'FAILED':
+      return '失败'
+    case 'RUNNING':
+      return '执行中'
+    case 'PENDING':
+      return '等待中'
+    default:
+      return task.status || '未知'
+  }
+}
+
+const modelTaskStatusClass = (task?: ModelRebuildTask | null) => {
+  if (!task) return 'text-gray-300'
+  switch (task.status) {
+    case 'SUCCESS':
+      return 'text-emerald-200'
+    case 'FAILED':
+      return 'text-rose-200'
+    case 'RUNNING':
+      return 'text-sky-200'
+    case 'PENDING':
+      return 'text-amber-200'
+    default:
+      return 'text-gray-300'
+  }
+}
+
+const modelTaskProgressClass = (task?: ModelRebuildTask | null) => {
+  if (!task) return 'bg-gray-600'
+  switch (task.status) {
+    case 'SUCCESS':
+      return 'bg-emerald-500'
+    case 'FAILED':
+      return 'bg-rose-500'
+    case 'RUNNING':
+      return 'bg-sky-500'
+    case 'PENDING':
+      return 'bg-amber-500'
+    default:
+      return 'bg-gray-500'
+  }
+}
+
 const loadAll = async () => {
   loading.value = true
   try {
     const results = await Promise.allSettled([
       loadOverview(),
+      loadModels(),
+      loadEmailTemplates(),
       loadSettings(),
       loadTablePreferences(),
       loadUsers(),
@@ -3586,7 +4214,7 @@ const loadAll = async () => {
       loadFocusedVipOrder(),
       loadVipRenewalPreview()
     ])
-    const moduleLabels = ['概览', '全局设置', '表格偏好', '用户管理', '存储配置', '登录记录', '操作记录', 'VIP套餐', 'VIP订单', '订单定位', '续费预演']
+    const moduleLabels = ['概览', '模型管理', '邮件模板', '全局设置', '表格偏好', '用户管理', '存储配置', '登录记录', '操作记录', 'VIP套餐', 'VIP订单', '订单定位', '续费预演']
     const failedItems = results
       .map((result, index) => ({ result, index }))
       .filter(item => item.result.status === 'rejected')
@@ -3671,6 +4299,18 @@ watch(
   },
   { immediate: true }
 )
+
+watch(activeTab, value => {
+  if (value === 'models') {
+    loadModels()
+    const hasRunningTask = Object.values(modelTaskDetails).some(task => task && !task.complete)
+    if (hasRunningTask) {
+      startModelTaskPolling()
+    }
+    return
+  }
+  stopModelTaskPolling()
+}, { immediate: true })
 
 watch(
   () => route.query.focusOrderNo,
@@ -3832,6 +4472,66 @@ const sendCustomEmail = async () => {
   }
 }
 
+const buildTemplatePayload = () => ({
+  templateKey: selectedEmailTemplateKey.value,
+  variables: Object.fromEntries(
+    Object.entries(emailTemplateVariables).map(([key, value]) => [key, String(value || '').trim()])
+  )
+})
+
+const previewSelectedEmailTemplate = async () => {
+  if (!selectedEmailTemplate.value) {
+    showMessage('暂无可用邮件模板', 'error')
+    return
+  }
+  previewingEmailTemplate.value = true
+  try {
+    const { data } = await superAdminApi.previewEmailTemplate(buildTemplatePayload())
+    emailTemplatePreview.value = data
+    showMessage(`已预览 ${data.templateName}`)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '预览模板邮件失败', 'error')
+  } finally {
+    previewingEmailTemplate.value = false
+  }
+}
+
+const applyTemplatePreviewToCustomEmail = async () => {
+  if (!emailTemplatePreview.value) {
+    await previewSelectedEmailTemplate()
+  }
+  if (!emailTemplatePreview.value) return
+  customEmail.recipient = templateEmailRecipient.value.trim()
+  customEmail.subject = emailTemplatePreview.value.subject
+  customEmail.content = emailTemplatePreview.value.content
+  customEmail.html = !!emailTemplatePreview.value.html
+  showMessage('已套用到自定义邮件区')
+}
+
+const sendSelectedEmailTemplate = async () => {
+  if (!selectedEmailTemplate.value) {
+    showMessage('暂无可用邮件模板', 'error')
+    return
+  }
+  if (!templateEmailRecipient.value.trim()) {
+    showMessage('请输入模板收件人邮箱', 'error')
+    return
+  }
+  sendingTemplateEmail.value = true
+  try {
+    const { data } = await superAdminApi.sendEmailTemplate({
+      recipient: templateEmailRecipient.value.trim(),
+      ...buildTemplatePayload()
+    })
+    emailTemplatePreview.value = data
+    showMessage(data?.message || '模板邮件已发送')
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '发送模板邮件失败', 'error')
+  } finally {
+    sendingTemplateEmail.value = false
+  }
+}
+
 const applyEmailPreset = () => {
   const preset = emailPreset.value
   settings.emailHost = preset.host
@@ -3883,6 +4583,14 @@ const handleNewProviderTypeChange = () => {
   clearHiddenStorageFields(newProvider)
   fillProviderPresetByVisibility(newProvider)
 }
+
+watch(() => newProvider.type, () => {
+  handleNewProviderTypeChange()
+}, { immediate: true })
+
+watch(selectedEmailTemplateKey, () => {
+  resetEmailTemplateVariables(selectedEmailTemplate.value)
+})
 
 const handleProviderTypeChange = (provider: Partial<StorageProviderSummary>) => {
   clearHiddenStorageFields(provider)
@@ -4031,6 +4739,9 @@ const resetNewVipPlan = () => {
     extraQuotaGb: 0,
     durationDays: 30,
     priceYuan: 0,
+    planCategory: 'STANDARD',
+    quotaGrantMode: 'FIXED_TERM',
+    stackingMode: 'REPLACE_OR_EXTEND',
     enabled: true,
     sortOrder: 100
   })
@@ -4046,6 +4757,9 @@ const createVipPlan = async () => {
       extraQuotaBytes: gbToBytes(newVipPlan.extraQuotaGb),
       durationDays: newVipPlan.durationDays,
       priceFen: Math.round(Number(newVipPlan.priceYuan || 0) * 100),
+      planCategory: newVipPlan.planCategory,
+      quotaGrantMode: newVipPlan.quotaGrantMode,
+      stackingMode: newVipPlan.stackingMode,
       enabled: !!newVipPlan.enabled,
       sortOrder: newVipPlan.sortOrder
     } as any)
@@ -4069,6 +4783,9 @@ const saveVipPlan = async (plan: VipPlanSummary) => {
       extraQuotaBytes: gbToBytes(plan.extraQuotaGb),
       durationDays: plan.durationDays,
       priceFen: Math.round(Number(plan.priceYuan || 0) * 100),
+      planCategory: plan.planCategory,
+      quotaGrantMode: plan.quotaGrantMode,
+      stackingMode: plan.stackingMode,
       enabled: plan.enabled,
       sortOrder: plan.sortOrder
     } as any)
@@ -4100,22 +4817,66 @@ const saveProvider = async (provider: StorageProviderSummary) => {
   }
 }
 
+function yuanTextToFen(value?: string | number | null) {
+  return Math.max(0, Math.round(Number(value || 0) * 100))
+}
+
+function normalizeVipOrderDraftByChangeType(draft: Partial<VipOrderSummary>) {
+  const changeType = String(draft.changeType || 'PURCHASE').toUpperCase()
+  if (changeType !== 'UPGRADE') {
+    draft.sourceVipPlanId = undefined
+  }
+  if (changeType === 'PURCHASE' || changeType === 'RENEWAL') {
+    draft.originalAmountYuan = Number(draft.amountYuan || 0).toFixed(2)
+    draft.creditedAmountYuan = '0.00'
+  } else {
+    if (draft.originalAmountYuan == null || String(draft.originalAmountYuan).trim() === '') {
+      draft.originalAmountYuan = Number(draft.amountYuan || 0).toFixed(2)
+    }
+    if (draft.creditedAmountYuan == null || String(draft.creditedAmountYuan).trim() === '') {
+      draft.creditedAmountYuan = '0.00'
+    }
+  }
+}
+
 const createVipOrder = async () => {
   savingVipOrderId.value = 0
   try {
+    normalizeVipOrderDraftByChangeType(newVipOrder)
     await superAdminApi.createVipOrder({
       userId: newVipOrder.userId,
       vipPlanId: newVipOrder.vipPlanId,
       amountFen: Math.round(Number(newVipOrder.amountYuan || 0) * 100),
+      originalAmountFen: yuanTextToFen(newVipOrder.originalAmountYuan),
+      creditedAmountFen: yuanTextToFen(newVipOrder.creditedAmountYuan),
+      changeType: String(newVipOrder.changeType || 'PURCHASE').toUpperCase(),
+      sourceVipPlanId: newVipOrder.sourceVipPlanId || null,
       status: newVipOrder.status,
       source: newVipOrder.source,
       paidAt: normalizeDateTimeLocal(newVipOrder.paidAt),
       nextRenewalAt: normalizeDateTimeLocal(newVipOrder.nextRenewalAt),
       autoRenewEnabled: !!newVipOrder.autoRenewEnabled,
       expireAt: normalizeDateTimeLocal(newVipOrder.expireAt),
+      pricingDetailJson: newVipOrder.pricingDetailJson,
       remark: newVipOrder.remark
     } as any)
-    Object.assign(newVipOrder, { userId: undefined, vipPlanId: undefined, amountYuan: 0, status: 'PAID', source: 'MANUAL', paidAt: null, nextRenewalAt: null, autoRenewEnabled: false, expireAt: null, remark: '' })
+    Object.assign(newVipOrder, {
+      userId: undefined,
+      vipPlanId: undefined,
+      amountYuan: 0,
+      originalAmountYuan: '0.00',
+      creditedAmountYuan: '0.00',
+      changeType: 'PURCHASE',
+      sourceVipPlanId: undefined,
+      status: 'PAID',
+      source: 'MANUAL',
+      paidAt: null,
+      nextRenewalAt: null,
+      autoRenewEnabled: false,
+      expireAt: null,
+      pricingDetailJson: '',
+      remark: ''
+    })
     await Promise.all([loadVipOrders(), loadUsers(), loadOverview(), loadVipRenewalPreview()])
     showMessage('VIP 订单已创建')
   } catch (error: any) {
@@ -4128,14 +4889,20 @@ const createVipOrder = async () => {
 const saveVipOrder = async (order: VipOrderSummary) => {
   savingVipOrderId.value = order.id
   try {
+    normalizeVipOrderDraftByChangeType(order)
     await superAdminApi.updateVipOrder(order.id, {
       amountFen: Math.round(Number(order.amountYuan || 0) * 100),
+      originalAmountFen: yuanTextToFen(order.originalAmountYuan),
+      creditedAmountFen: yuanTextToFen(order.creditedAmountYuan),
+      changeType: String(order.changeType || 'PURCHASE').toUpperCase(),
+      sourceVipPlanId: order.sourceVipPlanId || null,
       status: order.status,
       source: order.source,
       paidAt: normalizeDateTimeLocal(order.paidAt),
       nextRenewalAt: normalizeDateTimeLocal(order.nextRenewalAt),
       autoRenewEnabled: !!order.autoRenewEnabled,
       expireAt: normalizeDateTimeLocal(order.expireAt),
+      pricingDetailJson: order.pricingDetailJson,
       remark: order.remark
     } as any)
     await Promise.all([loadVipOrders(), loadUsers(), loadOverview(), loadVipRenewalPreview()])
@@ -4186,6 +4953,16 @@ const initiateVipOrderPayment = async (order: VipOrderSummary) => {
     showMessage(error?.response?.data?.error || error?.message || '发起支付失败', 'error')
   } finally {
     initiatingVipOrderId.value = null
+  }
+}
+
+const launchSuperAdminPayment = () => {
+  if (!paymentInitiation.value) return
+  try {
+    launchPaymentInitiation(paymentInitiation.value, { target: '_blank' })
+    showMessage('已在新窗口拉起支付页面，可继续联调回跳与回调')
+  } catch (error: any) {
+    showMessage(error?.message || '拉起支付失败', 'error')
   }
 }
 
@@ -4339,5 +5116,21 @@ const loginMethodLabel = (method?: string | null) => {
   }
 }
 
+const vipOrderChangeTypeLabel = (value?: string | null) => {
+  switch ((value || '').toUpperCase()) {
+    case 'RENEWAL':
+      return '续费'
+    case 'UPGRADE':
+      return '升配'
+    case 'PURCHASE':
+      return '新购'
+    default:
+      return value || '新购'
+  }
+}
+
 onMounted(loadAll)
+onUnmounted(() => {
+  stopModelTaskPolling()
+})
 </script>

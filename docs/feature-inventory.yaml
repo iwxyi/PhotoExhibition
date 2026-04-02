@@ -1,0 +1,678 @@
+版本: 1
+生成时间: "2026-04-02"
+扫描来源:
+  backend:
+    - "backend/src/main/java/com/photoexhibition/controller"
+    - "backend/src/main/java/com/photoexhibition/service"
+    - "backend/src/main/java/com/photoexhibition/entity"
+  frontend:
+    - "frontend/src/router/index.ts"
+    - "frontend/src/views"
+    - "frontend/src/components"
+    - "frontend/src/utils"
+    - "frontend/src/stores"
+  docs:
+    - "README.md"
+    - "docs/multi-account-design.md"
+    - "docs/ai-search-design.md"
+    - "docs/BACKGROUND_REMOVAL_CN.md"
+备注:
+  - "这是基于当前代码与文档的功能台账，按产品功能归类，而不是逐个类/方法逐条罗列。"
+  - "已完成表示代码与界面/接口已存在；未完成表示代码中明确为 TODO、骨架、预留或仅部分接通；计划表示文档中明确列出的后续阶段。"
+
+已完成:
+  平台基础:
+    后端应用:
+      架构:
+        - "Spring Boot 后端分层架构"
+        - "Controller -> Service -> Repository"
+      安全与运行时:
+        - "JWT 鉴权与请求拦截"
+        - "Jackson/Redis/RestTemplate/Web 配置"
+        - "系统配置持久化与运行时读取"
+    前端应用:
+      技术栈:
+        - "Vue 3 + TypeScript + Vite 前端"
+        - "Pinia 状态管理"
+      routing_shell:
+        - "公开站点与后台路由拆分"
+        - "主题、语言、公开站点上下文状态"
+    可观测与安全:
+      - "登录记录与操作日志"
+      - "路径脱敏与用户可见路径转换"
+      - "公开内容按 userSlug 隔离"
+
+  认证与账号:
+    账号基础:
+      页面:
+        - "frontend/src/views/Login.vue"
+        - "frontend/src/views/Register.vue"
+        - "frontend/src/views/Profile.vue"
+        - "frontend/src/views/ForgotPassword.vue"
+      API:
+        - "POST /auth/login"
+        - "POST /auth/register"
+        - "GET /auth/me"
+        - "PUT /auth/profile"
+        - "POST /auth/avatar"
+      功能点:
+        - "用户名/手机号 + 密码登录：支持传统账号口令登录主流程"
+        - "注册：支持新用户建立独立账号与公开站点身份"
+        - "当前用户资料查询：用于前端恢复会话与展示个人信息"
+        - "资料更新：支持昵称、手机号、项目名称等资料修改"
+        - "头像上传：头像文件落地到用户专属目录并可公开访问"
+        - "公开 slug 自定义：允许用户定义 /{slug} 公开访问路径"
+    公开账号上下文:
+      API:
+        - "GET /auth/public-settings"
+        - "GET /auth/public-user"
+        - "GET /auth/public-users"
+      功能点:
+        - "公开用户资料查询：按 userSlug 返回站点标题、项目名等公开资料"
+        - "公开用户列表：用于多用户场景下展示可访问公开站点集合"
+        - "登录/注册页读取公开策略：用于决定是否显示多用户与手机号相关提示"
+        - "登录后自动回到当前账号公开站点：避免登录后落回错误的公共首页"
+    验证与找回:
+      API:
+        - "POST /auth/send-code"
+        - "POST /auth/email/send-code"
+        - "POST /auth/phone/send-code"
+        - "POST /auth/phone/verify"
+        - "POST /auth/email/verify/send-code"
+        - "POST /auth/email/verify"
+        - "POST /auth/password-reset/phone/send-code"
+        - "POST /auth/password-reset/phone/confirm"
+        - "POST /auth/password-reset/email/send-code"
+        - "POST /auth/password-reset/email/confirm"
+      服务:
+        - "SmsVerificationService"
+        - "EmailVerificationService"
+      功能点:
+        - "手机号验证码发送与校验：覆盖登录、绑定与密码找回场景"
+        - "邮箱验证码发送与校验：覆盖登录、绑定与密码找回场景"
+        - "手机号找回密码：支持手机号 + 验证码 + 新密码重置"
+        - "邮箱找回密码：支持邮箱 + 验证码 + 新密码重置"
+        - "手机号验证状态维护：修改手机号后自动回到未验证状态"
+        - "邮箱验证闭环：支持邮箱验证码发送、校验与状态更新"
+    账号策略:
+      - "超级管理员可配置强制绑定手机号：注册与资料维护时可强制要求手机号"
+      - "多用户开关：控制系统是否进入多租户公开站点模式"
+      - "用户角色与状态管理：支持普通用户/超管与启停用状态治理"
+
+  公开站点:
+    公开路由:
+      路由:
+        - "/"
+        - "/:userSlug"
+        - "/album/:id"
+        - "/:userSlug/album/:id"
+        - "/photo/:id"
+        - "/:userSlug/photo/:id"
+        - "/wall"
+        - "/random"
+        - "/persons"
+        - "/person/:id"
+        - "/search"
+        - "/a/:keyword"
+        - "/p/:keyword"
+        - "/s/:keyword"
+      功能点:
+        - "公开路由支持 /{userSlug}/...：同一套页面可按用户公开站点上下文访问"
+        - "首页、相册、照片、图墙、随机、人物、搜索均支持 slug 访问：确保公开内容按租户隔离"
+        - "短链路由 /a/:keyword /p/:keyword /s/:keyword：用于更短的相册/人物/搜索分享链接"
+    浏览与发现:
+      页面:
+        - "frontend/src/views/Home.vue"
+        - "frontend/src/views/PhotoWall.vue"
+        - "frontend/src/views/RandomGallery.vue"
+        - "frontend/src/views/Persons.vue"
+        - "frontend/src/views/Search.vue"
+      API:
+        - "GET /albums"
+        - "GET /photos/wall"
+        - "GET /photos/random"
+        - "GET /public/persons/with-sample"
+        - "GET /photos/ai-search"
+      功能点:
+        - "首页相册浏览：支持分类、分页、排序与封面过渡"
+        - "图墙：以瀑布流方式集中浏览照片"
+        - "随机画廊：从高质量照片中随机抽取公开展示"
+        - "人物列表：展示公开可见人物与其样张"
+        - "搜索页：支持自然语言与结构化条件检索"
+    详情与查看器:
+      页面:
+        - "frontend/src/views/AlbumDetail.vue"
+        - "frontend/src/views/PhotoDetail.vue"
+        - "frontend/src/views/PersonDetail.vue"
+        - "frontend/src/components/PhotoViewer.vue"
+      功能点:
+        - "相册详情：展示相册标题、描述、评论、人物与照片流"
+        - "照片详情：展示照片本体、标签、EXIF、人脸与色板"
+        - "人物详情：展示人物简介、推荐相册与人物照片"
+        - "PhotoViewer 多点触控、键盘快捷键、信息面板：提升大图浏览与设备兼容体验"
+        - "原图/缩略图切换：按场景切换资源质量与加载成本"
+        - "EXIF、AI 评分、场景/情绪信息展示：让照片详情具有专业分析能力"
+    公开品牌:
+      - "公开站点标题/品牌文案跟随用户项目名：每个用户站点可有自己的品牌抬头"
+      - "右上角当前账号菜单：在公开页也能快速访问账号相关入口"
+
+  相册与照片:
+    相册浏览:
+      - "相册列表、分类、统计：支持公开页与后台统一浏览入口"
+      - "父子相册层级展示：支持按目录结构组织相册"
+      - "子相册查询：可在详情页和后台继续展开层级"
+      - "封面读取：支持自动封面与拼图封面展示"
+      - "分类排序与相册排序：可按系统配置控制展示顺序"
+    相册管理:
+      - "相册创建、删除、重命名：覆盖后台基础维护操作"
+      - "相册移动：支持调整目录位置与业务归类"
+      - "移动前检查、兄弟/子级/目录候选探测：减少误移动与路径冲突"
+      - "父子相册聚合到上一级：支持把层级内容收拢为聚合相册"
+      - "下载开关：可单独控制相册是否允许公开下载"
+      - "隐藏开关：可控制相册是否在公开页出现"
+      - "封面设置：允许指定封面照片而非只依赖自动挑选"
+      - "相册标签添加/移除：建立相册与主题标签的管理关系"
+    照片浏览:
+      API:
+        - "GET /photos"
+        - "GET /photos/album/{albumId}"
+        - "GET /photos/random"
+        - "GET /photos/{id}"
+        - "GET /photos/{id}/asset"
+      功能点:
+        - "照片列表：支持后台与公开端按分页读取照片"
+        - "按相册查看照片：相册页以相册为上下文展示照片"
+        - "瀑布流与响应式列布局：适配手机与桌面端不同密度"
+        - "随机高质量推荐：优先展示评分较高的公开内容"
+        - "照片详情读取：返回单张照片及关联分析信息"
+        - "照片资源分发：按原图/缩略图/WebP 等不同资源类型输出"
+    照片操作:
+      - "照片删除：删除照片记录并联动资源访问控制"
+      - "点赞/取消点赞：支持公开照片轻交互"
+      - "批量移动：后台可批量调整照片归属相册"
+      - "批量删除：后台支持高效清理无效照片"
+      - "按用户权限校验照片写操作：避免跨账号误删误改"
+    筛选与排序:
+      - "多条件筛选：支持公开页与搜索页按多个维度组合过滤"
+      - "筛选项读取：前端可动态加载可选条件集合"
+      - "筛选项缓存按用户隔离：避免不同用户站点互串筛选值"
+      - "标签/EXIF/色彩/质量组合筛选：支持更接近摄影工作流的检索方式"
+    资源与优化:
+      - "三级缩略图：分别面向封面、列表和预览场景"
+      - "WebP 资源：降低带宽占用并改善加载速度"
+      - "照片资源 URL 构建工具：统一前端资源地址生成规则"
+
+  标签与评论:
+    标签:
+      - "标签列表/新建/编辑/删除：支持标签全生命周期维护"
+      - "标签颜色管理：让标签在 UI 中具备更好辨识度"
+      - "标签按用户隔离：不同用户站点拥有独立标签空间"
+      - "标签唯一约束按 (user_id, name)：同名标签可跨用户并存"
+      - "后台标签管理与搜索：便于大量标签场景下快速治理"
+    评论:
+      - "评论创建：公开访客可在相册下留言"
+      - "评论删除：支持按邮箱校验后的删除"
+      - "相册评论分页：避免长评论列表一次性加载"
+      - "评论回复查询：支持树状评论交互"
+      - "用户是否已回复检查：限制重复回复并优化前端提示"
+      - "当日是否已评论检查：用于简单频控"
+      - "评论按 userSlug 隔离：不同用户公开站点评论数据独立"
+
+  人物与人脸:
+    人脸流程:
+      服务:
+        - "FaceDetectionService"
+        - "FaceEmbeddingService"
+        - "FaceRecognitionService"
+        - "FaceService"
+      功能点:
+        - "人脸检测：从照片中提取人脸框与基础置信信息"
+        - "人脸嵌入向量生成：为后续识别与聚类提供特征向量"
+        - "人脸识别：支持把未分配人脸匹配到人物"
+        - "相似度计算：支撑相似人脸、相似人物与推荐逻辑"
+        - "聚类结果查询：为后台提供人物聚类候选视图"
+    人物管理:
+      API:
+        - "GET /admin/persons"
+        - "GET /admin/persons/search"
+        - "POST /admin/persons"
+        - "PUT /admin/persons/{id}"
+        - "POST /admin/persons/{personId}/set-sample"
+        - "POST /admin/persons/{id}/toggle-hidden"
+        - "DELETE /admin/persons/{id}"
+      功能点:
+        - "人物列表：后台统一查看人物档案"
+        - "人物搜索：按姓名或其他线索快速定位人物"
+        - "人物创建/编辑/删除：支持人工维护人物档案"
+        - "人物样本设置：可指定最能代表人物的展示图"
+        - "人物隐藏切换：支持私密或错误人物的公开可见性控制"
+        - "人物统计：提供人物关联照片/相册等数量信息"
+    分配流程:
+      - "单个人脸指派：把某张脸直接分配到指定人物"
+      - "单张照片人物指派/取消：从照片层面维护人物归属"
+      - "批量分配：成批处理相似或同组人脸"
+      - "批量取消分配：快速清理错误归属"
+      - "按人脸创建人物：从一组候选脸直接生成新人物"
+      - "批量计算相似人物：辅助合并重复人物档案"
+    人物视图:
+      - "公开人物页：作为面向访客的人物展示入口"
+      - "人物照片列表：按人物聚合其关联照片"
+      - "人物样张：在列表与详情页中展示代表性缩略图"
+      - "人物关联相册推荐：按人物出现情况推荐相关相册"
+      - "已确认/自动分配/同文件夹推荐分区：帮助后台区分不同可信度来源"
+      - "未分配人脸与相似推荐：为人工校正留出操作面板"
+
+  AI分析与搜索:
+    AI照片分析:
+      服务:
+        - "PhotoAIScoringService"
+        - "SceneRecognitionService"
+        - "EmotionAnalysisService"
+        - "SubjectDetectionService"
+        - "SaliencyDetectionService"
+        - "ColorAnalysisService"
+        - "SmartTagService"
+        - "SimilarPhotoSearchService"
+      功能点:
+        - "AI 综合评分：输出面向用户展示的综合质量得分"
+        - "技术质量评分：聚焦清晰度、曝光、参数等技术维度"
+        - "构图评分：评估画面布局与视觉焦点"
+        - "吸引力评分：估计内容可看性与主题吸引度"
+        - "优点/不足/建议输出：把模型结果转成可读反馈"
+        - "场景识别：识别婚礼、旅行、活动等场景类型"
+        - "情感分析：识别照片的情绪倾向"
+        - "主题/主体检测：判断照片核心对象与主题"
+        - "显著性检测：辅助构图分析与焦点判断"
+        - "色彩分析：提取主色与调色板"
+        - "智能标签：根据图像内容自动补标签"
+        - "相似照片搜索：按颜色、标签、人脸等线索找相近照片"
+    AI搜索:
+      页面:
+        - "frontend/src/views/Search.vue"
+        - "frontend/src/components/SearchSpotlight.vue"
+      API:
+        - "GET /photos/ai-search"
+        - "POST /photos/ai-search/execute"
+        - "GET /photos/ai-search/status"
+      服务:
+        - "AiSearchService"
+      功能点:
+        - "自然语言搜索入口：允许用户直接输入口语化检索语句"
+        - "零 AI 直搜 + AI 规划双路径：简单问题走快路径，复杂问题走规划路径"
+        - "simple_search / simple_answer / analysis 查询分层：为速度与能力做分级处理"
+        - "must / should / mustNot 结构化意图：把自然语言转成布尔检索条件"
+        - "结果按人物/相册/照片分区：避免不同结果类型混杂"
+        - "一句式 answer：必要时补一句简短结论"
+        - "自动放宽条件：无结果时逐步回退条件"
+        - "结构化建议动作：前端可直接渲染为可点击建议"
+        - "隐藏内容屏蔽：前台检索不会泄露隐藏资源"
+        - "时间语义归一：把去年/前年等口语时间统一成可执行区间"
+        - "搜索状态接口：前端可感知 AI 搜索可用性与状态"
+
+  抠图与视觉效果:
+    背景移除:
+      - "照片背景移除可用性检查：前端可先判断模型与照片是否满足条件"
+      - "单张抠图：直接输出透明背景图片"
+      - "异步抠图：避免长耗时处理阻塞请求"
+      - "批量抠图：面向后台批量加工场景"
+      - "批量任务状态查询：便于轮询批量任务进度"
+    视觉呈现:
+      - "人物页抠图立体展示：把抠图结果用于更强的视觉展示"
+      - "相册氛围特效：按标签和主题自动加载对应视觉效果"
+      - "粒子与 Shader 特效配置：支持特效参数化与主题化"
+      - "Canvas 特效渲染组件：承担运行时粒子与 Shader 绘制"
+
+  存储与文件浏览器:
+    存储基础:
+      - "存储提供者实体与类型体系：统一描述本地、对象存储与远端协议存储"
+      - "系统默认存储：未指定时自动回落到全局默认上传位置"
+      - "用户分配上传存储：超级管理员可按用户分配专属上传位置"
+      - "普通用户对 providerId 无感：普通用户不直接操作底层存储选择"
+    已支持能力:
+      - "LOCAL 浏览/上传/扫描/预览：本地存储具备完整闭环能力"
+      - "WEBDAV 上传与浏览链路：支持远端目录创建、上传与浏览"
+      - "FTP 上传与浏览链路：支持按用户目录前缀写入远端"
+      - "COS 上传与浏览链路：支持对象存储风格上传能力"
+      - "S3 兼容家族基础支持：为 MinIO、R2 等兼容存储预留统一入口"
+    文件浏览器:
+      页面:
+        - "frontend/src/views/admin/FileBrowser.vue"
+      API:
+        - "GET /admin/folders/base-path"
+        - "GET /admin/folders/browser/list"
+        - "GET /admin/folders/upload-precheck"
+        - "POST /admin/folders/browser/create"
+        - "POST /admin/folders/browser/rename"
+        - "DELETE /admin/folders/browser/delete"
+        - "DELETE /admin/folders/browser/delete-items"
+        - "POST /admin/folders/browser/move-items"
+        - "POST /admin/folders/browser/upload"
+        - "GET /admin/folders/browser/open-url"
+        - "GET /admin/folders/browser/preview"
+        - "GET /admin/folders/browser/download"
+      服务:
+        - "StorageProviderService"
+        - "StorageUploadService"
+        - "FolderService"
+      功能点:
+        - "根路径解析：自动定位当前用户或当前存储的有效根目录"
+        - "目录浏览：支持按目录树查看文件与文件夹"
+        - "新建目录：在当前目录下创建子目录"
+        - "重命名：支持文件与文件夹改名"
+        - "单项删除：支持右键删除单个对象"
+        - "批量删除：支持多选后一键清理"
+        - "批量移动：支持把选中对象移动到目标相对路径"
+        - "文件上传：支持普通文件上传"
+        - "文件夹上传：支持保留目录结构的上传"
+        - "拖拽上传：支持直接拖放到浏览器界面"
+        - "远端直开 URL 预览：优先让浏览器直接打开远端文件"
+        - "后台代理预览：远端不能直开时回退到服务端代理"
+        - "专用下载接口：下载不再复用预览接口"
+        - "多选、全选、反选：提升批量治理效率"
+        - "按存储能力禁用不支持操作：从交互层面提前阻止错误操作"
+        - "上传前 SHA-256 预检查：在上传前判断是否命中已有内容"
+        - "重复内容/派生资源复用提示：降低重复上传与重复加工成本"
+    配额与去重:
+      - "上传前配额校验：按原始上传大小判断是否超额"
+      - "内容哈希去重：通过 SHA-256 识别重复内容"
+      - "canonicalPhotoId / duplicateContent 模型：区分规范源照片与重复副本"
+      - "上传前去重预检接口：前端可在正式上传前先查询复用可能性"
+
+  后台控制台:
+    普通后台:
+      页面:
+        - "/admin -> Dashboard"
+        - "/admin/theme -> Theme"
+        - "/admin/albums -> Albums"
+        - "/admin/photos -> Photos"
+        - "/admin/tags -> Tags"
+        - "/admin/persons -> Persons"
+        - "/admin/persons/batch-assign -> FaceBatchAssign"
+        - "/admin/faces -> Faces"
+        - "/admin/file-browser -> FileBrowser"
+        - "/admin/settings -> Settings"
+      功能点:
+        - "后台首页：集中显示后台入口与概览能力"
+        - "主题设置：管理站点视觉主题与特效配置"
+        - "相册管理：维护相册结构、属性与移动关系"
+        - "照片管理：查看照片详情、标签与人脸状态"
+        - "标签管理：维护标签颜色、名称与检索入口"
+        - "人物管理：处理人物档案、相似推荐与合并"
+        - "批量分配：以更高效率处理未分配人物照片"
+        - "人脸管理：查看所有人脸、分配状态与相似关系"
+        - "文件浏览器：直接治理底层文件结构与上传内容"
+        - "系统设置：配置排序、扫描、AI 搜索等系统参数"
+    扫描与运维:
+      - "扫描触发：启动常规扫描流程"
+      - "强制扫描：在需要时跳过部分保守判断重新执行"
+      - "扫描状态：查看当前扫描器整体运行情况"
+      - "扫描任务列表/详情：查看每个任务的阶段与结果"
+      - "扫描任务队列：全局扫描已改为队列执行模型"
+      - "低并发执行：按系统配置控制扫描 worker 数量"
+      - "断点续扫：任务会记录 checkpoint 并支持 RESUME_SCAN"
+      - "排队可视化：后台展示队列长度、排队用户与当前任务"
+      - "定时扫描开关：由超级管理员统一控制是否启用定时扫描"
+      - "任务重试/暂停/取消/停止：为长任务提供人工干预能力"
+      - "跳过文件查看：定位扫描过程中被跳过的资源"
+      - "颜色/EXIF/AI 分析重建：修复历史数据或规则更新后的分析结果"
+      - "单张照片重扫人脸：针对问题照片单独修复"
+      - "重建人脸嵌入：在模型或策略变化后刷新向量数据"
+      - "操作日志与登录记录读取：支撑后台审计与问题排查"
+
+  超级管理员:
+    治理能力:
+      页面:
+        - "frontend/src/views/admin/SuperAdmin.vue"
+      API:
+        - "GET /admin/super-admin/overview"
+        - "GET/PUT /admin/super-admin/settings"
+        - "GET/PUT /admin/super-admin/table-preferences"
+        - "GET /admin/super-admin/users"
+        - "PUT /admin/super-admin/users/{userId}"
+        - "POST /admin/super-admin/users/{userId}/password"
+        - "GET /admin/super-admin/login-records"
+        - "GET /admin/super-admin/operation-logs"
+        - "GET/POST/PUT /admin/super-admin/storage-providers..."
+        - "POST /admin/super-admin/legacy-migration/run"
+      功能点:
+        - "概览页：集中展示系统容量、开关与风险摘要"
+        - "全局设置：统一维护多用户、扫描、短信、邮件、支付等系统级配置"
+        - "表格偏好保存：记住列顺序、可见性与分页偏好"
+        - "用户列表、用户编辑、重置密码：支持超管治理用户账户"
+        - "登录记录：查看系统登录行为"
+        - "操作记录：查看系统关键操作审计"
+        - "存储提供者管理：维护多种存储配置及其能力"
+        - "旧数据迁移入口：触发历史数据归属与结构迁移"
+    通信配置:
+      - "短信配置：维护短信平台、模板与签名参数"
+      - "邮件配置：维护 SMTP 或邮件服务相关参数"
+      - "测试邮件：快速验证当前邮件配置是否可用"
+      - "直接发送邮件：从后台直接发出指定内容邮件"
+      - "邮件模板中心：内置欢迎邮件、邮箱验证码、密码重置、系统通知、维护通知"
+      - "模板预览：可先预览主题、正文与 HTML/纯文本效果"
+      - "模板套用：可将模板预览一键带入自定义邮件继续编辑"
+    vip_and_order_治理能力:
+      - "VIP 套餐管理：维护价格、时长、描述等套餐信息"
+      - "套餐架构字段：支持 planCategory / quotaGrantMode / stackingMode 维护，为后续活动赠送/永久容量预留模型"
+      - "VIP 订单列表：统一查看订单状态、支付状态与续费状态"
+      - "按订单号定位：通过 focusOrderNo 或查询快速找到目标订单"
+      - "VIP 订单创建/编辑：支持人工补单与修正订单属性"
+      - "订单变更类型：后台可维护 PURCHASE / RENEWAL / UPGRADE"
+      - "升配来源套餐：后台可记录 sourceVipPlanId，便于追踪换购来源"
+      - "原价/抵扣维护：后台可维护 originalAmount / creditedAmount，用于升配折算与人工修正"
+      - "定价明细 JSON：后台可保留 pricingDetailJson，方便排查升配折算过程"
+      - "Mock 支付：在不接真实网关时验证会员生效链路"
+      - "订单取消：支持后台人工取消订单"
+      - "退款预览：展示退款接口地址、请求头与请求体骨架"
+      - "退款请求：把订单推进到退款处理中或 mock 退款态"
+      - "确认退款：人工把订单收口为退款成功"
+      - "退款失败回退：在退款失败时回写失败态并保留主订单有效性"
+      - "自动续费预演：预估哪些订单应该创建续费子单"
+      - "自动续费建单执行：真正落地续费子单与支付发起骨架"
+    API工具:
+      - "API 测试工具：在后台直接联调关键接口"
+      - "支付回调预演：先不落库地验证回调负载识别结果"
+      - "返回页测试：模拟第三方跳回参数并查看订单识别结果"
+      - "回调/返回页 cURL 复制：把浏览器调试参数快速复制到终端环境"
+      - "按平台填充调试模板：减少不同支付平台手工拼 payload 成本"
+      - "支付调试 JSON 本地持久化：刷新页面后仍可延续联调上下文"
+
+  VIP与支付:
+    用户侧VIP:
+      页面:
+        - "frontend/src/views/VipCenter.vue"
+        - "frontend/src/views/Profile.vue"
+        - "frontend/src/views/PaymentResult.vue"
+      API:
+        - "GET /auth/vip/overview"
+        - "GET /auth/vip/plans"
+        - "GET /auth/vip/orders"
+        - "POST /auth/vip/orders"
+        - "GET /auth/vip/orders/{orderId}/checkout"
+        - "POST /auth/vip/orders/{orderId}/checkout/initiate"
+        - "POST /auth/vip/orders/{orderId}/mock-pay"
+        - "PUT /auth/vip/orders/{orderId}/auto-renew"
+      功能点:
+        - "会员中心 /vip：集中承载会员套餐、订单与支付入口"
+        - "套餐列表：展示可购买的会员方案"
+        - "套餐变更规则：同容量可续费、同周期可升配、降级与不同容量不同周期混换会被阻止"
+        - "升配抵扣：按新套餐容量价格比例 × 当前剩余时长比例折算抵扣"
+        - "订单列表：展示当前用户的历史与进行中订单"
+        - "创建购买订单：从套餐直接生成待支付订单"
+        - "当前配额与当前套餐展示：把账号剩余额度与会员状态可视化"
+        - "自动续费开关：允许用户对自己订单控制是否续费"
+        - "订单定位 focusOrderNo：从支付结果或登录跳转后直接聚焦目标订单"
+    支付发起:
+      API:
+        - "POST /payments/orders/{orderId}/initiate"
+        - "POST /auth/vip/orders/{orderId}/checkout/initiate"
+        - "POST /admin/super-admin/vip-orders/{orderId}/payment-initiate"
+      服务:
+        - "PaymentInitiationService"
+        - "PaymentGatewayService"
+        - "PaymentProviderAdapter"
+        - "frontend/src/utils/paymentLaunch.ts"
+      功能点:
+        - "统一支付发起接口：用户侧、公共侧、超管侧都走同一套发起模型"
+        - "订单标记 PAYMENT_INITIATED / PAYMENT_INITIATED_MOCK：便于追踪订单是否已发起"
+        - "launchUrl/httpMethod/actionType/headers/formFields/qrCodeText 统一返回：前端无需按平台分裂处理"
+        - "前端可直接拉起 REDIRECT_FORM / REDIRECT_GET / QR_CODE：覆盖表单跳转、GET 跳转与二维码/协议拉起"
+        - "支付返回地址自动跟踪 providerType/orderNo/redirect：便于第三方回跳后继续定位订单"
+    支付回调与返回页:
+      API:
+        - "POST /payments/notify/{providerType}"
+        - "GET /payments/return/{providerType}"
+        - "POST /admin/super-admin/payments/notify-preview/{providerType}"
+      服务:
+        - "PaymentController"
+        - "PaymentPayloadParser"
+        - "PaymentCallbackService"
+      功能点:
+        - "统一 notify/return 入口：所有支付平台共用统一回调与返回页入口"
+        - "JSON/form/text/plain/无明确 Content-Type 兼容：尽量适配不同第三方网关报文习惯"
+        - "嵌套表单键恢复：把 data[custom_data][orderNo] 这类键恢复成层级结构"
+        - "重复字段保留为列表：降低重复传参导致的识别失败风险"
+        - "支付结果页 /vip/result：为支付联调和用户查询提供独立页面"
+        - "结果页自动轮询与建议动作：在非终态时自动刷新并提示下一步操作"
+        - "结果页回写 providerType/orderNo 到地址栏：便于刷新、复制与重新进入页面"
+        - "未登录跳登录时保留 focusOrderNo：避免登录过程丢失当前订单上下文"
+    支付适配器:
+      注册层:
+        - "PaymentProviderAdapter"
+        - "PaymentCallbackAdapter"
+        - "PaymentRefundAdapter"
+      具体适配器:
+        - "AlipayPaymentProviderAdapter / Callback / Refund"
+        - "WechatPayPaymentProviderAdapter / Callback / Refund"
+        - "Stripe / Paypal / UnionPay / Paddle / LemonSqueezy / Adyen / Mollie / Xendit / Midtrans"
+        - "DefaultPaymentProviderAdapter / DefaultPaymentCallbackAdapter / DefaultPaymentRefundAdapter"
+      功能点:
+        - "PaymentProviderAdapter 注册层：把支付发起逻辑按平台拆分"
+        - "PaymentCallbackAdapter 注册层：把回调解析逻辑按平台拆分"
+        - "PaymentRefundAdapter 注册层：把退款预览逻辑按平台拆分"
+        - "ALIPAY 专属发起/回调/退款适配：当前主链路之一，已重点完善"
+        - "WECHAT_PAY 专属发起/回调/退款适配：当前主链路之一，已重点完善"
+        - "STRIPE/PAYPAL/UNIONPAY/PADDLE/LEMON_SQUEEZY/ADYEN/MOLLIE/XENDIT/MIDTRANS 适配骨架：具备平台化演进入口"
+    回调识别:
+      - "支付宝 passback_params 订单号识别：支持从回调或回跳的透传字段中找回本地订单号"
+      - "微信 attach 订单号识别：支持从 attach 中恢复业务订单号"
+      - "Stripe data.object.client_reference_id 识别：支持标准 Checkout Session 回调结构"
+      - "PayPal resource.invoice_id 识别：支持从 PayPal resource 节点取回订单号"
+      - "UnionPay / Xendit / Midtrans / Adyen / Paddle / Lemon Squeezy 返回字段识别：扩展多平台回调/回跳字段兼容面"
+    退款流程:
+      - "退款骨架预览：先生成各平台退款请求草案供人工确认"
+      - "退款处理中状态：真实退款未完成前不再伪装成已退款"
+      - "退款成功/失败人工收口：允许后台人工收敛异常退款单"
+      - "退款请求参数预览更接近真实网关：便于后续直接替换成真实调用"
+
+未完成:
+  vip_and_payments:
+    核心支付闭环:
+      支付宝:
+        - "真实网关联调闭环"
+        - "真实回调 RSA 验签最终收口"
+        - "真实退款接口联动"
+      微信支付:
+        - "真实下单终态联调"
+        - "平台证书/APIv3 Key 验签最终收口"
+        - "真实退款接口联动"
+      自动续费:
+        - "自动续费仍未接真实扣款，只到建单/发起参数骨架阶段"
+    非核心支付平台:
+      stripe:
+        - "真实 Checkout Session 创建"
+        - "Stripe-Signature 回调验签终态联调"
+        - "session/payment_intent 成功同步"
+        - "refunds.create 真实退款"
+      paypal:
+        - "create -> approve -> capture 真链路"
+        - "PayPal Webhook 验签"
+        - "capture refund 真实退款"
+      unionpay:
+        - "证书签名与前后台通知联调"
+        - "银联验签"
+        - "退款交易接口"
+      paddle:
+        - "transaction/hosted checkout 真链路"
+        - "Webhook Secret 验签终态"
+        - "订阅/自动续费映射"
+        - "退款调整接口"
+      lemon_squeezy:
+        - "checkout hosted URL 真链路"
+        - "签名头验签"
+        - "订阅与 License/Order 映射"
+      adyen:
+        - "paymentMethods + payments 真链路"
+        - "3DS / redirectResult 回跳"
+        - "HMAC 通知验签终态"
+        - "退款接口"
+      mollie:
+        - "payment 创建与 checkoutUrl"
+        - "回调后主动查询 payment 状态"
+        - "metadata 映射校验"
+        - "退款接口"
+      xendit:
+        - "payment request hosted page"
+        - "Webhook secret 验签"
+        - "referenceId 回写订单"
+        - "退款 / token API"
+      midtrans:
+        - "Snap/Core API 选型与 redirect_url/token"
+        - "transaction_status/fraud_status 回调联调"
+        - "order_id 回写订单"
+        - "退款接口"
+      custom_webhook:
+        - "内部支付协议定稿"
+        - "统一签名头与订单号字段约定"
+        - "退款回调协议"
+
+  存储与文件浏览器:
+    未接通存储类型:
+      - "部分存储类型目前仅有类型枚举与后台配置骨架，能力明确显示为 TODO"
+      - "文件浏览器对未接通类型会展示‘当前文件浏览器暂不支持该存储类型’"
+    部分能力缺口:
+      - "部分远端存储仅支持上传/浏览，未完全接通扫描、批量管理或预览全链路"
+
+  notifications:
+    短信:
+      - "除 ALIYUN / TENCENT_CLOUD / TWILIO 外，其余短信平台仍主要停留在通用 HTTP / Webhook 骨架"
+      - "短信验证码登录仍是补充能力，不是完整主流程替代"
+    邮件:
+      - "真实 SMTP/服务商联调与到达率验证仍待线下实测"
+
+  ai_and_models:
+    运行时依赖:
+      - "部分 AI 能力依赖本地 ONNX 模型文件，缺模型时仅能降级或不可用"
+      - "背景移除、部分视觉分析的生产可用性仍受模型部署影响"
+
+计划中:
+  架构与数据:
+    多租户数据结构:
+      数据库:
+        - "继续补齐其余业务表的 user_id 维度"
+        - "继续收口跨用户查询与索引设计"
+    文件系统迁移:
+      存储路径:
+        - "旧文件迁移到 data/photos/{userId}/..."
+        - "新增 data/users/{userId}/..."
+        - "迁移后刷新数据库路径"
+  产品与运营:
+    配额与VIP:
+      - "原图空间统计继续深化"
+      - "超额上传拦截继续完善"
+      - "VIP 套餐扩容能力继续增强"
+      - "活动赠送定期容量 / 永久容量的独立产品页与发放流程待补齐；底层套餐模型已预留 `planCategory / quotaGrantMode / stackingMode`"
+      - "存储提供者切换与默认上传位置继续完善"
+    支付下一阶段:
+      - "真实下单接口进一步收口"
+      - "异步回调验签全面实装"
+      - "支付网关交易号回写"
+      - "退款 / 取消 / 自动续费真实联动"
+    AI搜索分析扩展:
+      - "analysis 模式逐步接入更多多阶段执行器"
+      - "人物关系/同框类高级分析继续扩展"
+
+  体验与后台:
+    超级管理员扩展:
+      - "更多超管页面继续复用统一表格工作区"
+      - "更多系统级表单继续统一成固定标题 + 输入框 + 辅助说明结构"

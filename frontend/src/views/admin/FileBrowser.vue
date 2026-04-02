@@ -442,7 +442,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { api } from '@/api'
+import { api, type UploadPrecheckResponse } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { buildPublicPath } from '@/utils/publicRoute'
@@ -837,6 +837,20 @@ const openFile = async (file: FileItem) => {
   }
   if (selectedStorageProvider.value && selectedStorageProvider.value.type !== 'LOCAL') {
     try {
+      const openUrlResponse = await api.get('/admin/folders/browser/open-url', {
+        params: {
+          path: file.path,
+          providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+        }
+      })
+      const previewUrl = openUrlResponse.data?.url
+      if (previewUrl) {
+        window.open(previewUrl, '_blank')
+        return
+      }
+    } catch (_error: any) {
+    }
+    try {
       const response = await api.get('/admin/folders/browser/preview', {
         params: {
           path: file.path,
@@ -1146,6 +1160,10 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
   let finalScanQueued = true
   let finalScanMessage = ''
   try {
+    if (!(await runUploadPrecheck(fileList))) {
+      uploadStatus.value = '上传已取消'
+      return
+    }
     for (let i = 0; i < fileList.length; i += BATCH_SIZE) {
       const slice = fileList.slice(i, i + BATCH_SIZE)
       const relSlice = relativePaths ? relativePaths.slice(i, i + BATCH_SIZE) : undefined
@@ -1193,6 +1211,54 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
   } finally {
     setTimeout(() => { uploading.value = false }, 3000)
   }
+}
+
+const runUploadPrecheck = async (fileList: File[]) => {
+  const duplicates: Array<{ file: string; result: UploadPrecheckResponse }> = []
+  const precheckCache = new Map<string, UploadPrecheckResponse>()
+  for (let i = 0; i < fileList.length; i++) {
+    uploadStatus.value = `正在预检查 ${i + 1} / ${fileList.length} 个文件...`
+    const contentHash = await sha256File(fileList[i])
+    let result = precheckCache.get(contentHash)
+    if (!result) {
+      const { data } = await api.get<UploadPrecheckResponse>('/admin/folders/upload-precheck', {
+        params: { contentHash, _: Date.now() + i }
+      })
+      result = data
+      if (result) {
+        precheckCache.set(contentHash, result)
+      }
+    }
+    if (result?.exists) {
+      duplicates.push({ file: fileList[i].name, result })
+    }
+  }
+  if (!duplicates.length) {
+    return true
+  }
+  const sameOwnerCount = duplicates.filter(item => item.result.sameOwner).length
+  const canonicalCount = duplicates.length - sameOwnerCount
+  const derivativeCount = duplicates.filter(item => item.result.reusableDerivatives).length
+  const preview = duplicates
+    .slice(0, 5)
+    .map(item => `- ${item.file}：${item.result.sameOwner ? '当前用户已存在' : '命中已有规范源'}${item.result.reusableDerivatives ? '，可复用派生资源' : ''}`)
+    .join('\n')
+  return window.confirm(
+    `检测到 ${duplicates.length} 个文件命中重复内容。\n`
+    + `- 当前用户已有：${sameOwnerCount} 个\n`
+    + `- 命中已有规范源：${canonicalCount} 个\n`
+    + `- 可复用派生资源：${derivativeCount} 个\n`
+    + `${preview}${duplicates.length > 5 ? '\n- ...' : ''}\n\n`
+    + '继续上传会保留独立记录，但后续可复用规范源信息。是否继续？'
+  )
+}
+
+const sha256File = async (file: File) => {
+  const buffer = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  return Array.from(new Uint8Array(digest))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 const changeStorageProvider = async () => {

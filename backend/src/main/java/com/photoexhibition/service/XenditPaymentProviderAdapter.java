@@ -24,14 +24,15 @@ public class XenditPaymentProviderAdapter extends AbstractPaymentProviderAdapter
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.XENDIT, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.XENDIT, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Basic <XENDIT_API_KEY>");
         headers.put("Content-Type", "application/json");
         payload.put("referenceId", order.getOrderNo());
         payload.put("customerId", user.getId());
-        payload.put("successReturnUrl", settings.getReturnUrl());
-        payload.put("failureReturnUrl", settings.getReturnUrl());
+        payload.put("successReturnUrl", trackedReturnUrl);
+        payload.put("failureReturnUrl", trackedReturnUrl);
         payload.put("webhookSecretHint", maskKey(settings.getWebhookSecret()));
 
         return PaymentInitiationService.PaymentInitiationResult.builder()

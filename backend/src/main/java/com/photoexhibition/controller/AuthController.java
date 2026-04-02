@@ -205,9 +205,13 @@ public class AuthController {
     }
 
     @GetMapping("/vip/plans")
-    public ResponseEntity<?> vipPlans() {
+    public ResponseEntity<?> vipPlans(@RequestHeader("Authorization") String token) {
+        if (token == null || !token.startsWith("Bearer ")) {
+            return ResponseEntity.status(401).body(java.util.Map.of("error", "未登录"));
+        }
+        token = token.substring(7);
         try {
-            return ResponseEntity.ok(authService.listVipPlans());
+            return ResponseEntity.ok(authService.listVipPlans(token));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(java.util.Map.of("error", sanitizeErrorMessage(e.getMessage(), "获取会员套餐失败")));
         } catch (Exception e) {

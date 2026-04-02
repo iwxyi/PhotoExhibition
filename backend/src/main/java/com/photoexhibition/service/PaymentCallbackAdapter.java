@@ -13,6 +13,6 @@ public interface PaymentCallbackAdapter {
     String extractOrderStatus(Map<String, Object> payload);
 
     default String extractReturnOrderNo(Map<String, String> queryParams) {
-        return queryParams == null ? null : String.valueOf(queryParams.getOrDefault("orderNo", null));
+        return queryParams == null ? null : queryParams.get("orderNo");
     }
 }

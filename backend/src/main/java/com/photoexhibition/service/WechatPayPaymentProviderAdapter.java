@@ -24,6 +24,7 @@ public class WechatPayPaymentProviderAdapter extends AbstractPaymentProviderAdap
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.WECHAT_PAY, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.WECHAT_PAY, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         Map<String, Object> requestBody = new LinkedHashMap<>();
@@ -43,6 +44,7 @@ public class WechatPayPaymentProviderAdapter extends AbstractPaymentProviderAdap
         requestBody.put("payer", Map.of(
             "openidHint", user.getId() == null ? null : ("USER-" + user.getId())
         ));
+        requestBody.put("scene_info", singletonMetadata("return_url", trackedReturnUrl));
         String path = "/v3/pay/transactions/native";
         String timestamp = resolveEpochSeconds(order);
         String nonce = "preview_" + order.getId() + "_" + user.getId();
@@ -64,6 +66,7 @@ public class WechatPayPaymentProviderAdapter extends AbstractPaymentProviderAdap
         payload.put("signingNonce", nonce);
         payload.put("signingTimestamp", timestamp);
         payload.put("notifyUrl", settings.getNotifyUrl());
+        payload.put("returnUrl", trackedReturnUrl);
         if (canSignWithPrivateKey(settings.getPrivateKey())) {
             String signature = signSha256WithRsaBase64(settings.getPrivateKey(), signingMessage);
             String authorization = "WECHATPAY2-SHA256-RSA2048 mchid=\"" + settings.getMerchantId()

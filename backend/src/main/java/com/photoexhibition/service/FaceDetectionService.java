@@ -1009,6 +1009,8 @@ public class FaceDetectionService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        detectionSession = null;
+        env = null;
     }
 
     private String sanitizePath(String path) {
@@ -1040,5 +1042,31 @@ public class FaceDetectionService implements AutoCloseable {
         public double getWidth() { return width; }
         public double getHeight() { return height; }
         public double getConfidence() { return confidence; }
+    }
+
+    public String getModelPath() {
+        return detectionModelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return enabled && detectionSession != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (detectionSession != null) {
+                detectionSession.close();
+            }
+        } catch (Exception ignored) {
+        }
+        detectionSession = null;
+        env = null;
+        ensureSession();
+        return enabled && detectionSession != null;
     }
 }

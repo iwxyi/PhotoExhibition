@@ -34,4 +34,6 @@ public interface UserPlanOrderRepository extends JpaRepository<UserPlanOrder, Lo
     Optional<UserPlanOrder> findFirstByRenewalSourceOrderIdOrderByCreatedAtDesc(Long renewalSourceOrderId);
 
     Optional<UserPlanOrder> findByOrderNo(String orderNo);
+
+    Optional<UserPlanOrder> findFirstByUserIdAndStatusInOrderByExpireAtDescPaidAtDescCreatedAtDesc(Long userId, List<String> statuses);
 }

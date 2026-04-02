@@ -1,12 +1,12 @@
 package com.photoexhibition.controller;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.photoexhibition.dto.SendEmailRequest;
 import com.photoexhibition.entity.OperationType;
 import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.OperationLogService;
+import com.photoexhibition.service.ModelManagementService;
 import com.photoexhibition.service.SuperAdminService;
 import com.photoexhibition.service.UserPathService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +32,7 @@ public class SuperAdminController {
     private final AuthService authService;
     private final SuperAdminService superAdminService;
     private final OperationLogService operationLogService;
+    private final ModelManagementService modelManagementService;
     private final UserPathService userPathService;
     private final ObjectMapper objectMapper;
 
@@ -113,6 +114,40 @@ public class SuperAdminController {
             detail.put("recipient", request == null ? null : request.getRecipient());
             detail.put("subject", request == null ? null : request.getSubject());
             detail.put("html", request != null && Boolean.TRUE.equals(request.getHtml()));
+            operationLogService.log(operator, OperationType.UPDATE, "EMAIL_SEND", null, request == null ? null : request.getRecipient(), detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @GetMapping("/email/templates")
+    public ResponseEntity<?> emailTemplates(@RequestHeader("Authorization") String authorization) {
+        return handle(authorization, superAdminService::listEmailTemplates);
+    }
+
+    @PostMapping("/email/templates/preview")
+    public ResponseEntity<?> previewEmailTemplate(@RequestHeader("Authorization") String authorization,
+                                                  @RequestBody(required = false) SendEmailRequest request) {
+        return handle(authorization, () -> superAdminService.previewEmailTemplate(
+            request == null ? null : request.getTemplateKey(),
+            request == null ? null : request.getVariables()
+        ));
+    }
+
+    @PostMapping("/email/templates/send")
+    public ResponseEntity<?> sendEmailTemplate(@RequestHeader("Authorization") String authorization,
+                                               HttpServletRequest requestContext,
+                                               @RequestBody(required = false) SendEmailRequest request) {
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result = superAdminService.sendTemplateEmail(
+                request == null ? null : request.getRecipient(),
+                request == null ? null : request.getTemplateKey(),
+                request == null ? null : request.getVariables()
+            );
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "sendTemplateEmail");
+            detail.put("recipient", request == null ? null : request.getRecipient());
+            detail.put("templateKey", request == null ? null : request.getTemplateKey());
             operationLogService.log(operator, OperationType.UPDATE, "EMAIL_SEND", null, request == null ? null : request.getRecipient(), detail, requestContext.getRemoteAddr());
             return result;
         });
@@ -480,6 +515,70 @@ public class SuperAdminController {
         });
     }
 
+    @GetMapping("/models")
+    public ResponseEntity<?> models(@RequestHeader("Authorization") String authorization) {
+        return handle(authorization, () -> Map.of("models", modelManagementService.listModels()));
+    }
+
+    @PostMapping("/models/{modelKey}/download")
+    public ResponseEntity<?> downloadModel(@RequestHeader("Authorization") String authorization,
+                                           HttpServletRequest requestContext,
+                                           @PathVariable String modelKey,
+                                           @RequestBody Map<String, Object> request) {
+        String url = request == null || request.get("url") == null ? null : String.valueOf(request.get("url"));
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result = modelManagementService.downloadModel(modelKey, url);
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "downloadModel");
+            detail.put("modelKey", modelKey);
+            detail.put("url", url);
+            operationLogService.log(operator, OperationType.UPDATE, "MODEL_FILE", null, modelKey, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @PostMapping("/models/{modelKey}/reload")
+    public ResponseEntity<?> reloadModel(@RequestHeader("Authorization") String authorization,
+                                         HttpServletRequest requestContext,
+                                         @PathVariable String modelKey) {
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result = modelManagementService.reloadModel(modelKey);
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "reloadModel");
+            detail.put("modelKey", modelKey);
+            operationLogService.log(operator, OperationType.UPDATE, "MODEL_RUNTIME", null, modelKey, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @PostMapping("/models/{modelKey}/rebuild")
+    public ResponseEntity<?> rebuildModel(@RequestHeader("Authorization") String authorization,
+                                          HttpServletRequest requestContext,
+                                          @PathVariable String modelKey,
+                                          @RequestBody(required = false) Map<String, Object> request) {
+        boolean includeMissingItems = request != null && Boolean.parseBoolean(String.valueOf(request.getOrDefault("includeMissingItems", false)));
+        boolean forceRebuild = request != null && Boolean.parseBoolean(String.valueOf(request.getOrDefault("forceRebuild", false)));
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result = modelManagementService.triggerRebuild(modelKey, includeMissingItems, forceRebuild);
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "rebuildModel");
+            detail.put("modelKey", modelKey);
+            detail.put("includeMissingItems", includeMissingItems);
+            detail.put("forceRebuild", forceRebuild);
+            operationLogService.log(operator, OperationType.UPDATE, "MODEL_REBUILD", null, modelKey, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @GetMapping("/model-tasks/{taskId}")
+    public ResponseEntity<?> modelTask(@RequestHeader("Authorization") String authorization,
+                                       @PathVariable String taskId) {
+        return handle(authorization, () -> modelManagementService.getTask(taskId));
+    }
+
     private ResponseEntity<?> handle(String authorization, SuperAdminSupplier supplier) {
         try {
             authService.requireSuperAdmin(extractBearerToken(authorization));
@@ -560,28 +659,7 @@ public class SuperAdminController {
         return mergedPayload;
     }
 
-    private Map<String, Object> parseJsonBody(String rawBody) {
-        if (rawBody == null || rawBody.isBlank()) {
-            return new LinkedHashMap<>();
-        }
-        try {
-            return objectMapper.readValue(rawBody, new TypeReference<LinkedHashMap<String, Object>>() {});
-        } catch (Exception e) {
-            throw new RuntimeException("JSON 回调体解析失败");
-        }
-    }
-
     private Map<String, Object> resolveBodyPayload(String rawBody, HttpServletRequest request) {
-        if (rawBody == null || rawBody.isBlank()) {
-            return null;
-        }
-        String trimmed = rawBody.trim();
-        String contentType = request == null ? null : request.getContentType();
-        boolean jsonLike = (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
-        boolean jsonContentType = contentType != null && contentType.toLowerCase().contains("json");
-        if (jsonLike || jsonContentType) {
-            return parseJsonBody(rawBody);
-        }
-        return null;
+        return PaymentPayloadParser.resolveBodyPayload(rawBody, request, objectMapper);
     }
 }

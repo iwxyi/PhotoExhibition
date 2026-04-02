@@ -183,8 +183,8 @@ public class AuthService {
         return userVipService.getOverview(token);
     }
 
-    public java.util.Map<String, Object> listVipPlans() {
-        return userVipService.listPlans();
+    public java.util.Map<String, Object> listVipPlans(String token) {
+        return userVipService.listPlans(token);
     }
 
     public java.util.Map<String, Object> listMyVipOrders(String token) {

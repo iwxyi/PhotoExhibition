@@ -27,6 +27,7 @@ public class PaypalPaymentProviderAdapter extends AbstractPaymentProviderAdapter
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.PAYPAL, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.PAYPAL, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         Map<String, Object> applicationContext = new LinkedHashMap<>();
@@ -36,8 +37,8 @@ public class PaypalPaymentProviderAdapter extends AbstractPaymentProviderAdapter
         headers.put("Content-Type", "application/json");
         headers.put("PayPal-Request-Id", "vip-order-" + order.getOrderNo());
         payload.put("intent", "CAPTURE");
-        payload.put("returnUrl", settings.getReturnUrl());
-        payload.put("cancelUrl", settings.getReturnUrl());
+        payload.put("returnUrl", trackedReturnUrl);
+        payload.put("cancelUrl", trackedReturnUrl);
         payload.put("customId", order.getOrderNo());
         payload.put("purchase_units", List.of(Map.of(
             "reference_id", order.getOrderNo(),
@@ -49,8 +50,8 @@ public class PaypalPaymentProviderAdapter extends AbstractPaymentProviderAdapter
                 "value", preview.getRequestPayload().get("amountYuan")
             )
         )));
-        applicationContext.put("return_url", settings.getReturnUrl());
-        applicationContext.put("cancel_url", settings.getReturnUrl());
+        applicationContext.put("return_url", trackedReturnUrl);
+        applicationContext.put("cancel_url", trackedReturnUrl);
         applicationContext.put("user_action", "PAY_NOW");
         if (settings.getMerchantName() != null && !settings.getMerchantName().isBlank()) {
             applicationContext.put("brand_name", settings.getMerchantName());

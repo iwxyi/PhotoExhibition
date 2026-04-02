@@ -24,6 +24,7 @@ public class PaddlePaymentProviderAdapter extends AbstractPaymentProviderAdapter
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.PADDLE, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.PADDLE, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
@@ -31,7 +32,7 @@ public class PaddlePaymentProviderAdapter extends AbstractPaymentProviderAdapter
         payload.put("customerEmail", user.getUsername());
         payload.put("customData", Map.of("orderNo", order.getOrderNo(), "userId", user.getId()));
         payload.put("webhookUrl", settings.getNotifyUrl());
-        payload.put("returnUrl", settings.getReturnUrl());
+        payload.put("returnUrl", trackedReturnUrl);
 
         return PaymentInitiationService.PaymentInitiationResult.builder()
             .providerType(PaymentProviderType.PADDLE.name())

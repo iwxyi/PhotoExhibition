@@ -25,6 +25,7 @@ public class StripePaymentProviderAdapter extends AbstractPaymentProviderAdapter
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.STRIPE, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.STRIPE, preview);
         Map<String, Object> requestBody = new LinkedHashMap<>();
         Map<String, Object> headers = new LinkedHashMap<>();
@@ -32,8 +33,8 @@ public class StripePaymentProviderAdapter extends AbstractPaymentProviderAdapter
         headers.put("Content-Type", "application/x-www-form-urlencoded");
         headers.put("Idempotency-Key", "vip-order-" + order.getOrderNo());
         requestBody.put("mode", "payment");
-        requestBody.put("success_url", settings.getReturnUrl());
-        requestBody.put("cancel_url", settings.getReturnUrl());
+        requestBody.put("success_url", trackedReturnUrl);
+        requestBody.put("cancel_url", trackedReturnUrl);
         requestBody.put("client_reference_id", order.getOrderNo());
         requestBody.put("customer_email", user.getEmail());
         requestBody.put("metadata", Map.of(
@@ -52,6 +53,7 @@ public class StripePaymentProviderAdapter extends AbstractPaymentProviderAdapter
         requestBody.put("allow_promotion_codes", true);
         payload.putAll(requestBody);
         payload.put("customerReference", user.getId());
+        payload.put("returnUrl", trackedReturnUrl);
         payload.put("requestContentType", "application/x-www-form-urlencoded");
         payload.put("requestBodyForm", requestBody);
         payload.put("requestBodyEncoded", toFormUrlEncoded(requestBody));

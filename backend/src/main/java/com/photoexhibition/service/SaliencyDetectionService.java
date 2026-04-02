@@ -445,4 +445,30 @@ public class SaliencyDetectionService implements AutoCloseable {
             session = null;
         }
     }
+
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return enabled && session != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        if (session != null) {
+            try {
+                session.close();
+            } catch (Exception e) {
+                log.warn("关闭显著性检测会话失败", e);
+            }
+            session = null;
+        }
+        ensureSession();
+        return enabled && session != null;
+    }
 }

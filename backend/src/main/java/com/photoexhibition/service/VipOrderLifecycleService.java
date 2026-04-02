@@ -125,9 +125,14 @@ public class VipOrderLifecycleService {
             .orElseThrow(() -> new RuntimeException("VIP 套餐不存在"));
         LocalDateTime effectivePaidAt = order.getPaidAt() == null ? LocalDateTime.now() : order.getPaidAt();
         LocalDateTime expireAt = order.getExpireAt();
+        int durationDays = plan.getDurationDays() == null ? 30 : Math.max(1, plan.getDurationDays());
+        String changeType = order.getChangeType() == null ? "" : order.getChangeType().trim().toUpperCase();
         if (expireAt == null) {
-            int durationDays = plan.getDurationDays() == null ? 30 : Math.max(1, plan.getDurationDays());
-            expireAt = effectivePaidAt.plusDays(durationDays);
+            if ("RENEWAL".equals(changeType) && user.getVipExpireAt() != null && user.getVipExpireAt().isAfter(effectivePaidAt)) {
+                expireAt = user.getVipExpireAt().plusDays(durationDays);
+            } else {
+                expireAt = effectivePaidAt.plusDays(durationDays);
+            }
             order.setExpireAt(expireAt);
         }
         if (Boolean.TRUE.equals(order.getAutoRenewEnabled()) && order.getNextRenewalAt() == null) {

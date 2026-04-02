@@ -24,11 +24,12 @@ public class MolliePaymentProviderAdapter extends AbstractPaymentProviderAdapter
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.MOLLIE, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.MOLLIE, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
         headers.put("Content-Type", "application/json");
-        payload.put("redirectUrl", settings.getReturnUrl());
+        payload.put("redirectUrl", trackedReturnUrl);
         payload.put("webhookUrl", settings.getNotifyUrl());
         payload.put("sequenceType", "oneoff");
         payload.put("metadata", Map.of("orderNo", order.getOrderNo(), "userId", user.getId()));

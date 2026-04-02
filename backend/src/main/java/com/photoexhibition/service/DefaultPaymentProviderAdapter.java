@@ -26,6 +26,7 @@ public class DefaultPaymentProviderAdapter extends AbstractPaymentProviderAdapte
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
         PaymentProviderType providerType = settings.getProviderType() == null ? PaymentProviderType.ALIPAY : settings.getProviderType();
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), providerType, order);
         Map<String, Object> launchPayload = new LinkedHashMap<>();
         Map<String, Object> formFields = new LinkedHashMap<>();
         Map<String, Object> headers = new LinkedHashMap<>();
@@ -35,6 +36,7 @@ public class DefaultPaymentProviderAdapter extends AbstractPaymentProviderAdapte
         launchPayload.put("amountFen", order.getAmountFen());
         launchPayload.put("currency", preview.getCurrency());
         launchPayload.put("requestPayload", preview.getRequestPayload());
+        launchPayload.put("returnUrl", trackedReturnUrl);
 
         String launchUrl;
         String method = "POST";
@@ -50,7 +52,7 @@ public class DefaultPaymentProviderAdapter extends AbstractPaymentProviderAdapte
                 actionType = "REDIRECT_FORM";
                 formFields.put("method", "alipay.trade.page.pay");
                 formFields.put("app_id", settings.getAppId());
-                formFields.put("return_url", settings.getReturnUrl());
+                formFields.put("return_url", trackedReturnUrl);
                 formFields.put("notify_url", settings.getNotifyUrl());
                 formFields.put("out_trade_no", order.getOrderNo());
                 formFields.put("subject", plan.getName());
@@ -68,12 +70,12 @@ public class DefaultPaymentProviderAdapter extends AbstractPaymentProviderAdapte
             case STRIPE:
                 launchUrl = preview.getApiBaseUrl() + "/v1/checkout/sessions";
                 headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
-                message = "Stripe Checkout 拉起描述已生成，可按该请求模型换成真实 session 创建。";
+                message = "TODO: Stripe Checkout 拉起描述已生成，可按该请求模型换成真实 session 创建。";
                 break;
             case PAYPAL:
                 launchUrl = preview.getApiBaseUrl() + "/v2/checkout/orders";
                 headers.put("Authorization", "Basic <ClientId:Secret>");
-                message = "PayPal 拉起描述已生成，可按该请求模型继续创建订单并取回批准链接。";
+                message = "TODO: PayPal 拉起描述已生成，可按该请求模型继续创建订单并取回批准链接。";
                 break;
             case UNIONPAY:
                 launchUrl = preview.getApiBaseUrl() + "/gateway/api/appTransReq.do";
@@ -84,45 +86,45 @@ public class DefaultPaymentProviderAdapter extends AbstractPaymentProviderAdapte
                 formFields.put("bizType", "000201");
                 formFields.put("orderId", order.getOrderNo());
                 formFields.put("txnAmt", order.getAmountFen());
-                formFields.put("frontUrl", settings.getReturnUrl());
+                formFields.put("frontUrl", trackedReturnUrl);
                 formFields.put("backUrl", settings.getNotifyUrl());
-                message = "银联拉起描述已生成，可继续补证书签名字段后直接表单跳转。";
+                message = "TODO: 银联拉起描述已生成，可继续补证书签名字段后直接表单跳转。";
                 break;
             case PADDLE:
                 launchUrl = preview.getApiBaseUrl() + "/transactions";
                 headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
-                message = "Paddle 拉起描述已生成，可继续补真实交易创建与 checkout 链接回填。";
+                message = "TODO: Paddle 拉起描述已生成，可继续补真实交易创建与 checkout 链接回填。";
                 break;
             case LEMON_SQUEEZY:
                 launchUrl = preview.getApiBaseUrl() + "/v1/checkouts";
                 headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
-                message = "Lemon Squeezy 拉起描述已生成，可继续补 Store/Variant 与 checkout URL。";
+                message = "TODO: Lemon Squeezy 拉起描述已生成，可继续补 Store/Variant 与 checkout URL。";
                 break;
             case ADYEN:
                 launchUrl = preview.getApiBaseUrl() + "/checkout/v70/payments";
                 headers.put("X-API-Key", maskKey(settings.getPrivateKey()));
-                message = "Adyen 拉起描述已生成，可继续接 paymentMethods + payments 流程。";
+                message = "TODO: Adyen 拉起描述已生成，可继续接 paymentMethods + payments 流程。";
                 break;
             case MOLLIE:
                 launchUrl = preview.getApiBaseUrl() + "/v2/payments";
                 headers.put("Authorization", "Bearer " + maskKey(settings.getPrivateKey()));
-                message = "Mollie 拉起描述已生成，可继续创建 payment 并跳转 checkoutUrl。";
+                message = "TODO: Mollie 拉起描述已生成，可继续创建 payment 并跳转 checkoutUrl。";
                 break;
             case XENDIT:
                 launchUrl = preview.getApiBaseUrl() + "/payment_requests";
                 headers.put("Authorization", "Basic <XENDIT_API_KEY>");
-                message = "Xendit 拉起描述已生成，可继续创建 payment request 并拉起 hosted payment page。";
+                message = "TODO: Xendit 拉起描述已生成，可继续创建 payment request 并拉起 hosted payment page。";
                 break;
             case MIDTRANS:
                 launchUrl = preview.getApiBaseUrl() + "/v2/charge";
                 headers.put("Authorization", "Basic <MIDTRANS_SERVER_KEY>");
                 headers.put("Content-Type", "application/json");
-                message = "Midtrans 拉起描述已生成，可继续接 Snap / Core API 并回填 redirect_url。";
+                message = "TODO: Midtrans 拉起描述已生成，可继续接 Snap / Core API 并回填 redirect_url。";
                 break;
             case CUSTOM_WEBHOOK:
             default:
                 launchUrl = preview.getApiBaseUrl();
-                message = "自定义支付网关拉起描述已生成，可直接映射到内部收银台或聚合支付接口。";
+                message = "TODO: 自定义支付网关拉起描述已生成，可直接映射到内部收银台或聚合支付接口。";
                 break;
         }
 

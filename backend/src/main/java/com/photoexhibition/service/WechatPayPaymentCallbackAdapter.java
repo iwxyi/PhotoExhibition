@@ -22,6 +22,10 @@ public class WechatPayPaymentCallbackAdapter extends AbstractPaymentCallbackAdap
             nestedString(payload, "resource", "plaintext", "out_trade_no"),
             nestedString(payload, "resource", "original", "out_trade_no"),
             nestedString(payload, "resource", "attach", "orderNo"),
+            embeddedOrderNo(payload.get("attach")),
+            embeddedOrderNo(nestedString(payload, "resource", "attach")),
+            embeddedOrderNo(nestedString(payload, "resource", "plaintext", "attach")),
+            embeddedOrderNo(nestedString(payload, "resource", "original", "attach")),
             stringValue(payload.get("orderNo"), null)
         );
     }
@@ -68,7 +72,8 @@ public class WechatPayPaymentCallbackAdapter extends AbstractPaymentCallbackAdap
         return firstNonBlank(
             queryParams == null ? null : queryParams.get("orderNo"),
             queryParams == null ? null : queryParams.get("out_trade_no"),
-            queryParams == null ? null : queryParams.get("merchant_order_no")
+            queryParams == null ? null : queryParams.get("merchant_order_no"),
+            embeddedOrderNo(queryParams == null ? null : queryParams.get("attach"))
         );
     }
 }

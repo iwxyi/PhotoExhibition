@@ -16,7 +16,7 @@
         <div class="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 class="text-3xl font-light text-gray-900 dark:text-white">会员中心</h1>
-            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">独立查看配额、套餐、订单和支付预览。当前已支持自助下单与 Mock 支付联调。</p>
+            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">独立查看配额、套餐、订单和支付预览。当前支持同容量续费、同周期升配抵扣，不支持降级和不同容量不同周期混换。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <router-link to="/profile" class="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">
@@ -81,8 +81,14 @@
                 </div>
               </div>
               <p class="text-sm text-gray-500 dark:text-gray-400 min-h-[40px]">{{ plan.description || '暂无套餐说明' }}</p>
-              <button class="btn-primary w-full disabled:opacity-60" :disabled="creatingPlanId === plan.id" @click="createOrder(plan.id)">
-                {{ creatingPlanId === plan.id ? '创建订单中...' : '立即购买' }}
+              <div class="rounded-xl bg-gray-50 dark:bg-gray-950/40 p-3 text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                <div>操作类型：{{ planActionLabel(plan.purchaseAction) }}</div>
+                <div>规则说明：{{ plan.purchaseHint || '可直接购买' }}</div>
+                <div v-if="Number(plan.creditedAmountFen || 0) > 0">抵扣金额：¥{{ plan.creditedAmountYuan }}，应付：¥{{ plan.payableAmountYuan }}</div>
+                <div v-else>应付金额：¥{{ plan.payableAmountYuan || plan.priceYuan }}</div>
+              </div>
+              <button class="btn-primary w-full disabled:opacity-60" :disabled="creatingPlanId === plan.id || !plan.available" @click="createOrder(plan.id)">
+                {{ creatingPlanId === plan.id ? '创建订单中...' : (plan.available ? planActionButtonLabel(plan.purchaseAction) : '当前不可购买') }}
               </button>
             </article>
           </div>
@@ -130,7 +136,10 @@
                 </div>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs text-gray-500 dark:text-gray-400">
+                <div>订单类型：{{ planActionLabel(order.changeType) }}</div>
                 <div>支付渠道：{{ paymentProviderLabel(order.paymentProviderType) }}</div>
+                <div>原价：¥{{ order.originalAmountYuan || Number(order.amountYuan || 0).toFixed(2) }}</div>
+                <div>抵扣：¥{{ order.creditedAmountYuan || '0.00' }}</div>
                 <div>外部单号：{{ order.externalTradeNo || '-' }}</div>
                 <div>网关状态：{{ order.gatewayStatus || order.status || '-' }}</div>
                 <div>支付时间：{{ formatDate(order.paidAt) }}</div>
@@ -218,6 +227,13 @@
               <div>拉起类型：{{ paymentInitiation.actionType || 'API_REQUEST' }}</div>
               <div>是否跳转：{{ paymentInitiation.redirect ? '是' : '否' }}</div>
               <div>状态：{{ paymentInitiation.message }}</div>
+              <button
+                v-if="canDirectLaunchPayment(paymentInitiation)"
+                class="mt-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white"
+                @click="launchCurrentPayment"
+              >
+                立即拉起支付
+              </button>
             </div>
             <pre class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.payload, null, 2) }}</pre>
           </div>
@@ -242,6 +258,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 import { authProfileApi, type PaymentInitiationResponse, type UserVipCheckoutPreview, type UserVipOverview, type UserVipPlan, type VipOrderSummary } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { canDirectLaunchPayment, launchPaymentInitiation } from '@/utils/paymentLaunch'
 import { paymentProviderLabel } from '@/utils/providerLabels'
 
 const authStore = useAuthStore()
@@ -267,6 +284,32 @@ const formatDate = (value?: string | null) => {
   const normalized = value.includes('T') ? value : value.replace(' ', 'T')
   const date = new Date(normalized)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+const planActionLabel = (action?: string | null) => {
+  switch ((action || '').toUpperCase()) {
+    case 'RENEWAL':
+      return '续费延时'
+    case 'UPGRADE':
+      return '升级扩容'
+    case 'PURCHASE':
+      return '直接购买'
+    case 'BLOCKED':
+      return '当前不可购买'
+    default:
+      return action || '直接购买'
+  }
+}
+
+const planActionButtonLabel = (action?: string | null) => {
+  switch ((action || '').toUpperCase()) {
+    case 'RENEWAL':
+      return '续费当前套餐'
+    case 'UPGRADE':
+      return '升级到该套餐'
+    default:
+      return '立即购买'
+  }
 }
 
 const buildResultRoute = (order: Pick<VipOrderSummary, 'orderNo' | 'paymentProviderType'>): RouteLocationRaw => ({
@@ -351,6 +394,18 @@ const initiate = async (orderId: number) => {
     message.value = error?.response?.data?.error || error?.message || '发起支付失败'
   } finally {
     initiatingOrderId.value = null
+  }
+}
+
+const launchCurrentPayment = () => {
+  if (!paymentInitiation.value) return
+  try {
+    launchPaymentInitiation(paymentInitiation.value)
+    messageType.value = 'success'
+    message.value = '已拉起支付页面，请支付完成后返回结果页查看状态'
+  } catch (error: any) {
+    messageType.value = 'error'
+    message.value = error?.message || '拉起支付失败'
   }
 }
 

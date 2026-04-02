@@ -1107,6 +1107,36 @@ public class BackgroundRemovalService implements AutoCloseable {
         return enabled && modelLoaded && session != null;
     }
 
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (session != null) {
+                session.close();
+            }
+        } catch (Exception ignored) {
+        }
+        session = null;
+        env = null;
+        modelLoaded = false;
+        ensureModelLoaded();
+        return isModelAvailable();
+    }
+
+    public int getActiveTaskCount() {
+        inProgressTasks.entrySet().removeIf(entry -> {
+            java.util.concurrent.Future<?> task = entry.getValue();
+            return task == null || task.isDone() || task.isCancelled();
+        });
+        return inProgressTasks.size();
+    }
+
     @Override
     public void close() {
         try {
@@ -1114,5 +1144,8 @@ public class BackgroundRemovalService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        session = null;
+        env = null;
+        modelLoaded = false;
     }
 }

@@ -599,4 +599,30 @@ public class ImageClassificationService implements AutoCloseable {
             return confidence;
         }
     }
+
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return enabled && session != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        if (session != null) {
+            try {
+                session.close();
+            } catch (Exception ignored) {
+            }
+            session = null;
+        }
+        env = null;
+        ensureSession();
+        return enabled && session != null;
+    }
 }

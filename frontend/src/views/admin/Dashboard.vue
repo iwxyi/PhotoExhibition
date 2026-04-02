@@ -1007,33 +1007,48 @@ const closeSkippedModal = () => {
 }
 
 const loadStats = async () => {
-  try {
-    const [albumsRes, photosRes, tagsRes, personsRes, facesRes] = await Promise.all([
-      api.get('/albums/count'),
-      api.get('/photos', { params: { size: 1, page: 0 } }),
-      api.get('/tags', { params: { size: 1, page: 0 } }),
-      api.get('/admin/persons/count'),
-      api.get('/admin/faces', { params: { size: 1, page: 0 } })
-    ])
+  const results = await Promise.allSettled([
+    api.get('/albums/count', { params: { includeHidden: true } }),
+    api.get('/photos', { params: { size: 1, page: 0 } }),
+    api.get('/tags', { params: { size: 1, page: 0 } }),
+    api.get('/admin/persons/count'),
+    api.get('/admin/faces', { params: { size: 1, page: 0 } })
+  ])
 
-    const albumTotal = albumsRes.data ?? 0
-    const photoTotal = photosRes.data.totalElements ?? photosRes.data.total ?? 0
-    const tagTotal = Array.isArray(tagsRes.data)
-      ? tagsRes.data.length
-      : (tagsRes.data.totalElements ?? tagsRes.data.total ?? 0)
-    const personTotal = personsRes.data ?? 0
-    const faceTotal = facesRes.data.totalElements ?? facesRes.data.total ?? 0
+  const [albumsRes, photosRes, tagsRes, personsRes, facesRes] = results
 
-    stats.value = {
-      albums: albumTotal,
-      photos: photoTotal,
-      tags: tagTotal,
-      persons: personTotal,
-      faces: faceTotal
-    }
-  } catch (error) {
-    console.error('加载统计信息失败:', error)
+  const albumTotal = albumsRes.status === 'fulfilled'
+    ? (albumsRes.value.data ?? 0)
+    : stats.value.albums
+  const photoTotal = photosRes.status === 'fulfilled'
+    ? (photosRes.value.data.totalElements ?? photosRes.value.data.total ?? 0)
+    : stats.value.photos
+  const tagTotal = tagsRes.status === 'fulfilled'
+    ? (Array.isArray(tagsRes.value.data)
+        ? tagsRes.value.data.length
+        : (tagsRes.value.data.totalElements ?? tagsRes.value.data.total ?? 0))
+    : stats.value.tags
+  const personTotal = personsRes.status === 'fulfilled'
+    ? (personsRes.value.data ?? 0)
+    : stats.value.persons
+  const faceTotal = facesRes.status === 'fulfilled'
+    ? (facesRes.value.data.totalElements ?? facesRes.value.data.total ?? 0)
+    : stats.value.faces
+
+  stats.value = {
+    albums: albumTotal,
+    photos: photoTotal,
+    tags: tagTotal,
+    persons: personTotal,
+    faces: faceTotal
   }
+
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      const labels = ['albums', 'photos', 'tags', 'persons', 'faces']
+      console.error(`加载 ${labels[index]} 统计失败:`, result.reason)
+    }
+  })
 }
 
 const cleanupOrphaned = async () => {

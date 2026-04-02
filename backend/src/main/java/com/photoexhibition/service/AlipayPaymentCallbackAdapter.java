@@ -19,8 +19,11 @@ public class AlipayPaymentCallbackAdapter extends AbstractPaymentCallbackAdapter
         return firstNonBlank(
             stringValue(payload.get("out_trade_no"), null),
             stringValue(payload.get("orderNo"), null),
+            embeddedOrderNo(payload.get("passback_params")),
             nestedString(payload, "biz_content", "out_trade_no"),
             nestedString(payload, "notify_data", "out_trade_no"),
+            embeddedOrderNo(nestedString(payload, "biz_content", "passback_params")),
+            embeddedOrderNo(nestedString(payload, "notify_data", "passback_params")),
             nestedString(payload, "metadata", "orderNo")
         );
     }
@@ -61,7 +64,8 @@ public class AlipayPaymentCallbackAdapter extends AbstractPaymentCallbackAdapter
         return firstNonBlank(
             queryParams == null ? null : queryParams.get("orderNo"),
             queryParams == null ? null : queryParams.get("out_trade_no"),
-            queryParams == null ? null : queryParams.get("merchant_order_no")
+            queryParams == null ? null : queryParams.get("merchant_order_no"),
+            embeddedOrderNo(queryParams == null ? null : queryParams.get("passback_params"))
         );
     }
 }

@@ -286,5 +286,29 @@ public class FaceEmbeddingService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        session = null;
+        env = null;
+    }
+
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return session != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (session != null) {
+                session.close();
+            }
+        } catch (Exception ignored) {
+        }
+        session = null;
+        env = null;
+        ensureSession();
+        return session != null;
     }
 }

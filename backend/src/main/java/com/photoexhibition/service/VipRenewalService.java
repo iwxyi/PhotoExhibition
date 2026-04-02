@@ -60,7 +60,7 @@ public class VipRenewalService {
         resp.put("activeAutoRenewOrderCount", activeAutoRenewCount);
         resp.put("dryRun", true);
         resp.put("supportedStatuses", RENEWABLE_STATUSES);
-        resp.put("message", "当前仅提供自动续费候选预演，暂未执行真实扣款与续期建单。");
+        resp.put("message", "当前为自动续费干跑预演：不会真实扣款，也不会直接创建续费子单，但会评估是否可继续执行续费建单。");
         return resp;
     }
 
@@ -90,7 +90,7 @@ public class VipRenewalService {
         resp.put("skippedCount", skippedOrders.size());
         resp.put("createdOrders", createdOrders);
         resp.put("skippedOrders", skippedOrders);
-        resp.put("message", "已执行自动续费建单骨架：仅创建待支付续费订单，不进行真实扣款。");
+        resp.put("message", "已执行自动续费建单：当前仅创建待支付续费订单，不进行真实扣款。");
         return resp;
     }
 
@@ -182,6 +182,10 @@ public class VipRenewalService {
         renewalOrder.setUserId(sourceOrder.getUserId());
         renewalOrder.setVipPlanId(sourceOrder.getVipPlanId());
         renewalOrder.setAmountFen(sourceOrder.getAmountFen() == null ? (plan.getPriceFen() == null ? 0 : plan.getPriceFen()) : sourceOrder.getAmountFen());
+        renewalOrder.setOriginalAmountFen(renewalOrder.getAmountFen());
+        renewalOrder.setCreditedAmountFen(0);
+        renewalOrder.setChangeType("RENEWAL");
+        renewalOrder.setSourceVipPlanId(sourceOrder.getVipPlanId());
         renewalOrder.setStatus("CREATED");
         renewalOrder.setSource("AUTO_RENEW");
         renewalOrder.setPaymentProviderType(sourceOrder.getPaymentProviderType());

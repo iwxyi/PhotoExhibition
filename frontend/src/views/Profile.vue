@@ -295,13 +295,16 @@
                     <div class="text-sm text-gray-900 dark:text-white">{{ order.orderNo }}</div>
                     <div class="text-xs text-gray-500 dark:text-gray-400">{{ order.vipPlanName || order.vipPlanCode || '未知套餐' }} · {{ order.orderStageLabel || order.status }} · ¥{{ Number(order.amountYuan || 0).toFixed(2) }}</div>
                   </div>
-                  <div class="flex gap-2 flex-wrap">
-                    <button class="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" :disabled="previewingOrderId === order.id" @click="previewCheckout(order.id)">
-                      {{ previewingOrderId === order.id ? '生成中...' : '支付预览' }}
-                    </button>
-                    <button v-if="vipOverview?.paymentMockEnabled" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white disabled:opacity-50" :disabled="mockingOrderId === order.id || !order.canInitiatePayment" @click="mockPay(order.id)">
-                      {{ mockingOrderId === order.id ? '处理中...' : 'Mock 支付' }}
-                    </button>
+                <div class="flex gap-2 flex-wrap">
+                  <button class="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" :disabled="previewingOrderId === order.id" @click="previewCheckout(order.id)">
+                    {{ previewingOrderId === order.id ? '生成中...' : '支付预览' }}
+                  </button>
+                  <button class="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white disabled:opacity-50" :disabled="initiatingOrderId === order.id || !order.canInitiatePayment" @click="initiateCheckout(order.id)">
+                    {{ initiatingOrderId === order.id ? '发起中...' : '发起支付' }}
+                  </button>
+                  <button v-if="vipOverview?.paymentMockEnabled" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white disabled:opacity-50" :disabled="mockingOrderId === order.id || !order.canInitiatePayment" @click="mockPay(order.id)">
+                    {{ mockingOrderId === order.id ? '处理中...' : 'Mock 支付' }}
+                  </button>
                     <button
                       v-if="order.canToggleAutoRenew"
                       class="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white disabled:opacity-50"
@@ -440,6 +443,42 @@
               </router-link>
             </div>
           </div>
+
+          <div v-if="paymentInitiation" class="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/50 p-5 space-y-4">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-lg text-gray-900 dark:text-white">支付发起骨架</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ paymentInitiation.providerLabel }} · {{ paymentInitiation.orderNo }}</div>
+              </div>
+              <button class="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800" @click="paymentInitiation = null">
+                关闭
+              </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/50 p-4 space-y-2 text-gray-600 dark:text-gray-300">
+                <div>发起地址：{{ paymentInitiation.launchUrl }}</div>
+                <div>请求方式：{{ paymentInitiation.httpMethod }}</div>
+                <div>拉起类型：{{ paymentInitiation.actionType || 'API_REQUEST' }}</div>
+                <div>是否跳转：{{ paymentInitiation.redirect ? '是' : '否' }}</div>
+                <div>状态：{{ paymentInitiation.message }}</div>
+                <button
+                  v-if="canDirectLaunchPayment(paymentInitiation)"
+                  class="mt-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white"
+                  @click="launchCurrentPayment"
+                >
+                  立即拉起支付
+                </button>
+              </div>
+              <pre class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.payload, null, 2) }}</pre>
+            </div>
+            <div v-if="paymentInitiation.formFields || paymentInitiation.headers || paymentInitiation.qrCodeText || paymentInitiation.payload?.requestBodyJson || paymentInitiation.payload?.requestBodyEncoded" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <pre v-if="paymentInitiation.formFields" class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.formFields, null, 2) }}</pre>
+              <pre v-if="paymentInitiation.headers" class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.headers, null, 2) }}</pre>
+              <pre v-if="paymentInitiation.qrCodeText" class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto">{{ paymentInitiation.qrCodeText }}</pre>
+              <pre v-if="paymentInitiation.payload?.requestBodyJson" class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto">{{ paymentInitiation.payload.requestBodyJson }}</pre>
+              <pre v-if="paymentInitiation.payload?.requestBodyEncoded" class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/50 p-4 text-xs text-gray-700 dark:text-gray-200 overflow-auto break-all whitespace-pre-wrap">{{ paymentInitiation.payload.requestBodyEncoded }}</pre>
+            </div>
+          </div>
         </div>
         </div>
       </div>
@@ -452,8 +491,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
-import { authProfileApi, type UserVipCheckoutPreview, type UserVipOverview, type UserVipPlan, type VipOrderSummary } from '@/api'
+import { authProfileApi, type PaymentInitiationResponse, type UserVipCheckoutPreview, type UserVipOverview, type UserVipPlan, type VipOrderSummary } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { canDirectLaunchPayment, launchPaymentInitiation } from '@/utils/paymentLaunch'
 import { paymentProviderLabel } from '@/utils/providerLabels'
 
 const authStore = useAuthStore()
@@ -472,12 +512,14 @@ const emailDebugCode = ref('')
 const vipLoading = ref(false)
 const creatingPlanId = ref<number | null>(null)
 const previewingOrderId = ref<number | null>(null)
+const initiatingOrderId = ref<number | null>(null)
 const mockingOrderId = ref<number | null>(null)
 const togglingAutoRenewId = ref<number | null>(null)
 const vipOverview = ref<UserVipOverview | null>(null)
 const vipPlans = ref<UserVipPlan[]>([])
 const vipOrders = ref<VipOrderSummary[]>([])
 const checkoutPreview = ref<UserVipCheckoutPreview | null>(null)
+const paymentInitiation = ref<PaymentInitiationResponse | null>(null)
 const form = reactive({
   slug: '',
   nickname: '',
@@ -676,6 +718,34 @@ const previewCheckout = async (orderId: number) => {
     message.value = error?.response?.data?.error || error?.message || '生成支付预览失败'
   } finally {
     previewingOrderId.value = null
+  }
+}
+
+const initiateCheckout = async (orderId: number) => {
+  initiatingOrderId.value = orderId
+  message.value = ''
+  try {
+    const { data } = await authProfileApi.initiateVipCheckout(orderId)
+    paymentInitiation.value = data
+    messageType.value = 'success'
+    message.value = `已生成订单 ${data.orderNo} 的支付发起参数`
+  } catch (error: any) {
+    messageType.value = 'error'
+    message.value = error?.response?.data?.error || error?.message || '发起支付失败'
+  } finally {
+    initiatingOrderId.value = null
+  }
+}
+
+const launchCurrentPayment = () => {
+  if (!paymentInitiation.value) return
+  try {
+    launchPaymentInitiation(paymentInitiation.value)
+    messageType.value = 'success'
+    message.value = '已拉起支付页面，请支付完成后返回结果页查看状态'
+  } catch (error: any) {
+    messageType.value = 'error'
+    message.value = error?.message || '拉起支付失败'
   }
 }
 

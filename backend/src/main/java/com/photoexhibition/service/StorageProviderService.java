@@ -597,7 +597,7 @@ public class StorageProviderService {
             );
         }
 
-        return ProviderCapability.unsupported("暂不支持的存储类型");
+        return ProviderCapability.unsupported("TODO: 暂不支持的存储类型");
     }
 
     private Path resolveConfiguredPath(String rawPath) {
@@ -859,7 +859,7 @@ public class StorageProviderService {
         }
 
         public static ProviderCapability uploadOnlyUnsupported(String uploadMessage) {
-            return new ProviderCapability(false, "当前文件浏览器暂不支持该存储类型", false, uploadMessage, false, false, null, null);
+            return new ProviderCapability(false, "TODO: 当前文件浏览器暂不支持该存储类型", false, uploadMessage, false, false, null, null);
         }
 
         public boolean isBrowserSupported() {

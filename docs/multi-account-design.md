@@ -302,6 +302,10 @@
   - 超级管理员入口：`POST /api/admin/super-admin/vip-orders/{orderId}/payment-initiate`
   - 当前会返回统一的 `launchUrl / httpMethod / redirect / actionType / headers / formFields / qrCodeText / payload / preview`
   - 这样前端已能区分“API 请求 / 表单跳转 / 二维码拉起”等模式，而不只是展示一份原始 JSON
+  - 用户会员中心与超级管理员 `VIP 订单` 面板现也已补“一键拉起支付”能力：
+    - `REDIRECT_FORM`：直接按返回表单字段提交到真实网关
+    - `REDIRECT_GET`：自动拼接参数并跳转
+    - `QR_CODE`：若返回 `weixin://` 或 `http(s)` 拉起链接，可直接在浏览器中打开
   - 后续各平台 SDK、签名、页面跳转、二维码生成、收银台拉起等逻辑统一收敛到 `PaymentProviderAdapter`
 - 已支持针对 `VIP 订单` 做后台支付预览，便于先联调订单与支付参数
 - 已支持 `Mock 支付`，用于在未接真实支付网关前验证“订单已支付 -> 套餐生效 -> 配额变化”链路
@@ -621,6 +625,7 @@
   - `FTP` 当前已支持浏览、建目录、删除、重命名、移动
   - `COS` 当前已支持浏览、建目录、删除、重命名、移动
   - `COS` 当前已支持在后台文件浏览器中生成临时预览地址打开原文件
+  - 文件浏览器打开远端文件时，前端现会优先尝试“直开远端预览 URL”，若当前存储类型不支持再自动回退为后台代理流式预览，减少大文件一律先走后端中转的压力
   - 文件浏览器现在会直接展示当前存储的“浏览 / 上传 / 预览”能力状态，并同步显示当前存储的限制说明
   - 当某个远端存储尚未接通预览或批量管理能力时，前端会优先按当前存储能力给出更直观的提示，而不是只报通用失败
   - 文件右键菜单已新增“下载”动作，可直接复用当前受控预览接口把远端文件下载到本地
@@ -744,6 +749,9 @@
     - 当前仅允许 `CREATED / PAID / ACTIVE` 状态修改
     - 开启后优先以订单 `expireAt` 作为下一次续费时间
     - 续费派生出的新订单也会显示 `renewalSourceOrderId`，便于用户理解续费链路
+  - 普通用户的 `Profile` 页现在也已补齐与 `会员中心` 基本一致的支付发起链路：
+    - 最近订单可直接执行“发起支付”
+    - 对 `REDIRECT_FORM / REDIRECT_GET / QR_CODE` 类型的发起结果，可直接在浏览器中拉起支付页
   - 订单交互约束已进一步收紧：
     - 仅 `CREATED` 状态允许发起支付 / Mock 支付
     - 已取消、已退款、已支付订单不会再暴露支付发起入口
@@ -752,7 +760,8 @@
     - 定时任务每 5 分钟检查一次到期待续费订单
     - 逻辑与手动执行相同，只创建续费待支付订单，不直接扣款
   - 支付回调已开始识别 `PAID / CANCELLED / REFUNDED` 三类结果并写回订单，便于后续继续接退款、撤销、自动续费补偿等链路
-  - 真实支付、回调验签、自动续费真实扣款、退款网关联动仍待后续完善
+  - TODO：真实支付、回调验签、自动续费真实扣款、退款网关联动仍待后续完善
+  - TODO：当前优先保证 `ALIPAY / WECHAT_PAY` 两条主链，其余支付平台统一按“骨架 / 预览 / 提示”管理，避免误判为已完工
 - 超级管理员后台已新增支付配置骨架：
   - 已支持 `ALIPAY`、`WECHAT_PAY`、`STRIPE`、`PAYPAL`、`UNIONPAY`、`PADDLE`、`LEMON_SQUEEZY`、`ADYEN`、`MOLLIE`、`XENDIT`、`MIDTRANS`、`CUSTOM_WEBHOOK`
   - 可配置应用ID、商户号、商户名、密钥、回调地址、返回地址、Webhook Secret、币种
@@ -781,6 +790,7 @@
       - 支付宝：补 `charset / sign_type / version / timestamp / biz_content`
       - 支付宝发起结果现会直接回显待签名串 `signingContent`、签名字段名 `sign`，便于后续直接接 RSA2 真签名
       - 若已配置商户私钥，支付宝发起结果现会直接给出 `sign` 预签名结果，超管可先用于联调比对
+      - 支付宝 `REDIRECT_FORM` 现也已改成更接近真实网关表单：`biz_content` 会序列化为 JSON 字符串参与签名与提交，并额外回显 `requestBodyForm / requestBodyEncoded`
       - 微信支付：补 `appid / mchid / amount / attach / payer`
       - 微信支付发起结果现会直接回显 `Authorization` 签名字段、签名算法名与 Header 模板，便于继续接商户私钥签名
       - 若已配置商户私钥，微信支付发起结果现会直接给出 `signingMessage / requestBodyJson / authorizationPreview`
@@ -870,6 +880,10 @@
   - 现在会为该副本创建新的照片记录，并通过 `canonicalPhotoId` 指向命中的规范源照片
   - 规范源照片继续保留 `contentHash`；重复副本不再重复写入 `contentHash`，避免全局唯一索引冲突
   - 这样先保证多用户 / 多相册复制同一张图时不会互相覆盖数据，同时也为后续“秒传 / 去重对象存储 / 派生资源复用”预留规范源链路
+  - 已新增上传前预检查接口 `GET /api/admin/folders/upload-precheck?contentHash=...`
+    - 可在正式上传前判断是否命中已有规范源内容
+    - 会返回“是否同用户 / 是否可见 / 是否已有可复用元数据 / 是否已有可复用派生资源”
+    - 普通用户命中其他用户内容时不会泄露对方真实路径，仅返回布尔状态与可复用能力摘要
   - 重复副本现在也会优先复用规范源已有的尺寸、EXIF、缩略图/WebP、色彩分析和质量评分，减少重复生成派生资源与重复跑基础分析
   - 当前仍保留人脸、主体、标签等后半段链路的独立处理，避免在人物/标签归属语义尚未完全抽象前过早共享这部分数据
   - `PhotoDTO` 现已补 `canonicalPhotoId / canonicalSource / duplicateContent`，前端和管理端后续可以直接区分“规范源照片”和“重复内容副本”
@@ -912,10 +926,11 @@
 - 前端展示层已补统一“平台 / 存储类型”友好名称：
   - 超级管理员、文件浏览器、个人资料、会员中心等页面不再直接暴露 `ALIPAY / WEBDAV / COS` 这类原始枚举
   - 同一类平台标签统一复用公共映射，便于后续继续扩展短信、邮件、支付、存储提供者时保持界面一致
+  - TODO：未完成的支付平台与未接通的存储类型，会继续在超管提示与后端能力文案中显式带 `TODO`
 - 支付适配入口已进一步拆分为独立平台实现：
   - 已新增 `ALIPAY`、`WECHAT_PAY`、`STRIPE`、`PAYPAL` 的专属 `PaymentProviderAdapter`
   - 默认适配器继续兜底 `UNIONPAY / PADDLE / LEMON_SQUEEZY / ADYEN / MOLLIE / XENDIT / MIDTRANS / CUSTOM_WEBHOOK`
-  - 后续接真实签名、证书、SDK 与跳转链路时，可直接在对应平台适配器中演进，避免所有支付逻辑继续堆在一个默认实现里
+  - TODO：后续接真实签名、证书、SDK 与跳转链路时，可直接在对应平台适配器中演进，避免所有支付逻辑继续堆在一个默认实现里
 - 支付平台兼容面已进一步扩大：
   - 新增 `Mollie / Xendit / Midtrans` 的超管配置入口、友好名称、预览骨架与回调字段识别
   - 便于后续按区域逐步接欧洲、东南亚、印尼等市场的真实支付能力
@@ -942,9 +957,15 @@
 - 前端支付结果页现会把第三方回跳的原始查询参数完整透传给后端返回接口：
   - 不再只发送 `orderNo`
   - 因此使用 `out_trade_no`、`invoice_id`、`merchantReference` 等字段回跳时，也能正确命中订单回查与自动轮询
+  - 若第三方把参数展开成 `data[custom_data][orderNo]`、`metadata.orderNo` 这类扁平键，后端也会继续尝试识别并回填订单号来源
+  - 支付结果页查询成功后会把后端解析出的 `orderNo / providerType` 回写到地址栏，便于刷新、复制链接与后续登录回带
+  - 未登录用户从支付结果页跳去登录时，也会把 `focusOrderNo` 一并带回会员中心，避免登录后丢失当前订单定位
 - 统一支付回调入口已增强：
   - `POST /api/payments/notify/{providerType}` 现会合并 `JSON body + form/query 参数 + headers`
   - 更适配支付宝/银联这类表单回调、Stripe/PayPal 这类 JSON Webhook，以及后续自定义聚合支付网关
+  - 对 `data[custom_data][orderNo]`、`data.object.metadata.orderNo` 这类扁平化嵌套键会先恢复成层级结构，再交给各平台适配器识别
+  - 重复字段会保留成列表，订单号、状态与 Header 读取时优先使用首个有效值，降低部分网关重复传参导致的识别失败
+  - 其中支付宝已额外兼容 `passback_params` 携带订单号，微信支付已额外兼容 `attach` 字符串携带订单号，优先保证这两条主链路回跳/回调可继续定位本地订单
 - 统一支付验签入口已进一步兼容 Header 场景：
   - HMAC / 自定义验签现在会额外读取 `Stripe-Signature`、`PayPal-Transmission-Sig`、`X-Signature` 等常见 Header
   - 证书验签骨架现在也会识别 `Wechatpay-Serial` 等证书序列号 Header
@@ -1124,3 +1145,7 @@
   - `PhotoScanService` 的任务日志与处理状态文本也开始统一收口：`appendTaskLog(...)`、`completeTask(...)`、背景移除批处理失败、未扫描文件分析错误、以及 `markProcessingFailed(...)` 写入数据库的失败原因，现在都会先对异常文案里的路径做公开相对化，避免任务状态面板、照片处理失败详情继续混出宿主机路径
   - 继续补齐扫描管理收尾场景：筛选项更新失败、相册氛围更新失败、特效配置失败、缩略图/人脸/智能标签/残留数据清理失败等后台结果文案，现在也统一复用同一套可见消息脱敏逻辑，减少超级管理员面板和任务状态抽屉里的残余绝对路径
   - `UserPathService` 已新增统一的可见文本脱敏入口，邮件发送、短信发送（阿里云 / 腾讯云 / Twilio / Webhook）、头像上传、远端图片读取、COS 元数据探测、AI 回答解析等链路也开始统一复用；即便底层异常带出宿主机路径、网关原文或临时文件名，返回前端时也会优先折叠为租户相对路径或叶子名
+- 本轮继续补了几项“先能用起来”的关键闭环：
+  - 上传前去重预检：文件浏览器上传前会先计算 SHA-256，并调用 `/api/admin/folders/upload-precheck` 做重复内容探测；当前已可在前端明确提示“是否为同用户重复 / 是否可复用派生资源”，先减少重复上传误操作
+  - 支付回跳参数跟踪：支付宝、微信、Stripe、PayPal、银联、Paddle、Adyen、Mollie、Lemon Squeezy、Xendit、Midtrans 等适配器现在都会把 `orderNo / providerType / redirect=true` 自动拼到返回地址，第三方跳回 `/vip/result` 或统一后端返回入口时更容易直接定位订单
+  - 远端缓存刷新判断：远端扫描缓存不再只按文件大小判断是否复用；若存储列表返回了 `lastModified`，现在也会同步比较时间戳并在重下载后回写本地缓存时间，避免“同尺寸替换图片后仍沿用旧缓存”的问题

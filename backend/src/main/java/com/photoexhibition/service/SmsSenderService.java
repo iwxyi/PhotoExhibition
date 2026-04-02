@@ -64,7 +64,7 @@ public class SmsSenderService {
 
     private SmsSender resolveGenericWebhookSender(SmsProviderType providerType) {
         if (!GENERIC_WEBHOOK_PROVIDERS.contains(providerType)) {
-            throw new RuntimeException("当前短信平台暂不支持: " + providerType);
+            throw new RuntimeException("TODO: 当前短信平台暂不支持，请优先使用 ALIYUN / TENCENT_CLOUD / TWILIO 或 HTTP_WEBHOOK 骨架: " + providerType);
         }
         return smsSenders.stream()
             .filter(item -> item.getProviderType() == SmsProviderType.HTTP_WEBHOOK)

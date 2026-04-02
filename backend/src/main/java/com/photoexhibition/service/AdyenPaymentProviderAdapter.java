@@ -24,6 +24,7 @@ public class AdyenPaymentProviderAdapter extends AbstractPaymentProviderAdapter 
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.ADYEN, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.ADYEN, preview);
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("X-API-Key", maskKey(settings.getPrivateKey()));
@@ -31,7 +32,7 @@ public class AdyenPaymentProviderAdapter extends AbstractPaymentProviderAdapter 
         payload.put("merchantAccount", settings.getMerchantId());
         payload.put("reference", order.getOrderNo());
         payload.put("shopperReference", user.getId());
-        payload.put("returnUrl", settings.getReturnUrl());
+        payload.put("returnUrl", trackedReturnUrl);
         payload.put("notificationUrl", settings.getNotifyUrl());
 
         return PaymentInitiationService.PaymentInitiationResult.builder()

@@ -24,6 +24,7 @@ public class UnionPayPaymentProviderAdapter extends AbstractPaymentProviderAdapt
                                                                      UserAccount user,
                                                                      PaymentConfigService.PaymentResolvedSettings settings,
                                                                      PaymentGatewayService.PaymentPreview preview) {
+        String trackedReturnUrl = buildTrackedReturnUrl(settings.getReturnUrl(), PaymentProviderType.UNIONPAY, order);
         Map<String, Object> payload = baseLaunchPayload(order, plan, PaymentProviderType.UNIONPAY, preview);
         Map<String, Object> formFields = new LinkedHashMap<>();
         formFields.put("version", "5.1.0");
@@ -37,10 +38,10 @@ public class UnionPayPaymentProviderAdapter extends AbstractPaymentProviderAdapt
         formFields.put("orderId", order.getOrderNo());
         formFields.put("txnAmt", order.getAmountFen());
         formFields.put("currencyCode", "156");
-        formFields.put("frontUrl", settings.getReturnUrl());
+        formFields.put("frontUrl", trackedReturnUrl);
         formFields.put("backUrl", settings.getNotifyUrl());
         formFields.put("signatureHint", "请按银联 SDK / 证书私钥生成 signature");
-        payload.put("frontUrl", settings.getReturnUrl());
+        payload.put("frontUrl", trackedReturnUrl);
         payload.put("backUrl", settings.getNotifyUrl());
 
         return PaymentInitiationService.PaymentInitiationResult.builder()

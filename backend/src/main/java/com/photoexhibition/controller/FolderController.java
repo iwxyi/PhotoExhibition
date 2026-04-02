@@ -5,6 +5,7 @@ import com.photoexhibition.entity.OperationType;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.FolderService;
 import com.photoexhibition.service.OperationLogService;
+import com.photoexhibition.service.PhotoDedupService;
 import com.photoexhibition.service.StorageProviderService;
 import com.photoexhibition.service.UserPathService;
 import com.photoexhibition.service.UserStorageService;
@@ -37,6 +38,7 @@ public class FolderController {
     private final AuthService authService;
     private final UserStorageService userStorageService;
     private final OperationLogService operationLogService;
+    private final PhotoDedupService photoDedupService;
     private final StorageProviderService storageProviderService;
     private final UserPathService userPathService;
 
@@ -132,6 +134,20 @@ public class FolderController {
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage()));
             return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/upload-precheck")
+    public ResponseEntity<Map<String, Object>> uploadPrecheck(@RequestHeader("Authorization") String authorization,
+                                                              @RequestParam String contentHash) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            resp.putAll(photoDedupService.precheckContentHash(user, contentHash));
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage()));
+            return ResponseEntity.status(400).body(resp);
         }
     }
 

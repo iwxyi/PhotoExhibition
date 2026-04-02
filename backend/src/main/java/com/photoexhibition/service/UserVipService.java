@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,10 +33,12 @@ public class UserVipService {
     private final PaymentInitiationService paymentInitiationService;
     private final UserStorageService userStorageService;
     private final VipOrderLifecycleService vipOrderLifecycleService;
+    private final VipPlanChangePolicyService vipPlanChangePolicyService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> getOverview(String token) {
         UserAccount user = getCurrentUser(token);
+        VipPlan currentPlan = user.getCurrentVipPlanId() == null ? null : vipPlanRepository.findById(user.getCurrentVipPlanId()).orElse(null);
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("userId", user.getId());
         resp.put("username", user.getUsername());
@@ -46,10 +49,12 @@ public class UserVipService {
         resp.put("vipExtraQuotaBytes", defaultLong(user.getVipExtraQuotaBytes()));
         resp.put("currentVipPlanId", user.getCurrentVipPlanId());
         resp.put("vipExpireAt", user.getVipExpireAt());
-        VipPlan currentPlan = user.getCurrentVipPlanId() == null ? null : vipPlanRepository.findById(user.getCurrentVipPlanId()).orElse(null);
         resp.put("currentVipPlanName", currentPlan != null ? currentPlan.getName() : null);
         resp.put("currentVipPlanCode", currentPlan != null ? currentPlan.getCode() : null);
         resp.put("currentVipPlanExtraQuotaBytes", currentPlan != null ? defaultLong(currentPlan.getExtraQuotaBytes()) : 0L);
+        resp.put("currentVipPlanDurationDays", currentPlan != null ? currentPlan.getDurationDays() : null);
+        resp.put("currentVipPlanCategory", currentPlan != null ? currentPlan.getPlanCategory() : null);
+        resp.put("currentVipQuotaGrantMode", currentPlan != null ? currentPlan.getQuotaGrantMode() : null);
         PaymentConfigService.PaymentResolvedSettings paymentSettings = paymentConfigService.getResolvedSettings();
         resp.put("paymentEnabled", paymentSettings.isEnabled());
         resp.put("paymentMockEnabled", paymentSettings.isMockEnabled());
@@ -58,10 +63,12 @@ public class UserVipService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> listPlans() {
+    public Map<String, Object> listPlans(String token) {
+        UserAccount user = getCurrentUser(token);
+        VipPlan currentPlan = user.getCurrentVipPlanId() == null ? null : vipPlanRepository.findById(user.getCurrentVipPlanId()).orElse(null);
         List<Map<String, Object>> plans = vipPlanRepository.findAllByOrderBySortOrderAscIdAsc().stream()
             .filter(plan -> Boolean.TRUE.equals(plan.getEnabled()))
-            .map(this::toPlanMap)
+            .map(plan -> toPlanMap(plan, user, currentPlan))
             .collect(Collectors.toList());
         return Map.of("plans", plans);
     }
@@ -81,16 +88,37 @@ public class UserVipService {
         VipPlan plan = vipPlanRepository.findById(planId)
             .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
             .orElseThrow(() -> new RuntimeException("VIP 套餐不存在或已停用"));
+        VipPlan currentPlan = user.getCurrentVipPlanId() == null ? null : vipPlanRepository.findById(user.getCurrentVipPlanId()).orElse(null);
+        VipPlanChangePolicyService.PlanChangeDecision decision = vipPlanChangePolicyService.evaluate(
+            user,
+            currentPlan,
+            user.getVipExpireAt(),
+            plan,
+            LocalDateTime.now()
+        );
+        if (!decision.isAllowed()) {
+            throw new RuntimeException(decision.getReason());
+        }
 
         UserPlanOrder order = new UserPlanOrder();
         order.setOrderNo(vipOrderLifecycleService.generateOrderNo());
         order.setUserId(user.getId());
         order.setVipPlanId(plan.getId());
-        order.setAmountFen(plan.getPriceFen() == null ? 0 : plan.getPriceFen());
+        order.setAmountFen(decision.getPayableAmountFen());
+        order.setOriginalAmountFen(decision.getOriginalAmountFen());
+        order.setCreditedAmountFen(decision.getCreditedAmountFen());
+        order.setChangeType(decision.getAction());
+        order.setSourceVipPlanId(currentPlan != null ? currentPlan.getId() : null);
+        order.setPricingDetailJson(String.valueOf(vipPlanChangePolicyService.toMap(decision)));
         order.setStatus("CREATED");
         order.setSource("USER_SELF_SERVICE");
+        order.setExpireAt(decision.getEffectiveExpireAt());
         PaymentProviderType providerType = paymentConfigService.getResolvedSettings().getProviderType();
         order.setPaymentProviderType(providerType == null ? PaymentProviderType.ALIPAY.name() : providerType.name());
+        if ("RENEWAL".equalsIgnoreCase(decision.getAction())) {
+            order.setAutoRenewEnabled(true);
+            order.setNextRenewalAt(decision.getEffectiveExpireAt());
+        }
 
         UserPlanOrder saved = userPlanOrderRepository.save(order);
         return toOrderMap(saved, user);
@@ -171,7 +199,14 @@ public class UserVipService {
         return toOrderMap(saved, user);
     }
 
-    private Map<String, Object> toPlanMap(VipPlan plan) {
+    private Map<String, Object> toPlanMap(VipPlan plan, UserAccount user, VipPlan currentPlan) {
+        VipPlanChangePolicyService.PlanChangeDecision decision = vipPlanChangePolicyService.evaluate(
+            user,
+            currentPlan,
+            user == null ? null : user.getVipExpireAt(),
+            plan,
+            LocalDateTime.now()
+        );
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("id", plan.getId());
         item.put("code", plan.getCode());
@@ -181,8 +216,21 @@ public class UserVipService {
         item.put("durationDays", plan.getDurationDays());
         item.put("priceFen", plan.getPriceFen());
         item.put("priceYuan", fenToYuan(plan.getPriceFen()));
+        item.put("planCategory", plan.getPlanCategory());
+        item.put("quotaGrantMode", plan.getQuotaGrantMode());
+        item.put("stackingMode", plan.getStackingMode());
         item.put("enabled", Boolean.TRUE.equals(plan.getEnabled()));
         item.put("sortOrder", plan.getSortOrder());
+        item.put("available", decision.isAllowed());
+        item.put("purchaseAction", decision.getAction());
+        item.put("purchaseHint", decision.getReason());
+        item.put("payableAmountFen", decision.getPayableAmountFen());
+        item.put("payableAmountYuan", fenToYuan(decision.getPayableAmountFen()));
+        item.put("originalAmountFen", decision.getOriginalAmountFen());
+        item.put("originalAmountYuan", fenToYuan(decision.getOriginalAmountFen()));
+        item.put("creditedAmountFen", decision.getCreditedAmountFen());
+        item.put("creditedAmountYuan", fenToYuan(decision.getCreditedAmountFen()));
+        item.put("effectiveExpireAt", decision.getEffectiveExpireAt());
         return item;
     }
 
@@ -205,6 +253,12 @@ public class UserVipService {
         item.put("vipPlanCode", plan != null ? plan.getCode() : null);
         item.put("amountFen", order.getAmountFen());
         item.put("amountYuan", fenToYuan(order.getAmountFen()));
+        item.put("originalAmountFen", order.getOriginalAmountFen());
+        item.put("originalAmountYuan", fenToYuan(order.getOriginalAmountFen()));
+        item.put("creditedAmountFen", order.getCreditedAmountFen());
+        item.put("creditedAmountYuan", fenToYuan(order.getCreditedAmountFen()));
+        item.put("changeType", order.getChangeType());
+        item.put("sourceVipPlanId", order.getSourceVipPlanId());
         item.put("status", order.getStatus());
         item.put("source", order.getSource());
         item.put("paymentProviderType", order.getPaymentProviderType());
@@ -230,6 +284,7 @@ public class UserVipService {
         item.put("orderStageLabel", resolveOrderStageLabel(order));
         item.put("renewalChainType", order.getRenewalSourceOrderId() == null ? "PRIMARY" : "RENEWAL_CHILD");
         item.put("expireAt", order.getExpireAt());
+        item.put("pricingDetailJson", order.getPricingDetailJson());
         item.put("remark", order.getRemark());
         item.put("createdAt", order.getCreatedAt());
         item.put("updatedAt", order.getUpdatedAt());

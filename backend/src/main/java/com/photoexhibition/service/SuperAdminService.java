@@ -62,6 +62,7 @@ public class SuperAdminService {
     private final StorageProviderService storageProviderService;
     private final UserStorageService userStorageService;
     private final UserPathService userPathService;
+    private final ModelManagementService modelManagementService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -112,6 +113,11 @@ public class SuperAdminService {
         resp.put("userDataRoot", systemConfigService.getUserDataRoot());
         resp.put("totalQuotaBytes", totalQuotaBytes);
         resp.put("totalUsedBytes", totalUsedBytes);
+        Map<String, Object> modelSummary = modelManagementService.getModelSummary();
+        resp.put("modelCount", modelSummary.get("modelCount"));
+        resp.put("missingModelFileCount", modelSummary.get("missingFileCount"));
+        resp.put("inactiveModelCount", modelSummary.get("inactiveModelCount"));
+        resp.put("modelHealthy", modelSummary.get("healthy"));
         return resp;
     }
 
@@ -400,6 +406,30 @@ public class SuperAdminService {
     public Map<String, Object> sendCustomEmail(String recipient, String subject, String content, Boolean html) {
         EmailSenderService.EmailSendResult result = emailSenderService.sendEmail(recipient, subject, content, Boolean.TRUE.equals(html));
         Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("success", result.isSuccess());
+        resp.put("providerType", result.getProviderType());
+        resp.put("recipient", result.getRecipient());
+        resp.put("message", result.getMessage());
+        return resp;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> listEmailTemplates() {
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("templates", emailSenderService.listTemplates());
+        return resp;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> previewEmailTemplate(String templateKey, Map<String, Object> variables) {
+        return emailSenderService.previewTemplate(templateKey, variables);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> sendTemplateEmail(String recipient, String templateKey, Map<String, Object> variables) {
+        Map<String, Object> preview = emailSenderService.previewTemplate(templateKey, variables);
+        EmailSenderService.EmailSendResult result = emailSenderService.sendTemplateEmail(recipient, templateKey, variables);
+        Map<String, Object> resp = new LinkedHashMap<>(preview);
         resp.put("success", result.isSuccess());
         resp.put("providerType", result.getProviderType());
         resp.put("recipient", result.getRecipient());
@@ -1061,6 +1091,9 @@ public class SuperAdminService {
         resp.put("extraQuotaBytes", defaultLong(plan.getExtraQuotaBytes()));
         resp.put("durationDays", plan.getDurationDays() == null ? 30 : plan.getDurationDays());
         resp.put("priceFen", plan.getPriceFen() == null ? 0 : plan.getPriceFen());
+        resp.put("planCategory", plan.getPlanCategory());
+        resp.put("quotaGrantMode", plan.getQuotaGrantMode());
+        resp.put("stackingMode", plan.getStackingMode());
         resp.put("enabled", Boolean.TRUE.equals(plan.getEnabled()));
         resp.put("sortOrder", plan.getSortOrder() == null ? 100 : plan.getSortOrder());
         resp.put("createdAt", plan.getCreatedAt());
@@ -1088,6 +1121,10 @@ public class SuperAdminService {
         resp.put("vipPlanName", plan != null ? plan.getName() : null);
         resp.put("vipPlanCode", plan != null ? plan.getCode() : null);
         resp.put("amountFen", order.getAmountFen());
+        resp.put("originalAmountFen", order.getOriginalAmountFen());
+        resp.put("creditedAmountFen", order.getCreditedAmountFen());
+        resp.put("changeType", order.getChangeType());
+        resp.put("sourceVipPlanId", order.getSourceVipPlanId());
         resp.put("status", order.getStatus());
         resp.put("source", order.getSource());
         resp.put("paymentProviderType", order.getPaymentProviderType());
@@ -1114,6 +1151,7 @@ public class SuperAdminService {
         resp.put("renewalChainType", order.getRenewalSourceOrderId() == null ? "PRIMARY" : "RENEWAL_CHILD");
         resp.put("dueForRenewal", isDueForRenewal(order));
         resp.put("expireAt", order.getExpireAt());
+        resp.put("pricingDetailJson", order.getPricingDetailJson());
         resp.put("remark", order.getRemark());
         resp.put("createdAt", order.getCreatedAt());
         resp.put("updatedAt", order.getUpdatedAt());
@@ -1328,6 +1366,21 @@ public class SuperAdminService {
         if (request.containsKey("sortOrder")) {
             plan.setSortOrder(parseInteger(request.get("sortOrder"), "sortOrder"));
         }
+        if (request.containsKey("planCategory")) {
+            plan.setPlanCategory(parseRequiredString(request.get("planCategory"), "planCategory").trim().toUpperCase());
+        } else if (creating && plan.getPlanCategory() == null) {
+            plan.setPlanCategory("STANDARD");
+        }
+        if (request.containsKey("quotaGrantMode")) {
+            plan.setQuotaGrantMode(parseRequiredString(request.get("quotaGrantMode"), "quotaGrantMode").trim().toUpperCase());
+        } else if (creating && plan.getQuotaGrantMode() == null) {
+            plan.setQuotaGrantMode("FIXED_TERM");
+        }
+        if (request.containsKey("stackingMode")) {
+            plan.setStackingMode(parseRequiredString(request.get("stackingMode"), "stackingMode").trim().toUpperCase());
+        } else if (creating && plan.getStackingMode() == null) {
+            plan.setStackingMode("REPLACE_OR_EXTEND");
+        }
     }
 
     private void applyVipOrderRequest(UserPlanOrder order, Map<String, Object> request, boolean creating) {
@@ -1351,6 +1404,36 @@ public class SuperAdminService {
                 throw new RuntimeException("amountFen 不能小于 0");
             }
             order.setAmountFen(amountFen);
+        }
+        if (request.containsKey("originalAmountFen")) {
+            Integer originalAmountFen = parseInteger(request.get("originalAmountFen"), "originalAmountFen");
+            if (originalAmountFen < 0) {
+                throw new RuntimeException("originalAmountFen 不能小于 0");
+            }
+            order.setOriginalAmountFen(originalAmountFen);
+        } else if (creating && order.getOriginalAmountFen() == null) {
+            order.setOriginalAmountFen(order.getAmountFen());
+        }
+        if (request.containsKey("creditedAmountFen")) {
+            Integer creditedAmountFen = parseInteger(request.get("creditedAmountFen"), "creditedAmountFen");
+            if (creditedAmountFen < 0) {
+                throw new RuntimeException("creditedAmountFen 不能小于 0");
+            }
+            order.setCreditedAmountFen(creditedAmountFen);
+        } else if (creating && order.getCreditedAmountFen() == null) {
+            order.setCreditedAmountFen(0);
+        }
+        if (request.containsKey("changeType")) {
+            order.setChangeType(parseRequiredString(request.get("changeType"), "changeType").trim().toUpperCase());
+        } else if (creating && order.getChangeType() == null) {
+            order.setChangeType("PURCHASE");
+        }
+        if (request.containsKey("sourceVipPlanId")) {
+            Long sourceVipPlanId = parseLongObject(request.get("sourceVipPlanId"), "sourceVipPlanId");
+            if (sourceVipPlanId != null && !vipPlanRepository.existsById(sourceVipPlanId)) {
+                throw new RuntimeException("来源 VIP 套餐不存在");
+            }
+            order.setSourceVipPlanId(sourceVipPlanId);
         }
         if (request.containsKey("status") || creating) {
             order.setStatus(parseRequiredString(request.get("status"), "status").trim().toUpperCase());
@@ -1376,6 +1459,17 @@ public class SuperAdminService {
         }
         if (request.containsKey("remark")) {
             order.setRemark(parseNullableString(request.get("remark")));
+        }
+        if (request.containsKey("pricingDetailJson")) {
+            order.setPricingDetailJson(parseNullableString(request.get("pricingDetailJson")));
+        }
+        if (order.getOriginalAmountFen() != null && order.getAmountFen() != null && order.getCreditedAmountFen() != null) {
+            if (order.getCreditedAmountFen() > order.getOriginalAmountFen()) {
+                throw new RuntimeException("creditedAmountFen 不能大于 originalAmountFen");
+            }
+            if (order.getAmountFen() > order.getOriginalAmountFen()) {
+                throw new RuntimeException("amountFen 不能大于 originalAmountFen");
+            }
         }
     }
 

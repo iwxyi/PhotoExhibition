@@ -42,32 +42,35 @@ public class PaymentCallbackService {
         VerificationResult verification = verifyNotifyPayload(providerType, payload, settings);
         PaymentCallbackAdapter adapter = resolveCallbackAdapter(providerType);
         String orderNo = adapter.extractOrderNo(payload);
+        String resolvedOrderNoSource = resolveNotifyOrderNoSource(payload, orderNo);
         if (orderNo == null || orderNo.isBlank()) {
             throw new RuntimeException("支付回调缺少订单号");
         }
         if (!verification.isVerified()) {
-            return Map.of(
-                "success", false,
-                "recognized", false,
-                "verified", false,
-                "verificationMode", verification.getVerificationMode(),
-                "verificationMessage", verification.getMessage(),
-                "orderNo", orderNo
-            );
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("success", false);
+            resp.put("recognized", false);
+            resp.put("verified", false);
+            resp.put("verificationMode", verification.getVerificationMode());
+            resp.put("verificationMessage", verification.getMessage());
+            resp.put("orderNo", orderNo);
+            resp.put("resolvedOrderNoSource", resolvedOrderNoSource);
+            return resp;
         }
         UserPlanOrder order = userPlanOrderRepository.findByOrderNo(orderNo)
             .orElseThrow(() -> new RuntimeException("VIP 订单不存在"));
         String status = adapter.extractOrderStatus(payload);
         if ("UNKNOWN".equals(status)) {
-            return Map.of(
-                "success", true,
-                "orderNo", orderNo,
-                "recognized", false,
-                "verified", true,
-                "verificationMode", verification.getVerificationMode(),
-                "verificationMessage", verification.getMessage(),
-                "message", "已接收回调，但当前状态未识别为支付成功"
-            );
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("success", true);
+            resp.put("orderNo", orderNo);
+            resp.put("recognized", false);
+            resp.put("verified", true);
+            resp.put("verificationMode", verification.getVerificationMode());
+            resp.put("verificationMessage", verification.getMessage());
+            resp.put("resolvedOrderNoSource", resolvedOrderNoSource);
+            resp.put("message", "已接收回调，但当前状态未识别为支付成功");
+            return resp;
         }
         UserPlanOrder saved;
         String externalTradeNo = adapter.extractExternalTradeNo(payload);
@@ -95,6 +98,7 @@ public class PaymentCallbackService {
         resp.put("verificationMode", verification.getVerificationMode());
         resp.put("verificationMessage", verification.getMessage());
         resp.put("orderNo", saved.getOrderNo());
+        resp.put("resolvedOrderNoSource", resolvedOrderNoSource);
         resp.put("status", saved.getStatus());
         resp.put("externalTradeNo", saved.getExternalTradeNo());
         resp.put("gatewayStatus", saved.getGatewayStatus());
@@ -172,6 +176,9 @@ public class PaymentCallbackService {
         if (resolvedOrderNo.equals(stringValue(payload.get("invoice_id"), null))) {
             return "invoice_id";
         }
+        if (resolvedOrderNo.equals(stringValue(payload.get("custom_id"), null))) {
+            return "custom_id";
+        }
         if (resolvedOrderNo.equals(stringValue(payload.get("reference_id"), null))) {
             return "reference_id";
         }
@@ -190,14 +197,41 @@ public class PaymentCallbackService {
         if (resolvedOrderNo.equals(stringValue(payload.get("client_reference_id"), null))) {
             return "client_reference_id";
         }
+        if (resolvedOrderNo.equals(extractEmbeddedOrderNo(stringValue(payload.get("passback_params"), null)))) {
+            return "passback_params";
+        }
+        if (resolvedOrderNo.equals(extractEmbeddedOrderNo(stringValue(payload.get("attach"), null)))) {
+            return "attach";
+        }
         if (resolvedOrderNo.equals(nestedString(payload, "resource", "out_trade_no"))) {
             return "resource.out_trade_no";
         }
         if (resolvedOrderNo.equals(nestedString(payload, "resource", "invoice_id"))) {
             return "resource.invoice_id";
         }
+        if (resolvedOrderNo.equals(nestedString(payload, "resource", "custom_id"))) {
+            return "resource.custom_id";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "resource", "purchase_units", "0", "invoice_id"))) {
+            return "resource.purchase_units[0].invoice_id";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "resource", "purchase_units", "0", "custom_id"))) {
+            return "resource.purchase_units[0].custom_id";
+        }
         if (resolvedOrderNo.equals(nestedString(payload, "data", "object", "client_reference_id"))) {
             return "data.object.client_reference_id";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "data", "object", "metadata", "orderNo"))) {
+            return "data.object.metadata.orderNo";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "data", "object", "metadata", "order_no"))) {
+            return "data.object.metadata.order_no";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "data", "object", "payment_link_metadata", "orderNo"))) {
+            return "data.object.payment_link_metadata.orderNo";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "data", "object", "subscription_details", "metadata", "orderNo"))) {
+            return "data.object.subscription_details.metadata.orderNo";
         }
         if (resolvedOrderNo.equals(nestedString(payload, "data", "custom_data", "orderNo"))) {
             return "data.custom_data.orderNo";
@@ -210,6 +244,9 @@ public class PaymentCallbackService {
         }
         if (resolvedOrderNo.equals(nestedString(payload, "metadata", "orderNo"))) {
             return "metadata.orderNo";
+        }
+        if (resolvedOrderNo.equals(nestedString(payload, "resource", "attach"))) {
+            return "resource.attach";
         }
         if (resolvedOrderNo.equals(nestedString(payload, "notificationItems", "0", "NotificationRequestItem", "merchantReference"))) {
             return "notificationItems[0].NotificationRequestItem.merchantReference";
@@ -305,7 +342,12 @@ public class PaymentCallbackService {
             stringValue(payload.get("orderNo"), null),
             adapter.extractOrderNo(payload),
             stringValue(payload.get("outTradeNo"), null),
-            stringValue(payload.get("merchantReference"), null)
+            stringValue(payload.get("merchantReference"), null),
+            queryValue(queryParams, "data", "custom_data", "orderNo"),
+            queryValue(queryParams, "custom_data", "orderNo"),
+            queryValue(queryParams, "meta", "custom_data", "orderNo"),
+            queryValue(queryParams, "metadata", "orderNo"),
+            queryValue(queryParams, "metadata", "order_no")
         );
     }
 
@@ -321,6 +363,9 @@ public class PaymentCallbackService {
         }
         if (resolvedOrderNo.equals(queryParams.get("invoice_id"))) {
             return "invoice_id";
+        }
+        if (resolvedOrderNo.equals(queryParams.get("custom_id"))) {
+            return "custom_id";
         }
         if (resolvedOrderNo.equals(queryParams.get("reference_id"))) {
             return "reference_id";
@@ -339,6 +384,27 @@ public class PaymentCallbackService {
         }
         if (resolvedOrderNo.equals(queryParams.get("merOrderId"))) {
             return "merOrderId";
+        }
+        if (resolvedOrderNo.equals(extractEmbeddedOrderNo(queryParams.get("passback_params")))) {
+            return "passback_params";
+        }
+        if (resolvedOrderNo.equals(extractEmbeddedOrderNo(queryParams.get("attach")))) {
+            return "attach";
+        }
+        if (resolvedOrderNo.equals(queryValue(queryParams, "data", "custom_data", "orderNo"))) {
+            return "data.custom_data.orderNo";
+        }
+        if (resolvedOrderNo.equals(queryValue(queryParams, "custom_data", "orderNo"))) {
+            return "custom_data.orderNo";
+        }
+        if (resolvedOrderNo.equals(queryValue(queryParams, "meta", "custom_data", "orderNo"))) {
+            return "meta.custom_data.orderNo";
+        }
+        if (resolvedOrderNo.equals(queryValue(queryParams, "metadata", "orderNo"))) {
+            return "metadata.orderNo";
+        }
+        if (resolvedOrderNo.equals(queryValue(queryParams, "metadata", "order_no"))) {
+            return "metadata.order_no";
         }
         return providerType.name() + "_AUTO";
     }
@@ -1246,6 +1312,25 @@ public class PaymentCallbackService {
         if (value == null) {
             return fallback;
         }
+        if (value instanceof Iterable) {
+            for (Object item : (Iterable<?>) value) {
+                String normalizedItem = stringValue(item, null);
+                if (normalizedItem != null) {
+                    return normalizedItem;
+                }
+            }
+            return fallback;
+        }
+        if (value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int index = 0; index < length; index++) {
+                String normalizedItem = stringValue(java.lang.reflect.Array.get(value, index), null);
+                if (normalizedItem != null) {
+                    return normalizedItem;
+                }
+            }
+            return fallback;
+        }
         String normalized = String.valueOf(value).trim();
         return normalized.isEmpty() ? fallback : normalized;
     }
@@ -1299,6 +1384,58 @@ public class PaymentCallbackService {
             }
         }
         return null;
+    }
+
+    private String queryValue(Map<String, String> queryParams, String... path) {
+        if (queryParams == null || queryParams.isEmpty() || path == null || path.length == 0) {
+            return null;
+        }
+        String dotPath = String.join(".", path);
+        StringBuilder bracketPathBuilder = new StringBuilder(path[0]);
+        for (int index = 1; index < path.length; index++) {
+            bracketPathBuilder.append('[').append(path[index]).append(']');
+        }
+        return firstNonBlank(
+            queryParams.get(dotPath),
+            queryParams.get(bracketPathBuilder.toString())
+        );
+    }
+
+    private String extractEmbeddedOrderNo(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        for (String pair : raw.split("&")) {
+            if (pair == null || pair.isBlank()) {
+                continue;
+            }
+            int equalsIndex = pair.indexOf('=');
+            String rawKey = equalsIndex >= 0 ? pair.substring(0, equalsIndex) : pair;
+            String rawValue = equalsIndex >= 0 ? pair.substring(equalsIndex + 1) : "";
+            String decodedKey = urlDecode(rawKey);
+            if (decodedKey == null) {
+                continue;
+            }
+            if (List.of("orderNo", "order_no", "out_trade_no", "merchant_order_no").contains(decodedKey)) {
+                return stringValue(urlDecode(rawValue), null);
+            }
+        }
+        String decoded = urlDecode(raw);
+        if (decoded != null && !decoded.equals(raw)) {
+            return extractEmbeddedOrderNo(decoded);
+        }
+        return null;
+    }
+
+    private String urlDecode(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return java.net.URLDecoder.decode(raw, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return raw;
+        }
     }
 
     private String firstNonBlank(String... candidates) {

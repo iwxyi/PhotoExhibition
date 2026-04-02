@@ -12,6 +12,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -138,6 +139,52 @@ abstract class AbstractPaymentProviderAdapter implements PaymentProviderAdapter 
 
     protected String urlEncode(String value) {
         return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
+    }
+
+    protected String buildTrackedReturnUrl(String rawUrl, PaymentProviderType providerType, UserPlanOrder order) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return rawUrl;
+        }
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("providerType", providerType == null ? null : providerType.name());
+        query.put("orderNo", order == null ? null : order.getOrderNo());
+        query.put("redirect", "true");
+        return appendQueryParams(rawUrl, query);
+    }
+
+    protected String appendQueryParams(String rawUrl, Map<String, String> params) {
+        if (rawUrl == null || rawUrl.isBlank() || params == null || params.isEmpty()) {
+            return rawUrl;
+        }
+        String baseUrl = rawUrl;
+        String fragment = "";
+        int fragmentIndex = rawUrl.indexOf('#');
+        if (fragmentIndex >= 0) {
+            baseUrl = rawUrl.substring(0, fragmentIndex);
+            fragment = rawUrl.substring(fragmentIndex);
+        }
+
+        StringBuilder builder = new StringBuilder(baseUrl);
+        boolean hasQuery = baseUrl.contains("?");
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null || entry.getValue().isBlank()) {
+                continue;
+            }
+            builder.append(hasQuery ? '&' : '?');
+            builder.append(urlEncode(entry.getKey())).append('=').append(urlEncode(entry.getValue()));
+            hasQuery = true;
+        }
+        builder.append(fragment);
+        return builder.toString();
+    }
+
+    protected Map<String, Object> singletonMetadata(String key, Object value) {
+        if (key == null || key.isBlank() || value == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put(key, value);
+        return metadata;
     }
 
     private String escapeJson(String value) {

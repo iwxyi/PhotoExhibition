@@ -26,7 +26,7 @@
             </router-link>
             <router-link
               v-else
-              to="/login"
+              :to="loginRoute"
               class="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               去登录
@@ -198,7 +198,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
@@ -207,6 +207,7 @@ import { useAuthStore } from '@/stores/auth'
 import { paymentProviderLabel } from '@/utils/providerLabels'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const loading = ref(false)
 const message = ref('')
@@ -223,7 +224,7 @@ const providerType = computed<PaymentReturnResult['providerType']>(() => {
   return (allowed.includes(raw) ? raw : 'ALIPAY') as PaymentReturnResult['providerType']
 })
 
-const orderNo = computed(() => String(route.query.orderNo || ''))
+const orderNo = computed(() => String(route.query.orderNo || result.value?.orderNo || '').trim())
 const returnQueryParams = computed(() => {
   const params: Record<string, any> = {}
   Object.entries(route.query || {}).forEach(([key, value]) => {
@@ -316,13 +317,21 @@ const actionLinks = computed<Array<{ label: string; to: RouteLocationRaw }>>(() 
   if (!authStore.isAuthenticated) {
     links.push({
       label: '登录后继续排查',
-      to: {
-        name: 'Login',
-        query: targetOrderNo ? { redirect: '/vip', focusOrderNo: targetOrderNo } : {}
-      }
+      to: loginRoute.value
     })
   }
   return links
+})
+
+const loginRoute = computed<RouteLocationRaw>(() => {
+  const targetOrderNo = result.value?.orderNo || orderNo.value
+  const redirect = targetOrderNo
+    ? `/vip?focusOrderNo=${encodeURIComponent(targetOrderNo)}`
+    : '/vip'
+  return {
+    name: 'Login',
+    query: { redirect }
+  }
 })
 
 const loadResult = async () => {
@@ -330,6 +339,19 @@ const loadResult = async () => {
   try {
     const { data } = await paymentApi.getReturnResult(providerType.value, returnQueryParams.value)
     result.value = data
+    const nextQuery: Record<string, any> = { ...route.query }
+    let shouldReplaceQuery = false
+    if (!nextQuery.providerType && data.providerType) {
+      nextQuery.providerType = data.providerType
+      shouldReplaceQuery = true
+    }
+    if (!nextQuery.orderNo && data.orderNo) {
+      nextQuery.orderNo = data.orderNo
+      shouldReplaceQuery = true
+    }
+    if (shouldReplaceQuery) {
+      router.replace({ query: nextQuery }).catch(() => undefined)
+    }
     messageType.value = data.success ? 'success' : 'error'
     message.value = data.message || (data.success ? '支付结果已更新' : '未找到支付结果')
     if (data.paid || ['CANCELLED', 'CANCELED', 'REFUNDED'].includes(String(data.status || '').toUpperCase())) {
