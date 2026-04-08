@@ -429,6 +429,70 @@ export interface SuperAdminOverview {
   modelHealthy?: boolean
 }
 
+export interface ProcessingOverviewTaskSummary {
+  taskId?: string
+  taskName?: string
+  modelKey?: string
+  modelName?: string
+  photoId?: number
+  photoName?: string
+  method?: string
+  path?: string
+  queryString?: string
+  actorLabel?: string
+  ipAddress?: string
+  durationMs?: number
+  statusCode?: number
+  status?: string
+  message?: string
+  error?: string | null
+  current?: number
+  total?: number
+  progressPercent?: number
+  startedAt?: string | null
+  finishedAt?: string | null
+  updatedAt?: string | null
+  latestLog?: string | null
+}
+
+export interface ProcessingOverviewWorkerSummary {
+  threadType: string
+  label: string
+  enabled?: boolean
+  modelLoaded?: boolean
+  queueActive?: boolean
+  running?: boolean
+  configuredWorkers?: number
+  configuredConcurrency?: number
+  activeWorkers?: number
+  activeRequestCount?: number
+  activeUserCount?: number
+  recentMinuteRequestCount?: number
+  slowRequestThresholdMs?: number
+  activeThreads?: number
+  runningTaskCount?: number
+  runningImageCount?: number
+  queuedTaskCount?: number
+  queuedImageCount?: number
+  queuedTasks?: number
+  pausedTaskCount?: number
+  completedTaskCount?: number
+  summary?: string
+  recentTasks?: ProcessingOverviewTaskSummary[]
+  recentSlowRequests?: ProcessingOverviewTaskSummary[]
+  topActiveEndpoints?: Record<string, any>[]
+  runningTasks?: Record<string, any>[]
+  queuedOwnerSummaries?: Record<string, any>[]
+  scanStatus?: Record<string, any>
+}
+
+export interface SuperAdminProcessingOverview {
+  workerCount: number
+  activeWorkerGroupCount: number
+  nonBlockingNote?: string
+  workers: ProcessingOverviewWorkerSummary[]
+}
+
 export interface SuperAdminSettings {
   multiUserEnabled: boolean
   scanSchedulerEnabled: boolean
@@ -1127,6 +1191,7 @@ export interface ManagedModelSummary {
 
 export const superAdminApi = {
   getOverview: () => api.get<SuperAdminOverview>('/admin/super-admin/overview'),
+  getProcessingOverview: () => api.get<SuperAdminProcessingOverview>('/admin/super-admin/processing-overview'),
   getSettings: () => api.get<SuperAdminSettings>('/admin/super-admin/settings'),
   updateSettings: (data: Partial<SuperAdminSettings>) => api.put<SuperAdminSettings>('/admin/super-admin/settings', data),
   getTablePreferences: () => api.get<SuperAdminTablePreferences>('/admin/super-admin/table-preferences'),
@@ -1168,6 +1233,7 @@ export const superAdminApi = {
   getStorageProviders: () => api.get<{ storageProviders: StorageProviderSummary[] }>('/admin/super-admin/storage-providers'),
   createStorageProvider: (data: Partial<StorageProviderSummary>) => api.post<StorageProviderSummary>('/admin/super-admin/storage-providers', data),
   runLegacyMigration: () => api.post<LegacyMigrationSummary>('/admin/super-admin/legacy-migration/run'),
+  sendTestSms: (phone?: string) => api.post<Record<string, any>>('/admin/super-admin/sms/test', { phone }),
   sendTestEmail: (recipient?: string) => api.post<Record<string, any>>('/admin/super-admin/email/test', { recipient }),
   sendEmail: (payload: SendEmailPayload) => api.post<Record<string, any>>('/admin/super-admin/email/send', payload),
   getEmailTemplates: () => api.get<{ templates: EmailTemplateSummary[] }>('/admin/super-admin/email/templates'),

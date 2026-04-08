@@ -630,14 +630,15 @@ const loadBasePath = async (providerId = selectedProviderId.value, resetCurrentP
 }
 
 let loadFilesRequestId = 0
-const loadFiles = async (path?: string) => {
+const loadFiles = async (path?: string, allowRecovery = true) => {
   const requestId = ++loadFilesRequestId
   loading.value = true
   error.value = ''
+  const requestedPath = path || currentPath.value
   try {
     const res = await api.get('/admin/folders/browser/list', {
       params: {
-        path: path || currentPath.value,
+        path: requestedPath,
         providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
       }
     })
@@ -672,7 +673,20 @@ const loadFiles = async (path?: string) => {
     items.value = [...dirs, ...filesList]
   } catch (e: any) {
     if (requestId !== loadFilesRequestId) return
-    error.value = e.response?.data?.error || e.message || '加载失败'
+    const errorMessage = e.response?.data?.error || e.message || '加载失败'
+    if (allowRecovery && String(errorMessage).includes('路径超出当前用户可操作范围')) {
+      try {
+        await loadBasePath(selectedProviderId.value, true)
+        if (requestId !== loadFilesRequestId) return
+        await loadFiles(basePath.value, false)
+        return
+      } catch (recoveryError: any) {
+        error.value = recoveryError?.response?.data?.error || recoveryError?.message || errorMessage
+        items.value = []
+        return
+      }
+    }
+    error.value = errorMessage
     items.value = []
   } finally {
     if (requestId === loadFilesRequestId) {
@@ -1278,7 +1292,7 @@ watch(showCreateDialog, (val) => {
 
 onMounted(async () => {
   await loadBasePath(selectedProviderId.value, true)
-  await loadFiles()
+  await loadFiles(basePath.value)
   document.addEventListener('click', handleClickOutside)
   const escHandler = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {

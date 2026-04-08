@@ -224,7 +224,7 @@ public class AdminController {
                                                            @RequestParam(required = false) Long storageProviderId) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            UserAccount user = requireCurrentUser(authorization);
+            UserAccount user = requireSuperAdminUser(authorization);
             resp.putAll(scanTaskService.enqueueScan(user, path, false, storageProviderId));
             Map<String, Object> operationDetails = new HashMap<>();
             operationDetails.put("path", path);
@@ -256,7 +256,7 @@ public class AdminController {
                                                                 @RequestParam(required = false) Long storageProviderId) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            UserAccount user = requireCurrentUser(authorization);
+            UserAccount user = requireSuperAdminUser(authorization);
             resp.putAll(scanTaskService.enqueueScan(user, path, true, storageProviderId));
             Map<String, Object> operationDetails = new HashMap<>();
             operationDetails.put("path", path);
@@ -656,7 +656,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> retryScanTask(@RequestHeader("Authorization") String authorization,
                                                              HttpServletRequest request,
                                                              @PathVariable Long taskId) {
-        UserAccount user = requireCurrentUser(authorization);
+        UserAccount user = requireSuperAdminUser(authorization);
         Map<String, Object> resp = scanTaskService.retryTask(user, taskId);
         operationLogService.log(user, OperationType.SCAN_RESUME, "SCAN_TASK", taskId,
             (String) resp.get("rootPath"), Map.of("taskId", taskId, "action", "retry"), request.getRemoteAddr());
@@ -667,7 +667,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> pauseScanTask(@RequestHeader("Authorization") String authorization,
                                                              HttpServletRequest request,
                                                              @PathVariable Long taskId) {
-        UserAccount user = requireCurrentUser(authorization);
+        UserAccount user = requireSuperAdminUser(authorization);
         Map<String, Object> resp = scanTaskService.pauseTask(user, taskId);
         operationLogService.log(user, OperationType.UPDATE, "SCAN_TASK", taskId,
             (String) resp.get("rootPath"), Map.of("taskId", taskId, "action", "pause"), request.getRemoteAddr());
@@ -678,7 +678,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> cancelScanTask(@RequestHeader("Authorization") String authorization,
                                                               HttpServletRequest request,
                                                               @PathVariable Long taskId) {
-        UserAccount user = requireCurrentUser(authorization);
+        UserAccount user = requireSuperAdminUser(authorization);
         Map<String, Object> resp = scanTaskService.cancelTask(user, taskId);
         operationLogService.log(user, OperationType.DELETE, "SCAN_TASK", taskId,
             (String) resp.get("rootPath"), Map.of("taskId", taskId, "action", "cancel"), request.getRemoteAddr());
@@ -701,8 +701,19 @@ public class AdminController {
      * 获取本次扫描跳过的文件详情列表
      */
     @GetMapping("/scan/skipped-files")
-    public ResponseEntity<List<PhotoScanService.SkippedFileRecord>> getSkippedFiles() {
-        return ResponseEntity.ok(photoScanService.getSkippedFileRecords());
+    public ResponseEntity<List<PhotoScanService.SkippedFileRecord>> getSkippedFiles(@RequestHeader("Authorization") String authorization) {
+        UserAccount user = requireCurrentUser(authorization);
+        return ResponseEntity.ok(photoScanService.getSkippedFileRecords(user));
+    }
+
+    @PostMapping("/scan/skipped-files/cleanup")
+    public ResponseEntity<Map<String, Object>> cleanupSkippedFiles(@RequestHeader("Authorization") String authorization,
+                                                                   HttpServletRequest request) {
+        UserAccount user = requireCurrentUser(authorization);
+        Map<String, Object> resp = photoScanService.clearSkippedFileRecords(user);
+        operationLogService.log(user, OperationType.DELETE, "SCAN_SKIPPED_FILES", null, null,
+            Map.of("action", "cleanupSkippedFiles", "removed", resp.get("removed")), request.getRemoteAddr());
+        return ResponseEntity.ok(resp);
     }
 
     /**

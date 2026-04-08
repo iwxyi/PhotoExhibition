@@ -18,6 +18,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -154,7 +156,7 @@ public class ScanTaskService {
         task.setCheckpointJson(buildCheckpointJson(task));
         scanTaskRepository.save(task);
 
-        scheduleWorkerIfNeeded();
+        scheduleWorkerWhenTransactionCommitted();
 
         Map<String, Object> response = toTaskMap(task);
         response.put("message", taskType == ScanTaskType.UPLOAD_SCAN ? "上传扫描任务已加入队列" : "扫描任务已加入队列");
@@ -164,6 +166,7 @@ public class ScanTaskService {
     @Transactional
     public List<Map<String, Object>> listTasks(UserAccount currentUser) {
         recoverStaleRunningTasks();
+        ensurePendingTasksScheduled();
         List<ScanTask> tasks;
         if (currentUser != null && currentUser.getRole() == UserRole.SUPER_ADMIN) {
             tasks = scanTaskRepository.findAllByOrderByCreatedAtDesc().stream()
@@ -184,6 +187,7 @@ public class ScanTaskService {
     @Transactional
     public Map<String, Object> getTask(UserAccount currentUser, Long taskId) {
         recoverStaleRunningTasks();
+        ensurePendingTasksScheduled();
         ScanTask task = requireVisibleTask(currentUser, taskId);
         return toTaskMap(task);
     }
@@ -217,7 +221,7 @@ public class ScanTaskService {
         }
         task.setCheckpointJson(buildCheckpointJson(task));
         scanTaskRepository.save(task);
-        scheduleWorkerIfNeeded();
+        scheduleWorkerWhenTransactionCommitted();
         return toTaskMap(task);
     }
 
@@ -257,7 +261,13 @@ public class ScanTaskService {
     @Transactional
     public Map<String, Object> getStatusSummary(UserAccount currentUser) {
         recoverStaleRunningTasks();
+        ensurePendingTasksScheduled();
         List<ScanTask> visibleTasks = resolveVisibleTasks(currentUser);
+        List<ScanTask> globalQueueableTasks = scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES);
+        List<ScanTask> globalRunningTasks = scanTaskRepository.findAllByOrderByCreatedAtDesc().stream()
+            .filter(task -> task.getStatus() == ScanTaskStatus.RUNNING)
+            .sorted(Comparator.comparing(ScanTask::getStartedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+            .collect(Collectors.toList());
         List<ScanTask> queuedTasks = visibleTasks.stream()
             .filter(task -> task.getStatus() == ScanTaskStatus.PENDING
                 || task.getStatus() == ScanTaskStatus.QUEUED)
@@ -266,11 +276,17 @@ public class ScanTaskService {
         long pausedCount = visibleTasks.stream()
             .filter(task -> task.getStatus() == ScanTaskStatus.PAUSED)
             .count();
+        int queuedImageCount = queuedTasks.stream()
+            .mapToInt(this::estimateRemainingItems)
+            .sum();
 
         List<ScanTask> runningTasks = visibleTasks.stream()
             .filter(task -> task.getStatus() == ScanTaskStatus.RUNNING)
             .sorted(Comparator.comparing(ScanTask::getStartedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
             .collect(Collectors.toList());
+        int runningImageCount = runningTasks.stream()
+            .mapToInt(this::estimateRemainingItems)
+            .sum();
 
         Optional<ScanTask> currentTask = runningTasks.stream()
             .filter(task -> task.getStatus() == ScanTaskStatus.RUNNING)
@@ -286,6 +302,8 @@ public class ScanTaskService {
         summary.put("queuedOwnerSummaries", buildQueuedOwnerSummaries(queuedTasks));
         summary.put("pausedTaskCount", pausedCount);
         summary.put("runningTaskCount", runningTasks.size());
+        summary.put("queuedImageCount", queuedImageCount);
+        summary.put("runningImageCount", runningImageCount);
         summary.put("currentTask", currentTask.map(this::toTaskMap).orElse(null));
         summary.put("runningTasks", runningTasks.stream()
             .limit(5)
@@ -297,7 +315,106 @@ public class ScanTaskService {
             .map(this::toTaskMap)
             .collect(Collectors.toList()));
         summary.put("queueActive", currentTask.isPresent() || queuedCount > 0);
+        summary.put("currentUserQueue", buildCurrentUserQueueSummary(currentUser, globalRunningTasks, globalQueueableTasks));
         return summary;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getSuperAdminQueueOverview() {
+        recoverStaleRunningTasks();
+        List<ScanTask> allTasks = scanTaskRepository.findAllByOrderByCreatedAtDesc();
+        List<ScanTask> queueableTasks = scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES);
+        List<ScanTask> runningTasks = allTasks.stream()
+            .filter(task -> task.getStatus() == ScanTaskStatus.RUNNING)
+            .sorted(Comparator.comparing(ScanTask::getStartedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+            .collect(Collectors.toList());
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("threadType", "SCAN_QUEUE");
+        summary.put("label", "扫描队列线程");
+        summary.put("configuredWorkers", systemConfigService.getScanWorkerCount());
+        summary.put("activeWorkers", activeWorkerCount.get());
+        summary.put("activeTaskIds", new ArrayList<>(activeTaskIds));
+        summary.put("runningTaskCount", runningTasks.size());
+        summary.put("queuedTaskCount", queueableTasks.size());
+        summary.put("runningImageCount", runningTasks.stream().mapToInt(this::estimateRemainingItems).sum());
+        summary.put("queuedImageCount", queueableTasks.stream().mapToInt(this::estimateRemainingItems).sum());
+        summary.put("pausedTaskCount", allTasks.stream().filter(task -> task.getStatus() == ScanTaskStatus.PAUSED).count());
+        summary.put("queueActive", !runningTasks.isEmpty() || !queueableTasks.isEmpty());
+        summary.put("runningTasks", runningTasks.stream().limit(8).map(this::toTaskMap).collect(Collectors.toList()));
+        summary.put("queuedOwnerSummaries", buildQueuedOwnerSummaries(queueableTasks));
+        summary.put("recentTasks", allTasks.stream().limit(10).map(this::toTaskMap).collect(Collectors.toList()));
+        return summary;
+    }
+
+    private Map<String, Object> buildCurrentUserQueueSummary(UserAccount currentUser,
+                                                             List<ScanTask> globalRunningTasks,
+                                                             List<ScanTask> globalQueueableTasks) {
+        if (currentUser == null || currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return null;
+        }
+        Long currentUserId = currentUser.getId();
+        boolean hasRunningTask = globalRunningTasks.stream()
+            .anyMatch(task -> Objects.equals(resolveQueueOwnerUserId(task), currentUserId));
+        List<ScanTask> ownQueueTasks = globalQueueableTasks.stream()
+            .filter(task -> Objects.equals(resolveQueueOwnerUserId(task), currentUserId))
+            .collect(Collectors.toList());
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("hasRunningTask", hasRunningTask);
+        summary.put("queuedTaskCount", ownQueueTasks.size());
+        summary.put("pendingImageCount", ownQueueTasks.stream()
+            .mapToInt(this::estimateRemainingItems)
+            .sum());
+        summary.put("aheadTaskCount", 0);
+        summary.put("aheadImageCount", 0);
+        summary.put("message", hasRunningTask ? "你的照片正在扫描中" : "当前没有排队中的扫描任务");
+
+        if (hasRunningTask) {
+            return summary;
+        }
+        if (ownQueueTasks.isEmpty()) {
+            return summary;
+        }
+
+        ScanTask firstOwnTask = ownQueueTasks.get(0);
+        int firstOwnIndex = globalQueueableTasks.indexOf(firstOwnTask);
+        if (firstOwnIndex < 0) {
+            firstOwnIndex = 0;
+        }
+        List<ScanTask> aheadQueueTasks = globalQueueableTasks.subList(0, firstOwnIndex);
+        int aheadRunningImages = globalRunningTasks.stream()
+            .filter(task -> !Objects.equals(resolveQueueOwnerUserId(task), currentUserId))
+            .mapToInt(this::estimateRemainingItems)
+            .sum();
+        int aheadQueuedImages = aheadQueueTasks.stream()
+            .filter(task -> !Objects.equals(resolveQueueOwnerUserId(task), currentUserId))
+            .mapToInt(this::estimateRemainingItems)
+            .sum();
+
+        summary.put("aheadTaskCount", aheadQueueTasks.size() + (globalRunningTasks.isEmpty() ? 0 : globalRunningTasks.size()));
+        summary.put("aheadImageCount", aheadRunningImages + aheadQueuedImages);
+        summary.put("message", aheadRunningImages + aheadQueuedImages > 0
+            ? "当前仍有更早进入队列的图片等待扫描"
+            : "即将轮到你的照片开始扫描");
+        return summary;
+    }
+
+    private int estimateRemainingItems(ScanTask task) {
+        if (task == null) {
+            return 0;
+        }
+        int totalItems = Math.max(defaultInt(task.getTotalItems()), readCheckpoint(task).getTotalItems());
+        int processedItems = Math.max(defaultInt(task.getProcessedItems()), readCheckpoint(task).getProcessedItems());
+        int remaining = Math.max(totalItems - processedItems, 0);
+        if (remaining > 0) {
+            return remaining;
+        }
+        if (task.getStatus() == ScanTaskStatus.COMPLETED || task.getStatus() == ScanTaskStatus.CANCELED) {
+            return 0;
+        }
+        int estimated = photoScanService.estimateScannableFileCount(task.getRootPath());
+        return Math.max(estimated - processedItems, estimated > 0 ? 1 : 0);
     }
 
     private List<Map<String, Object>> buildQueuedOwnerSummaries(List<ScanTask> queuedTasks) {
@@ -380,6 +497,29 @@ public class ScanTaskService {
             activeWorkerCount.incrementAndGet();
             queueExecutor.submit(this::processQueueLoop);
         }
+    }
+
+    private void scheduleWorkerWhenTransactionCommitted() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    scheduleWorkerIfNeeded();
+                }
+            });
+        } else {
+            scheduleWorkerIfNeeded();
+        }
+    }
+
+    private void ensurePendingTasksScheduled() {
+        if (activeWorkerCount.get() > 0) {
+            return;
+        }
+        if (!hasPendingTasks()) {
+            return;
+        }
+        scheduleWorkerIfNeeded();
     }
 
     private void processQueueLoop() {

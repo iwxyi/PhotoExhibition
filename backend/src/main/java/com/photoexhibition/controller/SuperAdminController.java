@@ -41,6 +41,11 @@ public class SuperAdminController {
         return handle(authorization, () -> superAdminService.getOverview());
     }
 
+    @GetMapping("/processing-overview")
+    public ResponseEntity<?> processingOverview(@RequestHeader("Authorization") String authorization) {
+        return handle(authorization, () -> superAdminService.getProcessingOverview());
+    }
+
     @GetMapping("/settings")
     public ResponseEntity<?> settings(@RequestHeader("Authorization") String authorization) {
         return handle(authorization, () -> superAdminService.getSettings());
@@ -93,6 +98,22 @@ public class SuperAdminController {
             detail.put("action", "sendTestEmail");
             detail.put("recipient", recipient);
             operationLogService.log(operator, OperationType.UPDATE, "EMAIL_CONFIG", null, recipient, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @PostMapping("/sms/test")
+    public ResponseEntity<?> sendTestSms(@RequestHeader("Authorization") String authorization,
+                                         HttpServletRequest requestContext,
+                                         @RequestBody(required = false) Map<String, Object> request) {
+        String phone = request == null ? null : (request.get("phone") == null ? null : String.valueOf(request.get("phone")));
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result = superAdminService.sendTestSmsCode(phone, requestContext.getRemoteAddr());
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "sendTestSms");
+            detail.put("phone", phone);
+            operationLogService.log(operator, OperationType.UPDATE, "SMS_CONFIG", null, phone, detail, requestContext.getRemoteAddr());
             return result;
         });
     }

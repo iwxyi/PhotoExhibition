@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PreDestroy;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -30,7 +31,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +65,16 @@ public class ModelManagementService {
     private final ConcurrentHashMap<String, TaskSnapshot> tasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> latestTaskByModel = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ValidationSnapshot> latestValidationByModel = new ConcurrentHashMap<>();
+    private final ThreadPoolExecutor rebuildExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadFactory() {
+        private final AtomicInteger threadCounter = new AtomicInteger(1);
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "model-rebuild-" + threadCounter.getAndIncrement());
+            thread.setDaemon(true);
+            return thread;
+        }
+    });
 
     public List<Map<String, Object>> listModels() {
         List<Map<String, Object>> models = new ArrayList<>();
@@ -138,7 +154,7 @@ public class ModelManagementService {
         tasks.put(taskId, task);
         latestTaskByModel.put(key, taskId);
 
-        CompletableFuture.runAsync(() -> runTask(task));
+        CompletableFuture.runAsync(() -> runTask(task), rebuildExecutor);
 
         return Map.of(
             "taskId", taskId,
@@ -154,6 +170,27 @@ public class ModelManagementService {
             throw new RuntimeException("任务不存在");
         }
         return task.toMap();
+    }
+
+    public Map<String, Object> getTaskOverview() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> recentTasks = tasks.values().stream()
+            .sorted((left, right) -> right.createdAt.compareTo(left.createdAt))
+            .limit(8)
+            .map(TaskSnapshot::toMap)
+            .collect(java.util.stream.Collectors.toList());
+        long runningCount = tasks.values().stream()
+            .filter(task -> task != null && !task.complete)
+            .count();
+
+        result.put("threadType", "MODEL_REBUILD");
+        result.put("label", "模型重建线程");
+        result.put("runningTaskCount", runningCount);
+        result.put("activeThreads", rebuildExecutor.getActiveCount());
+        result.put("queuedTasks", rebuildExecutor.getQueue().size());
+        result.put("completedTaskCount", rebuildExecutor.getCompletedTaskCount());
+        result.put("recentTasks", recentTasks);
+        return result;
     }
 
     private Map<String, Object> buildModel(String key, String name, String code, String configuredPath, boolean enabled, boolean loaded, List<String> rebuildNotes) {
@@ -445,6 +482,11 @@ public class ModelManagementService {
             builder.append(String.format("%02x", item));
         }
         return builder.toString();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        rebuildExecutor.shutdownNow();
     }
 
     @FunctionalInterface

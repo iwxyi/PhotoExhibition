@@ -309,8 +309,22 @@ public class StorageProviderService {
         if (!Boolean.TRUE.equals(provider.getEnabled())) {
             return ProviderCapability.unsupported("存储提供者已禁用");
         }
-        if (provider.getType() == StorageType.LOCAL
-            || provider.getType() == StorageType.SFTP
+        if (provider.getType() == StorageType.LOCAL) {
+            Path providerBase = resolveAbsoluteBaseDirectory(provider);
+            Path scopedRoot = systemConfigService.isMultiUserEnabled() && user != null
+                ? providerBase.resolve(String.valueOf(user.getId())).normalize()
+                : providerBase.normalize();
+            return ProviderCapability.partialSupportedWithPreview(
+                providerBase,
+                scopedRoot,
+                true,
+                true,
+                true,
+                "本地存储浏览/管理/上传/扫描/预览已接通",
+                "本地存储浏览/管理/上传/扫描/预览已接通"
+            );
+        }
+        if (provider.getType() == StorageType.SFTP
             || provider.getType() == StorageType.SMB
             || provider.getType() == StorageType.NFS) {
             Path providerBase = resolveAbsoluteBaseDirectory(provider);
@@ -400,6 +414,7 @@ public class StorageProviderService {
         }
         if (provider.getType() == StorageType.COS) {
             Map<String, Object> config = parseConfig(provider.getConfigJson());
+            List<String> missing = new ArrayList<>();
             String accessKeyId = firstNonBlank(
                 trimToNull(asString(config.get("accessKeyId"))),
                 trimToNull(asString(config.get("secretId")))
@@ -409,14 +424,23 @@ public class StorageProviderService {
                 trimToNull(asString(config.get("secretKey")))
             );
             String region = trimToNull(asString(config.get("region")));
+            if (trimToNull(provider.getEndpoint()) == null) {
+                missing.add("endpoint");
+            }
             if (trimToNull(provider.getBucketName()) == null) {
-                return ProviderCapability.uploadOnlyUnsupported("COS 存储缺少 bucketName 配置");
+                missing.add("bucketName");
             }
             if (region == null) {
-                return ProviderCapability.uploadOnlyUnsupported("COS 存储缺少 region 配置");
+                missing.add("region");
             }
-            if (accessKeyId == null || accessKeySecret == null) {
-                return ProviderCapability.uploadOnlyUnsupported("COS 存储缺少密钥配置");
+            if (accessKeyId == null) {
+                missing.add("secretId / accessKeyId");
+            }
+            if (accessKeySecret == null) {
+                missing.add("secretKey / accessKeySecret");
+            }
+            if (!missing.isEmpty()) {
+                return ProviderCapability.uploadOnlyUnsupported("COS 存储缺少配置：" + String.join("、", missing));
             }
             Path scopedRoot = resolveRemoteBase(provider);
             if (systemConfigService.isMultiUserEnabled() && user != null) {

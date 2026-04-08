@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
@@ -86,6 +87,7 @@ public class BackgroundRemovalService implements AutoCloseable {
     
     // 追踪正在处理的任务，避免重复处理同一图片
     private final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Future<?>> inProgressTasks = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<Long, ProcessingSnapshot> processingSnapshots = new java.util.concurrent.ConcurrentHashMap<>();
 
     // 预处理的均值和标准差（根据模型训练配置）
     private static final float[] MEAN = new float[]{0.5f, 0.5f, 0.5f};
@@ -129,6 +131,13 @@ public class BackgroundRemovalService implements AutoCloseable {
             log.warn("背景移除功能未启用 (enabled=false)");
         }
         log.info("========== BackgroundRemovalService 初始化完成 ==========");
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (processingExecutor != null) {
+            processingExecutor.shutdownNow();
+        }
     }
 
     /**
@@ -518,9 +527,19 @@ public class BackgroundRemovalService implements AutoCloseable {
             }
         }
 
+        ProcessingSnapshot snapshot = processingSnapshots.computeIfAbsent(photoId, id -> new ProcessingSnapshot(id));
+        snapshot.status = "QUEUED";
+        snapshot.photoName = sourceFile != null ? sourceFile.getName() : null;
+        snapshot.outputPath = outputFile != null ? sanitizeFilesystemPath(outputFile.getAbsolutePath()) : null;
+        snapshot.outputMaxSize = outputMaxSize;
+        snapshot.updatedAt = java.time.LocalDateTime.now();
+
         // 提交任务，不等待结果
         java.util.concurrent.Future<?> task = processingExecutor.submit(() -> {
             try {
+                snapshot.status = "RUNNING";
+                snapshot.startedAt = java.time.LocalDateTime.now();
+                snapshot.updatedAt = snapshot.startedAt;
                 log.info("开始处理抠图: photoId={}, file={}, outputMaxSize={}", photoId, sourceFile.getName(), outputMaxSize);
 
                 // 执行背景移除
@@ -535,15 +554,46 @@ public class BackgroundRemovalService implements AutoCloseable {
                     persistBackgroundRemovedPath(photoId, outputFile);
                     log.info("抠图完成并保存: photoId={}", photoId);
                 }
+                snapshot.status = "COMPLETED";
+                snapshot.message = result != null ? "抠图完成" : "抠图未生成结果";
             } catch (Exception e) {
+                snapshot.status = "FAILED";
+                snapshot.message = sanitizeVisibleMessage(e.getMessage());
                 log.error("抠图处理异常: photoId={}", photoId, e);
             } finally {
+                snapshot.finishedAt = java.time.LocalDateTime.now();
+                snapshot.updatedAt = snapshot.finishedAt;
                 inProgressTasks.remove(photoId);
             }
         });
 
         inProgressTasks.put(photoId, task);
         log.debug("抠图任务已提交: photoId={}", photoId);
+    }
+
+    public Map<String, Object> getProcessingOverview() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        java.util.concurrent.ThreadPoolExecutor executor = processingExecutor instanceof java.util.concurrent.ThreadPoolExecutor
+            ? (java.util.concurrent.ThreadPoolExecutor) processingExecutor
+            : null;
+
+        result.put("threadType", "BACKGROUND_REMOVAL");
+        result.put("label", "背景移除线程池");
+        result.put("enabled", enabled);
+        result.put("modelLoaded", modelLoaded);
+        result.put("configuredConcurrency", concurrentTasks);
+        result.put("activeTaskCount", inProgressTasks.size());
+        result.put("running", inProgressTasks.size() > 0);
+        result.put("poolSize", executor != null ? executor.getPoolSize() : 0);
+        result.put("activeThreads", executor != null ? executor.getActiveCount() : 0);
+        result.put("queuedTasks", executor != null ? executor.getQueue().size() : 0);
+        result.put("completedTaskCount", executor != null ? executor.getCompletedTaskCount() : 0L);
+        result.put("recentTasks", processingSnapshots.values().stream()
+            .sorted((left, right) -> compareDateTimeDesc(left.updatedAt, right.updatedAt))
+            .limit(8)
+            .map(ProcessingSnapshot::toMap)
+            .collect(java.util.stream.Collectors.toList()));
+        return result;
     }
 
     /**
@@ -658,6 +708,57 @@ public class BackgroundRemovalService implements AutoCloseable {
             });
         } catch (Exception e) {
             log.warn("回写抠图路径失败: photoId={}, output={}", photoId, sanitizeFilesystemPath(outputFile.getAbsolutePath()), e);
+        }
+    }
+
+    private int compareDateTimeDesc(java.time.LocalDateTime left, java.time.LocalDateTime right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return right.compareTo(left);
+    }
+
+    private String sanitizeVisibleMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "处理失败";
+        }
+        String normalized = message.replace('\n', ' ').replace('\r', ' ').trim();
+        return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
+    }
+
+    private static final class ProcessingSnapshot {
+        private final Long photoId;
+        private volatile String photoName;
+        private volatile String status = "QUEUED";
+        private volatile String message = "等待处理";
+        private volatile Integer outputMaxSize;
+        private volatile String outputPath;
+        private volatile java.time.LocalDateTime startedAt;
+        private volatile java.time.LocalDateTime finishedAt;
+        private volatile java.time.LocalDateTime updatedAt = java.time.LocalDateTime.now();
+
+        private ProcessingSnapshot(Long photoId) {
+            this.photoId = photoId;
+        }
+
+        private Map<String, Object> toMap() {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("photoId", photoId);
+            item.put("photoName", photoName);
+            item.put("status", status);
+            item.put("message", message);
+            item.put("outputMaxSize", outputMaxSize);
+            item.put("outputPath", outputPath);
+            item.put("startedAt", startedAt);
+            item.put("finishedAt", finishedAt);
+            item.put("updatedAt", updatedAt);
+            return item;
         }
     }
 

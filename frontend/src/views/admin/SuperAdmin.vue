@@ -1,33 +1,58 @@
 <template>
   <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      <div class="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 class="text-2xl font-light tracking-wide mb-1">超级管理员</h1>
-          <p class="text-sm text-gray-300">集中管理多用户开关、空间配额、默认存储与用户后台权限。</p>
+    <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <section class="admin-page-hero">
+        <div class="admin-page-hero-grid">
+          <div class="space-y-5">
+            <div class="space-y-3">
+              <h1 class="admin-page-title">超级管理员控制台</h1>
+            </div>
+            <AdminSectionTabs />
+          </div>
+
+          <div class="space-y-4">
+            <div class="admin-kpi-grid">
+              <div class="admin-kpi-card">
+                <div class="admin-kpi-label">当前用户</div>
+                <div class="admin-kpi-value">{{ overview.userCount }}</div>
+                <div class="admin-kpi-note">启用 {{ overview.activeUserCount }} · 异常 {{ overview.disabledUserCount + overview.lockedUserCount }}</div>
+              </div>
+              <div class="admin-kpi-card">
+                <div class="admin-kpi-label">默认空间</div>
+                <div class="admin-kpi-value">{{ formatQuotaGb(overview.defaultUserQuotaBytes) }}</div>
+                <div class="admin-kpi-note">VIP 默认增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }}</div>
+              </div>
+              <div class="admin-kpi-card">
+                <div class="admin-kpi-label">存储提供者</div>
+                <div class="admin-kpi-value">{{ overview.storageProviderCount }}</div>
+                <div class="admin-kpi-note">可用 {{ overview.enabledStorageProviderCount }} · 模型 {{ overview.modelCount || 0 }}</div>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <router-link
+                to="/admin"
+                class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-xl border border-white/10 transition-colors text-sm"
+              >
+                返回后台管理
+              </router-link>
+            </div>
+          </div>
         </div>
-        <router-link
-          to="/admin"
-          class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors text-sm"
-        >
-          返回后台管理
-        </router-link>
-      </div>
+      </section>
 
-      <AdminSectionTabs />
-
-      <div class="flex flex-wrap gap-3">
+      <div class="admin-tabbar">
         <button
-          v-for="tab in superAdminTabs"
+          v-for="(tab, index) in superAdminTabs"
           :key="tab.key"
           type="button"
-          class="px-4 py-2 rounded-xl text-sm border transition-colors"
+          class="admin-tab-pill"
           :class="activeTab === tab.key
-            ? 'bg-purple-600 text-white border-purple-500/40'
-            : 'bg-gray-900/60 hover:bg-gray-800 text-gray-200 border-white/10'"
+            ? 'admin-tab-pill-active'
+            : ''"
           @click="changeActiveTab(tab.key)"
         >
-          {{ tab.label }}
+          <span class="admin-tab-pill-index">{{ String(index + 1).padStart(2, '0') }}</span>
+          <span class="admin-tab-pill-label">{{ tab.label }}</span>
         </button>
       </div>
 
@@ -122,6 +147,420 @@
             </div>
           </div>
         </div>
+
+        <div class="glass-panel p-5 space-y-4">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-sm text-gray-300">后台处理线程</div>
+              <div class="text-xs text-gray-400">{{ processingOverview.nonBlockingNote || '图片处理尽量走后台线程，不阻塞实时请求。' }}</div>
+            </div>
+            <button
+              class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm"
+              :disabled="loadingProcessingOverview"
+              @click="loadProcessingOverview"
+            >
+              {{ loadingProcessingOverview ? '刷新中...' : '刷新线程状态' }}
+            </button>
+          </div>
+
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="chip text-emerald-200">线程组：{{ processingOverview.workerCount || 0 }}</span>
+            <span class="chip text-amber-200">活跃线程组：{{ processingOverview.activeWorkerGroupCount || 0 }}</span>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div
+              v-for="worker in processingOverview.workers || []"
+              :key="worker.threadType"
+              class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3"
+            >
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="text-sm text-white">{{ worker.label }}</div>
+                  <div class="text-xs text-gray-400">{{ worker.threadType }}</div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <button
+                    v-if="worker.threadType === 'SCAN_QUEUE'"
+                    type="button"
+                    class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs"
+                    @click="openSuperAdminSkippedModal"
+                  >
+                    查看失败原因
+                  </button>
+                  <span class="chip text-xs" :class="workerRunningClass(worker)">
+                    {{ workerRunningLabel(worker) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-2 text-xs text-gray-300">
+                <span v-if="worker.activeRequestCount != null" class="chip">活跃请求：{{ worker.activeRequestCount }}</span>
+                <span v-if="worker.activeUserCount != null" class="chip">活跃用户：{{ worker.activeUserCount }}</span>
+                <span v-if="worker.recentMinuteRequestCount != null" class="chip">近1分钟请求：{{ worker.recentMinuteRequestCount }}</span>
+                <span v-if="worker.configuredWorkers != null" class="chip">配置线程：{{ worker.configuredWorkers }}</span>
+                <span v-if="worker.configuredConcurrency != null" class="chip">并发上限：{{ worker.configuredConcurrency }}</span>
+                <span v-if="worker.activeWorkers != null" class="chip">活跃工作线程：{{ worker.activeWorkers }}</span>
+                <span v-if="worker.runningImageCount != null" class="chip">运行中剩余图片：{{ worker.runningImageCount }}</span>
+                <span v-if="worker.queuedImageCount != null" class="chip">排队待扫图片：{{ worker.queuedImageCount }}</span>
+                <span v-if="worker.activeThreads != null" class="chip">活跃线程：{{ worker.activeThreads }}</span>
+                <span v-if="worker.runningTaskCount != null" class="chip">运行任务：{{ worker.runningTaskCount }}</span>
+                <span v-if="worker.queuedTaskCount != null" class="chip">队列任务：{{ worker.queuedTaskCount }}</span>
+                <span v-if="worker.queuedTasks != null" class="chip">等待队列：{{ worker.queuedTasks }}</span>
+                <span v-if="worker.pausedTaskCount != null" class="chip">暂停任务：{{ worker.pausedTaskCount }}</span>
+              </div>
+
+              <div v-if="worker.scanStatus?.processingStats" class="text-xs text-gray-400">
+                扫描统计：已完成 {{ worker.scanStatus.processingStats.completed || 0 }} / 未完成 {{ worker.scanStatus.processingStats.incomplete || 0 }} / 失败 {{ worker.scanStatus.processingStats.failed || 0 }}
+              </div>
+              <div v-if="worker.scanStatus?.scanSummary" class="text-xs text-gray-400">
+                图片总数 {{ worker.scanStatus.scanSummary.total || 0 }} · 已扫描 {{ worker.scanStatus.scanSummary.scanned || 0 }} · 待扫描 {{ worker.scanStatus.scanSummary.waiting || 0 }}
+              </div>
+
+              <div v-if="worker.summary" class="text-xs text-gray-400">
+                {{ worker.summary }}
+                <template v-if="worker.slowRequestThresholdMs"> · 慢请求阈值 {{ worker.slowRequestThresholdMs }}ms</template>
+              </div>
+
+              <div v-if="worker.topActiveEndpoints?.length" class="space-y-1 text-xs text-gray-400">
+                <div class="text-gray-300">当前最活跃接口</div>
+                <div v-for="endpoint in worker.topActiveEndpoints.slice(0, 3)" :key="`${worker.threadType}-${endpoint.endpoint}`">
+                  {{ endpoint.endpoint }}：{{ endpoint.activeCount }} 个请求
+                </div>
+              </div>
+
+              <div v-if="worker.queuedOwnerSummaries?.length" class="space-y-1 text-xs text-gray-400">
+                <div class="text-gray-300">排队用户</div>
+                <div v-for="owner in worker.queuedOwnerSummaries.slice(0, 3)" :key="`${worker.threadType}-${owner.ownerKey}`">
+                  {{ owner.ownerLabel }}：{{ owner.taskCount }} 个任务
+                </div>
+              </div>
+
+              <div v-if="isScanQueueWorker(worker) && (worker.runningTasks?.length || scanWorkerQueuedTasks(worker).length || scanWorkerFailedTasks(worker).length)" class="space-y-3">
+                <div v-if="worker.runningTasks?.length" class="space-y-2">
+                  <div class="text-xs text-gray-300">运行中的扫描任务</div>
+                  <div
+                    v-for="task in worker.runningTasks.slice(0, 5)"
+                    :key="`scan-running-${task.id}`"
+                    class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-gray-100">
+                        #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
+                        <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                      </div>
+                      <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
+                        {{ scanTaskStatusLabel(task.status) }}
+                      </span>
+                    </div>
+                    <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
+                    <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                    <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="text-gray-500 break-all">
+                      当前断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
+                    </div>
+                    <div class="text-gray-500">
+                      创建：{{ formatDate(task.createdAt || null) }} · 开始：{{ formatDate(task.startedAt || null) }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="scanWorkerQueuedTasks(worker).length" class="space-y-2">
+                  <div class="text-xs text-gray-300">排队中的扫描任务</div>
+                  <div
+                    v-for="task in scanWorkerQueuedTasks(worker).slice(0, 5)"
+                    :key="`scan-queued-${task.id}`"
+                    class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-gray-100">
+                        #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
+                        <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                      </div>
+                      <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
+                        {{ scanTaskStatusLabel(task.status) }}
+                      </span>
+                    </div>
+                    <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
+                    <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                    <div class="text-gray-500">
+                      创建：{{ formatDate(task.createdAt || null) }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="scanWorkerFailedTasks(worker).length" class="space-y-2">
+                  <div class="text-xs text-gray-300">最近失败的扫描任务</div>
+                  <div
+                    v-for="task in scanWorkerFailedTasks(worker).slice(0, 5)"
+                    :key="`scan-failed-${task.id}`"
+                    class="rounded-xl border border-rose-400/20 bg-rose-500/5 p-3 text-xs space-y-1"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-rose-100">
+                        #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
+                        <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                      </div>
+                      <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
+                        {{ scanTaskStatusLabel(task.status) }}
+                      </span>
+                    </div>
+                    <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
+                    <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                    <div v-if="task.errorMessage" class="text-rose-300 break-all">失败原因：{{ task.errorMessage }}</div>
+                    <div class="text-gray-500">
+                      创建：{{ formatDate(task.createdAt || null) }}
+                      <template v-if="task.finishedAt"> · 完成：{{ formatDate(task.finishedAt || null) }}</template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="worker.recentSlowRequests?.length" class="space-y-2">
+                <div class="text-xs text-gray-300">最近慢请求</div>
+                <div
+                  v-for="item in worker.recentSlowRequests.slice(0, 5)"
+                  :key="`${worker.threadType}-${item.finishedAt}-${item.path}`"
+                  class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-gray-200 truncate">{{ item.method }} {{ item.path }}</div>
+                    <span class="chip text-[11px] text-amber-200">{{ item.durationMs || 0 }}ms</span>
+                  </div>
+                  <div class="text-gray-400">
+                    {{ item.actorLabel || item.ipAddress || '未知访问者' }}
+                    <template v-if="item.statusCode != null"> · 状态 {{ item.statusCode }}</template>
+                  </div>
+                  <div v-if="item.error" class="text-rose-300">{{ item.error }}</div>
+                  <div class="text-gray-500">{{ formatDate(item.finishedAt || null) }}</div>
+                </div>
+              </div>
+
+              <div v-if="worker.recentTasks?.length" class="space-y-2">
+                <div class="text-xs text-gray-300">最近任务</div>
+                <div
+                  v-for="task in worker.recentTasks.slice(0, 3)"
+                  :key="`${worker.threadType}-${task.taskId || task.photoId || task.updatedAt}`"
+                  class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-gray-200 truncate">{{ processingTaskTitle(task) }}</div>
+                    <span class="chip text-[11px]" :class="processingTaskStatusClass(task.status)">
+                      {{ processingTaskStatusLabel(task.status) }}
+                    </span>
+                  </div>
+                  <div class="text-gray-400">
+                    <template v-if="task.total">
+                      进度 {{ task.current || 0 }}/{{ task.total }} · {{ task.progressPercent ?? processingTaskPercent(task) }}%
+                    </template>
+                    <template v-else>
+                      {{ isScanQueueWorker(worker) ? scanTaskRecentSummary(task) : (task.message || task.latestLog || '暂无附加说明') }}
+                    </template>
+                  </div>
+                  <div class="text-gray-500">{{ formatDate(task.updatedAt || task.finishedAt || task.startedAt || null) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="activeTab === 'scan'" class="space-y-4">
+        <div class="glass-panel p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 class="text-lg font-light">扫描管理</h2>
+              <p class="text-xs text-gray-400 mt-1">集中查看当前扫描状态、立即触发扫描、最近扫描记录与异常文件。</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button
+                class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm border border-white/10"
+                :disabled="loadingSuperScan"
+                @click="loadSuperScanPage"
+              >
+                {{ loadingSuperScan ? '刷新中...' : '刷新扫描状态' }}
+              </button>
+              <button
+                class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm"
+                @click="openSuperAdminSkippedModal"
+              >
+                查看异常文件
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+              <div class="text-xs text-gray-400">扫描状态</div>
+              <div class="text-2xl font-light">{{ superScanStatusLabel }}</div>
+              <div class="text-xs text-gray-500">最近开始：{{ superScanLastTime || '—' }}</div>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+              <div class="text-xs text-gray-400">图片进度</div>
+              <div class="text-2xl font-light">{{ superScanProgressText }}</div>
+              <div class="text-xs text-gray-500">总 {{ superScanSummary.total }} · 已扫 {{ superScanSummary.scanned }}</div>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+              <div class="text-xs text-gray-400">任务情况</div>
+              <div class="text-2xl font-light">{{ superRunningTaskCount }}/{{ superQueueCount }}</div>
+              <div class="text-xs text-gray-500">运行中 / 排队中</div>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+              <div class="text-xs text-gray-400">待扫描</div>
+              <div class="text-2xl font-light text-amber-200">{{ superScanSummary.waiting }}</div>
+              <div class="text-xs text-gray-500">队列图片 {{ superQueuedImageCount }}</div>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+              <div class="text-xs text-gray-400">失败 / 异常</div>
+              <div class="text-2xl font-light text-rose-200">{{ superScanSummary.failed }}</div>
+              <div class="text-xs text-gray-500">点击“查看异常文件”加载详情</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4">
+              <div class="text-sm text-white">立即扫描</div>
+              <div
+                v-if="superScanDisabledReason"
+                class="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100"
+              >
+                {{ superScanDisabledReason }}
+              </div>
+              <label class="block space-y-2">
+                <span class="text-xs text-gray-400">扫描存储</span>
+                <select
+                  v-if="superScanProviderOptions.length"
+                  v-model="superSelectedScanProviderId"
+                  class="w-full px-3 py-2 text-sm rounded-lg bg-gray-900/70 border border-white/10"
+                >
+                  <option :value="null">默认存储</option>
+                  <option
+                    v-for="provider in superScanProviderOptions"
+                    :key="provider.id"
+                    :value="provider.id"
+                  >
+                    {{ provider.name }} · {{ storageTypeLabel(provider.type) }}
+                  </option>
+                </select>
+              </label>
+              <button
+                class="w-full px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-sm"
+                :disabled="superTriggeringScan || !superScanActionSupported"
+                @click="triggerSuperScan"
+              >
+                {{ superTriggeringScan ? '触发中...' : '立即触发扫描' }}
+              </button>
+              <div class="text-xs text-gray-400 space-y-1">
+                <div>当前目标：{{ selectedSuperScanProvider ? `${selectedSuperScanProvider.name} · ${storageTypeLabel(selectedSuperScanProvider.type)}` : '系统默认扫描根目录' }}</div>
+                <div>排队用户：{{ superQueuedOwnerCount }}</div>
+                <div>暂停任务：{{ superPausedTaskCount }}</div>
+                <div v-if="superQueuedOwnerSummaryText">队列分布：{{ superQueuedOwnerSummaryText }}</div>
+                <div v-if="superRunningTaskSummaryText">运行分布：{{ superRunningTaskSummaryText }}</div>
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-sm text-white">最近扫描记录与结果</div>
+                  <div class="text-xs text-gray-400 mt-1">支持查看进度、断点、失败原因，并对任务进行暂停 / 重试 / 取消。</div>
+                </div>
+              </div>
+
+              <div v-if="!superScanTasks.length" class="text-sm text-gray-400 py-8 text-center">
+                暂无扫描任务
+              </div>
+
+              <div v-else class="overflow-auto">
+                <table class="w-full text-sm text-slate-200">
+                  <thead class="text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th class="text-left py-3 pr-4">任务</th>
+                      <th class="text-left py-3 pr-4">状态</th>
+                      <th class="text-left py-3 pr-4">归属</th>
+                      <th class="text-left py-3 pr-4">路径</th>
+                      <th class="text-left py-3 pr-4">结果</th>
+                      <th class="text-left py-3 pr-4">时间</th>
+                      <th class="text-right py-3">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="task in superScanTasks" :key="task.id">
+                      <tr class="border-b border-slate-900/80 align-top">
+                        <td class="py-3 pr-4">
+                          <button
+                            @click="openSuperScanTaskDetail(task.id)"
+                            class="font-medium text-white hover:text-sky-300 transition-colors"
+                          >#{{ task.id }}</button>
+                          <div class="text-xs text-slate-400 mt-1">{{ scanTaskTypeLabel(task.taskType) }}</div>
+                        </td>
+                        <td class="py-3 pr-4">
+                          <span class="px-2 py-1 rounded-full text-xs border" :class="superScanTaskStatusBadgeClass(task.status)">
+                            {{ scanTaskStatusLabel(task.status) }}
+                          </span>
+                          <div v-if="task.errorMessage" class="text-xs text-rose-300 mt-2 max-w-xs break-all">
+                            {{ task.errorMessage }}
+                          </div>
+                        </td>
+                        <td class="py-3 pr-4 text-xs text-slate-300">
+                          <div>{{ task.ownerLabel || '系统任务' }}</div>
+                          <div class="text-slate-500 mt-1">
+                            存储：{{ task.storageProviderName || task.storageProviderId || '默认' }}
+                            <span v-if="task.storageProviderType"> · {{ storageTypeLabel(task.storageProviderType) }}</span>
+                          </div>
+                        </td>
+                        <td class="py-3 pr-4">
+                          <div class="max-w-sm break-all text-xs text-slate-300">{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                          <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="text-xs text-slate-500 mt-1 break-all">
+                            断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
+                          </div>
+                        </td>
+                        <td class="py-3 pr-4">
+                          <div>{{ scanTaskProgressText(task) }}</div>
+                        </td>
+                        <td class="py-3 pr-4 text-xs text-slate-400 whitespace-nowrap">
+                          <div>创建：{{ formatDateTime(task.createdAt) }}</div>
+                          <div class="mt-1">开始：{{ formatDateTime(task.startedAt) }}</div>
+                          <div class="mt-1">完成：{{ formatDateTime(task.finishedAt) }}</div>
+                        </td>
+                        <td class="py-3 text-right">
+                          <div class="flex justify-end gap-2">
+                            <button
+                              @click="openSuperScanTaskDetail(task.id)"
+                              class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10"
+                            >
+                              详情
+                            </button>
+                            <button
+                              v-if="canSuperPauseScanTask(task)"
+                              @click="pauseSuperScanTask(task)"
+                              class="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
+                            >
+                              暂停
+                            </button>
+                            <button
+                              v-if="canSuperRetryScanTask(task)"
+                              @click="retrySuperScanTask(task)"
+                              class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                            >
+                              重试
+                            </button>
+                            <button
+                              v-if="canSuperCancelScanTask(task)"
+                              @click="cancelSuperScanTask(task)"
+                              class="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section v-if="activeTab === 'models'" class="space-y-4">
@@ -211,7 +650,7 @@
                     <input v-model="modelRebuildOptions[model.key].forceRebuild" type="checkbox" class="mt-1 w-5 h-5 rounded" />
                   </label>
                   <button
-                    class="w-full px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
+                    class="inline-flex px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
                     :disabled="rebuildingModelKey === model.key"
                     @click="triggerModelRebuild(model)"
                   >
@@ -291,7 +730,65 @@
         </div>
       </section>
 
-      <ApiTestToolPanel v-if="activeTab === 'integrations'" />
+      <section v-if="activeTab === 'tools'" class="glass-panel p-6 space-y-5">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 class="text-lg font-light">工具</h2>
+            <p class="text-xs text-gray-400">用于统一放置迁移、诊断、接口测试等低频工具型能力。</p>
+          </div>
+          <button
+            class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
+            :disabled="runningMigration"
+            @click="runLegacyMigration"
+          >
+            {{ runningMigration ? '迁移执行中...' : '执行旧数据迁移' }}
+          </button>
+        </div>
+
+        <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-100 space-y-1">
+          <div>迁移工具会整理旧版单用户目录、归属字段和存储引用，适合升级多用户或企业版前执行。</div>
+          <div>执行前建议先备份数据库与文件目录；重复执行通常会自动跳过已迁移项。</div>
+        </div>
+
+        <div v-if="migrationSummary" class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
+          <div class="text-sm text-gray-200">最近一次迁移结果</div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs text-gray-300">
+            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div class="text-[11px] text-gray-400">归属迁移总计</div>
+              <div class="text-lg text-white mt-1">{{ migrationSummary.totalOwnershipMigrationCount ?? 0 }}</div>
+              <div class="mt-1">归属用户：{{ migrationSummary.ownerUsername || migrationSummary.ownerUserId || '—' }}</div>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div class="text-[11px] text-gray-400">路径改写总计</div>
+              <div class="text-lg text-white mt-1">{{ migrationSummary.totalPathRewriteCount ?? 0 }}</div>
+              <div class="mt-1">存储引用：{{ migrationSummary.rewrittenPhotoStorageRefCount ?? 0 }}</div>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div class="text-[11px] text-gray-400">执行结果</div>
+              <div class="text-lg mt-1" :class="migrationSummary.success ? 'text-emerald-300' : 'text-amber-300'">
+                {{ migrationSummary.success ? '完成' : '未完成' }}
+              </div>
+              <div class="mt-1">{{ migrationSummary.message || '—' }}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-gray-300">
+            <div>相册归属：{{ migrationSummary.migratedAlbumOwnershipCount ?? 0 }}</div>
+            <div>照片归属：{{ migrationSummary.migratedPhotoOwnershipCount ?? 0 }}</div>
+            <div>人物归属：{{ migrationSummary.migratedPersonOwnershipCount ?? 0 }}</div>
+            <div>人脸归属：{{ migrationSummary.migratedFaceOwnershipCount ?? 0 }}</div>
+            <div>评论归属：{{ migrationSummary.migratedCommentOwnershipCount ?? 0 }}</div>
+            <div>标签归属：{{ migrationSummary.migratedTagOwnershipCount ?? 0 }}</div>
+            <div>目录迁移：{{ migrationSummary.movedTopLevelEntryCount ?? 0 }}</div>
+            <div>路径回写：{{ (migrationSummary.rewrittenAlbumPathCount ?? 0) + (migrationSummary.rewrittenPhotoPathCount ?? 0) }}</div>
+            <div>相册目录搬迁：{{ migrationSummary.movedAlbumDirectoryCount ?? 0 }}</div>
+            <div>照片文件搬迁：{{ migrationSummary.movedPhotoFileCount ?? 0 }}</div>
+            <div>相册路径重写：{{ migrationSummary.rewrittenAlbumPathCount ?? 0 }}</div>
+            <div>照片存储引用：{{ migrationSummary.rewrittenPhotoStorageRefCount ?? 0 }}</div>
+          </div>
+        </div>
+
+        <ApiTestToolPanel />
+      </section>
 
       <section v-if="activeTab === 'global'" class="glass-panel p-6 space-y-5">
         <div class="flex items-center justify-between flex-wrap gap-3">
@@ -418,19 +915,28 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'integrations'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'notifications'" class="glass-panel p-6 space-y-5">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">短信登录设置</h2>
             <p class="text-xs text-gray-400">支持阿里云、腾讯云、Twilio、通用 Webhook 与 mock 模式；默认可仅开启 mock 便于联调测试。</p>
           </div>
-          <button
-            class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
-            :disabled="loading || savingSettings"
-            @click="saveSettings"
-          >
-            {{ savingSettings ? '保存中...' : '保存集成配置' }}
-          </button>
+          <div class="flex items-center gap-3 flex-wrap">
+            <button
+              class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm"
+              :disabled="sendingTestSms"
+              @click="openSmsTestModal"
+            >
+              {{ sendingTestSms ? '发送中...' : '发送测试验证码' }}
+            </button>
+            <button
+              class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+              :disabled="loading || savingSettings"
+              @click="saveSettings"
+            >
+              {{ savingSettings ? '保存中...' : '保存集成配置' }}
+            </button>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -477,7 +983,10 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">短信 Endpoint</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">短信 Endpoint</span>
+              <a v-if="smsFieldDocLinks.endpoint" :href="smsFieldDocLinks.endpoint.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsEndpoint"
               type="text"
@@ -488,7 +997,10 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">RegionId</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">RegionId</span>
+              <a v-if="smsFieldDocLinks.region" :href="smsFieldDocLinks.region.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsRegionId"
               type="text"
@@ -499,7 +1011,10 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">{{ smsAccessKeyIdLabel }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">{{ smsAccessKeyIdLabel }}</span>
+              <a v-if="smsFieldDocLinks.accessKeyId" :href="smsFieldDocLinks.accessKeyId.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsAccessKeyId"
               type="text"
@@ -510,7 +1025,10 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">{{ smsAccessKeySecretLabel }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">{{ smsAccessKeySecretLabel }}</span>
+              <a v-if="smsFieldDocLinks.accessKeySecret" :href="smsFieldDocLinks.accessKeySecret.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsAccessKeySecret"
               type="password"
@@ -521,7 +1039,10 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">{{ smsSignLabel }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">{{ smsSignLabel }}</span>
+              <a v-if="smsFieldDocLinks.sign" :href="smsFieldDocLinks.sign.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsSignName"
               type="text"
@@ -531,7 +1052,10 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">{{ smsTemplateLabel }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">{{ smsTemplateLabel }}</span>
+              <a v-if="smsFieldDocLinks.template" :href="smsFieldDocLinks.template.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsTemplateCode"
               type="text"
@@ -541,7 +1065,10 @@
           </label>
 
           <label v-if="settings.smsProviderType === 'TENCENT_CLOUD'" class="space-y-2">
-            <span class="text-sm text-gray-300">SmsSdkAppId</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-300">SmsSdkAppId</span>
+              <a v-if="smsFieldDocLinks.sdkAppId" :href="smsFieldDocLinks.sdkAppId.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
+            </div>
             <input
               v-model="settings.smsSdkAppId"
               type="text"
@@ -572,10 +1099,11 @@
             />
             <span class="text-xs text-gray-500">控制短信验证码失效时间，建议保持在 `5~15` 分钟区间。</span>
           </label>
+
         </div>
       </section>
 
-      <section v-if="activeTab === 'integrations'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'notifications'" class="glass-panel p-6 space-y-5">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">邮件发送设置</h2>
@@ -900,7 +1428,7 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'integrations'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'payment'" class="glass-panel p-6 space-y-5">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">支付设置</h2>
@@ -953,7 +1481,19 @@
             :class="field.wide ? 'lg:col-span-2' : ''"
           >
             <div class="flex items-center justify-between gap-3">
-              <span class="text-sm text-gray-300">{{ field.label }}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-300">{{ field.label }}</span>
+                <a
+                  v-if="paymentFieldDocLinks[field.key]"
+                  :href="paymentFieldDocLinks[field.key]!.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs text-sky-300 hover:text-sky-200"
+                  :title="paymentFieldDocLinks[field.key]!.label"
+                >
+                  ↗
+                </a>
+              </div>
               <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">
                 {{ field.required ? '必填' : '可选' }} · {{ field.shortHint }}
               </span>
@@ -1058,67 +1598,6 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'integrations'" class="glass-panel p-6 space-y-5">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h2 class="text-lg font-light">旧数据迁移</h2>
-            <p class="text-xs text-gray-400">用于把历史相册、照片、人脸、评论等补齐 `user_id`，并尝试把旧目录搬到 `data/photos/{userId}`。</p>
-          </div>
-          <button
-            class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
-            :disabled="loading || runningMigration"
-            @click="runLegacyMigration"
-          >
-            {{ runningMigration ? '迁移中...' : '执行旧数据迁移' }}
-          </button>
-        </div>
-        <div class="text-xs text-gray-400">
-          启动时也会自动尝试一次；这里提供手动重跑入口，便于修复“登录后看不到历史照片数据”这类问题。
-        </div>
-        <div v-if="migrationSummary" class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-2">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <div class="text-sm text-gray-200">最近一次迁移结果</div>
-            <div class="text-[11px] text-gray-400">
-              {{ migrationSummary.startedAt ? `开始：${formatDateTime(migrationSummary.startedAt)}` : '' }}
-              {{ migrationSummary.finishedAt ? ` · 完成：${formatDateTime(migrationSummary.finishedAt)}` : '' }}
-            </div>
-          </div>
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs text-gray-300">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div class="text-[11px] text-gray-400">归属迁移总计</div>
-              <div class="text-lg text-white mt-1">{{ migrationSummary.totalOwnershipMigrationCount ?? 0 }}</div>
-              <div class="mt-1">归属用户：{{ migrationSummary.ownerUsername || migrationSummary.ownerUserId || '—' }}</div>
-            </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div class="text-[11px] text-gray-400">路径改写总计</div>
-              <div class="text-lg text-white mt-1">{{ migrationSummary.totalPathRewriteCount ?? 0 }}</div>
-              <div class="mt-1">存储引用：{{ migrationSummary.rewrittenPhotoStorageRefCount ?? 0 }}</div>
-            </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div class="text-[11px] text-gray-400">执行结果</div>
-              <div class="text-lg mt-1" :class="migrationSummary.success ? 'text-emerald-300' : 'text-amber-300'">
-                {{ migrationSummary.success ? '完成' : '未完成' }}
-              </div>
-              <div class="mt-1">{{ migrationSummary.message || '—' }}</div>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-gray-300">
-            <div>相册归属：{{ migrationSummary.migratedAlbumOwnershipCount ?? 0 }}</div>
-            <div>照片归属：{{ migrationSummary.migratedPhotoOwnershipCount ?? 0 }}</div>
-            <div>人物归属：{{ migrationSummary.migratedPersonOwnershipCount ?? 0 }}</div>
-            <div>人脸归属：{{ migrationSummary.migratedFaceOwnershipCount ?? 0 }}</div>
-            <div>评论归属：{{ migrationSummary.migratedCommentOwnershipCount ?? 0 }}</div>
-            <div>标签归属：{{ migrationSummary.migratedTagOwnershipCount ?? 0 }}</div>
-            <div>目录迁移：{{ migrationSummary.movedTopLevelEntryCount ?? 0 }}</div>
-            <div>路径回写：{{ (migrationSummary.rewrittenAlbumPathCount ?? 0) + (migrationSummary.rewrittenPhotoPathCount ?? 0) }}</div>
-            <div>相册目录搬迁：{{ migrationSummary.movedAlbumDirectoryCount ?? 0 }}</div>
-            <div>照片文件搬迁：{{ migrationSummary.movedPhotoFileCount ?? 0 }}</div>
-            <div>相册路径重写：{{ migrationSummary.rewrittenAlbumPathCount ?? 0 }}</div>
-            <div>照片存储引用：{{ migrationSummary.rewrittenPhotoStorageRefCount ?? 0 }}</div>
-          </div>
-        </div>
-      </section>
-
       <section v-if="activeTab === 'users'" class="glass-panel p-6 space-y-5">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -1162,39 +1641,49 @@
           empty-text="暂无用户数据，可尝试调整搜索条件。"
           @update:preferences="updateTablePreference('users', $event)"
         >
-          <template #cell-user="{ row: user }">
+          <template #toolbar-left>
+            <button
+              type="button"
+              class="rounded-xl bg-purple-600 px-4 py-2 text-sm text-white hover:bg-purple-500 disabled:opacity-60"
+              :disabled="savingAllUsers || !modifiedUserCount"
+              @click="saveModifiedUsers"
+            >
+              {{ savingAllUsers ? '保存中...' : modifiedUserCount ? `保存已修改 ${modifiedUserCount} 项` : '保存' }}
+            </button>
+          </template>
+          <template #cell-username="{ row: user }">
             <div class="space-y-2">
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">昵称</span>
-                <input v-model="user.nickname" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              </label>
-              <div class="text-xs text-gray-400">
-                `{{ user.username }}` · slug `{{ user.slug }}`
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm text-white">{{ user.username }}</span>
+                <span class="chip text-[11px] text-sky-200">ID {{ user.id }}</span>
+                <span v-if="userHasUnsavedChanges(user)" class="chip text-[11px] text-amber-200">未保存</span>
               </div>
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">项目名（中文）</span>
-                <input v-model="user.projectNameZh" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              </label>
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">项目名（英文）</span>
-                <input v-model="user.projectNameEn" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              </label>
+              <div class="text-xs text-gray-500 break-all">slug：{{ user.slug }}</div>
+            </div>
+          </template>
+          <template #cell-nickname="{ row: user }">
+            <label class="block">
+              <input v-model="user.nickname" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+            </label>
+          </template>
+          <template #cell-projectName="{ row: user }">
+            <div class="grid grid-cols-1 gap-2">
+              <input v-model="user.projectNameZh" type="text" placeholder="中文站点名" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <input v-model="user.projectNameEn" type="text" placeholder="English Site Name" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
             </div>
           </template>
           <template #cell-phone="{ row: user }">
             <div class="space-y-2">
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">手机号</span>
-                <input v-model="user.phone" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              </label>
+              <input v-model="user.phone" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
               <label class="flex items-center gap-2 text-xs text-gray-300">
                 <input v-model="user.phoneVerified" type="checkbox" class="w-4 h-4 rounded" />
                 手机已验证
               </label>
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">邮箱</span>
-                <input v-model="user.email" type="email" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              </label>
+            </div>
+          </template>
+          <template #cell-email="{ row: user }">
+            <div class="space-y-2">
+              <input v-model="user.email" type="email" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
               <label class="flex items-center gap-2 text-xs text-gray-300">
                 <input v-model="user.emailVerified" type="checkbox" class="w-4 h-4 rounded" />
                 邮箱已验证
@@ -1202,33 +1691,32 @@
             </div>
           </template>
           <template #cell-role="{ row: user }">
-            <select v-model="user.role" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
-              <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-              <option value="USER_ADMIN">USER_ADMIN</option>
-            </select>
+            <div>
+              <select v-model="user.role" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+                <option value="SUPER_ADMIN">超级管理员</option>
+                <option value="USER_ADMIN">普通管理员</option>
+              </select>
+            </div>
           </template>
           <template #cell-status="{ row: user }">
-            <select v-model="user.status" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="PENDING">PENDING</option>
-              <option value="DISABLED">DISABLED</option>
-              <option value="LOCKED">LOCKED</option>
-            </select>
+            <div>
+              <select v-model="user.status" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+                <option value="ACTIVE">正常</option>
+                <option value="PENDING">待激活</option>
+                <option value="DISABLED">已禁用</option>
+                <option value="LOCKED">已锁定</option>
+              </select>
+            </div>
           </template>
           <template #cell-quota="{ row: user }">
             <div class="space-y-2">
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">基础配额（GB）</span>
+              <label class="block">
                 <input v-model.number="user.storageQuotaGb" type="number" min="0" step="0.5" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
               </label>
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">VIP 额外配额（GB）</span>
-                <input v-model.number="user.vipExtraQuotaGb" type="number" min="0" step="0.5" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              </label>
-              <div class="text-xs text-gray-400">总配额 {{ formatQuotaGb(user.effectiveStorageQuotaBytes) }}</div>
+              <div class="text-xs text-gray-400">当前：{{ formatQuotaGb(user.storageQuotaBytes) }}</div>
             </div>
           </template>
-          <template #cell-vip="{ row: user }">
+          <template #cell-vipPlan="{ row: user }">
             <div class="space-y-2">
               <select v-model="user.currentVipPlanId" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
                 <option :value="null">未开通套餐</option>
@@ -1236,7 +1724,10 @@
                   {{ plan.name }} · +{{ formatQuotaGb(plan.extraQuotaBytes) }}
                 </option>
               </select>
-              <input v-model="user.vipExpireAt" type="datetime-local" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <div class="grid grid-cols-[minmax(0,112px),1fr] gap-2">
+                <input v-model.number="user.vipExtraQuotaGb" type="number" min="0" step="0.5" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <input v-model="user.vipExpireAt" type="datetime-local" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              </div>
             </div>
           </template>
           <template #cell-storage="{ row: user }">
@@ -1258,7 +1749,8 @@
           <template #cell-usage="{ row: user }">
             <div class="space-y-1 text-xs text-gray-300">
               <div>已用 {{ formatBytes(user.storageUsedBytes) }}</div>
-              <div>剩余 {{ formatBytes(user.remainingStorageBytes) }}</div>
+              <div>剩余 {{ formatRemainingStorage(user.remainingStorageBytes, user.effectiveStorageQuotaBytes) }}</div>
+              <div>总配额 {{ formatQuotaGb(user.effectiveStorageQuotaBytes) }}</div>
               <div v-if="user.currentVipPlanName">套餐 {{ user.currentVipPlanName }}</div>
             </div>
           </template>
@@ -1275,22 +1767,26 @@
             </div>
           </template>
           <template #cell-actions="{ row: user }">
-            <div class="space-y-2">
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">新密码</span>
-                <input v-model="user.pendingPassword" type="password" autocomplete="new-password" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              </label>
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">确认新密码</span>
-                <input v-model="user.pendingPasswordConfirm" type="password" autocomplete="new-password" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              </label>
+            <div class="relative">
               <button
-                class="w-full px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
-                :disabled="savingUserId === user.id"
-                @click="saveUser(user)"
+                type="button"
+                class="rounded-lg border border-white/10 bg-gray-900/70 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800"
+                @click="toggleUserActionMenu(user.id)"
               >
-                {{ savingUserId === user.id ? '保存中...' : '保存' }}
+                更多
               </button>
+              <div
+                v-if="openUserActionMenuId === user.id"
+                class="absolute right-0 top-full z-20 mt-2 w-40 rounded-xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
+              >
+                <button
+                  type="button"
+                  class="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5"
+                  @click="promptResetUserPassword(user)"
+                >
+                  重置密码
+                </button>
+              </div>
             </div>
           </template>
         </ConfigurableTable>
@@ -2290,234 +2786,640 @@
       </section>
 
       <section v-if="activeTab === 'storage'" class="glass-panel p-6 space-y-5">
-        <div>
-          <h2 class="text-lg font-light">存储提供者</h2>
-          <p class="text-xs text-gray-400">LOCAL / FTP / WebDAV / COS 以及 S3 兼容家族已可作为上传存储；当前文件浏览器仅展示已接通浏览能力的存储。</p>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-light">存储提供者</h2>
+            <p class="text-xs text-gray-400">LOCAL / FTP / WebDAV / COS 以及 S3 兼容家族已可作为上传存储；当前文件浏览器仅展示已接通浏览能力的存储。</p>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-sm"
+            @click="showCreateStorageModal = true"
+          >
+            新建存储
+          </button>
         </div>
 
-        <div class="rounded-2xl border border-dashed border-white/15 p-5 space-y-4">
-          <div class="text-sm text-gray-200">新增存储提供者</div>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">存储名称</span>
-              <input v-model="newProvider.name" type="text" placeholder="例如 cos-main" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
-            </label>
-            <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">存储类型</span>
-              <select v-model="newProvider.type" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" @change="handleNewProviderTypeChange">
-                <option v-for="option in storageTypeOptions" :key="option.value" :value="option.value">
-                  {{ option.value }}{{ option.label ? ` · ${option.label}` : '' }}
-                </option>
-              </select>
-            </label>
-            <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">优先级</span>
-              <input v-model.number="newProvider.priority" type="number" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
-              <span class="text-[11px] text-gray-500">数值越小越优先，默认上传存储建议设为最高优先级。</span>
-            </label>
-            <label class="flex items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-sm">
-              <input v-model="newProvider.enabled" type="checkbox" class="w-4 h-4 rounded" />
-              启用
-            </label>
-            <label class="flex items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-sm">
-              <input v-model="newProvider.isDefault" type="checkbox" class="w-4 h-4 rounded" />
-              设为默认
-            </label>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            <label
-              v-for="field in getVisibleStorageFields(newProvider.type)"
-              :key="`new-${field.key}`"
-              class="block space-y-1 rounded-xl border border-white/10 bg-gray-950/30 p-3"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-[11px] text-gray-300">{{ field.label }}</span>
-                <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">{{ field.shortHint }}</span>
+        <div class="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+          <div class="grid grid-cols-1 xl:grid-cols-[240px,1fr] gap-4 items-start">
+            <div class="space-y-1">
+              <div class="text-sm text-white">系统默认上传存储</div>
+              <div class="text-xs text-gray-400">这是全局设置，决定未单独指定时默认使用哪个存储。</div>
+            </div>
+            <div class="space-y-3 border-t border-white/10 pt-3 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0">
+              <div class="text-sm text-gray-200">
+                当前默认：
+                <span class="text-white">{{ storageProviders.find(item => item.isDefault)?.name || '未设置' }}</span>
               </div>
-              <input
-                v-model="(newProvider as any)[field.key]"
-                type="text"
-                :placeholder="field.placeholder"
-                class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full"
-              />
-              <span class="text-[11px] text-gray-500">{{ field.description }}</span>
-            </label>
+              <div class="text-xs text-gray-400">下方列表用于维护“存储提供者资源”本身；修改默认归属时，只会保留一个默认项。</div>
+              <button
+                type="button"
+                class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
+                @click="changeActiveTab('global')"
+              >
+                前往全局设置查看默认上传存储
+              </button>
+            </div>
           </div>
-          <div
-            v-if="!getVisibleStorageFields(newProvider.type).length"
-            class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-400"
+        </div>
+
+        <div v-if="loading" class="text-sm text-gray-400">正在加载存储配置...</div>
+        <div v-else class="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
+          <article
+            v-for="provider in storageProviders"
+            :key="provider.id"
+            class="rounded-3xl border border-white/10 bg-black/20 p-5 space-y-5 shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
           >
-            当前类型没有额外位置参数，只需填写名称、类型和扩展配置即可。
-          </div>
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-xs text-gray-300 space-y-2">
-              <div class="text-sm text-white">配置建议</div>
-              <div>当前类型：{{ storageTypeLabel(newProvider.type) }}</div>
-              <div>{{ storagePreset.hint }}</div>
-              <div v-if="shouldShowStorageField(newProvider.type, 'endpoint')">推荐{{ getStorageFieldLabel(newProvider.type, 'endpoint') }}：{{ storagePreset.endpoint || '—' }}</div>
-              <div v-if="shouldShowStorageField(newProvider.type, 'bucketName')">推荐{{ getStorageFieldLabel(newProvider.type, 'bucketName') }}：{{ storagePreset.bucketName || '—' }}</div>
-              <div v-if="shouldShowStorageField(newProvider.type, 'baseDirectory')">推荐{{ getStorageFieldLabel(newProvider.type, 'baseDirectory') }}：{{ storagePreset.baseDirectory || '—' }}</div>
-              <div v-if="newProviderAssessment.missingLabels.length" class="text-amber-200">
-                缺失字段：{{ newProviderAssessment.missingLabels.join('、') }}
+            <div class="flex items-start justify-between gap-4">
+              <div class="space-y-2 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-lg text-white truncate">{{ provider.name }}</span>
+                  <span class="chip text-xs text-sky-200">{{ storageTypeLabel(provider.type) }}</span>
+                  <span v-if="provider.isDefault" class="chip text-xs text-emerald-200">默认</span>
+                  <span v-if="isProviderDirty(provider)" class="chip text-xs text-amber-200">未保存</span>
+                </div>
+                <div class="text-xs text-gray-500">创建于 {{ formatDate(provider.createdAt) }} · 最近更新 {{ formatDate(provider.updatedAt) }}</div>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+                :disabled="savingProviderId === provider.id"
+                @click="saveProvider(provider)"
+              >
+                {{ savingProviderId === provider.id ? '保存中...' : '保存' }}
+              </button>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2 text-[10px]">
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">浏览器</div>
+                <div :class="provider.browserSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.browserSupported) }}</div>
+              </div>
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">上传</div>
+                <div :class="provider.uploadSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.uploadSupported) }}</div>
+              </div>
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">扫描</div>
+                <div :class="provider.scanSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.scanSupported) }}</div>
+              </div>
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">预览</div>
+                <div :class="provider.previewSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.previewSupported) }}</div>
               </div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-xs text-gray-300 space-y-2">
+
+            <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 space-y-2 text-xs">
               <div class="flex items-center justify-between gap-3">
-                <div class="text-sm text-white">示例配置 JSON</div>
+                <div class="text-sm text-white">状态说明</div>
                 <button
                   type="button"
                   class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
-                  @click="applyStoragePreset"
+                  @click="applyProviderPreset(provider)"
                 >
-                  应用推荐值
+                  套用推荐
                 </button>
               </div>
-              <pre class="rounded-lg border border-white/10 bg-gray-950/70 p-3 overflow-auto">{{ storagePreset.configJson }}</pre>
+              <div class="text-gray-300">解析根目录：{{ provider.resolvedBaseDirectory || '—' }}</div>
+              <div class="text-gray-300">{{ providerStatusSummary(provider) }}</div>
+              <div v-if="getProviderAssessment(provider).missingLabels.length" class="text-amber-200">
+                缺失字段：{{ getProviderAssessment(provider).missingLabels.join('、') }}
+              </div>
+              <div v-if="getProviderAssessment(provider).configMissingLabels.length" class="text-amber-200">
+                配置缺失：{{ getProviderAssessment(provider).configMissingLabels.join('、') }}
+              </div>
+              <div v-if="getProviderAssessment(provider).configError" class="text-rose-300">
+                JSON 错误：{{ getProviderAssessment(provider).configError }}
+              </div>
+              <div class="text-gray-500">{{ getStoragePreset(provider.type).hint }}</div>
             </div>
-          </div>
-          <label class="block space-y-1">
-            <span class="text-[11px] text-gray-400">扩展配置 JSON</span>
-            <textarea
-              v-model="newProvider.configJson"
-              rows="3"
-              placeholder="例如密钥、路径映射、认证参数等"
-              class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg"
-            />
-          </label>
-          <div class="flex justify-end">
-            <button
-              class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
-              :disabled="savingProviderId === 0"
-              @click="createProvider"
-            >
-              {{ savingProviderId === 0 ? '创建中...' : '新增存储提供者' }}
-            </button>
-          </div>
-        </div>
 
-        <ConfigurableTable
-          :columns="storageTableColumns"
-          :rows="storageProviders"
-          :preferences="getTablePreference('storage')"
-          :loading="loading"
-          loading-text="正在加载存储配置..."
-          empty-text="暂无存储提供者。"
-          @update:preferences="updateTablePreference('storage', $event)"
-        >
-          <template #cell-name="{ row: provider }">
-            <div class="space-y-2">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label class="block space-y-1">
                 <span class="text-[11px] text-gray-400">存储名称</span>
                 <input v-model="provider.name" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
               </label>
-              <div class="text-xs text-gray-500">创建于 {{ formatDate(provider.createdAt) }}</div>
+              <label class="block space-y-1">
+                <span class="text-[11px] text-gray-400">存储类型</span>
+                <select v-model="provider.type" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" @change="handleProviderTypeChange(provider)">
+                  <option v-for="option in storageTypeOptions" :key="option.value" :value="option.value">
+                    {{ option.value }}{{ option.label ? ` · ${option.label}` : '' }}
+                  </option>
+                </select>
+              </label>
+              <label class="block space-y-1">
+                <span class="text-[11px] text-gray-400">优先级</span>
+                <input v-model.number="provider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] text-gray-500">数值越小越优先。</span>
+              </label>
+              <div class="flex flex-col gap-2 self-start">
+                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                  <input v-model="provider.enabled" type="checkbox" class="w-4 h-4 rounded" />
+                  启用
+                </label>
+                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                  <input v-model="provider.isDefault" type="checkbox" class="w-4 h-4 rounded" @change="handleProviderDefaultChange(provider)" />
+                  默认
+                </label>
+              </div>
             </div>
-          </template>
-          <template #cell-type="{ row: provider }">
-            <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">存储类型</span>
-              <select v-model="provider.type" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" @change="handleProviderTypeChange(provider)">
-                <option v-for="option in storageTypeOptions" :key="option.value" :value="option.value">
-                  {{ option.value }}{{ option.label ? ` · ${option.label}` : '' }}
-                </option>
-              </select>
-            </label>
-          </template>
-          <template #cell-priority="{ row: provider }">
-            <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">优先级</span>
-              <input v-model.number="provider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              <span class="text-[11px] text-gray-500">数值越小越优先。</span>
-            </label>
-          </template>
-          <template #cell-capability="{ row: provider }">
-            <div class="flex flex-wrap gap-2 text-[11px]">
-              <span class="chip" :class="provider.browserSupported ? 'text-emerald-200' : 'text-gray-400'">浏览器：{{ provider.browserSupported ? '可用' : '未接通' }}</span>
-              <span class="chip" :class="provider.uploadSupported ? 'text-emerald-200' : 'text-gray-400'">上传：{{ provider.uploadSupported ? '可用' : '未接通' }}</span>
-              <span class="chip" :class="provider.scanSupported ? 'text-emerald-200' : 'text-gray-400'">扫描：{{ provider.scanSupported ? '可用' : '未接通' }}</span>
-              <span class="chip" :class="provider.previewSupported ? 'text-emerald-200' : 'text-gray-400'">预览：{{ provider.previewSupported ? '可用' : '未接通' }}</span>
-            </div>
-          </template>
-          <template #cell-location="{ row: provider }">
-            <div class="space-y-2">
+
+            <div class="grid grid-cols-1 gap-3">
               <label
                 v-for="field in getVisibleStorageFields(provider.type)"
                 :key="`${provider.id}-${field.key}`"
-                class="block space-y-1 rounded-xl border border-white/10 bg-gray-950/30 p-3"
+                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
               >
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                    <a
+                      v-if="getStorageFieldDocLink(provider.type, field.key)"
+                      :href="getStorageFieldDocLink(provider.type, field.key)?.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-[10px] text-sky-300 hover:text-sky-200"
+                      :title="`打开${getStorageFieldDocLink(provider.type, field.key)?.label || '文档'}`"
+                    >
+                      ↗
+                    </a>
+                  </div>
                   <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">{{ field.shortHint }}</span>
                 </div>
                 <input
                   v-model="(provider as any)[field.key]"
                   type="text"
                   :placeholder="field.placeholder"
-                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs"
+                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
                 />
                 <span class="text-[11px] text-gray-500">{{ field.description }}</span>
               </label>
-              <div
-                v-if="!getVisibleStorageFields(provider.type).length"
-                class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-gray-400"
+            </div>
+
+            <div v-if="getVisibleStorageConfigFields(provider.type).length" class="grid grid-cols-1 gap-3">
+              <label
+                v-for="field in getVisibleStorageConfigFields(provider.type)"
+                :key="`${provider.id}-${field.key}`"
+                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
               >
-                当前类型没有额外位置字段。
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                    <a
+                      v-if="field.docUrl"
+                      :href="field.docUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-[10px] text-sky-300 hover:text-sky-200"
+                      :title="`打开${field.docLabel || field.label}说明`"
+                    >
+                      ↗
+                    </a>
+                  </div>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">配置</span>
+                </div>
+                <input
+                  v-model="(provider as any)[field.modelKey]"
+                  :type="field.secret ? 'password' : 'text'"
+                  :placeholder="field.placeholder"
+                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                />
+                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
+              </label>
+            </div>
+
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">扩展配置 JSON（高级可选项）</span>
+              <textarea v-model="provider.configJson" rows="8" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-2xl text-xs font-mono" />
+            </label>
+          </article>
+        </div>
+      </section>
+
+      <div
+        v-if="showSmsTestModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="closeSmsTestModal"
+      >
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="admin-modal-card relative w-full max-w-lg overflow-hidden">
+          <div class="border-b border-white/10 px-6 py-5">
+            <div class="flex items-start justify-between gap-4">
+              <div class="space-y-2">
+                <div class="text-lg text-white">发送测试验证码</div>
+                <div class="text-xs text-gray-400">请输入要接收测试验证码的手机号码。</div>
               </div>
-              <div class="text-[11px] text-gray-400 space-y-1">
-                <div v-if="shouldShowStorageField(provider.type, 'endpoint')">推荐{{ getStorageFieldLabel(provider.type, 'endpoint') }}：{{ getStoragePreset(provider.type).endpoint || '—' }}</div>
-                <div v-if="shouldShowStorageField(provider.type, 'bucketName')">推荐{{ getStorageFieldLabel(provider.type, 'bucketName') }}：{{ getStoragePreset(provider.type).bucketName || '—' }}</div>
-                <div v-if="shouldShowStorageField(provider.type, 'baseDirectory')">推荐{{ getStorageFieldLabel(provider.type, 'baseDirectory') }}：{{ getStoragePreset(provider.type).baseDirectory || '—' }}</div>
+              <button
+                type="button"
+                class="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/5"
+                @click="closeSmsTestModal"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-4 px-6 py-6">
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">测试手机号</span>
+              <input
+                v-model.trim="smsTestPhone"
+                type="text"
+                inputmode="numeric"
+                placeholder="13800138000"
+                class="w-full rounded-xl border border-white/10 bg-gray-900/70 px-4 py-3"
+                @keydown.enter.prevent="sendTestSms"
+              />
+            </label>
+          </div>
+
+          <div class="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+            <button
+              type="button"
+              class="rounded-xl border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5"
+              @click="closeSmsTestModal"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="rounded-xl bg-sky-600 px-4 py-2 text-sm text-white hover:bg-sky-500 disabled:opacity-60"
+              :disabled="sendingTestSms"
+              @click="sendTestSms"
+            >
+              {{ sendingTestSms ? '发送中...' : '确认发送' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="showResetPasswordModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="closeResetPasswordModal"
+      >
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="admin-modal-card relative w-full max-w-xl overflow-hidden">
+          <div class="border-b border-white/10 px-6 py-5">
+            <div class="flex items-start justify-between gap-4">
+              <div class="space-y-2">
+                <div class="text-lg text-white">重置用户密码</div>
+                <div class="text-xs text-gray-400">
+                  将为
+                  <span class="text-sky-300">{{ resetPasswordTargetUser?.nickname || resetPasswordTargetUser?.username || '目标用户' }}</span>
+                  设置新的登录密码。此操作会立即生效。
+                </div>
+              </div>
+              <button
+                type="button"
+                class="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/5"
+                @click="closeResetPasswordModal"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-4 px-6 py-6">
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">新密码</span>
+              <input
+                v-model="resetPasswordDraft.password"
+                type="password"
+                autocomplete="new-password"
+                class="w-full rounded-xl border border-white/10 bg-gray-900/70 px-4 py-3"
+                placeholder="至少 6 位"
+              />
+            </label>
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">确认新密码</span>
+              <input
+                v-model="resetPasswordDraft.confirmPassword"
+                type="password"
+                autocomplete="new-password"
+                class="w-full rounded-xl border border-white/10 bg-gray-900/70 px-4 py-3"
+                placeholder="再次输入密码"
+              />
+            </label>
+            <div class="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs leading-6 text-amber-100">
+              建议只在人工确认身份后重置密码。保存用户资料与重置密码已拆成两个动作，避免误操作时把敏感修改一起提交。
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+            <button
+              type="button"
+              class="rounded-xl border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5"
+              @click="closeResetPasswordModal"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="rounded-xl bg-purple-600 px-4 py-2 text-sm text-white hover:bg-purple-500 disabled:opacity-60"
+              :disabled="resettingUserPassword"
+              @click="submitResetUserPassword"
+            >
+              {{ resettingUserPassword ? '提交中...' : '确认重置密码' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="showCreateStorageModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="showCreateStorageModal = false"
+      >
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-5xl max-h-[88vh] overflow-auto rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
+          <div class="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/10 bg-slate-950/95 px-6 py-5 backdrop-blur">
+            <div class="space-y-2 min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-lg text-white">新建存储</span>
+                <span class="chip text-xs text-sky-200">{{ storageTypeLabel(newProvider.type) }}</span>
+              </div>
+              <div class="text-xs text-gray-400">常用必填项直接在表单中填写；`configJson` 仅保留给高级扩展参数。</div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                class="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm border border-white/10"
+                @click="showCreateStorageModal = false"
+              >
+                取消
+              </button>
+              <button
+                class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+                :disabled="savingProviderId === 0"
+                @click="createProvider"
+              >
+                {{ savingProviderId === 0 ? '创建中...' : '创建' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="p-6 space-y-5">
+            <div class="grid grid-cols-4 gap-2 text-[10px]">
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">浏览器</div>
+                <div class="text-amber-200">创建后检测</div>
+              </div>
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">上传</div>
+                <div class="text-amber-200">创建后检测</div>
+              </div>
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">扫描</div>
+                <div class="text-amber-200">创建后检测</div>
+              </div>
+              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
+                <div class="text-gray-500">预览</div>
+                <div class="text-amber-200">创建后检测</div>
               </div>
             </div>
-          </template>
-          <template #cell-configJson="{ row: provider }">
-            <div class="space-y-2">
-              <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">扩展配置 JSON</span>
-                <textarea v-model="provider.configJson" rows="3" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              </label>
-              <div class="flex items-start justify-between gap-2 text-[11px]">
-                <div class="text-gray-400">
-                  {{ getStoragePreset(provider.type).hint }}
-                  <span v-if="getProviderAssessment(provider).missingLabels.length" class="text-amber-200">
-                    · 缺失：{{ getProviderAssessment(provider).missingLabels.join('、') }}
-                  </span>
-                </div>
+
+            <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 space-y-2 text-xs">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm text-white">状态说明</div>
                 <button
                   type="button"
-                  class="shrink-0 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 border border-white/10 text-gray-200"
-                  @click="applyProviderPreset(provider)"
+                  class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
+                  @click="applyStoragePreset"
                 >
                   套用推荐
                 </button>
               </div>
+              <div class="text-gray-300">当前类型：{{ storageTypeLabel(newProvider.type) }}</div>
+              <div class="text-gray-300">{{ newProviderStatusSummary }}</div>
+              <div class="text-gray-500">{{ storagePreset.hint }}</div>
+              <div v-if="newProviderAssessment.missingLabels.length" class="text-amber-200">
+                缺失字段：{{ newProviderAssessment.missingLabels.join('、') }}
+              </div>
+              <div v-if="newProviderAssessment.configMissingLabels.length" class="text-amber-200">
+                配置缺失：{{ newProviderAssessment.configMissingLabels.join('、') }}
+              </div>
+              <div v-if="newProviderAssessment.configError" class="text-rose-300">
+                JSON 错误：{{ newProviderAssessment.configError }}
+              </div>
             </div>
-          </template>
-          <template #cell-status="{ row: provider }">
-            <div class="space-y-2 text-xs text-gray-300">
-              <div>解析根目录：{{ provider.resolvedBaseDirectory || '—' }}</div>
-              <div>状态：{{ provider.supportMessage || '当前能力已接通' }}</div>
-              <label class="flex items-center gap-2">
-                <input v-model="provider.enabled" type="checkbox" class="w-4 h-4 rounded" />
-                启用
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="block space-y-1">
+                <span class="text-[11px] text-gray-400">存储名称</span>
+                <input v-model="newProvider.name" type="text" placeholder="例如 cos-main" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
               </label>
-              <label class="flex items-center gap-2">
-                <input v-model="provider.isDefault" type="checkbox" class="w-4 h-4 rounded" />
-                默认上传位置
+              <label class="block space-y-1">
+                <span class="text-[11px] text-gray-400">存储类型</span>
+                <select v-model="newProvider.type" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" @change="handleNewProviderTypeChange">
+                  <option v-for="option in storageTypeOptions" :key="option.value" :value="option.value">
+                    {{ option.value }}{{ option.label ? ` · ${option.label}` : '' }}
+                  </option>
+                </select>
+              </label>
+              <label class="block space-y-1">
+                <span class="text-[11px] text-gray-400">优先级</span>
+                <input v-model.number="newProvider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] text-gray-500">数值越小越优先。</span>
+              </label>
+              <div class="flex flex-col gap-2 self-start">
+                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                  <input v-model="newProvider.enabled" type="checkbox" class="w-4 h-4 rounded" />
+                  启用
+                </label>
+                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                  <input v-model="newProvider.isDefault" type="checkbox" class="w-4 h-4 rounded" @change="handleNewProviderDefaultChange" />
+                  默认
+                </label>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3">
+              <label
+                v-for="field in getVisibleStorageFields(newProvider.type)"
+                :key="`new-${field.key}`"
+                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                    <a
+                      v-if="getStorageFieldDocLink(newProvider.type, field.key)"
+                      :href="getStorageFieldDocLink(newProvider.type, field.key)?.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-[10px] text-sky-300 hover:text-sky-200"
+                      :title="`打开${getStorageFieldDocLink(newProvider.type, field.key)?.label || '文档'}`"
+                    >
+                      ↗
+                    </a>
+                  </div>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">{{ field.shortHint }}</span>
+                </div>
+                <input
+                  v-model="(newProvider as any)[field.key]"
+                  type="text"
+                  :placeholder="field.placeholder"
+                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                />
+                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
               </label>
             </div>
-          </template>
-          <template #cell-actions="{ row: provider }">
-            <button
-              class="w-full px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
-              :disabled="savingProviderId === provider.id"
-              @click="saveProvider(provider)"
-            >
-              {{ savingProviderId === provider.id ? '保存中...' : '保存' }}
-            </button>
-          </template>
-        </ConfigurableTable>
-      </section>
+
+            <div v-if="getVisibleStorageConfigFields(newProvider.type).length" class="grid grid-cols-1 gap-3">
+              <label
+                v-for="field in getVisibleStorageConfigFields(newProvider.type)"
+                :key="`new-${field.key}`"
+                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                    <a
+                      v-if="field.docUrl"
+                      :href="field.docUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-[10px] text-sky-300 hover:text-sky-200"
+                      :title="`打开${field.docLabel || field.label}说明`"
+                    >
+                      ↗
+                    </a>
+                  </div>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">配置</span>
+                </div>
+                <input
+                  v-model="(newProvider as any)[field.modelKey]"
+                  :type="field.secret ? 'password' : 'text'"
+                  :placeholder="field.placeholder"
+                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                />
+                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
+              </label>
+            </div>
+
+            <label class="block space-y-1">
+              <span class="text-[11px] text-gray-400">扩展配置 JSON（高级可选项）</span>
+              <textarea
+                v-model="newProvider.configJson"
+                rows="8"
+                placeholder="例如 CDN 域名、兼容参数、附加认证项等"
+                class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-2xl text-xs font-mono"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="showSuperScanTaskDetailModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="closeSuperScanTaskDetailModal"
+      >
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-5xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+            <div>
+              <h3 class="text-base font-medium text-white">
+                扫描任务详情
+                <span v-if="superSelectedTaskDetail" class="text-sky-300 ml-2">#{{ superSelectedTaskDetail.id }}</span>
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">查看恢复游标、检查点与任务执行结果。</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                @click="refreshSuperScanTaskDetail"
+                :disabled="loadingSuperScanTaskDetail || !superSelectedTaskDetail"
+                class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10 disabled:opacity-60"
+              >
+                {{ loadingSuperScanTaskDetail ? '刷新中…' : '刷新详情' }}
+              </button>
+              <button @click="closeSuperScanTaskDetailModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">✕</button>
+            </div>
+          </div>
+
+          <div class="overflow-auto flex-1 p-5" v-if="superSelectedTaskDetail">
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 text-sm">
+              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                <div class="text-slate-400 text-xs">基础信息</div>
+                <div class="text-white">{{ scanTaskTypeLabel(superSelectedTaskDetail.taskType) }} · {{ scanTaskStatusLabel(superSelectedTaskDetail.status) }}</div>
+                <div class="text-slate-300 break-all">根路径：{{ superSelectedTaskDetail.rootPathDisplay || superSelectedTaskDetail.rootPath || '—' }}</div>
+                <div class="text-slate-300">优先级：{{ superSelectedTaskDetail.priority ?? '—' }}</div>
+                <div class="text-slate-300">归属：{{ superSelectedTaskDetail.ownerLabel || '系统任务' }}</div>
+                <div class="text-slate-300">用户 ID：{{ superSelectedTaskDetail.userId ?? '全局' }}</div>
+                <div class="text-slate-300">请求者：{{ superSelectedTaskDetail.requestedByUserNickname || superSelectedTaskDetail.requestedByUsername || superSelectedTaskDetail.requestedByUserId || '系统' }}</div>
+                <div class="text-slate-300">存储：{{ superSelectedTaskDetail.storageProviderName || superSelectedTaskDetail.storageProviderId || '默认' }}<span v-if="superSelectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(superSelectedTaskDetail.storageProviderType) }}</span></div>
+              </div>
+              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                <div class="text-slate-400 text-xs">恢复状态</div>
+                <div class="text-slate-300 break-all">恢复游标：{{ superSelectedTaskDetail.resumeFromPathDisplay || superSelectedTaskDetail.resumeFromPath || '—' }}</div>
+                <div class="text-slate-300 break-all">最近断点：{{ superSelectedTaskDetail.lastProcessedPathDisplay || superSelectedTaskDetail.lastProcessedPath || '—' }}</div>
+                <div class="text-slate-300 break-all">检查点根路径：{{ superSelectedTaskDetail.checkpoint?.rootPathDisplay || superSelectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
+                <div class="text-slate-300">检查点更新时间：{{ formatDateTime(superSelectedTaskDetail.checkpointUpdatedAt || superSelectedTaskDetail.checkpoint?.updatedAt) }}</div>
+                <div v-if="superSelectedTaskDetail.errorMessage" class="text-rose-300 break-all">错误：{{ superSelectedTaskDetail.errorMessage }}</div>
+              </div>
+              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                <div class="text-slate-400 text-xs">进度统计</div>
+                <div class="text-white text-lg">{{ superSelectedTaskDetail.progressPercent || 0 }}%</div>
+                <div class="text-slate-300">已处理：{{ superSelectedTaskDetail.processedItems || 0 }} / {{ superSelectedTaskDetail.totalItems || 0 }}</div>
+                <div class="text-slate-300">跳过：{{ superSelectedTaskDetail.skippedItems || 0 }}</div>
+                <div class="text-slate-300">失败：{{ superSelectedTaskDetail.failedItems || 0 }}</div>
+                <div class="text-slate-500 text-xs">创建：{{ formatDateTime(superSelectedTaskDetail.createdAt) }}</div>
+                <div class="text-slate-500 text-xs">开始：{{ formatDateTime(superSelectedTaskDetail.startedAt) }}</div>
+                <div class="text-slate-500 text-xs">完成：{{ formatDateTime(superSelectedTaskDetail.finishedAt) }}</div>
+              </div>
+            </div>
+            <div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+              <div class="text-slate-400 text-xs mb-3">检查点快照</div>
+              <pre class="text-xs text-slate-200 whitespace-pre-wrap break-words">{{ JSON.stringify(superSelectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
+            </div>
+          </div>
+          <div v-else class="flex-1 flex items-center justify-center text-slate-400 text-sm">
+            {{ loadingSuperScanTaskDetail ? '加载任务详情…' : '暂无任务详情' }}
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="showSuperAdminSkippedModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @click.self="closeSuperAdminSkippedModal"
+      >
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-5xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+            <div>
+              <h3 class="text-base font-medium text-white">扫描失败原因（全用户）</h3>
+              <p class="text-xs text-slate-400 mt-0.5">仅超级管理员可查看全部用户的扫描异常与失败原因。</p>
+            </div>
+            <button @click="closeSuperAdminSkippedModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">✕</button>
+          </div>
+          <div class="overflow-auto flex-1">
+            <div v-if="loadingSuperAdminSkipped" class="flex items-center justify-center py-16 text-slate-400 text-sm">加载中…</div>
+            <div v-else-if="!superAdminSkippedFiles.length" class="flex items-center justify-center py-16 text-slate-400 text-sm">暂无扫描异常记录</div>
+            <table v-else class="w-full text-xs text-slate-200 border-collapse">
+              <thead class="sticky top-0 bg-slate-800 text-slate-400 uppercase tracking-wide">
+                <tr>
+                  <th class="px-4 py-2.5 text-left w-12">#</th>
+                  <th class="px-4 py-2.5 text-left">相对路径</th>
+                  <th class="px-4 py-2.5 text-left w-24">用户</th>
+                  <th class="px-4 py-2.5 text-left w-28">原因</th>
+                  <th class="px-4 py-2.5 text-right w-24">文件大小</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in superAdminSkippedFiles" :key="`${item.index}-${item.recordedAt || ''}`" class="border-t border-slate-800 hover:bg-slate-800/50 transition-colors">
+                  <td class="px-4 py-2 text-slate-500">{{ item.index }}</td>
+                  <td class="px-4 py-2 font-mono text-slate-300 break-all">{{ item.relativePath }}</td>
+                  <td class="px-4 py-2 text-slate-300">{{ item.userId != null ? `用户#${item.userId}` : '—' }}</td>
+                  <td class="px-4 py-2"><span class="cursor-help border-b border-dashed border-amber-400/50 text-amber-300" :title="item.detail">{{ item.reason }}</span></td>
+                  <td class="px-4 py-2 text-right text-slate-400">{{ formatBytes(item.fileSizeBytes || 0) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -2538,7 +3440,10 @@ import {
   type ModelRebuildTask,
   type OperationLogSummary,
   type PageResponse,
+  type ProcessingOverviewTaskSummary,
   type SuperAdminTablePreferences,
+  type SuperAdminProcessingOverview,
+  api,
   superAdminApi,
   type StorageProviderSummary,
   type SuperAdminOverview,
@@ -2560,19 +3465,22 @@ const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-type SuperAdminTabKey = 'overview' | 'models' | 'global' | 'integrations' | 'users' | 'logins' | 'operations' | 'vip' | 'vipOrders' | 'storage'
+type SuperAdminTabKey = 'overview' | 'scan' | 'models' | 'global' | 'notifications' | 'payment' | 'tools' | 'users' | 'logins' | 'operations' | 'vip' | 'vipOrders' | 'storage'
 
 const loading = ref(false)
 const savingSettings = ref(false)
 const savingUserId = ref<number | null>(null)
+const savingAllUsers = ref(false)
 const savingProviderId = ref<number | null>(null)
 const savingVipPlanId = ref<number | null>(null)
 const savingVipOrderId = ref<number | null>(null)
 const runningMigration = ref(false)
+const sendingTestSms = ref(false)
 const sendingTestEmail = ref(false)
 const sendingCustomEmail = ref(false)
 const previewingEmailTemplate = ref(false)
 const sendingTemplateEmail = ref(false)
+const loadingProcessingOverview = ref(false)
 const loadingModels = ref(false)
 const downloadingModelKey = ref<string | null>(null)
 const reloadingModelKey = ref<string | null>(null)
@@ -2586,25 +3494,32 @@ const usersPage = reactive({ page: 0, size: 8, totalElements: 0, totalPages: 0, 
 const loginRecordsPage = reactive({ page: 0, size: 20, totalElements: 0, totalPages: 0, first: true, last: true })
 const operationLogsPage = reactive({ page: 0, size: 20, totalElements: 0, totalPages: 0, first: true, last: true })
 const selectedOperationLogUserId = ref<number | null>(null)
+const openUserActionMenuId = ref<number | null>(null)
 const tablePreferences = ref<SuperAdminTablePreferences>({})
+const userDraftSnapshots = ref<Record<number, string>>({})
 let tablePreferenceSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const superAdminTabs = [
   { key: 'overview', label: '概览' },
+  { key: 'scan', label: '扫描管理' },
+  { key: 'storage', label: '存储配置' },
   { key: 'models', label: '模型管理' },
-  { key: 'global', label: '全局设置' },
-  { key: 'integrations', label: '短信 / 邮件 / 迁移' },
   { key: 'users', label: '用户管理' },
-  { key: 'logins', label: '登录记录' },
-  { key: 'operations', label: '操作记录' },
+  { key: 'notifications', label: '短信 / 邮件' },
+  { key: 'payment', label: '支付' },
   { key: 'vip', label: 'VIP 套餐' },
   { key: 'vipOrders', label: 'VIP 订单' },
-  { key: 'storage', label: '存储配置' }
+  { key: 'tools', label: '工具' },
+  { key: 'operations', label: '操作记录' },
+  { key: 'logins', label: '登录记录' },
+  { key: 'global', label: '全局设置' }
 ] as const
 
 const validSuperAdminTabs = new Set<SuperAdminTabKey>(superAdminTabs.map(tab => tab.key))
 const activeTab = computed<SuperAdminTabKey>(() => {
-  const currentTab = typeof route.query.tab === 'string' ? route.query.tab : 'overview'
+  const currentTab = typeof route.query.tab === 'string'
+    ? (route.query.tab === 'migration' ? 'tools' : route.query.tab)
+    : 'overview'
   return validSuperAdminTabs.has(currentTab as SuperAdminTabKey) ? currentTab as SuperAdminTabKey : 'overview'
 })
 
@@ -2617,6 +3532,8 @@ const changeActiveTab = (tab: SuperAdminTabKey) => {
     }
   })
 }
+
+const loadedSuperAdminTabs = new Set<SuperAdminTabKey>()
 
 const overview = reactive<SuperAdminOverview>({
   userCount: 0,
@@ -2708,6 +3625,8 @@ const settings = reactive<SuperAdminSettings>({
   userDataRoot: '',
   defaultStorageProviderId: null
 })
+const SMS_TEST_PHONE_STORAGE_KEY = 'pe-super-admin-sms-test-phone'
+const smsTestPhone = ref(localStorage.getItem(SMS_TEST_PHONE_STORAGE_KEY) || '')
 
 const customEmail = reactive({
   recipient: '',
@@ -2725,7 +3644,56 @@ const users = ref<UserAccountSummary[]>([])
 const loginRecords = ref<LoginRecordSummary[]>([])
 const operationLogs = ref<OperationLogSummary[]>([])
 const managedModels = ref<ManagedModelSummary[]>([])
+const processingOverview = ref<SuperAdminProcessingOverview>({
+  workerCount: 0,
+  activeWorkerGroupCount: 0,
+  nonBlockingNote: '',
+  workers: []
+})
+const loadingSuperScan = ref(false)
+const superTriggeringScan = ref(false)
+const superScanProviderOptions = ref<Array<{ id: number; name: string; type: string; scanSupported?: boolean; supportMessage?: string | null }>>([])
+const superSelectedScanProviderId = ref<number | null>(null)
+const superScanning = ref(false)
+const superQueueCount = ref(0)
+const superQueuedOwnerCount = ref(0)
+const superQueuedOwnerSummaries = ref<any[]>([])
+const superPausedTaskCount = ref(0)
+const superRunningTaskCount = ref(0)
+const superQueuedImageCount = ref(0)
+const superRunningImageCount = ref(0)
+const superRunningTasks = ref<any[]>([])
+const superCurrentScanTask = ref<any | null>(null)
+const superScanTasks = ref<any[]>([])
+const superScanProgress = ref({ current: 0, total: 0 })
+const superScanSummary = ref({ total: 0, scanned: 0, failed: 0, waiting: 0 })
+const superScanLastTime = ref<string | null>(null)
+const superScanPageLoadingInFlight = ref(false)
+const showSuperScanTaskDetailModal = ref(false)
+const loadingSuperScanTaskDetail = ref(false)
+const superSelectedTaskDetail = ref<any | null>(null)
+const showSuperAdminSkippedModal = ref(false)
+const loadingSuperAdminSkipped = ref(false)
+const showSmsTestModal = ref(false)
+const showResetPasswordModal = ref(false)
+const resettingUserPassword = ref(false)
+const resetPasswordTargetUser = ref<UserAccountSummary | null>(null)
+const resetPasswordDraft = reactive({
+  password: '',
+  confirmPassword: ''
+})
+const superAdminSkippedFiles = ref<Array<{
+  index: number
+  userId?: number | null
+  relativePath: string
+  reason: string
+  detail: string
+  fileSizeBytes: number
+  recordedAt?: string | null
+}>>([])
 const storageProviders = ref<StorageProviderSummary[]>([])
+const showCreateStorageModal = ref(false)
+const originalStorageProviderPayloads = ref<Record<number, string>>({})
 const vipPlans = ref<VipPlanSummary[]>([])
 const vipOrders = ref<VipOrderSummary[]>([])
 const focusedVipOrder = ref<VipOrderSummary | null>(null)
@@ -2738,6 +3706,8 @@ const modelDownloadUrls = reactive<Record<string, string>>({})
 const modelRebuildOptions = reactive<Record<string, { includeMissingItems: boolean; forceRebuild: boolean }>>({})
 const modelTaskDetails = reactive<Record<string, ModelRebuildTask | null>>({})
 let modelTaskPollTimer: ReturnType<typeof setInterval> | null = null
+let processingOverviewPollTimer: ReturnType<typeof setInterval> | null = null
+let superScanPollTimer: ReturnType<typeof setInterval> | null = null
 const previewingVipOrderId = ref<number | null>(null)
 const initiatingVipOrderId = ref<number | null>(null)
 const mockingVipOrderId = ref<number | null>(null)
@@ -2843,7 +3813,7 @@ const storageTypePresets = {
   LOCAL: { endpoint: '', bucketName: '', baseDirectory: 'data/photos', hint: '本地存储推荐填写服务器本地目录，多用户模式下会自动追加用户目录。', configJson: JSON.stringify({ createIfMissing: true }, null, 2) },
   FTP: { endpoint: 'ftp://127.0.0.1:21', bucketName: '', baseDirectory: '/photos', hint: 'FTP 已接通上传/浏览/预览与基础扫描，建议在配置 JSON 中填写账号密码。', configJson: JSON.stringify({ username: 'ftp-user', password: 'ftp-password', passiveMode: true }, null, 2) },
   WEBDAV: { endpoint: 'https://dav.example.com/remote.php/dav/files/admin', bucketName: '', baseDirectory: '/albums', hint: 'WebDAV 已接通上传/浏览/预览与基础扫描，建议限制根目录并使用独立账号。', configJson: JSON.stringify({ username: 'dav-user', password: 'dav-password' }, null, 2) },
-  COS: { endpoint: 'https://cos.ap-guangzhou.myqcloud.com', bucketName: 'photo-bucket-1250000000', baseDirectory: 'albums', hint: 'COS 已接通上传/浏览/预览与基础扫描，推荐配置 region、secretId、secretKey。', configJson: JSON.stringify({ region: 'ap-guangzhou', secretId: 'COS_SECRET_ID', secretKey: 'COS_SECRET_KEY' }, null, 2) },
+  COS: { endpoint: 'https://cos.ap-guangzhou.myqcloud.com', bucketName: 'photo-bucket-1250000000', baseDirectory: 'albums', hint: 'COS 已接通上传/浏览/预览与基础扫描，推荐填写存储桶名称（BucketName-APPID）、所属地域、SecretId / SecretKey。', configJson: JSON.stringify({ region: 'ap-guangzhou', secretId: 'COS_SECRET_ID', secretKey: 'COS_SECRET_KEY' }, null, 2) },
   SFTP: { endpoint: 'sftp://127.0.0.1:22', bucketName: '', baseDirectory: '/mnt/photo-sftp', hint: 'SFTP 现支持“服务器已挂载目录”模式：先把远端目录通过 sshfs 等方式挂载到宿主机，再把这里填写为挂载目录。endpoint 可保留为来源备注。', configJson: JSON.stringify({ mountedMode: true, username: 'sftp-user', password: 'sftp-password' }, null, 2) },
   S3_COMPATIBLE: { endpoint: 'https://s3.example.com', bucketName: 'photo-bucket', baseDirectory: 'albums', hint: 'S3 兼容存储已接通上传、浏览、预览与扫描，推荐填写 region、accessKey、secretKey。', configJson: JSON.stringify({ region: 'us-east-1', accessKey: 'ACCESS_KEY', secretKey: 'SECRET_KEY' }, null, 2) },
   MINIO: { endpoint: 'https://minio.example.com', bucketName: 'photo-bucket', baseDirectory: 'albums', hint: 'MinIO 已接通上传、浏览、预览与扫描，可沿用 S3 兼容 accessKey / secretKey 配置。', configJson: JSON.stringify({ region: 'us-east-1', accessKey: 'MINIO_ACCESS_KEY', secretKey: 'MINIO_SECRET_KEY' }, null, 2) },
@@ -2865,6 +3835,83 @@ const storageTypePresets = {
   DROPBOX: { endpoint: 'https://api.dropboxapi.com', bucketName: '', baseDirectory: '/Photos', hint: 'Dropbox 已接通 OAuth Access Token 模式，使用 API + content API 完成上传、浏览、预览与管理。', configJson: JSON.stringify({ accessToken: 'DROPBOX_ACCESS_TOKEN', contentEndpoint: 'https://content.dropboxapi.com' }, null, 2) },
   ONEDRIVE: { endpoint: 'https://graph.microsoft.com/v1.0', bucketName: '', baseDirectory: '/Photos', hint: 'OneDrive 已接通 Microsoft Graph 模式，推荐直接填 accessToken；也支持 tenantId/clientId/clientSecret 拉取应用令牌。', configJson: JSON.stringify({ accessToken: 'ONEDRIVE_ACCESS_TOKEN', drivePrefix: '/me/drive', tenantId: 'TENANT_ID', clientId: 'CLIENT_ID', clientSecret: 'CLIENT_SECRET' }, null, 2) }
 } as const
+
+type StorageConfigFieldMeta = {
+  key: string
+  modelKey: string
+  label: string
+  placeholder: string
+  description: string
+  secret?: boolean
+  aliases?: string[]
+  docUrl?: string
+  docLabel?: string
+}
+
+const createStorageConfigField = (
+  key: string,
+  label: string,
+  placeholder: string,
+  description: string,
+  options?: { secret?: boolean; aliases?: string[]; docUrl?: string; docLabel?: string }
+): StorageConfigFieldMeta => ({
+  key,
+  modelKey: `__config_${key}`,
+  label,
+  placeholder,
+  description,
+  secret: options?.secret,
+  aliases: options?.aliases || [],
+  docUrl: options?.docUrl,
+  docLabel: options?.docLabel
+})
+
+const s3DirectConfigFields = [
+  createStorageConfigField('region', 'Region / 区域', '例如 ap-guangzhou / cn-hangzhou / auto', '对象存储签名区域。不同平台会影响请求签名与可用性。'),
+  createStorageConfigField('accessKey', 'AccessKey / AccessKeyId', '填写 AccessKey / AccessKeyId', '支持 accessKey、accessKeyId 等兼容写法。', { aliases: ['accessKeyId', 'ak'] }),
+  createStorageConfigField('secretKey', 'SecretKey / AccessKeySecret', '填写 SecretKey / AccessKeySecret', '支持 secretKey、accessKeySecret 等兼容写法。', { secret: true, aliases: ['accessKeySecret', 'sk'] })
+]
+
+const storageDirectConfigFieldsByType: Record<string, StorageConfigFieldMeta[]> = {
+  FTP: [
+    createStorageConfigField('username', '用户名', 'FTP 用户名', '用于 FTP 登录认证。', { aliases: ['user'] }),
+    createStorageConfigField('password', '密码', 'FTP 密码', '用于 FTP 登录认证。', { secret: true })
+  ],
+  WEBDAV: [
+    createStorageConfigField('username', '用户名', 'WebDAV 用户名', '用于 WebDAV 登录认证。', { aliases: ['user'] }),
+    createStorageConfigField('password', '密码', 'WebDAV 密码', '用于 WebDAV 登录认证。', { secret: true })
+  ],
+  COS: [
+    createStorageConfigField('region', '所属地域 / Region', '例如 ap-guangzhou', '腾讯云 COS 所在地域。', {
+      docUrl: 'https://cloud.tencent.com/document/product/436/6224',
+      docLabel: '地域'
+    }),
+    createStorageConfigField('secretId', 'SecretId / 密钥 ID', '填写腾讯云 SecretId', '腾讯云 API 密钥 ID。', {
+      aliases: ['accessKeyId'],
+      docUrl: 'https://console.cloud.tencent.com/cam/capi',
+      docLabel: '密钥'
+    }),
+    createStorageConfigField('secretKey', 'SecretKey / 密钥', '填写腾讯云 SecretKey', '腾讯云 API 密钥 Secret。', {
+      secret: true,
+      aliases: ['accessKeySecret'],
+      docUrl: 'https://console.cloud.tencent.com/cam/capi',
+      docLabel: '密钥'
+    })
+  ],
+  S3_COMPATIBLE: s3DirectConfigFields,
+  MINIO: s3DirectConfigFields,
+  OSS: s3DirectConfigFields,
+  R2: s3DirectConfigFields,
+  GCS: s3DirectConfigFields,
+  OBS: s3DirectConfigFields,
+  TOS: s3DirectConfigFields,
+  BOS: s3DirectConfigFields,
+  UCLOUD_US3: s3DirectConfigFields,
+  JD_JSS: s3DirectConfigFields,
+  WASABI: s3DirectConfigFields,
+  QINIU_KODO: s3DirectConfigFields,
+  B2: s3DirectConfigFields
+}
 
 const emailProviderPresets = {
   SMTP: { host: '', port: 465, protocol: 'smtp', sslEnabled: true, starttlsEnabled: true, hint: '通用 SMTP，适合自建邮局或任意兼容 SMTP 的邮件服务。' },
@@ -3017,17 +4064,20 @@ const paymentVerificationModesByProvider: Record<string, Array<keyof typeof paym
 }
 
 const userTableColumns: ConfigurableColumn[] = [
-  { key: 'user', label: '用户', sortable: true, cellClass: 'min-w-[280px]' },
-  { key: 'phone', label: '手机号 / 邮箱', sortable: true, cellClass: 'min-w-[260px]' },
-  { key: 'role', label: '角色', sortable: true, cellClass: 'min-w-[160px]' },
-  { key: 'status', label: '状态', sortable: true, cellClass: 'min-w-[160px]' },
-  { key: 'quota', label: '配额', sortable: false, cellClass: 'min-w-[220px]' },
-  { key: 'vip', label: 'VIP', sortable: false, cellClass: 'min-w-[260px]' },
-  { key: 'storage', label: '上传存储', sortable: false, cellClass: 'min-w-[220px]' },
-  { key: 'usage', label: '用量', sortable: true, cellClass: 'min-w-[200px]' },
-  { key: 'visible', label: '公开展示', sortable: true, cellClass: 'min-w-[140px]' },
+  { key: 'username', label: '账号', sortable: true, cellClass: 'min-w-[170px]' },
+  { key: 'nickname', label: '昵称', sortable: true, cellClass: 'min-w-[180px]' },
+  { key: 'projectName', label: '站点名', sortable: true, defaultVisible: false, cellClass: 'min-w-[240px]' },
+  { key: 'phone', label: '手机号', sortable: true, cellClass: 'min-w-[180px]' },
+  { key: 'email', label: '邮箱', sortable: true, defaultVisible: false, cellClass: 'min-w-[220px]' },
+  { key: 'role', label: '角色', sortable: true, cellClass: 'min-w-[140px]' },
+  { key: 'status', label: '状态', sortable: true, cellClass: 'min-w-[140px]' },
+  { key: 'quota', label: '基础配额', sortable: false, cellClass: 'min-w-[150px]' },
+  { key: 'vipPlan', label: 'VIP 套餐', sortable: true, cellClass: 'min-w-[220px]' },
+  { key: 'storage', label: '上传存储', sortable: false, defaultVisible: false, cellClass: 'min-w-[220px]' },
+  { key: 'usage', label: '用量', sortable: true, defaultVisible: false, cellClass: 'min-w-[200px]' },
+  { key: 'visible', label: '公开展示', sortable: true, defaultVisible: false, cellClass: 'min-w-[120px]' },
   { key: 'lastLoginAt', label: '最近登录', sortable: true, cellClass: 'min-w-[170px]' },
-  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[220px]' }
+  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[180px]' }
 ]
 
 const loginTableColumns: ConfigurableColumn[] = [
@@ -3074,13 +4124,13 @@ const vipOrderTableColumns: ConfigurableColumn[] = [
 ]
 
 const storageTableColumns: ConfigurableColumn[] = [
-  { key: 'name', label: '名称', sortable: true, cellClass: 'min-w-[180px]' },
-  { key: 'type', label: '类型', sortable: true, cellClass: 'min-w-[150px]' },
+  { key: 'name', label: '名称', sortable: true, cellClass: 'min-w-[220px]' },
+  { key: 'type', label: '类型', sortable: true, cellClass: 'min-w-[180px]' },
   { key: 'priority', label: '优先级', sortable: true, cellClass: 'min-w-[110px]' },
-  { key: 'capability', label: '能力', sortable: false, cellClass: 'min-w-[240px]' },
-  { key: 'location', label: '位置', sortable: false, cellClass: 'min-w-[260px]' },
-  { key: 'configJson', label: '配置', sortable: false, cellClass: 'min-w-[260px]' },
-  { key: 'status', label: '状态', sortable: false, cellClass: 'min-w-[220px]' },
+  { key: 'capability', label: '能力', sortable: false, cellClass: 'min-w-[280px]' },
+  { key: 'location', label: '位置', sortable: false, cellClass: 'min-w-[420px]' },
+  { key: 'configJson', label: '配置', sortable: false, cellClass: 'min-w-[420px]' },
+  { key: 'status', label: '状态', sortable: false, cellClass: 'min-w-[260px]' },
   { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[120px]' }
 ]
 
@@ -3314,6 +4364,77 @@ const smsTemplateLabel = computed(() => {
   }
 })
 
+type ProviderDocLink = { url: string; label: string }
+
+const smsFieldDocLinks = computed(() => {
+  const providerType = settings.smsProviderType || 'ALIYUN'
+  const byProvider: Record<string, Partial<Record<'endpoint' | 'region' | 'accessKeyId' | 'accessKeySecret' | 'sign' | 'template' | 'sdkAppId', ProviderDocLink>>> = {
+    ALIYUN: {
+      accessKeyId: { url: 'https://ram.console.aliyun.com/manage/ak', label: 'AccessKey 管理' },
+      accessKeySecret: { url: 'https://ram.console.aliyun.com/manage/ak', label: 'AccessKey 管理' },
+      sign: { url: 'https://dysms.console.aliyun.com/domestic/text/sign', label: '短信签名' },
+      template: { url: 'https://dysms.console.aliyun.com/domestic/text/template', label: '短信模板' },
+      region: { url: 'https://help.aliyun.com/zh/sdk/developer-reference/region-id', label: '地域列表' },
+      endpoint: { url: 'https://help.aliyun.com/zh/sms/developer-reference/api-dysmsapi-2017-05-25-endpoint', label: 'Endpoint' }
+    },
+    TENCENT_CLOUD: {
+      accessKeyId: { url: 'https://console.cloud.tencent.com/cam/capi', label: 'API 密钥' },
+      accessKeySecret: { url: 'https://console.cloud.tencent.com/cam/capi', label: 'API 密钥' },
+      sign: { url: 'https://console.cloud.tencent.com/smsv2/csms-sign', label: '短信签名' },
+      template: { url: 'https://console.cloud.tencent.com/smsv2/csms-template', label: '短信模板' },
+      sdkAppId: { url: 'https://console.cloud.tencent.com/smsv2/app-manage', label: 'SmsSdkAppId' },
+      region: { url: 'https://cloud.tencent.com/document/api/382/52077', label: '地域列表' },
+      endpoint: { url: 'https://cloud.tencent.com/document/api/382/38778', label: 'API 接口' }
+    },
+    TWILIO: {
+      accessKeyId: { url: 'https://console.twilio.com/', label: 'Twilio Console' },
+      accessKeySecret: { url: 'https://console.twilio.com/', label: 'Twilio Console' },
+      sign: { url: 'https://console.twilio.com/us1/develop/phone-numbers/manage/incoming', label: 'From 号码' },
+      template: { url: 'https://console.twilio.com/us1/develop/sms/services', label: 'Messaging Service' },
+      endpoint: { url: 'https://www.twilio.com/docs/usage/requests-to-twilio', label: 'API 文档' }
+    }
+  }
+  return byProvider[providerType] || {}
+})
+
+const paymentFieldDocLinksByProvider: Record<string, Partial<Record<PaymentFieldKey, ProviderDocLink>>> = {
+  ALIPAY: {
+    paymentAppId: { url: 'https://open.alipay.com/develop/manage', label: '应用管理' },
+    paymentMerchantId: { url: 'https://b.alipay.com/', label: '商户平台' },
+    paymentPrivateKey: { url: 'https://opendocs.alipay.com/common/02kiq3', label: '密钥生成' },
+    paymentPublicKey: { url: 'https://opendocs.alipay.com/common/02mse8', label: '支付宝公钥' },
+    paymentNotifyUrl: { url: 'https://opendocs.alipay.com/open/204/105301', label: '回调文档' },
+    paymentReturnUrl: { url: 'https://opendocs.alipay.com/open/204/105301', label: '回调文档' }
+  },
+  WECHAT_PAY: {
+    paymentAppId: { url: 'https://pay.weixin.qq.com/index.php/core/apply/appid', label: 'AppID' },
+    paymentMerchantId: { url: 'https://pay.weixin.qq.com/', label: '商户平台' },
+    paymentPrivateKey: { url: 'https://pay.weixin.qq.com/docs/merchant/development/interface-rules/apiv3key.html', label: 'APIv3 / 证书' },
+    paymentApiSecret: { url: 'https://pay.weixin.qq.com/docs/merchant/development/interface-rules/apiv3key.html', label: 'APIv3 Key' },
+    paymentCertificateSerialNo: { url: 'https://pay.weixin.qq.com/docs/merchant/development/interface-rules/certificate.html', label: '证书序列号' },
+    paymentPlatformCertificate: { url: 'https://pay.weixin.qq.com/docs/merchant/development/interface-rules/certificate.html', label: '平台证书' },
+    paymentNotifyUrl: { url: 'https://pay.weixin.qq.com/docs/merchant/apis/native-pay/direct-jsons/chapter3_8.shtml', label: '支付通知' }
+  },
+  STRIPE: {
+    paymentPrivateKey: { url: 'https://dashboard.stripe.com/apikeys', label: 'API Keys' },
+    paymentWebhookSecret: { url: 'https://dashboard.stripe.com/webhooks', label: 'Webhooks' },
+    paymentNotifyUrl: { url: 'https://docs.stripe.com/webhooks', label: 'Webhook 文档' },
+    paymentReturnUrl: { url: 'https://docs.stripe.com/payments/checkout/custom-success-page', label: 'Return URL' }
+  },
+  PAYPAL: {
+    paymentAppId: { url: 'https://developer.paypal.com/dashboard/applications', label: 'Client ID' },
+    paymentMerchantId: { url: 'https://www.paypal.com/businessmanage/account/aboutBusiness', label: 'Merchant ID' },
+    paymentPrivateKey: { url: 'https://developer.paypal.com/dashboard/applications', label: 'Secret' },
+    paymentWebhookSecret: { url: 'https://developer.paypal.com/api/rest/webhooks/rest/', label: 'Webhook' },
+    paymentNotifyUrl: { url: 'https://developer.paypal.com/api/rest/webhooks/rest/', label: 'Webhook' },
+    paymentReturnUrl: { url: 'https://developer.paypal.com/docs/checkout/standard/customize/return-url/', label: 'Return URL' }
+  }
+}
+
+const paymentFieldDocLinks = computed(() =>
+  paymentFieldDocLinksByProvider[settings.paymentProviderType || 'ALIPAY'] || {}
+)
+
 const emailPreset = computed(() => {
   return emailProviderPresets[settings.emailProviderType] || emailProviderPresets.SMTP
 })
@@ -3466,6 +4587,23 @@ const storageBaseDirectoryTypes = new Set([
 
 type StorageFieldKey = 'endpoint' | 'bucketName' | 'baseDirectory'
 
+const storageFieldDocLinks: Partial<Record<string, Partial<Record<StorageFieldKey, { url: string; label: string }>>>> = {
+  COS: {
+    endpoint: { url: 'https://cloud.tencent.com/document/product/436/6224', label: 'Endpoint' },
+    bucketName: { url: 'https://console.cloud.tencent.com/cos/bucket', label: '存储桶' }
+  },
+  OSS: {
+    endpoint: { url: 'https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints', label: 'Endpoint' },
+    bucketName: { url: 'https://oss.console.aliyun.com/bucket', label: 'Bucket' }
+  },
+  S3_COMPATIBLE: {
+    endpoint: { url: 'https://docs.aws.amazon.com/general/latest/gr/s3.html', label: 'Endpoint' }
+  },
+  MINIO: {
+    endpoint: { url: 'https://min.io/docs/minio/linux/reference/minio-server/minio-server.html', label: 'Endpoint' }
+  }
+}
+
 const shouldShowStorageField = (type?: string | null, field?: 'endpoint' | 'bucketName' | 'baseDirectory') => {
   const normalizedType = type || 'LOCAL'
   if (field === 'endpoint') return storageEndpointTypes.has(normalizedType)
@@ -3520,6 +4658,12 @@ const getStorageFieldDescription = (type?: string | null, field?: StorageFieldKe
   return ''
 }
 
+const getStorageFieldDocLink = (type?: string | null, field?: StorageFieldKey) => {
+  if (!field) return null
+  const normalizedType = type || 'LOCAL'
+  return storageFieldDocLinks[normalizedType]?.[field] || null
+}
+
 const getVisibleStorageFields = (type?: string | null) => {
   const fields: Array<{ key: StorageFieldKey; label: string; placeholder: string; description: string; shortHint: string }> = []
   ;(['baseDirectory', 'endpoint', 'bucketName'] as StorageFieldKey[]).forEach((key) => {
@@ -3540,6 +4684,55 @@ const normalizeStorageFieldValue = (value?: string | null) => {
   return text ? text : null
 }
 
+const parseStorageConfigObject = (configJson?: string | null) => {
+  const raw = String(configJson || '').trim()
+  if (!raw) {
+    return { raw, parsed: {} as Record<string, any>, error: '' }
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    return {
+      raw,
+      parsed: parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {},
+      error: ''
+    }
+  } catch (error: any) {
+    return { raw, parsed: {} as Record<string, any>, error: error?.message || '格式错误' }
+  }
+}
+
+const getVisibleStorageConfigFields = (type?: string | null) =>
+  storageDirectConfigFieldsByType[type || 'LOCAL'] || []
+
+const hydrateStorageConfigDraft = (provider: Partial<StorageProviderSummary>) => {
+  const { parsed } = parseStorageConfigObject(provider.configJson)
+  getVisibleStorageConfigFields(provider.type).forEach((field) => {
+    const aliases = [field.key, ...(field.aliases || [])]
+    const matchedKey = aliases.find(key => normalizeStorageFieldValue(parsed[key]) != null)
+    ;(provider as any)[field.modelKey] = matchedKey ? String(parsed[matchedKey] ?? '') : ''
+  })
+}
+
+const buildStorageConfigObject = (provider: Partial<StorageProviderSummary>) => {
+  const { parsed, error } = parseStorageConfigObject(provider.configJson)
+  const merged = { ...parsed }
+  getVisibleStorageConfigFields(provider.type).forEach((field) => {
+    const normalizedValue = normalizeStorageFieldValue((provider as any)[field.modelKey])
+    ;[field.key, ...(field.aliases || [])].forEach((key) => {
+      delete merged[key]
+    })
+    if (normalizedValue != null) {
+      merged[field.key] = normalizedValue
+    }
+  })
+  return { merged, error }
+}
+
+const stringifyStorageConfigObject = (provider: Partial<StorageProviderSummary>) => {
+  const { merged } = buildStorageConfigObject(provider)
+  return Object.keys(merged).length ? JSON.stringify(merged, null, 2) : null
+}
+
 const clearHiddenStorageFields = (provider: Partial<StorageProviderSummary>) => {
   const type = provider.type || 'LOCAL'
   ;(['endpoint', 'bucketName', 'baseDirectory'] as StorageFieldKey[]).forEach((key) => {
@@ -3547,6 +4740,39 @@ const clearHiddenStorageFields = (provider: Partial<StorageProviderSummary>) => 
       ;(provider as any)[key] = ''
     }
   })
+  Object.keys(storageDirectConfigFieldsByType).forEach((storageType) => {
+    if (storageType === type) return
+    storageDirectConfigFieldsByType[storageType].forEach((field) => {
+      ;(provider as any)[field.modelKey] = ''
+    })
+  })
+}
+
+const enforceSingleDefaultProvider = (targetId?: number | null) => {
+  storageProviders.value = storageProviders.value.map((item) => ({
+    ...item,
+    isDefault: targetId != null && item.id === targetId
+  }))
+}
+
+const handleProviderDefaultChange = (provider: StorageProviderSummary) => {
+  if (provider.isDefault) {
+    enforceSingleDefaultProvider(provider.id)
+    newProvider.isDefault = false
+    return
+  }
+  const hasOtherDefault = storageProviders.value.some(item => item.id !== provider.id && item.isDefault)
+  if (!hasOtherDefault) {
+    provider.isDefault = true
+    showMessage('至少需要保留一个默认存储；如需切换，请先勾选新的默认存储。', 'error')
+  }
+}
+
+const handleNewProviderDefaultChange = () => {
+  if (newProvider.isDefault) {
+    enforceSingleDefaultProvider(null)
+    return
+  }
 }
 
 const toStorageProviderPayload = (provider: Partial<StorageProviderSummary>) => {
@@ -3560,7 +4786,31 @@ const toStorageProviderPayload = (provider: Partial<StorageProviderSummary>) => 
     endpoint: shouldShowStorageField(type, 'endpoint') ? normalizeStorageFieldValue(provider.endpoint) : null,
     bucketName: shouldShowStorageField(type, 'bucketName') ? normalizeStorageFieldValue(provider.bucketName) : null,
     baseDirectory: shouldShowStorageField(type, 'baseDirectory') ? normalizeStorageFieldValue(provider.baseDirectory) : null,
-    configJson: normalizeStorageFieldValue(provider.configJson)
+    configJson: stringifyStorageConfigObject(provider)
+  }
+}
+
+const snapshotStorageProviderPayload = (provider: Partial<StorageProviderSummary>) =>
+  JSON.stringify(toStorageProviderPayload(provider))
+
+const isProviderDirty = (provider: Partial<StorageProviderSummary>) => {
+  if (!provider.id) return false
+  return originalStorageProviderPayloads.value[provider.id] !== snapshotStorageProviderPayload(provider)
+}
+
+const providerHasStructuralChanges = (provider: Partial<StorageProviderSummary>) => {
+  if (!provider.id) return false
+  const originalRaw = originalStorageProviderPayloads.value[provider.id]
+  if (!originalRaw) return false
+  try {
+    const original = JSON.parse(originalRaw)
+    const current = toStorageProviderPayload(provider)
+    return original.type !== current.type
+      || original.endpoint !== current.endpoint
+      || original.bucketName !== current.bucketName
+      || original.baseDirectory !== current.baseDirectory
+  } catch {
+    return false
   }
 }
 
@@ -3582,21 +4832,8 @@ const getStorageFieldPlaceholder = (type?: string | null, field?: 'endpoint' | '
   return ''
 }
 
-const newProviderAssessment = computed(() => {
-  const type = newProvider.type || 'LOCAL'
-  const hasText = (value?: string | null) => !!String(value || '').trim()
-  const missingLabels: string[] = []
-  if (shouldShowStorageField(type, 'baseDirectory') && !hasText(newProvider.baseDirectory)) {
-    missingLabels.push('基础目录')
-  }
-  if (shouldShowStorageField(type, 'endpoint') && !hasText(newProvider.endpoint)) {
-    missingLabels.push(getStorageFieldLabel(type, 'endpoint'))
-  }
-  if (shouldShowStorageField(type, 'bucketName') && !hasText(newProvider.bucketName)) {
-    missingLabels.push(getStorageFieldLabel(type, 'bucketName'))
-  }
-  return { missingLabels }
-})
+const newProviderAssessment = computed(() => getProviderAssessment(newProvider))
+const newProviderStatusSummary = computed(() => providerStatusSummary(newProvider))
 
 const getStoragePreset = (type?: string | null) => {
   return storageTypePresets[type || 'LOCAL'] || storageTypePresets.LOCAL
@@ -3606,6 +4843,8 @@ const getProviderAssessment = (provider: Partial<StorageProviderSummary>) => {
   const type = provider.type || 'LOCAL'
   const hasText = (value?: string | null) => !!String(value || '').trim()
   const missingLabels: string[] = []
+  const configMissingLabels: string[] = []
+  let configError = ''
   if (shouldShowStorageField(type, 'baseDirectory') && !hasText(provider.baseDirectory)) {
     missingLabels.push('基础目录')
   }
@@ -3615,8 +4854,48 @@ const getProviderAssessment = (provider: Partial<StorageProviderSummary>) => {
   if (shouldShowStorageField(type, 'bucketName') && !hasText(provider.bucketName)) {
     missingLabels.push(getStorageFieldLabel(type, 'bucketName'))
   }
-  return { missingLabels }
+  const { merged: parsedConfig, error } = buildStorageConfigObject(provider)
+  configError = error
+  const missingConfigField = (fieldLabel: string, ...keys: string[]) => {
+    const exists = keys.some(key => hasText(parsedConfig[key]))
+    if (!exists) {
+      configMissingLabels.push(fieldLabel)
+    }
+  }
+  if (type === 'COS') {
+    missingConfigField('region', 'region')
+    missingConfigField('secretId / accessKeyId', 'secretId', 'accessKeyId')
+    missingConfigField('secretKey / accessKeySecret', 'secretKey', 'accessKeySecret')
+  }
+  if (type === 'S3_COMPATIBLE' || type === 'MINIO' || type === 'OSS' || type === 'R2' || type === 'GCS' || type === 'OBS' || type === 'TOS' || type === 'BOS' || type === 'UCLOUD_US3' || type === 'JD_JSS' || type === 'WASABI' || type === 'QINIU_KODO' || type === 'B2') {
+    missingConfigField('region', 'region')
+    missingConfigField('accessKey / accessKeyId', 'accessKey', 'accessKeyId')
+    missingConfigField('secretKey / accessKeySecret', 'secretKey', 'accessKeySecret', 'sk')
+  }
+  if (type === 'FTP' || type === 'WEBDAV') {
+    missingConfigField('username', 'username', 'user')
+    missingConfigField('password', 'password')
+  }
+  return { missingLabels, configMissingLabels, configError }
 }
+
+const providerStatusSummary = (provider: Partial<StorageProviderSummary>) => {
+  const assessment = getProviderAssessment(provider)
+  if (assessment.configError) {
+    return '扩展配置 JSON 解析失败，请修正后再保存。'
+  }
+  if (assessment.missingLabels.length || assessment.configMissingLabels.length) {
+    const missing = [...assessment.missingLabels, ...assessment.configMissingLabels]
+    return `当前配置未完成：缺少 ${missing.join('、')}。`
+  }
+  const supportMessage = String(provider.supportMessage || '').trim()
+  if (!supportMessage || /已接通|可用|supported/i.test(supportMessage)) {
+    return '配置完整，可保存并刷新能力检测。'
+  }
+  return supportMessage
+}
+
+const capabilityLabel = (supported?: boolean | null) => supported ? '可用' : '未接通'
 
 const paymentFieldLabels: Record<string, string> = {
   paymentAppId: '应用 ID',
@@ -3709,6 +4988,43 @@ const paymentConfigAssessment = computed(() => {
   }
 })
 
+const selectedSuperScanProvider = computed(() => {
+  if (superSelectedScanProviderId.value == null) return null
+  return superScanProviderOptions.value.find(provider => provider.id === superSelectedScanProviderId.value) ?? null
+})
+
+const superScanActionSupported = computed(() => selectedSuperScanProvider.value?.scanSupported !== false)
+const superScanDisabledReason = computed(() => {
+  if (selectedSuperScanProvider.value?.scanSupported === false) {
+    return selectedSuperScanProvider.value.supportMessage || '当前存储暂不支持扫描，请切换到可扫描的存储配置。'
+  }
+  return ''
+})
+const superScanStatusLabel = computed(() => {
+  if (superCurrentScanTask.value) return '扫描中'
+  if (superQueueCount.value > 0) return '排队中'
+  if (superPausedTaskCount.value > 0) return '已暂停'
+  return superScanning.value ? '扫描中' : '空闲'
+})
+const superScanProgressText = computed(() => {
+  const { current, total } = superScanProgress.value
+  if (!total) return '0 / 0'
+  const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0
+  return `${current} / ${total} (${percentage}%)`
+})
+const superQueuedOwnerSummaryText = computed(() =>
+  superQueuedOwnerSummaries.value
+    .slice(0, 3)
+    .map((item: any) => `${item.ownerLabel || '未知'} ${item.taskCount}`)
+    .join('，')
+)
+const superRunningTaskSummaryText = computed(() =>
+  superRunningTasks.value
+    .slice(0, 3)
+    .map((item: any) => `${item.requestedByUserNickname || item.requestedByUsername || item.ownerLabel || `任务 ${item.id}`} · ${item.taskType}`)
+    .join('，')
+)
+
 const applyOverview = (data: SuperAdminOverview) => Object.assign(overview, data)
 const applySettings = (data: SuperAdminSettings) => {
   Object.assign(settings, data)
@@ -3728,13 +5044,113 @@ const bytesToGb = (value?: number | null) => {
   return Math.round((bytes / BYTES_PER_GB) * 100) / 100
 }
 
+const UNLIMITED_QUOTA_THRESHOLD = 8e18
+const isUnlimitedQuotaBytes = (value?: number | null) => Number(value || 0) >= UNLIMITED_QUOTA_THRESHOLD
+
 const gbToBytes = (value?: number | null) => {
   const gb = Number(value || 0)
   if (!gb || gb < 0) return 0
   return Math.round(gb * BYTES_PER_GB)
 }
 
-const formatQuotaGb = (value?: number | null) => `${bytesToGb(value)} GB`
+const resolveUserQuotaBytes = (
+  gbValue: number | null | undefined,
+  currentBytes: number | null | undefined
+) => {
+  if (gbValue == null || gbValue === '' || Number.isNaN(Number(gbValue))) {
+    return Math.max(0, Number(currentBytes || 0))
+  }
+  return gbToBytes(gbValue)
+}
+
+const formatQuotaGb = (value?: number | null) => isUnlimitedQuotaBytes(value) ? '不限' : `${bytesToGb(value)} GB`
+const formatRemainingStorage = (remaining?: number | null, effectiveQuota?: number | null) =>
+  isUnlimitedQuotaBytes(effectiveQuota) ? '不限' : formatBytes(remaining || 0)
+
+const userRoleLabel = (role?: string | null) => {
+  switch ((role || '').toUpperCase()) {
+    case 'SUPER_ADMIN':
+      return '超级管理员'
+    case 'USER_ADMIN':
+      return '普通管理员'
+    default:
+      return role || '未知角色'
+  }
+}
+
+const userStatusLabel = (status?: string | null) => {
+  switch ((status || '').toUpperCase()) {
+    case 'ACTIVE':
+      return '正常'
+    case 'PENDING':
+      return '待激活'
+    case 'DISABLED':
+      return '已禁用'
+    case 'LOCKED':
+      return '已锁定'
+    default:
+      return status || '未知状态'
+  }
+}
+
+const buildUserDraftSnapshot = (user: Partial<UserAccountSummary>) => JSON.stringify({
+  nickname: user.nickname || '',
+  phone: user.phone || '',
+  email: user.email || '',
+  role: user.role || '',
+  status: user.status || '',
+  projectNameZh: user.projectNameZh || '',
+  projectNameEn: user.projectNameEn || '',
+  storageQuotaGb: Number((user as any).storageQuotaGb || 0),
+  vipExtraQuotaGb: Number((user as any).vipExtraQuotaGb || 0),
+  currentVipPlanId: user.currentVipPlanId ?? null,
+  vipExpireAt: user.vipExpireAt || '',
+  preferredStorageProviderId: user.preferredStorageProviderId ?? null,
+  multiUserVisible: !!user.multiUserVisible,
+  phoneVerified: !!user.phoneVerified,
+  emailVerified: !!user.emailVerified
+})
+
+const userHasUnsavedChanges = (user: Partial<UserAccountSummary>) => {
+  if (!user.id) return false
+  return userDraftSnapshots.value[user.id] !== buildUserDraftSnapshot(user)
+}
+
+const modifiedUsers = computed(() => users.value.filter(user => userHasUnsavedChanges(user)))
+const modifiedUserCount = computed(() => modifiedUsers.value.length)
+
+const normalizeUserTablePreference = (preference: ConfigurableTablePreference): ConfigurableTablePreference => {
+  const preferredOrder = [
+    'username',
+    'nickname',
+    'projectName',
+    'phone',
+    'email',
+    'role',
+    'status',
+    'quota',
+    'vipPlan',
+    'storage',
+    'visible',
+    'lastLoginAt',
+    'actions',
+    'usage'
+  ]
+  const hiddenSet = new Set(preference.hiddenColumns || [])
+  if (!(preference.hiddenColumns || []).length) {
+    hiddenSet.add('projectName')
+    hiddenSet.add('email')
+    hiddenSet.add('storage')
+    hiddenSet.add('visible')
+    hiddenSet.add('usage')
+  }
+  return {
+    columnOrder: preferredOrder,
+    hiddenColumns: preferredOrder.filter(key => hiddenSet.has(key)),
+    sortKey: preference.sortKey || null,
+    sortDirection: preference.sortDirection || null
+  }
+}
 
 const settingsQuotaView = reactive({
   defaultUserQuotaGb: 0,
@@ -3761,6 +5177,231 @@ const loadOverview = async () => {
   applyOverview(data)
 }
 
+const loadProcessingOverview = async () => {
+  loadingProcessingOverview.value = true
+  try {
+    const { data } = await superAdminApi.getProcessingOverview()
+    processingOverview.value = data
+  } finally {
+    loadingProcessingOverview.value = false
+  }
+}
+
+const loadSuperScanProviderOptions = async () => {
+  try {
+    const { data } = await api.get('/admin/folders/base-path')
+    const providers = Array.isArray(data?.availableStorageProviders) ? data.availableStorageProviders : []
+    superScanProviderOptions.value = providers
+      .filter((item: any) => item?.browserSupported && item?.scanSupported !== false)
+      .map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        type: item.type,
+        scanSupported: item.scanSupported !== false,
+        supportMessage: item.supportMessage || null
+      }))
+    superSelectedScanProviderId.value = null
+  } catch (error) {
+    console.warn('加载扫描存储提供者失败', error)
+  }
+}
+
+const loadSuperScanStatus = async () => {
+  const { data } = await api.get('/admin/scan/status')
+  const payload = data || {}
+  superScanning.value = !!payload.scanning
+  superQueueCount.value = payload.queuedTaskCount ?? 0
+  superQueuedOwnerCount.value = payload.queuedOwnerCount ?? 0
+  superQueuedOwnerSummaries.value = Array.isArray(payload.queuedOwnerSummaries) ? payload.queuedOwnerSummaries : []
+  superPausedTaskCount.value = payload.pausedTaskCount ?? 0
+  superRunningTaskCount.value = payload.runningTaskCount ?? 0
+  superQueuedImageCount.value = payload.queuedImageCount ?? 0
+  superRunningImageCount.value = payload.runningImageCount ?? 0
+  superRunningTasks.value = Array.isArray(payload.runningTasks) ? payload.runningTasks : []
+  superCurrentScanTask.value = payload.currentTask ?? null
+  superScanProgress.value = { current: payload.current ?? 0, total: payload.total ?? 0 }
+  superScanSummary.value = {
+    total: payload.scanSummary?.total ?? payload.filesystemStats?.total ?? 0,
+    scanned: payload.scanSummary?.scanned ?? payload.filesystemStats?.scanned ?? 0,
+    failed: payload.scanSummary?.failed ?? payload.processingStats?.failed ?? 0,
+    waiting: payload.scanSummary?.waiting ?? payload.filesystemStats?.unscanned ?? 0
+  }
+  superScanLastTime.value = payload.lastScanStart ? new Date(payload.lastScanStart).toLocaleString('zh-CN') : null
+}
+
+const loadSuperScanTasks = async () => {
+  const { data } = await api.get('/admin/scan/tasks')
+  superScanTasks.value = Array.isArray(data) ? data : []
+}
+
+const fillSuperScanTasksFromProcessingOverview = async () => {
+  const { data } = await superAdminApi.getProcessingOverview()
+  const scanWorker = (data?.workers || []).find((item: any) => item.threadType === 'SCAN_QUEUE')
+  if (!scanWorker) return
+  const merged = [
+    ...(Array.isArray(scanWorker.runningTasks) ? scanWorker.runningTasks : []),
+    ...(Array.isArray(scanWorker.recentTasks) ? scanWorker.recentTasks : [])
+  ]
+  const normalized = merged
+    .filter((item: any) => item)
+    .map((item: any) => ({
+      id: item.id ?? item.taskId,
+      taskType: item.taskType ?? item.taskName,
+      status: item.status,
+      ownerLabel: item.ownerLabel,
+      rootPath: item.rootPath ?? item.path,
+      rootPathDisplay: item.rootPathDisplay ?? item.path,
+      processedItems: item.processedItems ?? item.current ?? 0,
+      totalItems: item.totalItems ?? item.total ?? 0,
+      skippedItems: item.skippedItems ?? item.skipped ?? 0,
+      failedItems: item.failedItems ?? item.failed ?? 0,
+      progressPercent: item.progressPercent,
+      errorMessage: item.errorMessage ?? item.error ?? null,
+      createdAt: item.createdAt ?? item.startedAt ?? item.updatedAt,
+      startedAt: item.startedAt ?? null,
+      finishedAt: item.finishedAt ?? null,
+      lastProcessedPath: item.lastProcessedPath ?? null,
+      lastProcessedPathDisplay: item.lastProcessedPathDisplay ?? item.lastProcessedPath ?? null,
+      storageProviderName: item.storageProviderName ?? null,
+      storageProviderType: item.storageProviderType ?? null
+    }))
+    .filter((item: any) => item.id != null)
+  const deduped = normalized.filter((item: any, index: number, list: any[]) =>
+    list.findIndex(candidate => candidate.id === item.id) === index
+  )
+  if (deduped.length) {
+    superScanTasks.value = deduped
+  }
+}
+
+const loadSuperScanPage = async () => {
+  if (superScanPageLoadingInFlight.value) return
+  superScanPageLoadingInFlight.value = true
+  loadingSuperScan.value = true
+  try {
+    const results = await Promise.allSettled([
+      loadSuperScanProviderOptions(),
+      loadSuperScanStatus(),
+      loadSuperScanTasks()
+    ])
+    const firstRejected = results.find((item): item is PromiseRejectedResult => item.status === 'rejected')
+    if (firstRejected) {
+      throw firstRejected.reason
+    }
+    if (!superScanTasks.value.length) {
+      await fillSuperScanTasksFromProcessingOverview()
+    }
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '加载扫描管理失败', 'error')
+  } finally {
+    loadingSuperScan.value = false
+    superScanPageLoadingInFlight.value = false
+  }
+}
+
+const triggerSuperScan = async () => {
+  if (!superScanActionSupported.value) {
+    showMessage(superScanDisabledReason.value || '当前存储暂不支持扫描', 'error')
+    return
+  }
+  superTriggeringScan.value = true
+  try {
+    const params = superSelectedScanProviderId.value != null ? { storageProviderId: superSelectedScanProviderId.value } : undefined
+    const { data } = await api.post('/admin/scan', null, { params })
+    const message = data?.message || (data?.merged ? '扫描任务已合并到现有队列' : '扫描任务已加入队列')
+    showMessage(message)
+    await loadSuperScanPage()
+  } catch (error: any) {
+    showMessage(error?.response?.data?.message || error?.message || '触发扫描失败', 'error')
+  } finally {
+    superTriggeringScan.value = false
+  }
+}
+
+const fetchSuperAdminSkippedFiles = async () => {
+  loadingSuperAdminSkipped.value = true
+  try {
+    const { data } = await api.get('/admin/scan/skipped-files')
+    superAdminSkippedFiles.value = Array.isArray(data) ? data : []
+  } catch (error) {
+    superAdminSkippedFiles.value = []
+  } finally {
+    loadingSuperAdminSkipped.value = false
+  }
+}
+
+const openSuperScanTaskDetail = async (taskId: number) => {
+  showSuperScanTaskDetailModal.value = true
+  await fetchSuperScanTaskDetail(taskId)
+}
+
+const fetchSuperScanTaskDetail = async (taskId: number) => {
+  loadingSuperScanTaskDetail.value = true
+  try {
+    const { data } = await api.get(`/admin/scan/tasks/${taskId}`)
+    superSelectedTaskDetail.value = data || null
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '加载任务详情失败', 'error')
+  } finally {
+    loadingSuperScanTaskDetail.value = false
+  }
+}
+
+const refreshSuperScanTaskDetail = async () => {
+  if (!superSelectedTaskDetail.value?.id) return
+  await fetchSuperScanTaskDetail(superSelectedTaskDetail.value.id)
+}
+
+const closeSuperScanTaskDetailModal = () => {
+  showSuperScanTaskDetailModal.value = false
+  superSelectedTaskDetail.value = null
+}
+
+const canSuperRetryScanTask = (task: any): boolean => ['FAILED', 'PAUSED', 'CANCELED'].includes(task.status)
+const canSuperPauseScanTask = (task: any): boolean => task.status === 'RUNNING'
+const canSuperCancelScanTask = (task: any): boolean => ['RUNNING', 'QUEUED', 'PENDING'].includes(task.status)
+
+const retrySuperScanTask = async (task: any) => {
+  if (!confirm(`确认重新入队扫描任务 #${task.id} 吗？`)) return
+  try {
+    await api.post(`/admin/scan/tasks/${task.id}/retry`)
+    await loadSuperScanPage()
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '重新入队失败', 'error')
+  }
+}
+
+const pauseSuperScanTask = async (task: any) => {
+  if (!confirm(`确认暂停扫描任务 #${task.id} 吗？`)) return
+  try {
+    const { data } = await api.post(`/admin/scan/tasks/${task.id}/pause`)
+    if (data?.message) showMessage(data.message)
+    await loadSuperScanPage()
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '暂停失败', 'error')
+  }
+}
+
+const cancelSuperScanTask = async (task: any) => {
+  if (!confirm(`确认取消扫描任务 #${task.id} 吗？`)) return
+  try {
+    const { data } = await api.post(`/admin/scan/tasks/${task.id}/cancel`)
+    if (data?.message) showMessage(data.message)
+    await loadSuperScanPage()
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '取消失败', 'error')
+  }
+}
+
+const openSuperAdminSkippedModal = async () => {
+  showSuperAdminSkippedModal.value = true
+  await fetchSuperAdminSkippedFiles()
+}
+
+const closeSuperAdminSkippedModal = () => {
+  showSuperAdminSkippedModal.value = false
+}
+
 const loadSettings = async () => {
   const { data } = await superAdminApi.getSettings()
   applySettings(data)
@@ -3775,10 +5416,16 @@ const loadUsers = async () => {
   const { data } = await superAdminApi.getUsers(usersPage.page, usersPage.size, userKeyword.value)
   users.value = data.content.map(user => ({
     ...user,
-    user: user.nickname || user.username,
+    storageQuotaGb: bytesToGb(user.storageQuotaBytes),
+    vipExtraQuotaGb: bytesToGb(user.vipExtraQuotaBytes),
+    vipExpireAt: normalizeDateTimeLocal(user.vipExpireAt),
     visible: !!user.multiUserVisible,
     usage: Number(user.storageUsedBytes || 0)
   }))
+  userDraftSnapshots.value = Object.fromEntries(
+    users.value.map(user => [user.id, buildUserDraftSnapshot(user)])
+  )
+  openUserActionMenuId.value = null
   Object.assign(usersPage, {
     page: data.page,
     size: data.size,
@@ -3975,6 +5622,10 @@ const loadStorageProviders = async () => {
   storageProviders.value = data.storageProviders.map(provider => ({
     ...provider
   }))
+  storageProviders.value.forEach(provider => hydrateStorageConfigDraft(provider))
+  originalStorageProviderPayloads.value = Object.fromEntries(
+    storageProviders.value.map(provider => [provider.id, snapshotStorageProviderPayload(provider)])
+  )
   sanitizeStorageSelections()
 }
 
@@ -4068,6 +5719,32 @@ const stopModelTaskPolling = () => {
   if (!modelTaskPollTimer) return
   clearInterval(modelTaskPollTimer)
   modelTaskPollTimer = null
+}
+
+const startProcessingOverviewPolling = () => {
+  if (processingOverviewPollTimer) return
+  processingOverviewPollTimer = setInterval(() => {
+    loadProcessingOverview().catch(() => {})
+  }, 5000)
+}
+
+const stopProcessingOverviewPolling = () => {
+  if (!processingOverviewPollTimer) return
+  clearInterval(processingOverviewPollTimer)
+  processingOverviewPollTimer = null
+}
+
+const startSuperScanPolling = () => {
+  if (superScanPollTimer) return
+  superScanPollTimer = setInterval(() => {
+    loadSuperScanPage().catch(() => {})
+  }, 5000)
+}
+
+const stopSuperScanPolling = () => {
+  if (!superScanPollTimer) return
+  clearInterval(superScanPollTimer)
+  superScanPollTimer = null
 }
 
 const downloadModel = async (model: ManagedModelSummary) => {
@@ -4196,56 +5873,319 @@ const modelTaskProgressClass = (task?: ModelRebuildTask | null) => {
   }
 }
 
+const workerRunningLabel = (worker: SuperAdminProcessingOverview['workers'][number]) => {
+  const active = Number(worker.activeWorkers ?? worker.activeThreads ?? worker.runningTaskCount ?? 0)
+  if (worker.queueActive || worker.running || active > 0) return '运行中'
+  if (worker.enabled === false) return '未启用'
+  return '空闲'
+}
+
+const workerRunningClass = (worker: SuperAdminProcessingOverview['workers'][number]) => {
+  const label = workerRunningLabel(worker)
+  if (label === '运行中') return 'text-emerald-200'
+  if (label === '未启用') return 'text-rose-200'
+  return 'text-gray-300'
+}
+
+const superScanTaskStatusBadgeClass = (status?: string | null) => {
+  switch ((status || '').toUpperCase()) {
+    case 'RUNNING':
+      return 'text-sky-300 border-sky-500/40 bg-sky-500/10'
+    case 'QUEUED':
+    case 'PENDING':
+      return 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+    case 'PAUSED':
+      return 'text-purple-300 border-purple-500/40 bg-purple-500/10'
+    case 'FAILED':
+      return 'text-rose-300 border-rose-500/40 bg-rose-500/10'
+    case 'COMPLETED':
+      return 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+    case 'CANCELED':
+      return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
+    default:
+      return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
+  }
+}
+
+const processingTaskTitle = (task: ProcessingOverviewTaskSummary) => {
+  return task.taskName || task.modelName || task.photoName || task.taskId || (task.photoId != null ? `照片 #${task.photoId}` : '后台任务')
+}
+
+const processingTaskPercent = (task: ProcessingOverviewTaskSummary) => {
+  const total = Number(task.total || 0)
+  if (task.progressPercent != null) return Number(task.progressPercent)
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((Number(task.current || 0) / total) * 100)))
+}
+
+const processingTaskStatusLabel = (status?: string | null) => {
+  switch ((status || '').toUpperCase()) {
+    case 'SUCCESS':
+    case 'COMPLETED':
+      return '已完成'
+    case 'FAILED':
+      return '失败'
+    case 'RUNNING':
+      return '执行中'
+    case 'PENDING':
+    case 'QUEUED':
+      return '排队中'
+    case 'STOPPED':
+    case 'CANCELED':
+      return '已停止'
+    default:
+      return status || '未知'
+  }
+}
+
+const processingTaskStatusClass = (status?: string | null) => {
+  switch ((status || '').toUpperCase()) {
+    case 'SUCCESS':
+    case 'COMPLETED':
+      return 'text-emerald-200'
+    case 'FAILED':
+      return 'text-rose-200'
+    case 'RUNNING':
+      return 'text-sky-200'
+    case 'PENDING':
+    case 'QUEUED':
+      return 'text-amber-200'
+    case 'STOPPED':
+    case 'CANCELED':
+      return 'text-gray-300'
+    default:
+      return 'text-gray-300'
+  }
+}
+
+const isScanQueueWorker = (worker: ProcessingOverviewWorkerSummary) => worker.threadType === 'SCAN_QUEUE'
+
+const scanWorkerQueuedTasks = (worker: ProcessingOverviewWorkerSummary) =>
+  (worker.recentTasks || []).filter(task => ['QUEUED', 'PENDING'].includes(String(task.status || '').toUpperCase()))
+
+const scanWorkerFailedTasks = (worker: ProcessingOverviewWorkerSummary) =>
+  (worker.recentTasks || []).filter(task => ['FAILED'].includes(String(task.status || '').toUpperCase()))
+
+const scanTaskRecentSummary = (task: Record<string, any>) => {
+  const pieces: string[] = []
+  const processed = Number(task.processedItems ?? task.current ?? 0)
+  const total = Number(task.totalItems ?? task.total ?? 0)
+  if (total > 0) {
+    const percent = task.progressPercent ?? Math.min(100, Math.round((processed / total) * 100))
+    pieces.push(`进度 ${processed}/${total} · ${percent}%`)
+  }
+  if (task.rootPathDisplay || task.rootPath) {
+    pieces.push(`路径：${task.rootPathDisplay || task.rootPath}`)
+  }
+  if (task.errorMessage) {
+    pieces.push(`失败：${task.errorMessage}`)
+  }
+  if (task.ownerLabel) {
+    pieces.push(`归属：${task.ownerLabel}`)
+  }
+  return pieces.join(' · ') || task.message || task.latestLog || '暂无附加说明'
+}
+
+const scanTaskTypeLabel = (taskType?: string | null) => {
+  switch ((taskType || '').toUpperCase()) {
+    case 'FULL_SCAN':
+      return '全量扫描'
+    case 'INCREMENTAL_SCAN':
+      return '增量扫描'
+    case 'RESUME_SCAN':
+      return '恢复扫描'
+    case 'UPLOAD_SCAN':
+      return '上传扫描'
+    default:
+      return taskType || '扫描任务'
+  }
+}
+
+const scanTaskStatusLabel = (status?: string | null) => {
+  switch ((status || '').toUpperCase()) {
+    case 'RUNNING':
+      return '运行中'
+    case 'QUEUED':
+      return '排队中'
+    case 'PENDING':
+      return '等待中'
+    case 'PAUSED':
+      return '已暂停'
+    case 'FAILED':
+      return '失败'
+    case 'COMPLETED':
+      return '已完成'
+    case 'CANCELED':
+      return '已取消'
+    default:
+      return status || '未知'
+  }
+}
+
+const scanTaskStatusClass = (status?: string | null) => {
+  switch ((status || '').toUpperCase()) {
+    case 'RUNNING':
+      return 'text-sky-200'
+    case 'QUEUED':
+    case 'PENDING':
+      return 'text-amber-200'
+    case 'PAUSED':
+      return 'text-orange-200'
+    case 'FAILED':
+      return 'text-rose-200'
+    case 'COMPLETED':
+      return 'text-emerald-200'
+    case 'CANCELED':
+      return 'text-gray-300'
+    default:
+      return 'text-gray-300'
+  }
+}
+
+const scanTaskProgressText = (task: Record<string, any>) => {
+  const processed = Number(task.processedItems || 0)
+  const total = Number(task.totalItems || 0)
+  const skipped = Number(task.skippedItems || 0)
+  const failed = Number(task.failedItems || 0)
+  const percent = total > 0 ? Math.max(0, Math.min(100, Number(task.progressPercent ?? Math.round((processed / total) * 100)))) : 0
+  const segments = [`进度 ${processed}/${total}`, `${percent}%`]
+  if (skipped > 0) segments.push(`跳过 ${skipped}`)
+  if (failed > 0) segments.push(`失败 ${failed}`)
+  return segments.join(' · ')
+}
+
+const handleSuperAdminLoadErrors = (failedItems: Array<{ label: string; error: any }>) => {
+  if (!failedItems.length) return
+  failedItems.forEach(item => {
+    console.error(`[SuperAdmin] 模块加载失败: ${item.label}`, item.error)
+  })
+
+  const authFailure = failedItems.every(item => {
+    const status = item.error?.response?.status
+    return status === 401 || status === 403
+  })
+  if (authFailure) {
+    const firstDetail = failedItems[0]?.error?.response?.data?.error || failedItems[0]?.error?.message || '超级管理员接口鉴权失败'
+    const normalizedDetail = String(firstDetail || '')
+    const message = normalizedDetail.includes('Token无效')
+      ? '超级管理员登录态已失效，请重新登录'
+      : normalizedDetail.includes('仅超级管理员可执行此操作')
+        ? '当前账号没有超级管理员权限，已返回普通后台'
+        : `超级管理员接口鉴权失败：${normalizedDetail}`
+    showMessage(message, 'error')
+    router.replace('/admin')
+    return
+  }
+
+  const failedModules = failedItems.map(item => item.label)
+  const firstDetail = failedItems[0]?.error?.response?.data?.error || failedItems[0]?.error?.message
+  showMessage(
+    firstDetail
+      ? `以下模块加载失败：${failedModules.join('、')}（${firstDetail}）`
+      : `以下模块加载失败：${failedModules.join('、')}`,
+    'error'
+  )
+}
+
+const ensureTabDataLoaded = async (tab: SuperAdminTabKey, force = false) => {
+  if (!force && loadedSuperAdminTabs.has(tab)) return
+  const tasks: Array<{ label: string; loader: () => Promise<any> }> = []
+  switch (tab) {
+    case 'overview':
+      tasks.push(
+        { label: '概览', loader: loadOverview },
+        { label: '线程进度', loader: loadProcessingOverview }
+      )
+      break
+    case 'scan':
+      tasks.push({ label: '扫描管理', loader: loadSuperScanPage })
+      break
+    case 'storage':
+      tasks.push({ label: '存储配置', loader: loadStorageProviders })
+      break
+    case 'models':
+      tasks.push({ label: '模型管理', loader: loadModels })
+      break
+    case 'users':
+      tasks.push({ label: '用户管理', loader: loadUsers })
+      break
+    case 'logins':
+      tasks.push({ label: '登录记录', loader: loadLoginRecords })
+      break
+    case 'operations':
+      tasks.push({ label: '操作记录', loader: loadOperationLogs })
+      break
+    case 'vip':
+      tasks.push(
+        { label: 'VIP套餐', loader: loadVipPlans },
+        { label: '用户管理', loader: loadUsers },
+        { label: '概览', loader: loadOverview }
+      )
+      break
+    case 'vipOrders':
+      tasks.push(
+        { label: 'VIP订单', loader: loadVipOrders },
+        { label: '续费预演', loader: loadVipRenewalPreview }
+      )
+      break
+    case 'global':
+    case 'payment':
+      tasks.push(
+        { label: '全局设置', loader: loadSettings },
+        { label: '概览', loader: loadOverview },
+        { label: '存储配置', loader: loadStorageProviders }
+      )
+      break
+    case 'notifications':
+      tasks.push(
+        { label: '全局设置', loader: loadSettings },
+        { label: '邮件模板', loader: loadEmailTemplates }
+      )
+      break
+    case 'tools':
+      break
+    default:
+      break
+  }
+  if (!tasks.length) {
+    loadedSuperAdminTabs.add(tab)
+    return
+  }
+  const results = await Promise.allSettled(tasks.map(task => task.loader()))
+  const failedItems = results
+    .map((result, index) => ({ result, index }))
+    .filter(item => item.result.status === 'rejected')
+    .map(item => ({
+      label: tasks[item.index].label,
+      error: (item.result as PromiseRejectedResult).reason
+    }))
+  handleSuperAdminLoadErrors(failedItems)
+  if (!failedItems.length) {
+    loadedSuperAdminTabs.add(tab)
+  }
+}
+
 const loadAll = async () => {
   loading.value = true
   try {
-    const results = await Promise.allSettled([
-      loadOverview(),
-      loadModels(),
-      loadEmailTemplates(),
-      loadSettings(),
-      loadTablePreferences(),
-      loadUsers(),
-      loadStorageProviders(),
-      loadLoginRecords(),
-      loadOperationLogs(),
-      loadVipPlans(),
-      loadVipOrders(),
-      loadFocusedVipOrder(),
-      loadVipRenewalPreview()
-    ])
-    const moduleLabels = ['概览', '模型管理', '邮件模板', '全局设置', '表格偏好', '用户管理', '存储配置', '登录记录', '操作记录', 'VIP套餐', 'VIP订单', '订单定位', '续费预演']
-    const failedItems = results
+    const bootstrapTasks: Array<{ label: string; loader: () => Promise<any> }> = [
+      { label: '全局设置', loader: loadSettings },
+      { label: '表格偏好', loader: loadTablePreferences }
+    ]
+    if (typeof route.query.focusOrderNo === 'string' && route.query.focusOrderNo.trim()) {
+      bootstrapTasks.push({ label: '订单定位', loader: loadFocusedVipOrder })
+    }
+    const bootstrapResults = await Promise.allSettled(bootstrapTasks.map(task => task.loader()))
+    const bootstrapFailed = bootstrapResults
       .map((result, index) => ({ result, index }))
       .filter(item => item.result.status === 'rejected')
       .map(item => ({
-        label: moduleLabels[item.index],
+        label: bootstrapTasks[item.index].label,
         error: (item.result as PromiseRejectedResult).reason
       }))
-    if (failedItems.length) {
-      failedItems.forEach(item => {
-        console.error(`[SuperAdmin] 模块加载失败: ${item.label}`, item.error)
-      })
-
-      const authFailure = failedItems.every(item => {
-        const status = item.error?.response?.status
-        return status === 401 || status === 403
-      })
-      if (authFailure) {
-        showMessage('当前账号已无超级管理员权限，已返回后台首页', 'error')
-        router.replace('/admin')
-        return
-      }
-
-      const failedModules = failedItems.map(item => item.label)
-      const firstDetail = failedItems[0]?.error?.response?.data?.error || failedItems[0]?.error?.message
-      showMessage(
-        firstDetail
-          ? `以下模块加载失败：${failedModules.join('、')}（${firstDetail}）`
-          : `以下模块加载失败：${failedModules.join('、')}`,
-        'error'
-      )
-    }
+    handleSuperAdminLoadErrors(bootstrapFailed)
+    if (bootstrapFailed.length) return
+    await ensureTabDataLoaded(activeTab.value, true)
   } catch (error: any) {
     showMessage(error?.response?.data?.error || error?.message || '加载超级管理员数据失败', 'error')
   } finally {
@@ -4255,12 +6195,16 @@ const loadAll = async () => {
 
 const getTablePreference = (key: string): ConfigurableTablePreference => {
   const preference = tablePreferences.value[key]
-  return {
+  const normalized = {
     columnOrder: [...(preference?.columnOrder || [])],
     hiddenColumns: [...(preference?.hiddenColumns || [])],
     sortKey: preference?.sortKey || null,
     sortDirection: preference?.sortDirection || null
   }
+  if (key === 'users') {
+    return normalizeUserTablePreference(normalized)
+  }
+  return normalized
 }
 
 const persistTablePreferences = async () => {
@@ -4269,13 +6213,14 @@ const persistTablePreferences = async () => {
 }
 
 const updateTablePreference = (key: string, preference: ConfigurableTablePreference) => {
+  const normalizedPreference = key === 'users' ? normalizeUserTablePreference(preference) : preference
   tablePreferences.value = {
     ...tablePreferences.value,
     [key]: {
-      columnOrder: [...(preference.columnOrder || [])],
-      hiddenColumns: [...(preference.hiddenColumns || [])],
-      sortKey: preference.sortKey || null,
-      sortDirection: preference.sortDirection || null
+      columnOrder: [...(normalizedPreference.columnOrder || [])],
+      hiddenColumns: [...(normalizedPreference.hiddenColumns || [])],
+      sortKey: normalizedPreference.sortKey || null,
+      sortDirection: normalizedPreference.sortDirection || null
     }
   }
   if (tablePreferenceSaveTimer) {
@@ -4310,6 +6255,24 @@ watch(activeTab, value => {
     return
   }
   stopModelTaskPolling()
+}, { immediate: true })
+
+watch(activeTab, value => {
+  if (value === 'overview') {
+    loadProcessingOverview()
+    startProcessingOverviewPolling()
+    return
+  }
+  stopProcessingOverviewPolling()
+}, { immediate: true })
+
+watch(activeTab, value => {
+  if (value === 'scan') {
+    loadSuperScanPage()
+    startSuperScanPolling()
+    return
+  }
+  stopSuperScanPolling()
 }, { immediate: true })
 
 watch(
@@ -4428,6 +6391,35 @@ const saveSettings = async () => {
     showMessage(error?.response?.data?.error || error?.message || '保存设置失败', 'error')
   } finally {
     savingSettings.value = false
+  }
+}
+
+const openSmsTestModal = () => {
+  smsTestPhone.value = localStorage.getItem(SMS_TEST_PHONE_STORAGE_KEY) || smsTestPhone.value || ''
+  showSmsTestModal.value = true
+}
+
+const closeSmsTestModal = () => {
+  showSmsTestModal.value = false
+}
+
+const sendTestSms = async () => {
+  if (!smsTestPhone.value.trim()) {
+    showMessage('请输入测试手机号', 'error')
+    return
+  }
+  const normalizedPhone = smsTestPhone.value.trim()
+  localStorage.setItem(SMS_TEST_PHONE_STORAGE_KEY, normalizedPhone)
+  closeSmsTestModal()
+  sendingTestSms.value = true
+  try {
+    const { data } = await superAdminApi.sendTestSms(normalizedPhone)
+    const debugText = data?.debugCode ? `，调试验证码：${data.debugCode}` : ''
+    showMessage((data?.message || '测试验证码已发送') + debugText)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '发送测试验证码失败', 'error')
+  } finally {
+    sendingTestSms.value = false
   }
 }
 
@@ -4560,6 +6552,7 @@ const applyStoragePreset = () => {
   if (!String(newProvider.configJson || '').trim()) {
     newProvider.configJson = preset.configJson
   }
+  hydrateStorageConfigDraft(newProvider)
   showMessage(`已应用 ${storageTypeLabel(newProvider.type)} 推荐配置`)
 }
 
@@ -4577,11 +6570,13 @@ const fillProviderPresetByVisibility = (provider: Partial<StorageProviderSummary
   if (!String(provider.configJson || '').trim()) {
     provider.configJson = preset.configJson
   }
+  hydrateStorageConfigDraft(provider)
 }
 
 const handleNewProviderTypeChange = () => {
   clearHiddenStorageFields(newProvider)
   fillProviderPresetByVisibility(newProvider)
+  hydrateStorageConfigDraft(newProvider)
 }
 
 watch(() => newProvider.type, () => {
@@ -4595,6 +6590,7 @@ watch(selectedEmailTemplateKey, () => {
 const handleProviderTypeChange = (provider: Partial<StorageProviderSummary>) => {
   clearHiddenStorageFields(provider)
   fillProviderPresetByVisibility(provider)
+  hydrateStorageConfigDraft(provider)
 }
 
 const applyProviderPreset = (provider: Partial<StorageProviderSummary>) => {
@@ -4605,6 +6601,7 @@ const applyProviderPreset = (provider: Partial<StorageProviderSummary>) => {
   if (!String(provider.configJson || '').trim()) {
     provider.configJson = preset.configJson
   }
+  hydrateStorageConfigDraft(provider)
   showMessage(`已为 ${provider.name || storageTypeLabel(provider.type)} 套用推荐配置`)
 }
 
@@ -4613,8 +6610,11 @@ const validateProviderDraft = (provider: Partial<StorageProviderSummary>) => {
     return '请输入存储名称'
   }
   const assessment = getProviderAssessment(provider)
-  if (assessment.missingLabels.length) {
-    return `当前存储缺少：${assessment.missingLabels.join('、')}`
+  if (assessment.configError) {
+    return `扩展配置 JSON 解析失败：${assessment.configError}`
+  }
+  if (assessment.missingLabels.length || assessment.configMissingLabels.length) {
+    return `当前存储缺少：${[...assessment.missingLabels, ...assessment.configMissingLabels].join('、')}`
   }
   return ''
 }
@@ -4655,12 +6655,56 @@ const runLegacyMigration = async () => {
   }
 }
 
-const saveUser = async (user: UserAccountSummary) => {
+const closeResetPasswordModal = () => {
+  showResetPasswordModal.value = false
+  resetPasswordTargetUser.value = null
+  resetPasswordDraft.password = ''
+  resetPasswordDraft.confirmPassword = ''
+}
+
+const promptResetUserPassword = (user: UserAccountSummary) => {
+  openUserActionMenuId.value = null
+  resetPasswordTargetUser.value = user
+  resetPasswordDraft.password = ''
+  resetPasswordDraft.confirmPassword = ''
+  showResetPasswordModal.value = true
+}
+
+const toggleUserActionMenu = (userId: number) => {
+  openUserActionMenuId.value = openUserActionMenuId.value === userId ? null : userId
+}
+
+const submitResetUserPassword = async () => {
+  if (!resetPasswordTargetUser.value) return
+  const password = resetPasswordDraft.password.trim()
+  const confirmPassword = resetPasswordDraft.confirmPassword.trim()
+  if (!password) {
+    showMessage('请输入新的登录密码', 'error')
+    return
+  }
+  if (password.length < 6) {
+    showMessage('新密码至少需要 6 位', 'error')
+    return
+  }
+  if (password !== confirmPassword) {
+    showMessage('两次输入的新密码不一致', 'error')
+    return
+  }
+  resettingUserPassword.value = true
+  try {
+    await superAdminApi.resetUserPassword(resetPasswordTargetUser.value.id, password)
+    showMessage(`用户 ${resetPasswordTargetUser.value.username} 的密码已重置`)
+    closeResetPasswordModal()
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '重置密码失败', 'error')
+  } finally {
+    resettingUserPassword.value = false
+  }
+}
+
+const persistUser = async (user: UserAccountSummary, options: { reloadAfter?: boolean } = {}) => {
   savingUserId.value = user.id
   try {
-    if ((user.pendingPassword || user.pendingPasswordConfirm) && user.pendingPassword !== user.pendingPasswordConfirm) {
-      throw new Error('两次输入的新密码不一致')
-    }
     const { data } = await superAdminApi.updateUser(user.id, {
       nickname: user.nickname,
       phone: user.phone,
@@ -4669,8 +6713,8 @@ const saveUser = async (user: UserAccountSummary) => {
       status: user.status,
       projectNameZh: user.projectNameZh,
       projectNameEn: user.projectNameEn,
-      storageQuotaBytes: gbToBytes((user as any).storageQuotaGb),
-      vipExtraQuotaBytes: gbToBytes((user as any).vipExtraQuotaGb),
+      storageQuotaBytes: resolveUserQuotaBytes((user as any).storageQuotaGb, user.storageQuotaBytes),
+      vipExtraQuotaBytes: resolveUserQuotaBytes((user as any).vipExtraQuotaGb, user.vipExtraQuotaBytes),
       currentVipPlanId: user.currentVipPlanId,
       vipExpireAt: normalizeDateTimeLocal(user.vipExpireAt),
       preferredStorageProviderId: user.preferredStorageProviderId,
@@ -4678,23 +6722,55 @@ const saveUser = async (user: UserAccountSummary) => {
       phoneVerified: user.phoneVerified,
       emailVerified: user.emailVerified
     })
-    if (user.pendingPassword) {
-      await superAdminApi.resetUserPassword(user.id, user.pendingPassword)
-    }
-    users.value = users.value.map(item => item.id === user.id ? {
+    const hydratedUser = {
       ...data,
       storageQuotaGb: bytesToGb(data.storageQuotaBytes),
       vipExtraQuotaGb: bytesToGb(data.vipExtraQuotaBytes),
       vipExpireAt: normalizeDateTimeLocal(data.vipExpireAt),
-      pendingPassword: '',
-      pendingPasswordConfirm: ''
-    } as any : item)
-    await loadOverview()
-    showMessage(`用户 ${data.username} 已更新${user.pendingPassword ? '，密码已重置' : ''}`)
+      visible: !!data.multiUserVisible,
+      usage: Number(data.storageUsedBytes || 0)
+    } as any
+    userDraftSnapshots.value[user.id] = buildUserDraftSnapshot(hydratedUser)
+    users.value = users.value.map(item => item.id === user.id ? hydratedUser : item)
+    if (options.reloadAfter !== false) {
+      await Promise.all([loadOverview(), loadUsers()])
+    } else {
+      await loadOverview()
+    }
+    return data
   } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '保存用户失败', 'error')
+    throw error
   } finally {
     savingUserId.value = null
+  }
+}
+
+const saveUser = async (user: UserAccountSummary) => {
+  try {
+    const data = await persistUser(user)
+    showMessage(`用户 ${data.username} 已更新`)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '保存用户失败', 'error')
+  }
+}
+
+const saveModifiedUsers = async () => {
+  if (!modifiedUsers.value.length) {
+    showMessage('当前没有需要保存的用户修改')
+    return
+  }
+  savingAllUsers.value = true
+  try {
+    const drafts = [...modifiedUsers.value]
+    for (const user of drafts) {
+      await persistUser(user, { reloadAfter: false })
+    }
+    await loadUsers()
+    showMessage(`已保存 ${drafts.length} 个用户的修改`)
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '批量保存用户失败', 'error')
+  } finally {
+    savingAllUsers.value = false
   }
 }
 
@@ -4710,6 +6786,7 @@ const resetNewProvider = () => {
     baseDirectory: '',
     configJson: ''
   })
+  hydrateStorageConfigDraft(newProvider)
 }
 
 const createProvider = async () => {
@@ -4722,7 +6799,8 @@ const createProvider = async () => {
   try {
     await superAdminApi.createStorageProvider(toStorageProviderPayload(newProvider))
     resetNewProvider()
-    await Promise.all([loadOverview(), loadStorageProviders(), loadSettings()])
+    showCreateStorageModal.value = false
+    await Promise.allSettled([loadOverview(), loadStorageProviders(), loadSettings()])
     showMessage('存储提供者已创建')
   } catch (error: any) {
     showMessage(error?.response?.data?.error || error?.message || '创建存储提供者失败', 'error')
@@ -4804,12 +6882,35 @@ const saveProvider = async (provider: StorageProviderSummary) => {
     showMessage(validationMessage, 'error')
     return
   }
+  const structuralChanges = providerHasStructuralChanges(provider)
+  if (structuralChanges) {
+    const confirmed = window.confirm(
+      '你修改了存储类型、端点、存储桶或基础目录，这会被视为切换到新的存储位置。\n\n保存后将自动触发一次重新扫描，以重建当前存储下的扫描记录。\n\n确定继续吗？'
+    )
+    if (!confirmed) {
+      return
+    }
+  }
   savingProviderId.value = provider.id
   try {
     const { data } = await superAdminApi.updateStorageProvider(provider.id, toStorageProviderPayload(provider))
     storageProviders.value = storageProviders.value.map(item => item.id === provider.id ? { ...item, ...data } : item)
-    await Promise.all([loadOverview(), loadStorageProviders(), loadSettings()])
-    showMessage(`存储提供者 ${data.name} 已更新`)
+    originalStorageProviderPayloads.value = {
+      ...originalStorageProviderPayloads.value,
+      [provider.id]: snapshotStorageProviderPayload(data)
+    }
+    if (structuralChanges && data.enabled && data.scanSupported !== false) {
+      try {
+        await api.post('/admin/scan', null, { params: { storageProviderId: data.id } })
+        showMessage(`存储提供者 ${data.name} 已更新，并已触发重新扫描`)
+      } catch (scanError: any) {
+        showMessage(`存储提供者 ${data.name} 已更新，但自动重扫失败：${scanError?.response?.data?.message || scanError?.message || '未知错误'}`, 'error')
+      }
+    }
+    await Promise.allSettled([loadOverview(), loadStorageProviders(), loadSettings()])
+    if (!structuralChanges) {
+      showMessage(`存储提供者 ${data.name} 已更新`)
+    }
   } catch (error: any) {
     showMessage(error?.response?.data?.error || error?.message || '保存存储提供者失败', 'error')
   } finally {
@@ -5132,5 +7233,7 @@ const vipOrderChangeTypeLabel = (value?: string | null) => {
 onMounted(loadAll)
 onUnmounted(() => {
   stopModelTaskPolling()
+  stopProcessingOverviewPolling()
+  stopSuperScanPolling()
 })
 </script>

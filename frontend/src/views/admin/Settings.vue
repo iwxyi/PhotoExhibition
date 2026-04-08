@@ -342,7 +342,7 @@
         <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
           <h3 class="text-sm font-medium text-blue-300 mb-2">功能说明</h3>
           <div class="text-xs text-gray-300 space-y-1">
-            <p>&#x2022; 启用后，搜索栏将支持自然语言查询，如"去年语嫣在樱花园的白天樱花汉服"</p>
+            <p>&#x2022; 启用后，搜索栏支持自然语言查询，例如“去年某某在花园的白天汉服照片”</p>
             <p>&#x2022; AI会自动从数据库中匹配人物、标签、相册等信息，生成精确的搜索条件</p>
             <p>&#x2022; 每次搜索消耗约1000-1500 tokens，请注意API用量</p>
             <p>&#x2022; 如果AI搜索失败，会自动回退到普通关键词搜索</p>
@@ -510,12 +510,16 @@
 
         <div class="flex items-center gap-3">
           <button
+            v-if="authStore.isSuperAdmin"
             @click="triggerForceScan"
             :disabled="scanning"
             class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors text-sm"
           >
             {{ scanning ? '扫描中...' : '立即重新扫描' }}
           </button>
+          <span v-else class="text-sm text-amber-200">
+            普通用户不能主动重新扫描，请等待系统按队列自动处理。
+          </span>
           <!-- EXIF 更新入口已集成到 API 测试工具中 -->
           <span class="text-xs text-gray-400">
             这将根据新设置重建所有相册结构，可能需要较长时间
@@ -550,9 +554,11 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const maxAlbumDepth = ref(1)
 const originalMaxAlbumDepth = ref(1)
@@ -811,6 +817,10 @@ const saveSettings = async () => {
 }
 
 const triggerForceScan = async () => {
+  if (!authStore.isSuperAdmin) {
+    alert('普通用户不能主动重新扫描，请等待系统按队列自动处理。')
+    return
+  }
   if (!confirm('⚠️ 确认重新扫描\n\n这将根据新的层级设置重建所有相册，可能需要较长时间。\n确定要继续吗？')) {
     return
   }

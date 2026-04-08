@@ -58,11 +58,16 @@ public class SuperAdminService {
     private final VipOrderAdminService vipOrderAdminService;
     private final VipRenewalService vipRenewalService;
     private final EmailSenderService emailSenderService;
+    private final SmsVerificationService smsVerificationService;
     private final LegacyDataMigrationService legacyDataMigrationService;
     private final StorageProviderService storageProviderService;
     private final UserStorageService userStorageService;
     private final UserPathService userPathService;
     private final ModelManagementService modelManagementService;
+    private final ScanTaskService scanTaskService;
+    private final PhotoScanService photoScanService;
+    private final BackgroundRemovalService backgroundRemovalService;
+    private final RequestMonitoringService requestMonitoringService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -118,6 +123,31 @@ public class SuperAdminService {
         resp.put("missingModelFileCount", modelSummary.get("missingFileCount"));
         resp.put("inactiveModelCount", modelSummary.get("inactiveModelCount"));
         resp.put("modelHealthy", modelSummary.get("healthy"));
+        return resp;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getProcessingOverview() {
+        Map<String, Object> resp = new LinkedHashMap<>();
+        List<Map<String, Object>> workers = new ArrayList<>();
+        workers.add(requestMonitoringService.getOverview());
+        workers.add(scanTaskService.getSuperAdminQueueOverview());
+        workers.add(photoScanService.getAsyncTaskOverview());
+        workers.add(backgroundRemovalService.getProcessingOverview());
+        workers.add(modelManagementService.getTaskOverview());
+
+        long activeWorkerGroups = workers.stream()
+            .filter(item -> Boolean.TRUE.equals(item.get("queueActive"))
+                || Boolean.TRUE.equals(item.get("running"))
+                || asLong(item.get("runningTaskCount")) > 0
+                || asLong(item.get("activeThreads")) > 0
+                || asLong(item.get("activeWorkers")) > 0)
+            .count();
+
+        resp.put("workerCount", workers.size());
+        resp.put("activeWorkerGroupCount", activeWorkerGroups);
+        resp.put("workers", workers);
+        resp.put("nonBlockingNote", "扫描队列、背景移除、模型重建均在独立后台线程中执行，接口请求仅负责提交任务与查询状态。");
         return resp;
     }
 
@@ -399,6 +429,14 @@ public class SuperAdminService {
         resp.put("providerType", result.getProviderType());
         resp.put("recipient", result.getRecipient());
         resp.put("message", result.getMessage());
+        return resp;
+    }
+
+    @Transactional
+    public Map<String, Object> sendTestSmsCode(String phone, String requestIp) {
+        Map<String, Object> resp = new LinkedHashMap<>(smsVerificationService.sendTestCode(phone, requestIp));
+        SmsConfigService.SmsResolvedSettings smsSettings = smsConfigService.getResolvedSettings();
+        resp.put("providerType", smsSettings.getProviderType() != null ? smsSettings.getProviderType().name() : SmsProviderType.ALIYUN.name());
         return resp;
     }
 
@@ -1559,5 +1597,19 @@ public class SuperAdminService {
 
     private long defaultLong(Long value) {
         return value == null ? 0L : value;
+    }
+
+    private long asLong(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value == null) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
     }
 }

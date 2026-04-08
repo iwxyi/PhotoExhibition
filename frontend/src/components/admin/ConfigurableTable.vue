@@ -1,29 +1,38 @@
 <template>
-  <div class="space-y-3">
-    <div class="flex items-center justify-between gap-3">
-      <div class="text-xs text-gray-500">
-        支持按列排序、显示隐藏和拖动列顺序，偏好会自动保存。
+  <div class="admin-table-shell">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <div class="flex items-center gap-3 flex-wrap">
+        <slot name="toolbar-left" />
       </div>
-      <div class="relative">
+      <div ref="columnPanelRef" class="relative">
         <button
           type="button"
-          class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10"
+          class="admin-table-toolbar-btn"
           @click="columnPanelOpen = !columnPanelOpen"
         >
           列设置
         </button>
         <div
           v-if="columnPanelOpen"
-          class="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-white/10 bg-gray-950/95 p-3 shadow-2xl"
+          class="absolute right-0 z-20 mt-2 w-72 rounded-2xl border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-xl"
         >
-          <div class="mb-2 text-sm text-gray-200">列显示</div>
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="text-sm text-slate-100">列显示</div>
+            <button
+              type="button"
+              class="text-xs text-sky-300 hover:text-sky-200"
+              @click="resetPreferences"
+            >
+              恢复默认
+            </button>
+          </div>
           <div class="space-y-2">
             <label
               v-for="column in orderedColumns"
               :key="column.key"
-              class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-white/5"
+              class="flex items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-white/5"
             >
-              <span class="text-sm text-gray-300">{{ column.label }}</span>
+              <span class="text-sm text-slate-300">{{ column.label }}</span>
               <input
                 :checked="!hiddenColumnSet.has(column.key)"
                 type="checkbox"
@@ -36,17 +45,17 @@
       </div>
     </div>
 
-    <div v-if="loading" class="text-sm text-gray-400">{{ loadingText }}</div>
-    <div v-else-if="!sortedRows.length" class="text-sm text-gray-400">{{ emptyText }}</div>
-    <div v-else class="overflow-auto rounded-2xl border border-white/10">
-      <table class="w-full text-sm text-gray-200">
-        <thead class="bg-white/5 text-gray-400 border-b border-white/10">
+    <div v-if="loading" class="admin-table-empty">{{ loadingText }}</div>
+    <div v-else-if="!sortedRows.length" class="admin-table-empty">{{ emptyText }}</div>
+    <div v-else class="admin-table-scroll">
+      <table class="admin-table">
+        <thead class="admin-table-head">
           <tr>
             <th
               v-for="column in visibleColumns"
               :key="column.key"
               draggable="true"
-              class="px-3 py-3 text-left whitespace-nowrap select-none"
+              class="px-4 py-3 text-left whitespace-nowrap select-none"
               :class="[column.headerClass, draggingColumnKey === column.key ? 'opacity-60' : '']"
               @dragstart="startDrag(column.key)"
               @dragover.prevent
@@ -55,7 +64,7 @@
               <button
                 v-if="column.sortable"
                 type="button"
-                class="inline-flex items-center gap-1 hover:text-white"
+                class="inline-flex items-center gap-1 text-slate-300 hover:text-white transition-colors"
                 @click="toggleSort(column.key)"
               >
                 <span>{{ column.label }}</span>
@@ -69,12 +78,12 @@
           <tr
             v-for="row in sortedRows"
             :key="resolveRowKey(row)"
-            class="border-b border-white/5 align-top last:border-b-0"
+            class="border-b border-white/5 align-top last:border-b-0 hover:bg-white/[0.03] transition-colors"
           >
             <td
               v-for="column in visibleColumns"
               :key="column.key"
-              class="px-3 py-3"
+              class="px-4 py-4"
               :class="column.cellClass"
             >
               <slot
@@ -94,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { ConfigurableTablePreference } from '@/api'
 
 export interface ConfigurableColumn {
@@ -128,6 +137,7 @@ const emit = defineEmits<{
 
 const draggingColumnKey = ref<string | null>(null)
 const columnPanelOpen = ref(false)
+const columnPanelRef = ref<HTMLElement | null>(null)
 const localPreferences = reactive<ConfigurableTablePreference>({
   columnOrder: [],
   hiddenColumns: [],
@@ -208,6 +218,30 @@ const sortedRows = computed(() => {
 const emitPreferences = () => {
   emit('update:preferences', clonePreferences(localPreferences))
 }
+
+const resetPreferences = () => {
+  localPreferences.columnOrder = []
+  localPreferences.hiddenColumns = []
+  localPreferences.sortKey = null
+  localPreferences.sortDirection = null
+  emitPreferences()
+}
+
+const handleDocumentClick = (event: MouseEvent) => {
+  if (!columnPanelOpen.value) return
+  const target = event.target as Node | null
+  if (columnPanelRef.value && target && !columnPanelRef.value.contains(target)) {
+    columnPanelOpen.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleDocumentClick)
+})
 
 const toggleColumn = (key: string) => {
   const hidden = new Set(localPreferences.hiddenColumns)

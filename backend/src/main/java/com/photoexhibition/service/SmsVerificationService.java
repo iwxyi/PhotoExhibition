@@ -123,6 +123,37 @@ public class SmsVerificationService {
     }
 
     @Transactional
+    public Map<String, Object> sendTestCode(String phone, String requestIp) {
+        String normalizedPhone = normalizePhone(phone);
+        validateSendRateLimit(normalizedPhone, requestIp);
+        smsVerificationCodeRepository.invalidateActiveCodes(normalizedPhone, SmsCodePurpose.LOGIN, LocalDateTime.now(), "新验证码已发送");
+
+        String code = String.format("%06d", ThreadLocalRandom.current().nextInt(0, 1_000_000));
+        SmsSenderService.SmsSendResult sendResult = smsSenderService.sendLoginCode(normalizedPhone, code);
+
+        SmsVerificationCode record = new SmsVerificationCode();
+        record.setUserId(null);
+        record.setPhone(normalizedPhone);
+        record.setPurpose(SmsCodePurpose.LOGIN);
+        record.setVerificationCode(code);
+        record.setRequestIp(requestIp);
+        record.setSuccess(sendResult.isSuccess());
+        record.setProviderMessageId(sendResult.getProviderMessageId());
+        record.setProviderResponse(sendResult.getRawResponse());
+        record.setExpiresAt(LocalDateTime.now().plusMinutes(smsConfigService.getResolvedSettings().getCodeExpireMinutes()));
+        smsVerificationCodeRepository.save(record);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("message", "测试验证码已发送");
+        result.put("phone", normalizedPhone);
+        result.put("expiresInSeconds", smsConfigService.getResolvedSettings().getCodeExpireMinutes() * 60);
+        if (sendResult.getDebugCode() != null) {
+            result.put("debugCode", sendResult.getDebugCode());
+        }
+        return result;
+    }
+
+    @Transactional
     public UserAccount verifyLoginCode(String phone, String code) {
         String normalizedPhone = normalizePhone(phone);
         if (code == null || !code.matches("^\\d{4,8}$")) {

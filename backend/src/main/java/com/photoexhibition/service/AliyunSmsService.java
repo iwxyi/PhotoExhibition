@@ -11,11 +11,11 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.Map;
 import java.util.TreeMap;
@@ -54,15 +54,16 @@ public class AliyunSmsService implements SmsSender {
             params.put("SignatureVersion", "1.0");
             params.put("TemplateCode", settings.getTemplateCode());
             params.put("TemplateParam", templateParam);
-            params.put("Timestamp", OffsetDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")));
+            params.put("Timestamp", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString());
             params.put("Version", "2017-05-25");
 
             String signature = sign(params, settings.getAccessKeySecret());
             String query = params.entrySet().stream()
                 .map(entry -> percentEncode(entry.getKey()) + "=" + percentEncode(entry.getValue()))
                 .collect(Collectors.joining("&"));
-            String url = settings.getEndpoint() + "?" + query + "&Signature=" + percentEncode(signature);
-            String response = restTemplate.getForObject(url, String.class);
+            String endpoint = normalizeEndpoint(settings.getEndpoint());
+            String url = endpoint + "?" + query + "&Signature=" + percentEncode(signature);
+            String response = restTemplate.getForObject(URI.create(url), String.class);
             JsonNode root = objectMapper.readTree(response);
             String responseCode = root.path("Code").asText();
             if (!"OK".equalsIgnoreCase(responseCode)) {
@@ -112,6 +113,13 @@ public class AliyunSmsService implements SmsSender {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String normalizeEndpoint(String endpoint) {
+        if (isBlank(endpoint)) {
+            return "https://dysmsapi.aliyuncs.com/";
+        }
+        return endpoint.trim();
     }
 
 }

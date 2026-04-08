@@ -14,6 +14,7 @@ import com.photoexhibition.entity.StorageProvider;
 import com.photoexhibition.entity.StorageType;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.StorageProviderRepository;
@@ -133,6 +134,7 @@ public class PhotoScanService {
     // 简单的任务状态记录结构（用于后台异步任务的进度与日志查询）
     private static class TaskStatus {
         public String taskId;
+        public String taskName;
         public String status;
         public final List<String> logs = Collections.synchronizedList(new ArrayList<>());
         public int current = 0;
@@ -146,17 +148,21 @@ public class PhotoScanService {
     // 跳过文件记录（扫描进度差异详情）
     public static class SkippedFileRecord {
         public int index;
+        public Long userId;
         public String relativePath;
         public String reason;
         public String detail;
         public long fileSizeBytes;
+        public LocalDateTime recordedAt;
 
-        public SkippedFileRecord(int index, String relativePath, String reason, String detail, long fileSizeBytes) {
+        public SkippedFileRecord(int index, Long userId, String relativePath, String reason, String detail, long fileSizeBytes, LocalDateTime recordedAt) {
             this.index = index;
+            this.userId = userId;
             this.relativePath = relativePath;
             this.reason = reason;
             this.detail = detail;
             this.fileSizeBytes = fileSizeBytes;
+            this.recordedAt = recordedAt;
         }
     }
 
@@ -291,12 +297,34 @@ public class PhotoScanService {
     }
     
     private void createTask(String taskId, String initialMessage) {
+        createTask(taskId, initialMessage, resolveTaskName(taskId));
+    }
+
+    private void createTask(String taskId, String initialMessage, String taskName) {
         TaskStatus ts = new TaskStatus();
         ts.taskId = taskId;
+        ts.taskName = taskName;
         ts.status = "running";
         ts.startTime = LocalDateTime.now();
         if (initialMessage != null) ts.logs.add(LocalDateTime.now().toString() + " " + initialMessage);
         tasks.put(taskId, ts);
+    }
+
+    private String resolveTaskName(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return "后台异步任务";
+        }
+        String normalized = taskId.toLowerCase(Locale.ROOT);
+        if (normalized.contains("face")) {
+            return "人脸重建任务";
+        }
+        if (normalized.contains("exif")) {
+            return "EXIF 修复任务";
+        }
+        if (normalized.contains("color")) {
+            return "颜色分析任务";
+        }
+        return "后台异步任务";
     }
 
     public void runWithStorageContext(Long storageProviderId, Runnable action) {
@@ -1378,8 +1406,41 @@ public class PhotoScanService {
     /**
      * 获取本次扫描跳过的文件列表（进度差异详情）
      */
-    public List<SkippedFileRecord> getSkippedFileRecords() {
-        return new ArrayList<>(skippedFileRecords);
+    public List<SkippedFileRecord> getSkippedFileRecords(UserAccount currentUser) {
+        if (currentUser == null) {
+            return List.of();
+        }
+        if (currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return new ArrayList<>(skippedFileRecords);
+        }
+        return skippedFileRecords.stream()
+            .filter(record -> Objects.equals(record.userId, currentUser.getId()))
+            .collect(Collectors.toList());
+    }
+
+    public Map<String, Object> clearSkippedFileRecords(UserAccount currentUser) {
+        Map<String, Object> result = new HashMap<>();
+        if (currentUser == null) {
+            result.put("success", false);
+            result.put("message", "未找到当前用户");
+            return result;
+        }
+
+        int removed;
+        synchronized (skippedFileRecords) {
+            if (currentUser.getRole() == UserRole.SUPER_ADMIN) {
+                removed = skippedFileRecords.size();
+                skippedFileRecords.clear();
+            } else {
+                int before = skippedFileRecords.size();
+                skippedFileRecords.removeIf(record -> Objects.equals(record.userId, currentUser.getId()));
+                removed = before - skippedFileRecords.size();
+            }
+        }
+        result.put("success", true);
+        result.put("removed", removed);
+        result.put("message", removed > 0 ? "失败文件记录已清理" : "当前没有可清理的失败文件记录");
+        return result;
     }
 
     /**
@@ -1428,13 +1489,15 @@ public class PhotoScanService {
             // 添加文件系统中的实际照片数量统计，并设置扫描进度
             try {
                 long filesystemTotal = countPhotosInFilesystem();
+                int displayCurrent;
 
                 // 根据扫描状态设置进度显示
                 boolean isCurrentlyScanning = isScanning.get() || activeScanCount.get() > 0;
                 if (isCurrentlyScanning) {
                     // 扫描进行中：显示本次遍历的照片数量 / 文件系统总照片数量
                     int traversedThisScan = scanCurrent.get();  // 本次扫描已遍历的照片数量
-                    status.put("current", traversedThisScan);
+                    displayCurrent = Math.min(traversedThisScan, (int) filesystemTotal);
+                    status.put("current", displayCurrent);
                     status.put("total", filesystemTotal);
                     status.put("scanMode", "scanning"); // 表示正在扫描文件
                 } else {
@@ -1442,19 +1505,28 @@ public class PhotoScanService {
                     int lastScanCurrent = scanCurrent.get();
                     if (lastScanCurrent > 0 && lastScanCurrent >= totalPhotos) {
                         // 扫描已完成，显示实际遍历数/总数（可能 >= total，因为包含空文件和去重文件的计数）
-                        status.put("current", Math.min(lastScanCurrent, (int) filesystemTotal));
+                        displayCurrent = Math.min(lastScanCurrent, (int) filesystemTotal);
                     } else {
                         // 未扫描过或计数异常，显示数据库记录数
-                        status.put("current", totalPhotos);
+                        displayCurrent = (int) Math.min(totalPhotos, filesystemTotal);
                     }
+                    status.put("current", displayCurrent);
                     status.put("total", filesystemTotal);
                     status.put("scanMode", "completed"); // 表示扫描已完成
                 }
+
+                long waitingCount = Math.max(filesystemTotal - displayCurrent, 0);
 
                 status.put("filesystemStats", Map.of(
                     "total", filesystemTotal,
                     "scanned", totalPhotos,
                     "unscanned", Math.max(0, filesystemTotal - totalPhotos)
+                ));
+                status.put("scanSummary", Map.of(
+                    "total", filesystemTotal,
+                    "scanned", displayCurrent,
+                    "failed", failedCount,
+                    "waiting", waitingCount
                 ));
             } catch (Exception e) {
                 log.debug("统计文件系统照片数量失败", e);
@@ -1463,6 +1535,12 @@ public class PhotoScanService {
                 status.put("total", totalPhotos); // fallback：已扫描数量作为总数
                 status.put("scanMode", "fallback");
                 status.put("filesystemStats", Map.of("error", "无法获取文件系统统计"));
+                status.put("scanSummary", Map.of(
+                    "total", totalPhotos,
+                    "scanned", totalPhotos,
+                    "failed", failedCount,
+                    "waiting", 0
+                ));
             }
         } catch (Exception e) {
             log.warn("获取处理状态统计失败", e);
@@ -1805,10 +1883,7 @@ public class PhotoScanService {
                                     : "未被扫描到";
                                 String detail = "该文件在扫描遍历中未被处理，可能因上级目录处理时发生异常";
                                 log.debug("补录未遍历文件: {} (原因: {}, absPath: {})", relPath, reason, absPath);
-                                skippedFileRecords.add(new SkippedFileRecord(
-                                    skippedFileIndex.incrementAndGet(),
-                                    relPath, reason, detail, f.length()
-                                ));
+                                skippedFileRecords.add(buildSkippedFileRecord(absPath, reason, detail, f.length()));
                                 scanCurrent.incrementAndGet();
                                 notifyScanSkip(absPath, "FILE", reason, detail, scanCurrent.get(), scanTotal.get());
                                 missedCount++;
@@ -2400,6 +2475,41 @@ public class PhotoScanService {
             .anyMatch(extension::equals);
     }
 
+    public int estimateScannableFileCount(String rootPath) {
+        if (rootPath == null || rootPath.isBlank()) {
+            return 0;
+        }
+        Path directory;
+        try {
+            directory = Paths.get(rootPath).normalize();
+        } catch (Exception e) {
+            return 0;
+        }
+        if (!Files.exists(directory)) {
+            return 0;
+        }
+        Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
+            .map(String::trim)
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+        try (Stream<Path> paths = Files.walk(directory)) {
+            return (int) paths
+                .filter(Files::isRegularFile)
+                .filter(path -> {
+                    String fileName = path.getFileName() != null ? path.getFileName().toString() : "";
+                    if (fileName.contains("_thumb")) {
+                        return false;
+                    }
+                    String extension = FilenameUtils.getExtension(fileName).toLowerCase(Locale.ROOT);
+                    return !extension.isBlank() && supportedSet.contains(extension);
+                })
+                .count();
+        } catch (Exception e) {
+            log.debug("估算扫描文件数量失败: {}", rootPath, e);
+            return 0;
+        }
+    }
+
     private Long resolveCurrentScanUserId() {
         Long userId = currentStorageUserId.get();
         if (userId != null) {
@@ -2745,10 +2855,7 @@ public class PhotoScanService {
                     String shortMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     // 截断过长的错误信息
                     String detail = shortMsg.length() > 200 ? shortMsg.substring(0, 200) + "…" : shortMsg;
-                    skippedFileRecords.add(new SkippedFileRecord(
-                        skippedFileIndex.incrementAndGet(),
-                        relPath, "处理失败", detail, imageFile.length()
-                    ));
+                    skippedFileRecords.add(buildSkippedFileRecord(imageFile.getAbsolutePath(), "处理失败", detail, imageFile.length()));
                     notifyScanFailure(imageFile.getAbsolutePath(), "FILE", detail, scanCurrent.get(), scanTotal.get());
                 }
             }
@@ -2907,10 +3014,7 @@ public class PhotoScanService {
                                 processedFiles.add(file.getAbsolutePath());
                                 // 记录跳过详情
                                 String relPath = toRelativePath(file.getAbsolutePath());
-                                skippedFileRecords.add(new SkippedFileRecord(
-                                    skippedFileIndex.incrementAndGet(),
-                                    relPath, reason, detail, file.length()
-                                ));
+                                skippedFileRecords.add(buildSkippedFileRecord(file.getAbsolutePath(), reason, detail, file.length()));
                                 notifyScanSkip(file.getAbsolutePath(), file.isDirectory() ? "DIRECTORY" : "FILE", reason, detail, scanCurrent.get(), scanTotal.get());
                             }
                         }
@@ -3028,9 +3132,8 @@ public class PhotoScanService {
                 String existingPath = photo.getOriginalPath();
                 if (existingPath != null && !existingPath.equals(filePath)) {
                     String existingRelPath = toRelativePath(existingPath);
-                    skippedFileRecords.add(new SkippedFileRecord(
-                        skippedFileIndex.incrementAndGet(),
-                        relativePath != null ? relativePath : filePath,
+                    skippedFileRecords.add(buildSkippedFileRecord(
+                        imageFile.getAbsolutePath(),
                         "内容重复",
                         "与已有照片内容相同: " + (existingRelPath != null ? existingRelPath : existingPath),
                         imageFile.length()
@@ -3082,14 +3185,36 @@ public class PhotoScanService {
                 String relPath = toRelativePath(imageFile.getAbsolutePath());
                 String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 String detail = msg.length() > 200 ? msg.substring(0, 200) + "…" : msg;
-                skippedFileRecords.add(new SkippedFileRecord(
-                    skippedFileIndex.incrementAndGet(),
-                    relPath, "处理异常", detail, imageFile.length()
-                ));
+                skippedFileRecords.add(buildSkippedFileRecord(imageFile.getAbsolutePath(), "处理异常", detail, imageFile.length()));
                 notifyScanFailure(imageFile.getAbsolutePath(), "FILE", detail, scanCurrent.get(), scanTotal.get());
             }
         }
         } // end synchronized block
+    }
+
+    private SkippedFileRecord buildSkippedFileRecord(String absolutePath, String reason, String detail, long fileSizeBytes) {
+        String relPath = toRelativePath(absolutePath);
+        Long userId = resolveSkippedRecordUserId(absolutePath);
+        return new SkippedFileRecord(
+            skippedFileIndex.incrementAndGet(),
+            userId,
+            relPath,
+            reason,
+            detail,
+            fileSizeBytes,
+            LocalDateTime.now()
+        );
+    }
+
+    private Long resolveSkippedRecordUserId(String absolutePath) {
+        Long storageUserId = currentStorageUserId.get();
+        if (storageUserId != null) {
+            return storageUserId;
+        }
+        if (absolutePath == null || absolutePath.isBlank()) {
+            return null;
+        }
+        return userPathService.extractUserIdFromPath(absolutePath);
     }
 
     private void executeWithScanProgressListener(ScanProgressListener listener, Runnable runnable) {
@@ -4767,6 +4892,7 @@ public class PhotoScanService {
         }
         resp.put("found", true);
         resp.put("taskId", ts.taskId);
+        resp.put("taskName", ts.taskName);
         resp.put("status", ts.status);
         resp.put("current", ts.current);
         resp.put("total", ts.total);
@@ -4775,6 +4901,58 @@ public class PhotoScanService {
         resp.put("endTime", ts.endTime != null ? ts.endTime.toString() : null);
         resp.put("logs", new ArrayList<>(ts.logs));
         return resp;
+    }
+
+    public Map<String, Object> getAsyncTaskOverview() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> recentTasks = tasks.values().stream()
+            .sorted((left, right) -> compareDateTimeDesc(left.endTime != null ? left.endTime : left.startTime, right.endTime != null ? right.endTime : right.startTime))
+            .limit(8)
+            .map(this::toAsyncTaskMap)
+            .collect(Collectors.toList());
+
+        long runningCount = tasks.values().stream()
+            .filter(task -> task != null && !task.complete && !"failed".equalsIgnoreCase(task.status) && !"stopped".equalsIgnoreCase(task.status))
+            .count();
+
+        Map<String, Object> scanStatus = getScanStatus();
+        result.put("threadType", "PHOTO_ASYNC");
+        result.put("label", "图片处理异步任务");
+        result.put("runningTaskCount", runningCount);
+        result.put("scanning", scanStatus.get("scanning"));
+        result.put("activeScanCount", activeScanCount.get());
+        result.put("scanStatus", scanStatus);
+        result.put("recentTasks", recentTasks);
+        return result;
+    }
+
+    private Map<String, Object> toAsyncTaskMap(TaskStatus task) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("taskId", task.taskId);
+        item.put("taskName", task.taskName);
+        item.put("status", task.status);
+        item.put("current", task.current);
+        item.put("total", task.total);
+        item.put("complete", task.complete);
+        item.put("stopped", task.stopped);
+        item.put("progressPercent", task.total > 0 ? Math.min(100, Math.max(0, (int) Math.round(task.current * 100.0 / task.total))) : (task.complete ? 100 : 0));
+        item.put("startTime", task.startTime);
+        item.put("endTime", task.endTime);
+        item.put("latestLog", task.logs.isEmpty() ? null : task.logs.get(task.logs.size() - 1));
+        return item;
+    }
+
+    private int compareDateTimeDesc(LocalDateTime left, LocalDateTime right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return right.compareTo(left);
     }
 
     /**

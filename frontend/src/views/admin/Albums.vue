@@ -5,7 +5,7 @@
         <h1 class="text-2xl font-light">相册管理</h1>
         <div class="space-x-3">
           <button v-on:click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <button v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary disabled:opacity-50">
+          <button v-if="authStore.isSuperAdmin" v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary disabled:opacity-50">
             重新扫描
           </button>
           <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
@@ -1192,6 +1192,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, albumApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { getEffectParamDefs } from '@/config/particlePresets'
 import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
 import CoverDisplay from '@/components/CoverDisplay.vue'
@@ -1199,6 +1200,7 @@ import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import DropMenu from '@/components/DropMenu.vue'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const albums = ref<any[]>([])
 const loading = ref(false)
@@ -2702,6 +2704,10 @@ const deleteSelectedPhotos = async () => {
 }
 
 const forceScanAndRebuild = async () => {
+  if (!authStore.isSuperAdmin) {
+    alert('普通用户不能主动发起扫描，请等待系统按队列自动处理。')
+    return
+  }
   const confirmed = window.confirm(
     '📸 重新扫描相册\n\n' +
     '此操作将：\n' +

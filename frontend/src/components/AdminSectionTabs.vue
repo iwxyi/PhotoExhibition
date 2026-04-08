@@ -1,23 +1,25 @@
 <template>
-  <div class="flex items-center gap-3 flex-wrap">
+  <div v-if="authStore.isSuperAdmin" class="admin-switcher">
     <router-link
       to="/admin"
-      class="px-4 py-2 rounded-xl text-sm border transition-colors"
+      class="admin-switcher-link"
       :class="isDashboard
-        ? 'bg-blue-600 text-white border-blue-500/40'
-        : 'bg-gray-900/60 hover:bg-gray-800 text-gray-200 border-white/10'"
+        ? 'admin-switcher-link-active admin-switcher-link-dashboard'
+        : 'admin-switcher-link-idle'"
     >
-      后台管理
+      <span class="admin-switcher-link-title">后台管理</span>
+      <span class="admin-switcher-link-subtitle">相册、照片与个人数据</span>
     </router-link>
     <router-link
       v-if="authStore.isSuperAdmin"
       to="/admin/super-admin"
-      class="px-4 py-2 rounded-xl text-sm border transition-colors"
+      class="admin-switcher-link"
       :class="isSuperAdmin
-        ? 'bg-purple-600 text-white border-purple-500/40'
-        : 'bg-gray-900/60 hover:bg-gray-800 text-gray-200 border-white/10'"
+        ? 'admin-switcher-link-active admin-switcher-link-super'
+        : 'admin-switcher-link-idle'"
     >
-      超级管理员
+      <span class="admin-switcher-link-title">超级管理员</span>
+      <span class="admin-switcher-link-subtitle">平台配置、用户与企业级工具</span>
     </router-link>
   </div>
 </template>
