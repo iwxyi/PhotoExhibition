@@ -10,6 +10,8 @@ import Persons from '@/views/Persons.vue'
 import PersonDetail from '@/views/PersonDetail.vue'
 import Search from '@/views/Search.vue'
 
+const LAST_ADMIN_ROUTE_KEY = 'pe_last_admin_route'
+
 const routes = [
   {
     path: '/',
@@ -307,7 +309,9 @@ router.beforeEach(async (to, from, next) => {
 })
 
 router.afterEach((to, from) => {
-  // router navigation debug removed
+  if (to.path.startsWith('/admin') && to.path !== '/admin/login') {
+    localStorage.setItem(LAST_ADMIN_ROUTE_KEY, to.fullPath)
+  }
 })
 
 export default router

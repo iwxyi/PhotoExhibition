@@ -6,6 +6,14 @@ import com.photoexhibition.entity.StorageProvider;
 import com.photoexhibition.entity.StorageType;
 import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.entity.UserRole;
+import com.qcloud.cos.COSClient;
+import com.qcloud.cos.ClientConfig;
+import com.qcloud.cos.auth.BasicCOSCredentials;
+import com.qcloud.cos.auth.COSCredentials;
+import com.qcloud.cos.exception.CosClientException;
+import com.qcloud.cos.exception.CosServiceException;
+import com.qcloud.cos.model.ListObjectsRequest;
+import com.qcloud.cos.region.Region;
 import com.photoexhibition.repository.StorageProviderRepository;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +21,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -136,10 +150,7 @@ public class StorageProviderService {
 
     @Transactional(readOnly = true)
     public Path resolveAbsoluteBaseDirectory(StorageProvider provider) {
-        String raw = provider != null && provider.getBaseDirectory() != null && !provider.getBaseDirectory().isBlank()
-            ? provider.getBaseDirectory()
-            : systemConfigService.getLocalStorageRoot();
-        return resolveConfiguredPath(raw);
+        return userPathService.resolveStorageProviderBaseDirectory(provider);
     }
 
     @Transactional(readOnly = true)
@@ -158,6 +169,346 @@ public class StorageProviderService {
         resp.put("supportMessage", capability.getPrimarySupportMessage());
         resp.put("resolvedBaseDirectory", provider == null ? null : provider.getBaseDirectory());
         return resp;
+    }
+
+    @Transactional(readOnly = true)
+    public LinkedHashMap<String, Object> testProviderAvailability(StorageProvider provider, UserAccount user) {
+        LinkedHashMap<String, Object> resp = describeProviderCapabilities(provider, user);
+        ProviderCapability capability = evaluateProvider(provider, user);
+
+        List<Map<String, Object>> checks = new ArrayList<>();
+        checks.add(buildTestCheck("browser", "浏览", capability.isBrowserSupported(), capability.getBrowserSupportMessage()));
+        checks.add(buildTestCheck("upload", "上传", capability.isUploadSupported(), capability.getUploadSupportMessage()));
+        checks.add(buildTestCheck("scan", "扫描", capability.isScanSupported(), capability.isScanSupported() ? "扫描能力已接通" : capability.getPrimarySupportMessage()));
+        checks.add(buildTestCheck("preview", "预览", capability.isPreviewSupported(), capability.isPreviewSupported() ? "预览能力已接通" : capability.getPrimarySupportMessage()));
+        String configSummary = buildProviderConfigSummary(provider);
+        if (configSummary != null) {
+            checks.add(buildTestCheck("config", "当前配置", true, configSummary));
+        }
+
+        boolean reachable = false;
+        String connectivityMessage;
+        try {
+            connectivityMessage = performConnectivityProbe(provider, capability);
+            reachable = true;
+        } catch (Exception e) {
+            connectivityMessage = e.getMessage() == null || e.getMessage().isBlank() ? "连通性测试失败" : e.getMessage();
+        }
+        checks.add(buildTestCheck("connectivity", "连通性", reachable, connectivityMessage));
+
+        boolean authenticated = false;
+        String authenticationMessage;
+        try {
+            authenticationMessage = performAuthenticatedProbe(provider);
+            authenticated = true;
+        } catch (Exception e) {
+            authenticationMessage = e.getMessage() == null || e.getMessage().isBlank() ? "鉴权测试失败" : e.getMessage();
+        }
+        checks.add(buildTestCheck("authentication", "鉴权", authenticated, authenticationMessage));
+
+        boolean capabilityReady = checks.stream()
+            .filter(item -> !"connectivity".equals(item.get("key")) && !"authentication".equals(item.get("key")))
+            .allMatch(item -> Boolean.TRUE.equals(item.get("success")));
+        boolean success = capabilityReady && reachable && authenticated;
+
+        resp.put("success", success);
+        resp.put("reachable", reachable);
+        resp.put("authenticated", authenticated);
+        resp.put("checks", checks);
+        resp.put("message", success ? "存储测试通过，可实际使用" : "存储测试未通过，请检查失败项");
+        return resp;
+    }
+
+    private Map<String, Object> buildTestCheck(String key, String label, boolean success, String message) {
+        LinkedHashMap<String, Object> item = new LinkedHashMap<>();
+        item.put("key", key);
+        item.put("label", label);
+        item.put("success", success);
+        item.put("message", message);
+        return item;
+    }
+
+    private String performConnectivityProbe(StorageProvider provider, ProviderCapability capability) throws IOException {
+        if (provider == null) {
+            throw new IOException("存储提供者不存在");
+        }
+        switch (provider.getType()) {
+            case LOCAL:
+            case SFTP:
+            case SMB:
+            case NFS:
+                return probeFilesystem(capability.getScopedRoot());
+            case FTP:
+                return probeSocketEndpoint(provider.getEndpoint(), "ftp", 21);
+            case COS:
+                return probeHttpEndpoint(normalizeCosEndpoint(provider.getEndpoint(), provider.getBucketName()));
+            case WEBDAV:
+            case S3_COMPATIBLE:
+            case MINIO:
+            case OSS:
+            case R2:
+            case AZURE_BLOB:
+            case OBS:
+            case B2:
+            case UPYUN:
+                return probeHttpEndpoint(provider.getEndpoint());
+            default:
+                throw new IOException("暂未实现该存储类型的测试探针");
+        }
+    }
+
+    private String performAuthenticatedProbe(StorageProvider provider) throws IOException {
+        if (provider == null || provider.getType() == null) {
+            throw new IOException("存储类型不存在");
+        }
+        switch (provider.getType()) {
+            case LOCAL:
+            case SFTP:
+            case SMB:
+            case NFS:
+                return probeFilesystem(resolveAbsoluteBaseDirectory(provider));
+            case COS:
+                return probeCosAccess(provider);
+            default:
+                return "当前类型暂未实现独立鉴权探测，已完成基础可用性检查";
+        }
+    }
+
+    private String buildProviderConfigSummary(StorageProvider provider) {
+        if (provider == null || provider.getType() == null) {
+            return null;
+        }
+        if (provider.getType() == StorageType.COS) {
+            Map<String, Object> config = parseConfig(provider.getConfigJson());
+            String region = trimToNull(asString(config.get("region")));
+            String secretId = firstNonBlank(
+                trimToNull(asString(config.get("secretId"))),
+                trimToNull(asString(config.get("accessKeyId")))
+            );
+            String bucket = trimToNull(provider.getBucketName());
+            String endpoint = normalizeCosEndpoint(provider.getEndpoint(), provider.getBucketName());
+            List<String> parts = new ArrayList<>();
+            if (bucket != null) {
+                parts.add("Bucket " + bucket);
+            }
+            if (region != null) {
+                parts.add("Region " + region);
+            }
+            if (endpoint != null) {
+                parts.add("Endpoint " + endpoint);
+            }
+            if (secretId != null) {
+                parts.add("SecretId " + maskSensitiveValue(secretId, 4, 4));
+            }
+            return parts.isEmpty() ? "当前未解析出 COS 关键配置" : String.join("，", parts);
+        }
+        return null;
+    }
+
+    private String probeFilesystem(Path path) throws IOException {
+        if (path == null) {
+            throw new IOException("目录路径为空");
+        }
+        Files.createDirectories(path);
+        if (!Files.isDirectory(path)) {
+            throw new IOException("目标路径不是目录");
+        }
+        if (!Files.isReadable(path)) {
+            throw new IOException("目录不可读");
+        }
+        if (!Files.isWritable(path)) {
+            throw new IOException("目录不可写");
+        }
+        return "目录存在，且可读可写";
+    }
+
+    private String probeSocketEndpoint(String endpoint, String defaultScheme, int defaultPort) throws IOException {
+        URI uri = normalizeEndpointUri(endpoint, defaultScheme, defaultPort);
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(uri.getHost(), uri.getPort()), 4000);
+        }
+        return "主机与端口连接成功";
+    }
+
+    private String probeHttpEndpoint(String endpoint) throws IOException {
+        URI uri = normalizeEndpointUri(endpoint, "https", 443);
+        HttpURLConnection connection = (HttpURLConnection) uri.toURL().openConnection();
+        connection.setConnectTimeout(4000);
+        connection.setReadTimeout(4000);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod("HEAD");
+        int code = connection.getResponseCode();
+        if (code >= 200 && code < 500) {
+            return "HTTP 端点可达，响应码 " + code;
+        }
+        throw new IOException("HTTP 端点不可用，响应码 " + code);
+    }
+
+    private URI normalizeEndpointUri(String endpoint, String defaultScheme, int defaultPort) {
+        String raw = trimToNull(endpoint);
+        if (raw == null) {
+            throw new RuntimeException("endpoint 不能为空");
+        }
+        if (!raw.contains("://")) {
+            raw = defaultScheme + "://" + raw;
+        }
+        URI uri = URI.create(raw);
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new RuntimeException("endpoint 主机名无效");
+        }
+        if (uri.getPort() < 0) {
+            try {
+                return new URI(
+                    uri.getScheme(),
+                    uri.getUserInfo(),
+                    uri.getHost(),
+                    defaultPort,
+                    uri.getPath(),
+                    uri.getQuery(),
+                    uri.getFragment()
+                );
+            } catch (Exception e) {
+                throw new RuntimeException("endpoint 格式不正确");
+            }
+        }
+        return uri;
+    }
+
+    private String probeCosAccess(StorageProvider provider) throws IOException {
+        COSClient cosClient = createCosClientForProbe(provider);
+        try {
+            String bucket = resolveCosBucketForProbe(provider);
+            ListObjectsRequest request = new ListObjectsRequest();
+            request.setBucketName(bucket);
+            request.setMaxKeys(1);
+            cosClient.listObjects(request);
+            return "鉴权通过，可访问存储桶 " + bucket;
+        } catch (CosServiceException e) {
+            String code = trimToNull(e.getErrorCode());
+            String requestId = trimToNull(e.getRequestId());
+            String detail = buildCosErrorDetail(code, e.getStatusCode(), requestId);
+            if ("SignatureDoesNotMatch".equals(code)
+                || "InvalidAccessKeyId".equals(code)
+                || "AccessDenied".equals(code)
+                || "InvalidRequest".equals(code)) {
+                throw new IOException("COS 鉴权失败，请检查 SecretId / SecretKey、地域和存储桶权限" + detail);
+            }
+            if ("NoSuchBucket".equals(code)) {
+                throw new IOException("COS 存储桶不存在，请检查 Bucket / APPID 配置" + detail);
+            }
+            String message = firstNonBlank(trimToNull(e.getErrorMessage()), trimToNull(e.getMessage()));
+            throw new IOException(firstNonBlank(message, "COS 服务端返回错误") + detail);
+        } catch (CosClientException e) {
+            throw new IOException(firstNonBlank(trimToNull(e.getMessage()), "COS 客户端访问失败"));
+        } finally {
+            cosClient.shutdown();
+        }
+    }
+
+    private String buildCosErrorDetail(String code, int statusCode, String requestId) {
+        List<String> parts = new ArrayList<>();
+        if (code != null) {
+            parts.add("错误码 " + code);
+        }
+        if (statusCode > 0) {
+            parts.add("HTTP " + statusCode);
+        }
+        if (requestId != null) {
+            parts.add("RequestId " + requestId);
+        }
+        if (parts.isEmpty()) {
+            return "";
+        }
+        return "（" + String.join("，", parts) + "）";
+    }
+
+    private String normalizeCosEndpoint(String endpoint, String bucketName) {
+        String raw = trimToNull(endpoint);
+        if (raw == null) {
+            return null;
+        }
+        String normalized = raw.contains("://") ? raw : "https://" + raw;
+        try {
+            URI uri = URI.create(normalized);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return raw;
+            }
+            String bucket = trimToNull(bucketName);
+            if (bucket != null) {
+                String prefix = bucket.toLowerCase() + ".";
+                if (host.toLowerCase().startsWith(prefix)) {
+                    host = host.substring(prefix.length());
+                }
+            }
+            URI cleaned = new URI(
+                uri.getScheme() == null ? "https" : uri.getScheme(),
+                uri.getUserInfo(),
+                host,
+                uri.getPort(),
+                null,
+                null,
+                null
+            );
+            return cleaned.toString();
+        } catch (Exception ignored) {
+            return raw;
+        }
+    }
+
+    private String parseCosRegion(StorageProvider provider) {
+        if (provider == null) {
+            return null;
+        }
+        Map<String, Object> config = parseConfig(provider.getConfigJson());
+        return trimToNull(asString(config.get("region")));
+    }
+
+    private String buildDefaultCosEndpoint(String region) {
+        String normalizedRegion = trimToNull(region);
+        return normalizedRegion == null ? null : "https://cos." + normalizedRegion + ".myqcloud.com";
+    }
+
+    private COSClient createCosClientForProbe(StorageProvider provider) throws IOException {
+        Map<String, Object> config = parseConfig(provider.getConfigJson());
+        String accessKeyId = firstNonBlank(
+            trimToNull(asString(config.get("accessKeyId"))),
+            trimToNull(asString(config.get("secretId")))
+        );
+        String accessKeySecret = firstNonBlank(
+            trimToNull(asString(config.get("accessKeySecret"))),
+            trimToNull(asString(config.get("secretKey")))
+        );
+        String region = trimToNull(asString(config.get("region")));
+        if (accessKeyId == null || accessKeySecret == null || region == null) {
+            throw new IOException("COS 存储缺少 SecretId / SecretKey / Region 配置");
+        }
+        try {
+            COSCredentials credentials = new BasicCOSCredentials(accessKeyId, accessKeySecret);
+            ClientConfig clientConfig = new ClientConfig(new Region(region));
+            return new COSClient(credentials, clientConfig);
+        } catch (IllegalArgumentException e) {
+            throw new IOException(firstNonBlank(trimToNull(e.getMessage()), "COS 配置格式不正确"));
+        }
+    }
+
+    private String resolveCosBucketForProbe(StorageProvider provider) throws IOException {
+        String bucket = trimToNull(provider.getBucketName());
+        if (bucket == null) {
+            throw new IOException("COS 存储缺少 Bucket / APPID 配置");
+        }
+        return bucket;
+    }
+
+    private String maskSensitiveValue(String value, int prefix, int suffix) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return "—";
+        }
+        if (normalized.length() <= prefix + suffix) {
+            return normalized.charAt(0) + "***";
+        }
+        return normalized.substring(0, prefix) + "***" + normalized.substring(normalized.length() - suffix);
     }
 
     private String toBrowserScopedBasePath(Path scopedRoot) {
@@ -257,15 +608,6 @@ public class StorageProviderService {
     }
 
     private StorageProvider resolveManagedProvider(UserAccount user, List<StorageProvider> providers) {
-        if (user != null && user.getPreferredStorageProviderId() != null) {
-            Optional<StorageProvider> preferred = providers.stream()
-                .filter(provider -> Objects.equals(provider.getId(), user.getPreferredStorageProviderId()))
-                .findFirst();
-            if (preferred.isPresent() && evaluateProvider(preferred.get(), user).isBrowserSupported()) {
-                return preferred.get();
-            }
-        }
-
         Optional<StorageProvider> defaultProvider = providers.stream()
             .filter(provider -> Boolean.TRUE.equals(provider.getIsDefault()))
             .findFirst();
@@ -280,15 +622,6 @@ public class StorageProviderService {
     }
 
     private StorageProvider resolveManagedUploadProvider(UserAccount user, List<StorageProvider> providers) {
-        if (user != null && user.getPreferredStorageProviderId() != null) {
-            Optional<StorageProvider> preferred = providers.stream()
-                .filter(provider -> Objects.equals(provider.getId(), user.getPreferredStorageProviderId()))
-                .findFirst();
-            if (preferred.isPresent() && evaluateProvider(preferred.get(), user).isUploadSupported()) {
-                return preferred.get();
-            }
-        }
-
         Optional<StorageProvider> defaultProvider = providers.stream()
             .filter(provider -> Boolean.TRUE.equals(provider.getIsDefault()))
             .findFirst();
@@ -311,9 +644,7 @@ public class StorageProviderService {
         }
         if (provider.getType() == StorageType.LOCAL) {
             Path providerBase = resolveAbsoluteBaseDirectory(provider);
-            Path scopedRoot = systemConfigService.isMultiUserEnabled() && user != null
-                ? providerBase.resolve(String.valueOf(user.getId())).normalize()
-                : providerBase.normalize();
+            Path scopedRoot = resolveLocalBrowserScopedRoot(providerBase, user);
             return ProviderCapability.partialSupportedWithPreview(
                 providerBase,
                 scopedRoot,
@@ -329,9 +660,7 @@ public class StorageProviderService {
             || provider.getType() == StorageType.NFS) {
             Path providerBase = resolveAbsoluteBaseDirectory(provider);
             Path scanBase = userPathService.resolvePhotoBasePath();
-            Path scopedRoot = systemConfigService.isMultiUserEnabled() && user != null
-                ? providerBase.resolve(String.valueOf(user.getId())).normalize()
-                : providerBase.normalize();
+            Path scopedRoot = resolveLocalBrowserScopedRoot(providerBase, user);
             String label = storageTypeLabel(provider.getType());
             if (providerBase.startsWith(scanBase)) {
                 return ProviderCapability.partialSupportedWithPreview(
@@ -424,9 +753,6 @@ public class StorageProviderService {
                 trimToNull(asString(config.get("secretKey")))
             );
             String region = trimToNull(asString(config.get("region")));
-            if (trimToNull(provider.getEndpoint()) == null) {
-                missing.add("endpoint");
-            }
             if (trimToNull(provider.getBucketName()) == null) {
                 missing.add("bucketName");
             }
@@ -622,6 +948,22 @@ public class StorageProviderService {
         }
 
         return ProviderCapability.unsupported("TODO: 暂不支持的存储类型");
+    }
+
+    private Path resolveLocalBrowserScopedRoot(Path providerBase, UserAccount user) {
+        Path normalizedBase = providerBase == null ? null : providerBase.toAbsolutePath().normalize();
+        if (normalizedBase == null || user == null) {
+            return normalizedBase;
+        }
+        if (systemConfigService.isMultiUserEnabled()) {
+            return normalizedBase.resolve(String.valueOf(user.getId())).normalize();
+        }
+
+        Path ownedRoot = normalizedBase.resolve(String.valueOf(user.getId())).normalize();
+        if (Files.isDirectory(ownedRoot)) {
+            return ownedRoot;
+        }
+        return normalizedBase;
     }
 
     private Path resolveConfiguredPath(String rawPath) {

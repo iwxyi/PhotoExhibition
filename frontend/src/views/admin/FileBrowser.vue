@@ -12,7 +12,7 @@
         <div class="flex items-center gap-2 flex-wrap">
           <button
             @click="goToPath(basePath)"
-            class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            class="px-3 py-1.5 rounded-full text-sm border border-white/10 bg-white/5 hover:bg-white/10 transition-all duration-200"
           >
             {{ rootButtonLabel }}
           </button>
@@ -22,7 +22,7 @@
               v-for="(part, index) in pathParts"
               :key="index"
               @click="navigateToPart(index)"
-              class="px-2 py-1 hover:bg-gray-700 rounded text-sm"
+              class="px-2.5 py-1.5 rounded-full text-sm bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 transition-all duration-200"
             >
               {{ part }}
             </button>
@@ -39,9 +39,8 @@
       </div>
 
       <!-- 工具栏 -->
-      <div class="glass-panel p-4 mb-4 flex items-center gap-2 flex-wrap">
+      <div class="glass-panel p-4 mb-4 flex items-center gap-2 flex-wrap sticky top-3 z-20 backdrop-blur-xl">
         <div v-if="canSelectStorageProvider" class="min-w-[240px] mr-2">
-          <div class="text-xs text-gray-400 mb-1">管理员指定写入位置</div>
           <select
             v-model.number="selectedProviderId"
             @change="changeStorageProvider"
@@ -93,11 +92,11 @@
           {{ multiSelect ? '关闭多选' : '开启多选' }}
         </button>
         <template v-if="multiSelect">
-          <button
-            @click="moveSelected"
-            :disabled="!selectedPaths.size || !supportsItemManagement"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
-          >
+        <button
+          @click="moveSelected"
+          :disabled="!selectedPaths.size || !supportsItemManagement"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+        >
             移动已选 ({{ selectedPaths.size }})
           </button>
           <button
@@ -126,47 +125,6 @@
         </template>
         <input ref="fileInput" type="file" multiple class="hidden" @change="handleFileInput(false, $event)" />
         <input ref="dirInput" type="file" multiple webkitdirectory class="hidden" @change="handleFileInput(true, $event)" />
-        <div class="ml-auto text-right text-xs text-gray-400">
-          <div>当前生效存储：{{ storageProviderName || '未选择' }}<span v-if="storageProviderType"> · {{ storageTypeLabel(storageProviderType) }}</span></div>
-          <div class="truncate max-w-[360px]" :title="rootPathSummary">
-            根目录：{{ rootPathSummary }}
-          </div>
-          <div v-if="selectedStorageProvider" class="flex flex-wrap justify-end gap-2 mt-2">
-            <span class="px-2 py-1 rounded-full border text-[11px]"
-              :class="selectedStorageProvider.browserSupported ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
-              浏览 {{ selectedStorageProvider.browserSupported ? '可用' : '未接通' }}
-            </span>
-            <span class="px-2 py-1 rounded-full border text-[11px]"
-              :class="selectedStorageProvider.uploadSupported ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
-              上传 {{ selectedStorageProvider.uploadSupported ? '可用' : '未接通' }}
-            </span>
-            <span class="px-2 py-1 rounded-full border text-[11px]"
-              :class="selectedStorageProvider.scanSupported ? 'border-emerald-500/30 text-emerald-200' : 'border-amber-500/30 text-amber-200'">
-              扫描 {{ selectedStorageProvider.scanSupported ? '可用' : '受限' }}
-            </span>
-            <span class="px-2 py-1 rounded-full border text-[11px]"
-              :class="supportsItemManagement ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
-              管理 {{ supportsItemManagement ? '可用' : '未接通' }}
-            </span>
-            <span class="px-2 py-1 rounded-full border text-[11px]"
-              :class="supportsPreview ? 'border-emerald-500/30 text-emerald-200' : 'border-gray-600 text-gray-400'">
-              预览 {{ supportsPreview ? '可用' : '未接通' }}
-            </span>
-          </div>
-          <div class="truncate max-w-[360px] text-[11px] text-gray-500">
-            移动时请输入相对当前存储根目录的路径，不再要求绝对路径
-          </div>
-        </div>
-      </div>
-
-      <div
-        v-if="selectedStorageProvider?.supportMessage"
-        class="glass-panel p-4 mb-4 text-sm border"
-        :class="selectedStorageProvider.uploadSupported && supportsItemManagement
-          ? 'text-sky-200 border-sky-500/20'
-          : 'text-amber-300 border-amber-500/20'"
-      >
-        {{ selectedStorageProvider.supportMessage }}
       </div>
       <div
         v-if="!supportsDirectoryCreation || !supportsItemManagement || !activeProviderSupported"
@@ -187,7 +145,7 @@
 
       <!-- 文件列表 -->
       <div
-        class="glass-panel p-4 relative"
+        class="glass-panel p-4 relative transition-all duration-200"
         @dragover.prevent="onDragOver"
         @dragleave.prevent="onDragLeave"
         @drop.prevent="handleDrop"
@@ -198,12 +156,22 @@
           class="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg z-10 flex items-center justify-center pointer-events-none"
         >
           <div class="text-center">
-            <div class="text-4xl mb-2">📂</div>
-            <div class="text-blue-300 text-lg">拖放文件或文件夹到此处上传</div>
+            <div class="text-4xl mb-2">{{ dragMode === 'move' ? '🧭' : '📂' }}</div>
+            <div class="text-blue-300 text-lg">{{ dragMode === 'move' ? '拖放到目标文件夹即可移动' : '拖放文件或文件夹到此处上传' }}</div>
           </div>
         </div>
-        <div v-if="loading" class="text-center py-8 text-gray-400">
-          加载中...
+        <div v-if="loading" class="py-12">
+          <div class="flex items-center justify-center gap-3 text-cyan-200">
+            <div class="relative h-10 w-10">
+              <span class="absolute inset-0 rounded-full border border-cyan-400/20"></span>
+              <span class="absolute inset-1 rounded-full border-2 border-transparent border-t-cyan-300 border-r-sky-400 animate-spin"></span>
+              <span class="absolute inset-[10px] rounded-full bg-cyan-300/20 animate-pulse"></span>
+            </div>
+            <div class="text-left">
+              <div class="text-sm text-white">正在整理当前目录</div>
+              <div class="text-xs text-gray-400 mt-1">读取文件、封面缩略图和目录信息...</div>
+            </div>
+          </div>
         </div>
         <div v-else-if="error" class="text-center py-8 text-red-400">
           {{ error }}
@@ -218,8 +186,17 @@
             :key="dir.path"
             @click="goToPath(dir.path)"
             @contextmenu.prevent="showContextMenu($event, dir)"
-            class="bg-gray-700 hover:bg-gray-600 rounded-lg p-4 cursor-pointer transition-colors relative"
-            :class="{ 'ring-2 ring-blue-500': selectedItem?.path === dir.path }"
+            @dragstart="handleItemDragStart($event, dir)"
+            @dragend="handleItemDragEnd"
+            @dragover.prevent="handleFolderDragOver(dir)"
+            @dragleave.prevent="handleFolderDragLeave(dir)"
+            @drop.prevent="handleFolderDrop($event, dir)"
+            :draggable="supportsItemManagement"
+            class="group rounded-2xl p-4 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+            :class="{
+              'ring-2 ring-blue-500': selectedItem?.path === dir.path,
+              'ring-2 ring-cyan-400 bg-cyan-500/10': dragMoveTargetPath === dir.path
+            }"
           >
             <label v-if="multiSelect" class="absolute top-2 right-2">
               <input type="checkbox" class="w-4 h-4" :checked="selectedPaths.has(dir.path)" @click.stop="toggleSelect(dir.path)" />
@@ -268,13 +245,62 @@
               </div>
             </div>
             <!-- 无封面时显示默认图标 -->
-            <div v-else class="mb-3 flex items-center justify-center h-32 bg-gray-600 rounded-lg">
-              <div class="text-4xl">📁</div>
+            <div v-else class="mb-3 flex items-center justify-center h-32 rounded-xl bg-white/5 border border-white/5">
+              <div class="text-4xl transition-transform duration-200 group-hover:scale-110">📁</div>
             </div>
             <div class="flex-1 min-w-0">
-              <div class="font-medium truncate" :title="dir.name">{{ dir.name }}</div>
-              <div class="text-xs text-gray-400 mt-1">
-                {{ dir.photoCount ? `${dir.photoCount} 张照片` : '文件夹' }}
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-medium truncate" :title="dir.name">{{ dir.name }}</div>
+                  <div class="text-xs text-gray-400 mt-1">
+                    {{ dir.photoCount ? `${dir.photoCount} 张照片` : '文件夹' }}
+                  </div>
+                </div>
+                <button
+                  v-if="!dir.albumBound"
+                  @click.stop="bindAlbum(dir)"
+                  :disabled="bindingAlbumPath === dir.path"
+                  class="shrink-0 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[11px] text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {{ bindingAlbumPath === dir.path ? '绑定中...' : '绑定相册' }}
+                </button>
+              </div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <span
+                  class="rounded-full px-2.5 py-1 text-[11px] border"
+                  :class="dir.albumBound ? 'border-sky-400/30 bg-sky-500/10 text-sky-100' : 'border-white/10 bg-white/5 text-gray-300'"
+                >
+                  {{ dir.albumBound ? '已绑定相册' : '未绑定相册' }}
+                </span>
+                <span
+                  v-if="dir.albumHasCustomCover"
+                  class="rounded-full px-2.5 py-1 text-[11px] border border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-100"
+                >
+                  自定义封面
+                </span>
+                <span
+                  v-if="dir.albumAggregateSubAlbums"
+                  class="rounded-full px-2.5 py-1 text-[11px] border border-amber-400/30 bg-amber-500/10 text-amber-100"
+                >
+                  聚合子相册
+                </span>
+                <span
+                  v-if="dir.albumHidden"
+                  class="rounded-full px-2.5 py-1 text-[11px] border border-rose-400/30 bg-rose-500/10 text-rose-100"
+                >
+                  已隐藏
+                </span>
+              </div>
+              <div v-if="dir.albumDescription" class="mt-2 truncate text-[11px] text-gray-500">
+                {{ dir.albumDescription }}
+              </div>
+              <div v-if="dir.albumBound" class="mt-3 flex justify-end">
+                <button
+                  @click.stop="openAlbumSettings(dir)"
+                  class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-gray-200 transition hover:bg-white/10"
+                >
+                  相册设置
+                </button>
               </div>
             </div>
           </div>
@@ -285,24 +311,27 @@
             :key="file.path"
             @click="openFile(file)"
             @contextmenu.prevent="showContextMenu($event, file)"
-            class="bg-gray-700 hover:bg-gray-600 rounded-lg p-4 cursor-pointer transition-colors relative"
+            @dragstart="handleItemDragStart($event, file)"
+            @dragend="handleItemDragEnd"
+            :draggable="supportsItemManagement"
+            class="group rounded-2xl p-4 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
             :class="{ 'ring-2 ring-blue-500': selectedItem?.path === file.path }"
           >
             <label v-if="multiSelect" class="absolute top-2 right-2">
               <input type="checkbox" class="w-4 h-4" :checked="selectedPaths.has(file.path)" @click.stop="toggleSelect(file.path)" />
             </label>
             <!-- 图片文件显示缩略图 -->
-            <div v-if="file.thumbnail" class="mb-3 h-32 rounded-lg overflow-hidden flex items-center justify-center">
+            <div v-if="file.thumbnail" class="mb-3 aspect-square rounded-xl overflow-hidden flex items-center justify-center bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_48%),rgba(255,255,255,0.04)] border border-white/8">
               <img
                 :src="getImageUrl(file.thumbnail)"
                 :alt="file.name"
-                class="w-full h-full object-cover"
+                class="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
                 loading="lazy"
               />
             </div>
             <!-- 非图片文件显示默认图标 -->
-            <div v-else class="mb-3 flex items-center justify-center h-32 bg-gray-600 rounded-lg">
-              <div class="text-4xl">📄</div>
+            <div v-else class="mb-3 flex items-center justify-center h-32 rounded-xl bg-white/5 border border-white/5">
+              <div class="text-4xl transition-transform duration-200 group-hover:scale-110">📄</div>
             </div>
             <div class="flex-1 min-w-0">
               <div class="font-medium truncate" :title="file.name">{{ file.name }}</div>
@@ -437,6 +466,205 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="showDeleteDialog"
+      class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[65] p-4"
+      @click.self="closeDeleteDialog"
+    >
+      <div class="w-full max-w-4xl rounded-[28px] border border-white/10 bg-slate-950/95 shadow-[0_28px_90px_rgba(0,0,0,0.55)] overflow-hidden">
+        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+          <div>
+            <h2 class="text-xl font-light">确认删除</h2>
+            <div class="text-xs text-gray-400 mt-1">将删除 {{ deletePreviewSummary }}</div>
+          </div>
+          <button @click="closeDeleteDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+        </div>
+        <div class="max-h-[70vh] overflow-auto px-6 py-5 space-y-4">
+          <div v-if="loadingDeletePreview" class="text-sm text-gray-300">正在生成删除清单...</div>
+          <div v-else-if="deletePreviewError" class="text-sm text-red-300">{{ deletePreviewError }}</div>
+          <div v-else-if="!deletePreviewEntries.length" class="text-sm text-gray-400">没有可删除内容。</div>
+          <div v-else class="space-y-4">
+            <div
+              v-for="(entry, index) in deletePreviewEntries"
+              :key="`${entry.path}-${index}`"
+              class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
+            >
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="text-sm text-white truncate">{{ entry.name }}</div>
+                  <div class="text-xs text-gray-400 mt-1 break-all">{{ entry.path }}</div>
+                </div>
+                <div class="text-xs text-gray-400 whitespace-nowrap">
+                  {{ entry.isDirectory ? `目录 · ${entry.photoCount} 张图片` : '文件' }}
+                </div>
+              </div>
+              <div v-if="entry.photos?.length" class="space-y-2">
+                <div
+                  v-for="photo in entry.photos"
+                  :key="photo.photoId || photo.path"
+                  class="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+                >
+                  <div class="text-sm text-gray-100">{{ photo.filename }}</div>
+                  <div class="flex flex-wrap gap-2 mt-2">
+                    <span
+                      v-for="tag in photo.tags"
+                      :key="`${photo.photoId}-${tag}`"
+                      class="px-2 py-1 rounded-full bg-white/8 border border-white/10 text-[11px] text-gray-200"
+                    >
+                      {{ tag }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 px-6 py-4 border-t border-white/10 bg-black/20">
+          <button @click="closeDeleteDialog" class="px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10">取消</button>
+          <button
+            @click="submitDeleteConfirmed"
+            :disabled="loadingDeletePreview || deletingItems"
+            class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50"
+          >
+            {{ deletingItems ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="showAlbumSettingsDrawer"
+      class="fixed inset-0 z-[68] bg-black/45 backdrop-blur-sm"
+      @click.self="closeAlbumSettingsDrawer"
+    >
+      <div class="absolute right-0 top-0 h-full w-full max-w-xl border-l border-white/10 bg-slate-950/95 shadow-[-24px_0_80px_rgba(0,0,0,0.45)]">
+        <div class="flex h-full flex-col">
+          <div class="flex items-center justify-between gap-4 border-b border-white/10 px-6 py-5">
+            <div class="min-w-0">
+              <h2 class="truncate text-xl font-light text-white">{{ albumSettingsTarget?.name || '相册设置' }}</h2>
+              <div class="mt-1 truncate text-xs text-gray-400">{{ albumSettingsTarget?.path }}</div>
+            </div>
+            <button
+              @click="closeAlbumSettingsDrawer"
+              class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+            >
+              关闭
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto px-6 py-5 space-y-5">
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div class="text-sm text-gray-200">基础状态</div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <span class="rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-100">已绑定相册</span>
+                <span v-if="albumSettingsForm.aggregateSubAlbums" class="rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-100">聚合子相册</span>
+                <span v-if="albumSettingsForm.isHidden" class="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-[11px] text-rose-100">已隐藏</span>
+                <span v-if="albumSettingsTarget?.albumHasCustomCover" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-2.5 py-1 text-[11px] text-fuchsia-100">自定义封面</span>
+              </div>
+            </div>
+
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">相册说明</span>
+              <textarea
+                v-model="albumSettingsForm.description"
+                rows="6"
+                placeholder="给这个相册补充一句说明，首页和后续管理都会直接复用。"
+                class="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-sky-400/40 focus:bg-white/8"
+              />
+            </label>
+
+            <button
+              @click="albumSettingsForm.isHidden = !albumSettingsForm.isHidden"
+              class="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left transition hover:bg-white/8"
+            >
+              <div>
+                <div class="text-sm text-white">公开展示</div>
+                <div class="mt-1 text-xs text-gray-400">关闭后，这个相册不会在前台对外展示。</div>
+              </div>
+              <div
+                class="rounded-full px-3 py-1 text-xs"
+                :class="albumSettingsForm.isHidden ? 'bg-rose-500/15 text-rose-200' : 'bg-emerald-500/15 text-emerald-200'"
+              >
+                {{ albumSettingsForm.isHidden ? '已隐藏' : '公开中' }}
+              </div>
+            </button>
+
+            <button
+              @click="albumSettingsForm.aggregateSubAlbums = !albumSettingsForm.aggregateSubAlbums"
+              class="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left transition hover:bg-white/8"
+            >
+              <div>
+                <div class="text-sm text-white">聚合子相册</div>
+                <div class="mt-1 text-xs text-gray-400">开启后，这个目录会把下级相册一起作为展示集合。</div>
+              </div>
+              <div
+                class="rounded-full px-3 py-1 text-xs"
+                :class="albumSettingsForm.aggregateSubAlbums ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-gray-300'"
+              >
+                {{ albumSettingsForm.aggregateSubAlbums ? '已开启' : '未开启' }}
+              </div>
+            </button>
+
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400">
+              这里先放最常用的运行属性。封面、标签、排序、下载权限这些下一步继续并入文件浏览器。
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-3 border-t border-white/10 bg-black/20 px-6 py-4">
+            <button
+              @click="closeAlbumSettingsDrawer"
+              class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 hover:bg-white/10"
+            >
+              取消
+            </button>
+            <button
+              @click="saveAlbumSettings"
+              :disabled="savingAlbumSettings || !albumSettingsDirty"
+              class="rounded-xl bg-sky-600 px-4 py-2 text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {{ savingAlbumSettings ? '保存中...' : '保存设置' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="previewFile"
+      class="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+      @click.self="closePreview"
+    >
+      <div class="w-full max-w-6xl rounded-[28px] border border-white/10 bg-slate-950/90 shadow-[0_30px_120px_rgba(0,0,0,0.55)] overflow-hidden">
+        <div class="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/10">
+          <div class="min-w-0">
+            <div class="truncate text-white">{{ previewFile.name }}</div>
+            <div class="text-xs text-gray-400 mt-1">{{ formatFileSize(previewFile.size) }}<span v-if="previewFile.lastModified"> · {{ formatDate(previewFile.lastModified) }}</span></div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="previewFile"
+              @click.stop="downloadFile(previewFile)"
+              class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10"
+            >
+              下载
+            </button>
+            <button
+              @click="closePreview"
+              class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center justify-center min-h-[60vh] max-h-[78vh] p-6 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]">
+          <img
+            v-if="previewImageUrl"
+            :src="previewImageUrl"
+            :alt="previewFile.name"
+            class="max-w-full max-h-[68vh] rounded-2xl object-contain shadow-[0_20px_80px_rgba(0,0,0,0.4)]"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -464,10 +692,32 @@ interface FileItem {
   size?: number
   lastModified?: number
   photoCount?: number
+  albumBound?: boolean
+  albumId?: number | null
+  albumHidden?: boolean
+  albumAggregateSubAlbums?: boolean
+  albumHasCustomCover?: boolean
+  albumDescription?: string | null
   leftVertical?: PhotoInfo
   rightTop?: PhotoInfo
   rightBottom?: PhotoInfo
   thumbnail?: PhotoInfo
+}
+
+interface DeletePreviewPhotoItem {
+  photoId?: number
+  filename: string
+  path: string
+  tags: string[]
+  directHit?: boolean
+}
+
+interface DeletePreviewEntry {
+  path: string
+  name: string
+  isDirectory: boolean
+  photoCount: number
+  photos: DeletePreviewPhotoItem[]
 }
 
 interface BrowserStorageProvider {
@@ -499,9 +749,6 @@ const basePath = ref('')
 const currentPath = ref('')
 const parentPath = ref<string | null>(null)
 const selectedProviderId = ref<number | null>(null)
-const storageProviderName = ref('')
-const storageProviderType = ref('')
-const storageProviderBaseDirectory = ref('')
 const availableStorageProviders = ref<BrowserStorageProvider[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -512,6 +759,10 @@ const multiSelect = ref(false)
 const uploading = ref(false)
 const uploadStatus = ref('')
 const isDragOver = ref(false)
+const dragMode = ref<'upload' | 'move'>('upload')
+const dragMoveTargetPath = ref('')
+const draggingPaths = ref<string[]>([])
+const bindingAlbumPath = ref('')
 let dragLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const showCreateDialog = ref(false)
@@ -523,6 +774,20 @@ const showRenameDialog = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
 const itemToRename = ref<FileItem | null>(null)
+const showDeleteDialog = ref(false)
+const loadingDeletePreview = ref(false)
+const deletingItems = ref(false)
+const deletePreviewError = ref('')
+const deletePreviewEntries = ref<DeletePreviewEntry[]>([])
+const deletePendingPaths = ref<string[]>([])
+const showAlbumSettingsDrawer = ref(false)
+const albumSettingsTarget = ref<FileItem | null>(null)
+const savingAlbumSettings = ref(false)
+const albumSettingsForm = ref({
+  description: '',
+  isHidden: false,
+  aggregateSubAlbums: false
+})
 
 const contextMenu = ref({
   show: false,
@@ -533,6 +798,8 @@ const contextMenu = ref({
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
+const previewFile = ref<FileItem | null>(null)
+const previewImageUrl = ref('')
 
 const selectedStorageProvider = computed(() => (
   availableStorageProviders.value.find(provider => provider.id === selectedProviderId.value) || null
@@ -562,17 +829,30 @@ const managementDisabledReason = computed(() => (
   selectedStorageProvider.value?.supportMessage || '当前存储位置暂不支持批量管理'
 ))
 const rootButtonLabel = computed(() => canSelectStorageProvider.value ? '根目录' : '我的相册')
-const currentRelativePath = computed(() => pathParts.value.join('/'))
-const rootPathSummary = computed(() => {
-  if (!canSelectStorageProvider.value) {
-    return currentPath.value && currentPath.value !== basePath.value
-      ? `我的目录 / ${pathParts.value.join(' / ')}`
-      : '我的目录'
-  }
-  return currentRelativePath.value
-    ? `${storageProviderName.value || '存储根目录'} / ${currentRelativePath.value}`
-    : `${storageProviderName.value || '存储根目录'}`
+const deletePreviewSummary = computed(() => {
+  const photoCount = deletePreviewEntries.value.reduce((sum, entry) => sum + (entry.photos?.length || 0), 0)
+  return `${deletePendingPaths.value.length} 项，${photoCount} 张图片及其关联资源`
 })
+const albumSettingsDirty = computed(() => {
+  const target = albumSettingsTarget.value
+  if (!target) return false
+  return (
+    (albumSettingsForm.value.description || '') !== (target.albumDescription || '') ||
+    !!albumSettingsForm.value.isHidden !== !!target.albumHidden ||
+    !!albumSettingsForm.value.aggregateSubAlbums !== !!target.albumAggregateSubAlbums
+  )
+})
+const currentRelativePath = computed(() => {
+  const normalizedBase = normalizePath(basePath.value || '/').replace(/[\/\\]+$/, '')
+  const normalizedCurrent = normalizePath(currentPath.value || '/')
+  if (!normalizedCurrent || normalizedCurrent === normalizedBase) {
+    return ''
+  }
+  return normalizedCurrent.startsWith(normalizedBase)
+    ? normalizedCurrent.slice(normalizedBase.length).replace(/^[\/\\]+/, '')
+    : normalizedCurrent.replace(/^[\/\\]+/, '')
+})
+const rootPathSummary = computed(() => currentPath.value || basePath.value || '/')
 const isAtRoot = computed(() => {
   if (!currentPath.value || !basePath.value) return true
   return normalizePath(currentPath.value) === normalizePath(basePath.value)
@@ -605,9 +885,6 @@ const applyStorageContext = (data: any, resetCurrentPath = false) => {
   if (!data) return
   const nextBasePath = data.basePath || basePath.value || ''
   basePath.value = nextBasePath
-  storageProviderName.value = data.storageProviderName || ''
-  storageProviderType.value = data.storageProviderType || ''
-  storageProviderBaseDirectory.value = data.storageProviderBaseDirectory || ''
   availableStorageProviders.value = data.availableStorageProviders || []
   selectedProviderId.value = data.storageProviderId ?? selectedProviderId.value
 
@@ -657,6 +934,12 @@ const loadFiles = async (path?: string, allowRecovery = true) => {
       path: d.path,
       isDirectory: true,
       photoCount: d.photoCount || 0,
+      albumBound: !!d.albumBound,
+      albumId: d.albumId ?? null,
+      albumHidden: !!d.albumHidden,
+      albumAggregateSubAlbums: !!d.albumAggregateSubAlbums,
+      albumHasCustomCover: !!d.albumHasCustomCover,
+      albumDescription: d.albumDescription ?? '',
       leftVertical: d.leftVertical,
       rightTop: d.rightTop,
       rightBottom: d.rightBottom
@@ -727,8 +1010,11 @@ const goToParent = () => {
 
 const navigateToPart = (index: number) => {
   const parts = pathParts.value.slice(0, index + 1)
-  const separator = basePath.value.includes('\\') ? '\\' : '/'
-  const path = basePath.value + separator + parts.join(separator)
+  const normalizedBase = normalizePath(basePath.value || '/').replace(/[\/\\]+$/, '')
+  const joined = parts.join('/')
+  const path = normalizedBase && normalizedBase !== '/'
+    ? `${normalizedBase}/${joined}`
+    : `/${joined}`
   goToPath(path)
 }
 
@@ -812,16 +1098,47 @@ const renameItem = async () => {
   }
 }
 
+const closeDeleteDialog = () => {
+  if (loadingDeletePreview.value || deletingItems.value) return
+  showDeleteDialog.value = false
+  deletePreviewError.value = ''
+  deletePreviewEntries.value = []
+  deletePendingPaths.value = []
+}
+
+const openDeleteDialog = async (paths: string[]) => {
+  const uniquePaths = Array.from(new Set(paths.filter(Boolean)))
+  if (!uniquePaths.length) return
+
+  contextMenu.value.show = false
+  selectedItem.value = null
+  showDeleteDialog.value = true
+  loadingDeletePreview.value = true
+  deletingItems.value = false
+  deletePreviewError.value = ''
+  deletePreviewEntries.value = []
+  deletePendingPaths.value = uniquePaths
+
+  try {
+    const { data } = await api.post('/admin/folders/browser/delete-preview', {
+      paths: uniquePaths
+    }, {
+      params: {
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
+    })
+    deletePreviewEntries.value = Array.isArray(data?.entries) ? data.entries : []
+  } catch (e: any) {
+    deletePreviewError.value = e.response?.data?.error || e.message || '生成删除清单失败'
+  } finally {
+    loadingDeletePreview.value = false
+  }
+}
+
 const confirmDelete = () => {
   if (!supportsItemManagement.value) return
   if (!contextMenu.value.item) return
-  const item = contextMenu.value.item
-  const itemType = item.isDirectory ? '文件夹' : '文件'
-  if (!confirm(`确认删除${itemType} "${item.name}"？此操作不可撤销。`)) {
-    contextMenu.value.show = false
-    return
-  }
-  deleteItem(item)
+  openDeleteDialog([contextMenu.value.item.path])
 }
 
 const deleteItem = async (item: FileItem) => {
@@ -842,6 +1159,12 @@ const deleteItem = async (item: FileItem) => {
 const openFile = async (file: FileItem) => {
   if (!supportsPreview.value) {
     alert(selectedStorageProvider.value?.supportMessage || '当前存储位置暂未接通文件预览，请先使用已支持预览的存储查看文件内容。')
+    return
+  }
+  const localPreviewUrl = getImageUrl(file.thumbnail || { originalPath: file.path })
+  if (localPreviewUrl) {
+    previewFile.value = file
+    previewImageUrl.value = localPreviewUrl
     return
   }
   // 如果是图片并且有对应的 Photo 记录，跳转到图片详情
@@ -875,8 +1198,8 @@ const openFile = async (file: FileItem) => {
       if (response.data) {
         const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
         const blobUrl = URL.createObjectURL(blob)
-        window.open(blobUrl, '_blank')
-        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000)
+        previewFile.value = file
+        previewImageUrl.value = blobUrl
         return
       }
       alert('未获取到可用的预览内容')
@@ -886,9 +1209,9 @@ const openFile = async (file: FileItem) => {
     return
   }
   // 尝试直接打开文件
-  const url = getImageUrl(file.thumbnail || { originalPath: file.path })
-  if (url) {
-    window.open(url, '_blank')
+  if (localPreviewUrl) {
+    previewFile.value = file
+    previewImageUrl.value = localPreviewUrl
   }
 }
 
@@ -921,6 +1244,80 @@ const downloadContextFile = () => {
   downloadFile(contextMenu.value.item)
 }
 
+const bindAlbum = async (dir: FileItem) => {
+  if (!dir?.isDirectory || bindingAlbumPath.value) return
+  bindingAlbumPath.value = dir.path
+  try {
+    const { data } = await api.post('/admin/folders/browser/bind-album', null, {
+      params: {
+        path: dir.path,
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
+    })
+    dir.albumBound = true
+    dir.albumId = data?.albumId ?? dir.albumId ?? null
+    dir.albumHidden = !!data?.albumHidden
+    dir.albumAggregateSubAlbums = !!data?.albumAggregateSubAlbums
+    dir.albumHasCustomCover = !!data?.albumHasCustomCover
+    dir.albumDescription = data?.albumDescription ?? ''
+  } catch (e: any) {
+    alert('绑定相册失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    bindingAlbumPath.value = ''
+  }
+}
+
+const openAlbumSettings = (dir: FileItem) => {
+  if (!dir?.albumBound || !dir.albumId) return
+  albumSettingsTarget.value = dir
+  albumSettingsForm.value = {
+    description: dir.albumDescription || '',
+    isHidden: !!dir.albumHidden,
+    aggregateSubAlbums: !!dir.albumAggregateSubAlbums
+  }
+  showAlbumSettingsDrawer.value = true
+}
+
+const closeAlbumSettingsDrawer = () => {
+  if (savingAlbumSettings.value) return
+  showAlbumSettingsDrawer.value = false
+  albumSettingsTarget.value = null
+}
+
+const saveAlbumSettings = async () => {
+  const target = albumSettingsTarget.value
+  if (!target?.albumId || savingAlbumSettings.value || !albumSettingsDirty.value) return
+  savingAlbumSettings.value = true
+  try {
+    await api.put(`/albums/${target.albumId}`, {
+      description: albumSettingsForm.value.description
+    })
+    await api.put(`/albums/${target.albumId}/hidden`, {
+      isHidden: !!albumSettingsForm.value.isHidden
+    })
+    await api.put(`/albums/${target.albumId}/aggregate-sub-albums`, {
+      aggregateSubAlbums: !!albumSettingsForm.value.aggregateSubAlbums
+    })
+
+    target.albumDescription = albumSettingsForm.value.description
+    target.albumHidden = !!albumSettingsForm.value.isHidden
+    target.albumAggregateSubAlbums = !!albumSettingsForm.value.aggregateSubAlbums
+    closeAlbumSettingsDrawer()
+  } catch (e: any) {
+    alert('保存相册设置失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    savingAlbumSettings.value = false
+  }
+}
+
+const closePreview = () => {
+  if (previewImageUrl.value.startsWith('blob:')) {
+    URL.revokeObjectURL(previewImageUrl.value)
+  }
+  previewImageUrl.value = ''
+  previewFile.value = null
+}
+
 const resolveDownloadFilename = (contentDisposition?: string, fallback = 'download') => {
   if (!contentDisposition) return fallback
   const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
@@ -951,18 +1348,35 @@ const toggleSelect = (path: string) => {
 const deleteSelected = async () => {
   if (!supportsItemManagement.value) return
   if (!selectedPaths.value.size) return
-  if (!confirm(`确认删除选中的 ${selectedPaths.value.size} 项？`)) return
+  openDeleteDialog(Array.from(selectedPaths.value))
+}
+
+const submitDeleteConfirmed = async () => {
+  if (!deletePendingPaths.value.length || loadingDeletePreview.value) return
+  deletingItems.value = true
   try {
-    await api.delete('/admin/folders/browser/delete-items', {
-      params: {
-        paths: Array.from(selectedPaths.value),
-        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
-      }
-    })
+    if (deletePendingPaths.value.length === 1) {
+      await api.delete('/admin/folders/browser/delete', {
+        params: {
+          path: deletePendingPaths.value[0],
+          providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+        }
+      })
+    } else {
+      await api.delete('/admin/folders/browser/delete-items', {
+        params: {
+          paths: deletePendingPaths.value,
+          providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+        }
+      })
+    }
     selectedPaths.value.clear()
+    closeDeleteDialog()
     await loadFiles()
   } catch (e: any) {
-    alert('删除失败: ' + (e.response?.data?.error || e.message))
+    deletePreviewError.value = e.response?.data?.error || e.message || '删除失败'
+  } finally {
+    deletingItems.value = false
   }
 }
 
@@ -1090,13 +1504,79 @@ const handleFileInput = async (isDir: boolean, event: Event) => {
 }
 
 const onDragOver = () => {
-  if (!activeProviderSupported.value) return
+  if (!activeProviderSupported.value && !draggingPaths.value.length) return
   if (dragLeaveTimer) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null }
   isDragOver.value = true
 }
 const onDragLeave = () => {
-  if (!activeProviderSupported.value) return
+  if (!activeProviderSupported.value && !draggingPaths.value.length) return
   dragLeaveTimer = setTimeout(() => { isDragOver.value = false }, 100)
+}
+
+const handleItemDragStart = (event: DragEvent, item: FileItem) => {
+  if (!supportsItemManagement.value || !event.dataTransfer) return
+  const paths = multiSelect.value && selectedPaths.value.has(item.path)
+    ? Array.from(selectedPaths.value)
+    : [item.path]
+  draggingPaths.value = paths
+  dragMode.value = 'move'
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('application/x-photoexhibition-paths', JSON.stringify(paths))
+  event.dataTransfer.setData('text/plain', item.path)
+}
+
+const handleItemDragEnd = () => {
+  draggingPaths.value = []
+  dragMoveTargetPath.value = ''
+  dragMode.value = 'upload'
+  isDragOver.value = false
+}
+
+const handleFolderDragOver = (dir: FileItem) => {
+  if (!draggingPaths.value.length) return
+  dragMoveTargetPath.value = dir.path
+  dragMode.value = 'move'
+}
+
+const handleFolderDragLeave = (dir: FileItem) => {
+  if (dragMoveTargetPath.value === dir.path) {
+    dragMoveTargetPath.value = ''
+  }
+}
+
+const movePathsToTarget = async (paths: string[], target: string) => {
+  await api.post('/admin/folders/browser/move-items', null, {
+    params: {
+      paths,
+      target,
+      providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+    }
+  })
+}
+
+const handleFolderDrop = async (event: DragEvent, dir: FileItem) => {
+  event.stopPropagation()
+  const raw = event.dataTransfer?.getData('application/x-photoexhibition-paths')
+  const paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
+  dragMoveTargetPath.value = ''
+  if (!paths?.length) return
+  if (paths.some(path => path === dir.path || dir.path.startsWith(`${path}/`))) {
+    alert('不能移动到自身或其子目录中')
+    handleItemDragEnd()
+    return
+  }
+  try {
+    await movePathsToTarget(paths, dir.path)
+    selectedPaths.value.clear()
+    await loadFiles()
+  } catch (e: any) {
+    const message = e.response?.data?.error || e.message || ''
+    if (!String(message).includes('不能移动到自身') && !String(message).includes('其子目录')) {
+      alert('移动失败: ' + message)
+    }
+  } finally {
+    handleItemDragEnd()
+  }
 }
 
 const readEntryRecursive = async (entry: any, basePath: string): Promise<{file: File, relativePath: string}[]> => {
@@ -1126,10 +1606,24 @@ const readEntryRecursive = async (entry: any, basePath: string): Promise<{file: 
 
 const handleDrop = async (event: DragEvent) => {
   isDragOver.value = false
+  const internalPathsPayload = event.dataTransfer?.getData('application/x-photoexhibition-paths')
+  if (internalPathsPayload) {
+    try {
+      await movePathsToTarget(JSON.parse(internalPathsPayload), currentPath.value || basePath.value)
+      selectedPaths.value.clear()
+      await loadFiles()
+    } catch (e: any) {
+      alert('移动失败: ' + (e.response?.data?.error || e.message))
+    } finally {
+      handleItemDragEnd()
+    }
+    return
+  }
   if (!activeProviderSupported.value) {
     alert(uploadDisabledReason.value)
     return
   }
+  dragMode.value = 'upload'
   const dt = event.dataTransfer
   if (!dt) return
 
@@ -1173,6 +1667,7 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
   let totalSaved = 0
   let finalScanQueued = true
   let finalScanMessage = ''
+  const uploadTargetPath = currentPath.value || basePath.value
   try {
     if (!(await runUploadPrecheck(fileList))) {
       uploadStatus.value = '上传已取消'
@@ -1217,8 +1712,9 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
     uploadStatus.value = finalScanQueued
       ? `已保存 ${totalSaved} 个文件，已加入后台扫描...`
       : (finalScanMessage || `已保存 ${totalSaved} 个文件，但当前存储未加入自动扫描`)
+    await loadFiles(uploadTargetPath, false)
     if (refreshTimer) clearTimeout(refreshTimer)
-    refreshTimer = setTimeout(() => loadFiles(), 500)
+    refreshTimer = setTimeout(() => loadFiles(uploadTargetPath, false), 1200)
   } catch (e: any) {
     console.error('上传失败', e)
     alert('上传失败: ' + (e.message || '上传失败'))
@@ -1233,6 +1729,9 @@ const runUploadPrecheck = async (fileList: File[]) => {
   for (let i = 0; i < fileList.length; i++) {
     uploadStatus.value = `正在预检查 ${i + 1} / ${fileList.length} 个文件...`
     const contentHash = await sha256File(fileList[i])
+    if (!contentHash) {
+      continue
+    }
     let result = precheckCache.get(contentHash)
     if (!result) {
       const { data } = await api.get<UploadPrecheckResponse>('/admin/folders/upload-precheck', {
@@ -1268,8 +1767,12 @@ const runUploadPrecheck = async (fileList: File[]) => {
 }
 
 const sha256File = async (file: File) => {
+  const cryptoApi = globalThis.crypto
+  if (!cryptoApi?.subtle?.digest) {
+    return ''
+  }
   const buffer = await file.arrayBuffer()
-  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  const digest = await cryptoApi.subtle.digest('SHA-256', buffer)
   return Array.from(new Uint8Array(digest))
     .map(byte => byte.toString(16).padStart(2, '0'))
     .join('')
@@ -1280,8 +1783,14 @@ const changeStorageProvider = async () => {
   items.value = []
   parentPath.value = null
   error.value = ''
-  await loadBasePath(selectedProviderId.value, true)
-  await loadFiles(basePath.value)
+  try {
+    await loadBasePath(selectedProviderId.value, true)
+    await loadFiles(basePath.value, false)
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e?.message || '加载文件失败'
+    currentPath.value = basePath.value
+    items.value = []
+  }
 }
 
 watch(showCreateDialog, (val) => {
@@ -1291,11 +1800,21 @@ watch(showCreateDialog, (val) => {
 })
 
 onMounted(async () => {
-  await loadBasePath(selectedProviderId.value, true)
-  await loadFiles(basePath.value)
+  try {
+    await loadBasePath(selectedProviderId.value, true)
+    await loadFiles(basePath.value, false)
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e?.message || '加载文件失败'
+    currentPath.value = basePath.value
+    items.value = []
+  }
   document.addEventListener('click', handleClickOutside)
   const escHandler = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
+      if (previewFile.value) {
+        closePreview()
+        return
+      }
       if (contextMenu.value.show) {
         contextMenu.value.show = false
         selectedItem.value = null
@@ -1310,6 +1829,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  closePreview()
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

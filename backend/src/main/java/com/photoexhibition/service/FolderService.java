@@ -4,7 +4,12 @@ import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.repository.AlbumRepository;
+import com.photoexhibition.repository.FaceRepository;
+import com.photoexhibition.repository.PersonProfileRepository;
+import com.photoexhibition.repository.PhotoAIScoringRepository;
+import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.StorageProviderRepository;
 import com.photoexhibition.service.PhotoScanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +44,11 @@ public class FolderService {
 
     private final AlbumRepository albumRepository;
     private final PhotoRepository photoRepository;
+    private final FaceRepository faceRepository;
+    private final PhotoAssignmentRepository photoAssignmentRepository;
+    private final PhotoAIScoringRepository photoAIScoringRepository;
+    private final PersonProfileRepository personProfileRepository;
+    private final StorageProviderRepository storageProviderRepository;
     private final PhotoScanService photoScanService;
     private final ScanTaskService scanTaskService;
     private final PlatformTransactionManager transactionManager;
@@ -262,6 +272,16 @@ public class FolderService {
                     if (fileName.startsWith(".")) {
                         return;
                     }
+
+                    Path normalizedRoot = scopedRoot == null ? null : scopedRoot.toAbsolutePath().normalize();
+                    int relativeDepth = 0;
+                    if (normalizedRoot != null) {
+                        try {
+                            relativeDepth = normalizedRoot.relativize(path.toAbsolutePath().normalize()).getNameCount();
+                        } catch (Exception ignored) {
+                            relativeDepth = 0;
+                        }
+                    }
                     
                     Map<String, Object> item = new HashMap<>();
                     item.put("name", fileName);
@@ -274,6 +294,7 @@ public class FolderService {
                         if (albumOpt.isPresent()) {
                             Album album = albumOpt.get();
                             item.put("photoCount", album.getPhotoCount() != null ? album.getPhotoCount() : 0);
+                            appendAlbumMetadata(item, album);
                             
                             // 获取封面图片（最多3张，排除隐藏）
                             List<Photo> photos = photoRepository.findByAlbumIdAndIsHiddenFalse(album.getId(),
@@ -327,6 +348,7 @@ public class FolderService {
                             }
                         } else {
                             item.put("photoCount", 0);
+                            appendAlbumMetadata(item, null);
                         }
                         directories.add(item);
                     } else {
@@ -370,7 +392,8 @@ public class FolderService {
         Path normalizedRoot = scopedRoot == null ? null : scopedRoot.toAbsolutePath().normalize();
         Path parent = dir.getParent();
         result.put("path", toClientBrowserPath(dir, scopedRoot));
-        result.put("parent", parent != null && (normalizedRoot == null || !parent.equals(normalizedRoot))
+        result.put("parent", parent != null
+            && (normalizedRoot == null || (parent.startsWith(normalizedRoot) && !parent.equals(normalizedRoot)))
             ? toClientBrowserPath(parent, scopedRoot)
             : null);
         result.put("directories", directories);
@@ -401,7 +424,31 @@ public class FolderService {
             return listFilesAndDirectories(folderPath, scopedRoot);
         }
         Path relative = toScopedRelativePath(folderPath, scopedRoot);
-        return storageUploadService.listDirectory(provider, user, relative);
+        Map<String, Object> result = storageUploadService.listDirectory(provider, user, relative);
+        enrichManagedDirectoryListing(result, provider, user);
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> bindDirectoryAlbum(String folderPath,
+                                                  com.photoexhibition.entity.StorageProvider provider,
+                                                  UserAccount user,
+                                                  Path scopedRoot) throws Exception {
+        Album album;
+        if (isLocalBackedProvider(provider)) {
+            Path targetDirectory = resolveScopedLocalPath(folderPath, scopedRoot);
+            if (!Files.exists(targetDirectory) || !Files.isDirectory(targetDirectory)) {
+                throw new IllegalArgumentException("目录不存在");
+            }
+            album = findOrCreateAlbum(targetDirectory);
+        } else {
+            Path relative = toScopedRelativePath(folderPath, scopedRoot);
+            album = findOrCreateManagedAlbum(provider, user, relative);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        appendAlbumMetadata(result, album);
+        result.put("message", "已绑定相册");
+        return result;
     }
 
     public void createDirectory(String folderPath,
@@ -505,6 +552,7 @@ public class FolderService {
             throw new IllegalArgumentException("目标名称非法");
         }
         storageUploadService.movePath(provider, user, sourceRelative, targetRelative);
+        syncManagedMove(sourceRelative, targetRelative, provider, user, scopedRoot);
     }
 
     /**
@@ -546,7 +594,9 @@ public class FolderService {
             if (fileName == null) {
                 throw new IllegalArgumentException("源路径非法: " + path);
             }
-            storageUploadService.movePath(provider, user, sourceRelative, targetRelative.resolve(fileName).normalize());
+            Path destination = targetRelative.resolve(fileName).normalize();
+            storageUploadService.movePath(provider, user, sourceRelative, destination);
+            syncManagedMove(sourceRelative, destination, provider, user, scopedRoot);
         }
     }
 
@@ -576,8 +626,39 @@ public class FolderService {
         }
         if (paths == null || paths.isEmpty()) return;
         for (String path : paths) {
-            storageUploadService.deletePath(provider, user, toScopedRelativePath(path, scopedRoot));
+            Path relativePath = toScopedRelativePath(path, scopedRoot);
+            if (!deleteManagedPhotoIfMatched(relativePath, provider, user, scopedRoot)) {
+                storageUploadService.deletePath(provider, user, relativePath);
+                deleteManagedDirectoryRecords(relativePath, provider, user);
+            }
         }
+    }
+
+    public Map<String, Object> previewDeleteItems(List<String> paths,
+                                                  com.photoexhibition.entity.StorageProvider provider,
+                                                  UserAccount user,
+                                                  Path scopedRoot) throws Exception {
+        List<Map<String, Object>> entries = new ArrayList<>();
+        int photoCount = 0;
+        int directoryCount = 0;
+        for (String path : paths == null ? List.<String>of() : paths) {
+            Path relativePath = toScopedRelativePath(path, scopedRoot);
+            String storedPath = buildManagedStoredPath(provider, user, relativePath);
+            Optional<Photo> exactPhoto = findPhotoByStoredPath(storedPath);
+            if (exactPhoto.isPresent()) {
+                entries.add(buildDeletePreviewForPhoto(exactPhoto.get(), path));
+                photoCount++;
+                continue;
+            }
+            directoryCount++;
+            entries.add(buildDeletePreviewForDirectory(provider, user, relativePath, path));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("entries", entries);
+        result.put("photoCount", photoCount);
+        result.put("directoryCount", directoryCount);
+        result.put("message", entries.isEmpty() ? "没有可删除内容" : "已生成删除预检查");
+        return result;
     }
 
     public String resolvePreviewUrl(String filePath,
@@ -992,22 +1073,35 @@ public class FolderService {
 
     private void moveSingleFile(Path source, Path target) throws Exception {
         if (!Files.exists(source) || Files.isDirectory(source)) return;
+        Optional<Photo> photoOpt = findPhotoByPath(source);
+        if (photoOpt.isPresent()) {
+            Photo photo = photoOpt.get();
+            Long userId = photo.getUserId();
+            String oldOriginal = photo.getOriginalPath();
+            String newOriginal = resolveStoredPathForDb(target, userId);
+            moveStoredAssetIfPossible(oldOriginal, newOriginal);
+            moveStoredAssetIfPossible(photo.getThumbnailPath(), rewriteSiblingStoredPath(photo.getThumbnailPath(), oldOriginal, newOriginal));
+            moveStoredAssetIfPossible(photo.getWebpPath(), rewriteSiblingStoredPath(photo.getWebpPath(), oldOriginal, newOriginal));
+            moveStoredAssetIfPossible(photo.getSmallThumbPath(), rewriteSiblingStoredPath(photo.getSmallThumbPath(), oldOriginal, newOriginal));
+            moveStoredAssetIfPossible(photo.getMediumThumbPath(), rewriteSiblingStoredPath(photo.getMediumThumbPath(), oldOriginal, newOriginal));
+            moveStoredAssetIfPossible(photo.getLargeThumbPath(), rewriteSiblingStoredPath(photo.getLargeThumbPath(), oldOriginal, newOriginal));
+            moveStoredAssetIfPossible(photo.getBackgroundRemovedPath(), rewriteSiblingStoredPath(photo.getBackgroundRemovedPath(), oldOriginal, newOriginal));
+            syncFileMove(source, target);
+            return;
+        }
         Files.createDirectories(target.getParent());
         Files.move(source, target);
         syncFileMove(source, target);
     }
 
     private void deleteFileWithDb(Path filePath) throws Exception {
-        String abs = filePath.toAbsolutePath().normalize().toString();
+        Optional<Photo> photoOpt = findPhotoByPath(filePath);
+        if (photoOpt.isPresent()) {
+            deleteManagedPhoto(photoOpt.get());
+            return;
+        }
         if (Files.exists(filePath)) {
             Files.deleteIfExists(filePath);
-        }
-        if (isUnderBase(abs)) {
-            findPhotoByPath(filePath).ifPresent(photo -> {
-                Long albumId = photo.getAlbumId();
-                photoRepository.delete(photo);
-                updateAlbumCount(albumId);
-            });
         }
     }
 
@@ -1033,13 +1127,27 @@ public class FolderService {
             Path newAlbumPath = target.getParent();
             Album newAlbum = findOrCreateAlbum(newAlbumPath);
             photo.setAlbumId(newAlbum.getId());
+            photo.setFilename(target.getFileName() == null ? photo.getFilename() : target.getFileName().toString());
             photo.setOriginalPath(resolveStoredPathForDb(target, photo.getUserId()));
             if (photo.getThumbnailPath() != null) {
-                photo.setThumbnailPath(resolveSiblingStoredPath(photo.getThumbnailPath(), source, target));
+                photo.setThumbnailPath(rewriteSiblingStoredPath(photo.getThumbnailPath(), resolveStoredPathForDb(source, photo.getUserId()), photo.getOriginalPath()));
             }
             if (photo.getWebpPath() != null) {
-                photo.setWebpPath(resolveSiblingStoredPath(photo.getWebpPath(), source, target));
+                photo.setWebpPath(rewriteSiblingStoredPath(photo.getWebpPath(), resolveStoredPathForDb(source, photo.getUserId()), photo.getOriginalPath()));
             }
+            if (photo.getSmallThumbPath() != null) {
+                photo.setSmallThumbPath(rewriteSiblingStoredPath(photo.getSmallThumbPath(), resolveStoredPathForDb(source, photo.getUserId()), photo.getOriginalPath()));
+            }
+            if (photo.getMediumThumbPath() != null) {
+                photo.setMediumThumbPath(rewriteSiblingStoredPath(photo.getMediumThumbPath(), resolveStoredPathForDb(source, photo.getUserId()), photo.getOriginalPath()));
+            }
+            if (photo.getLargeThumbPath() != null) {
+                photo.setLargeThumbPath(rewriteSiblingStoredPath(photo.getLargeThumbPath(), resolveStoredPathForDb(source, photo.getUserId()), photo.getOriginalPath()));
+            }
+            if (photo.getBackgroundRemovedPath() != null) {
+                photo.setBackgroundRemovedPath(rewriteSiblingStoredPath(photo.getBackgroundRemovedPath(), resolveStoredPathForDb(source, photo.getUserId()), photo.getOriginalPath()));
+            }
+            photo.setPathHash(computePathHash(photo.getOriginalPath()));
             photoRepository.save(photo);
             updateAlbumCount(oldAlbumId);
             updateAlbumCount(newAlbum.getId());
@@ -1084,6 +1192,44 @@ public class FolderService {
         });
     }
 
+    private void enrichManagedDirectoryListing(Map<String, Object> result,
+                                               com.photoexhibition.entity.StorageProvider provider,
+                                               UserAccount user) {
+        if (result == null) {
+            return;
+        }
+        Object directoriesObject = result.get("directories");
+        if (!(directoriesObject instanceof List<?>)) {
+            return;
+        }
+        List<?> rawList = (List<?>) directoriesObject;
+        for (Object itemObject : rawList) {
+            if (!(itemObject instanceof Map<?, ?>)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> item = (Map<String, Object>) itemObject;
+            String browserPath = item.get("path") == null ? null : String.valueOf(item.get("path"));
+            if (browserPath == null || browserPath.isBlank()) {
+                appendAlbumMetadata(item, null);
+                continue;
+            }
+            Path relativePath = browserPath.equals("/") ? Path.of("") : Path.of(browserPath.replaceFirst("^/+", ""));
+            String storedPath = buildManagedStoredPath(provider, user, relativePath);
+            Optional<Album> albumOpt = findAlbumByStoredPath(storedPath);
+            if (albumOpt.isPresent()) {
+                Album album = albumOpt.get();
+                item.put("photoCount", album.getPhotoCount() != null ? album.getPhotoCount() : 0);
+                appendAlbumMetadata(item, album);
+            } else {
+                if (!item.containsKey("photoCount")) {
+                    item.put("photoCount", 0);
+                }
+                appendAlbumMetadata(item, null);
+            }
+        }
+    }
+
     private Optional<Photo> findPhotoByPath(Path path) {
         if (path == null) {
             return Optional.empty();
@@ -1122,6 +1268,418 @@ public class FolderService {
             }
         }
         return Optional.empty();
+    }
+
+    private Optional<Album> findAlbumByStoredPath(String storedPath) {
+        if (storedPath == null || storedPath.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<Album> matched = albumRepository.findByPath(storedPath);
+        if (matched.isPresent()) {
+            return matched;
+        }
+        String pathHash = computePathHash(storedPath);
+        if (pathHash == null || pathHash.isBlank()) {
+            return Optional.empty();
+        }
+        return albumRepository.findByPathHash(pathHash);
+    }
+
+    private void appendAlbumMetadata(Map<String, Object> target, Album album) {
+        if (target == null) {
+            return;
+        }
+        if (album == null) {
+            target.put("albumBound", false);
+            target.put("albumId", null);
+            target.put("albumHidden", false);
+            target.put("albumAggregateSubAlbums", false);
+            target.put("albumHasCustomCover", false);
+            target.put("albumDescription", null);
+            return;
+        }
+        target.put("albumBound", true);
+        target.put("albumId", album.getId());
+        target.put("albumHidden", Boolean.TRUE.equals(album.getIsHidden()));
+        target.put("albumAggregateSubAlbums", Boolean.TRUE.equals(album.getAggregateSubAlbums()));
+        target.put("albumHasCustomCover", album.getCoverImageIds() != null && !album.getCoverImageIds().isBlank());
+        target.put("albumDescription", album.getDescription());
+    }
+
+    private Map<String, Object> buildDeletePreviewForDirectory(com.photoexhibition.entity.StorageProvider provider,
+                                                               UserAccount user,
+                                                               Path relativePath,
+                                                               String requestPath) {
+        String storedPrefix = buildManagedStoredPath(provider, user, relativePath);
+        List<Map<String, Object>> photos = new ArrayList<>();
+        for (Photo photo : loadPhotosByScopedUserId(extractUserIdFromStoredPath(storedPrefix))) {
+            if (pathMatchesStoredPrefix(photo.getOriginalPath(), storedPrefix)) {
+                photos.add(buildDeletePhotoEntry(photo, false));
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", requestPath);
+        result.put("name", relativePath.getFileName() == null ? "/" : relativePath.getFileName().toString());
+        result.put("isDirectory", true);
+        result.put("photoCount", photos.size());
+        result.put("photos", photos);
+        return result;
+    }
+
+    private Map<String, Object> buildDeletePreviewForPhoto(Photo photo, String requestPath) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", requestPath);
+        result.put("name", photo.getFilename());
+        result.put("isDirectory", false);
+        result.put("photoCount", 1);
+        result.put("photos", List.of(buildDeletePhotoEntry(photo, true)));
+        return result;
+    }
+
+    private Map<String, Object> buildDeletePhotoEntry(Photo photo, boolean directHit) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("photoId", photo.getId());
+        entry.put("filename", photo.getFilename());
+        entry.put("path", userPathService.toDisplayPath(photo.getOriginalPath(), true));
+        List<String> tags = new ArrayList<>();
+        tags.add("原图");
+        if (photo.getThumbnailPath() != null && !photo.getThumbnailPath().isBlank()) tags.add("缩略图");
+        if (photo.getWebpPath() != null && !photo.getWebpPath().isBlank()) tags.add("WebP");
+        if (photo.getSmallThumbPath() != null && !photo.getSmallThumbPath().isBlank()) tags.add("小图");
+        if (photo.getMediumThumbPath() != null && !photo.getMediumThumbPath().isBlank()) tags.add("中图");
+        if (photo.getLargeThumbPath() != null && !photo.getLargeThumbPath().isBlank()) tags.add("大图");
+        if (photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank()) tags.add("主体抠图");
+        List<com.photoexhibition.entity.Face> faces = faceRepository.findByPhotoId(photo.getId());
+        if (!faces.isEmpty()) {
+            boolean hasUnnamed = false;
+            java.util.LinkedHashSet<String> personNames = new java.util.LinkedHashSet<>();
+            for (com.photoexhibition.entity.Face face : faces) {
+                if (face.getPerson() != null && face.getPerson().getName() != null && !face.getPerson().getName().isBlank()) {
+                    personNames.add(face.getPerson().getName());
+                } else {
+                    hasUnnamed = true;
+                }
+            }
+            if (hasUnnamed) {
+                tags.add("人脸");
+            }
+            for (String personName : personNames) {
+                tags.add("人(" + personName + ")");
+            }
+        }
+        photoAssignmentRepository.findByPhotoId(photo.getId()).ifPresent(assignment -> {
+            personProfileRepository.findById(assignment.getPersonId()).ifPresentOrElse(
+                person -> tags.add("人物绑定(" + person.getName() + ")"),
+                () -> tags.add("人物绑定")
+            );
+        });
+        if (photoAIScoringRepository.findByPhotoId(photo.getId()).isPresent()) {
+            tags.add("评分");
+        }
+        entry.put("tags", tags);
+        entry.put("directHit", directHit);
+        return entry;
+    }
+
+    private void syncManagedMove(Path sourceRelative,
+                                 Path targetRelative,
+                                 com.photoexhibition.entity.StorageProvider provider,
+                                 UserAccount user,
+                                 Path scopedRoot) throws Exception {
+        String sourceStoredPath = buildManagedStoredPath(provider, user, sourceRelative);
+        String targetStoredPath = buildManagedStoredPath(provider, user, targetRelative);
+        Optional<Photo> exactPhoto = findPhotoByStoredPath(sourceStoredPath);
+        if (exactPhoto.isPresent()) {
+            syncManagedPhotoMove(exactPhoto.get(), sourceStoredPath, targetStoredPath, provider, user, targetRelative);
+            return;
+        }
+        rewriteManagedDirectoryPaths(sourceStoredPath, targetStoredPath);
+    }
+
+    private void syncManagedPhotoMove(Photo photo,
+                                      String sourceStoredPath,
+                                      String targetStoredPath,
+                                      com.photoexhibition.entity.StorageProvider provider,
+                                      UserAccount user,
+                                      Path targetRelative) throws Exception {
+        String newThumbnailPath = rewriteSiblingStoredPath(photo.getThumbnailPath(), sourceStoredPath, targetStoredPath);
+        String newWebpPath = rewriteSiblingStoredPath(photo.getWebpPath(), sourceStoredPath, targetStoredPath);
+        String newSmallThumbPath = rewriteSiblingStoredPath(photo.getSmallThumbPath(), sourceStoredPath, targetStoredPath);
+        String newMediumThumbPath = rewriteSiblingStoredPath(photo.getMediumThumbPath(), sourceStoredPath, targetStoredPath);
+        String newLargeThumbPath = rewriteSiblingStoredPath(photo.getLargeThumbPath(), sourceStoredPath, targetStoredPath);
+        String newBackgroundRemovedPath = rewriteSiblingStoredPath(photo.getBackgroundRemovedPath(), sourceStoredPath, targetStoredPath);
+
+        moveStoredAssetIfPossible(photo.getThumbnailPath(), newThumbnailPath);
+        moveStoredAssetIfPossible(photo.getWebpPath(), newWebpPath);
+        moveStoredAssetIfPossible(photo.getSmallThumbPath(), newSmallThumbPath);
+        moveStoredAssetIfPossible(photo.getMediumThumbPath(), newMediumThumbPath);
+        moveStoredAssetIfPossible(photo.getLargeThumbPath(), newLargeThumbPath);
+        moveStoredAssetIfPossible(photo.getBackgroundRemovedPath(), newBackgroundRemovedPath);
+
+        Long oldAlbumId = photo.getAlbumId();
+        Album newAlbum = findOrCreateManagedAlbum(provider, user, targetRelative.getParent());
+        photo.setAlbumId(newAlbum.getId());
+        photo.setFilename(targetRelative.getFileName() == null ? photo.getFilename() : targetRelative.getFileName().toString());
+        photo.setOriginalPath(targetStoredPath);
+        photo.setPathHash(computePathHash(targetStoredPath));
+        photo.setThumbnailPath(newThumbnailPath);
+        photo.setWebpPath(newWebpPath);
+        photo.setSmallThumbPath(newSmallThumbPath);
+        photo.setMediumThumbPath(newMediumThumbPath);
+        photo.setLargeThumbPath(newLargeThumbPath);
+        photo.setBackgroundRemovedPath(newBackgroundRemovedPath);
+        photoRepository.save(photo);
+        updateAlbumCount(oldAlbumId);
+        updateAlbumCount(newAlbum.getId());
+    }
+
+    private void rewriteManagedDirectoryPaths(String sourceStoredPrefix, String targetStoredPrefix) {
+        List<Album> albumsToUpdate = new ArrayList<>();
+        for (Album album : loadAlbumsByScopedUserId(extractUserIdFromStoredPath(sourceStoredPrefix))) {
+            String rewrittenPath = rewriteStoredPathPrefix(album.getPath(), sourceStoredPrefix, targetStoredPrefix);
+            if (!java.util.Objects.equals(rewrittenPath, album.getPath())) {
+                album.setPath(rewrittenPath);
+                album.setPathHash(computePathHash(rewrittenPath));
+                albumsToUpdate.add(album);
+            }
+        }
+        if (!albumsToUpdate.isEmpty()) {
+            albumRepository.saveAll(albumsToUpdate);
+        }
+
+        List<Photo> photosToUpdate = new ArrayList<>();
+        for (Photo photo : loadPhotosByScopedUserId(extractUserIdFromStoredPath(sourceStoredPrefix))) {
+            String rewrittenOriginalPath = rewriteStoredPathPrefix(photo.getOriginalPath(), sourceStoredPrefix, targetStoredPrefix);
+            String rewrittenThumbnailPath = rewriteStoredPathPrefix(photo.getThumbnailPath(), sourceStoredPrefix, targetStoredPrefix);
+            String rewrittenWebpPath = rewriteStoredPathPrefix(photo.getWebpPath(), sourceStoredPrefix, targetStoredPrefix);
+            String rewrittenSmallThumbPath = rewriteStoredPathPrefix(photo.getSmallThumbPath(), sourceStoredPrefix, targetStoredPrefix);
+            String rewrittenMediumThumbPath = rewriteStoredPathPrefix(photo.getMediumThumbPath(), sourceStoredPrefix, targetStoredPrefix);
+            String rewrittenLargeThumbPath = rewriteStoredPathPrefix(photo.getLargeThumbPath(), sourceStoredPrefix, targetStoredPrefix);
+            String rewrittenBackgroundRemovedPath = rewriteStoredPathPrefix(photo.getBackgroundRemovedPath(), sourceStoredPrefix, targetStoredPrefix);
+            if (!java.util.Objects.equals(rewrittenOriginalPath, photo.getOriginalPath())
+                || !java.util.Objects.equals(rewrittenThumbnailPath, photo.getThumbnailPath())
+                || !java.util.Objects.equals(rewrittenWebpPath, photo.getWebpPath())
+                || !java.util.Objects.equals(rewrittenSmallThumbPath, photo.getSmallThumbPath())
+                || !java.util.Objects.equals(rewrittenMediumThumbPath, photo.getMediumThumbPath())
+                || !java.util.Objects.equals(rewrittenLargeThumbPath, photo.getLargeThumbPath())
+                || !java.util.Objects.equals(rewrittenBackgroundRemovedPath, photo.getBackgroundRemovedPath())) {
+                photo.setOriginalPath(rewrittenOriginalPath);
+                photo.setPathHash(computePathHash(rewrittenOriginalPath));
+                photo.setThumbnailPath(rewrittenThumbnailPath);
+                photo.setWebpPath(rewrittenWebpPath);
+                photo.setSmallThumbPath(rewrittenSmallThumbPath);
+                photo.setMediumThumbPath(rewrittenMediumThumbPath);
+                photo.setLargeThumbPath(rewrittenLargeThumbPath);
+                photo.setBackgroundRemovedPath(rewrittenBackgroundRemovedPath);
+                photosToUpdate.add(photo);
+            }
+        }
+        if (!photosToUpdate.isEmpty()) {
+            photoRepository.saveAll(photosToUpdate);
+        }
+    }
+
+    private void deleteManagedDirectoryRecords(Path relativePath,
+                                               com.photoexhibition.entity.StorageProvider provider,
+                                               UserAccount user) {
+        String storedPrefix = buildManagedStoredPath(provider, user, relativePath);
+        List<Photo> photosToDelete = new ArrayList<>();
+        for (Photo photo : loadPhotosByScopedUserId(extractUserIdFromStoredPath(storedPrefix))) {
+            if (pathMatchesStoredPrefix(photo.getOriginalPath(), storedPrefix)) {
+                photosToDelete.add(photo);
+            }
+        }
+        for (Photo photo : photosToDelete) {
+            deletePhotoDbRecords(photo);
+            updateAlbumCount(photo.getAlbumId());
+        }
+
+        List<Album> albumsToDelete = new ArrayList<>();
+        for (Album album : loadAlbumsByScopedUserId(extractUserIdFromStoredPath(storedPrefix))) {
+            if (pathMatchesStoredPrefix(album.getPath(), storedPrefix)) {
+                albumsToDelete.add(album);
+            }
+        }
+        if (!albumsToDelete.isEmpty()) {
+            albumRepository.deleteAll(albumsToDelete);
+        }
+    }
+
+    private boolean deleteManagedPhotoIfMatched(Path relativePath,
+                                                com.photoexhibition.entity.StorageProvider provider,
+                                                UserAccount user,
+                                                Path scopedRoot) throws Exception {
+        String storedPath = buildManagedStoredPath(provider, user, relativePath);
+        Optional<Photo> photoOpt = findPhotoByStoredPath(storedPath);
+        if (photoOpt.isEmpty()) {
+            return false;
+        }
+        deleteManagedPhoto(photoOpt.get());
+        return true;
+    }
+
+    private void deleteManagedPhoto(Photo photo) throws Exception {
+        deleteStoredAssetIfExists(photo.getOriginalPath());
+        deleteStoredAssetIfExists(photo.getThumbnailPath());
+        deleteStoredAssetIfExists(photo.getWebpPath());
+        deleteStoredAssetIfExists(photo.getSmallThumbPath());
+        deleteStoredAssetIfExists(photo.getMediumThumbPath());
+        deleteStoredAssetIfExists(photo.getLargeThumbPath());
+        deleteStoredAssetIfExists(photo.getBackgroundRemovedPath());
+        Long albumId = photo.getAlbumId();
+        deletePhotoDbRecords(photo);
+        updateAlbumCount(albumId);
+    }
+
+    private void deletePhotoDbRecords(Photo photo) {
+        if (photo == null || photo.getId() == null) {
+            return;
+        }
+        faceRepository.deleteByPhotoId(photo.getId());
+        photoAssignmentRepository.deleteByPhotoId(photo.getId());
+        photoAIScoringRepository.deleteByPhotoId(photo.getId());
+        photoRepository.delete(photo);
+    }
+
+    private void deleteStoredAssetIfExists(String storedPath) throws Exception {
+        if (storedPath == null || storedPath.isBlank()) {
+            return;
+        }
+        UserPathService.StoragePathReference reference = userPathService.parseStoragePathReference(storedPath);
+        if (reference != null) {
+            var provider = storageProviderRepository.findById(reference.getStorageProviderId())
+                .orElseThrow(() -> new IllegalArgumentException("存储提供者不存在: " + reference.getStorageProviderId()));
+            storageUploadService.deletePath(provider, buildSyntheticUser(reference.getUserId()), reference.getRelativePath());
+            return;
+        }
+        Path path = resolvePath(storedPath);
+        if (path != null && Files.exists(path)) {
+            Files.deleteIfExists(path);
+        }
+    }
+
+    private void moveStoredAssetIfPossible(String oldStoredPath, String newStoredPath) throws Exception {
+        if (oldStoredPath == null || oldStoredPath.isBlank() || newStoredPath == null || newStoredPath.isBlank()
+            || java.util.Objects.equals(oldStoredPath, newStoredPath)) {
+            return;
+        }
+        UserPathService.StoragePathReference oldReference = userPathService.parseStoragePathReference(oldStoredPath);
+        UserPathService.StoragePathReference newReference = userPathService.parseStoragePathReference(newStoredPath);
+        if (oldReference != null && newReference != null
+            && java.util.Objects.equals(oldReference.getStorageProviderId(), newReference.getStorageProviderId())
+            && java.util.Objects.equals(oldReference.getUserId(), newReference.getUserId())) {
+            var provider = storageProviderRepository.findById(oldReference.getStorageProviderId())
+                .orElseThrow(() -> new IllegalArgumentException("存储提供者不存在: " + oldReference.getStorageProviderId()));
+            storageUploadService.movePath(provider, buildSyntheticUser(oldReference.getUserId()), oldReference.getRelativePath(), newReference.getRelativePath());
+            return;
+        }
+        Path oldPath = resolvePath(oldStoredPath);
+        Path newPath = resolvePath(newStoredPath);
+        if (oldPath != null && newPath != null && Files.exists(oldPath)) {
+            Files.createDirectories(newPath.getParent());
+            Files.move(oldPath, newPath);
+        }
+    }
+
+    private UserAccount buildSyntheticUser(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        UserAccount user = new UserAccount();
+        user.setId(userId);
+        return user;
+    }
+
+    private Album findOrCreateManagedAlbum(com.photoexhibition.entity.StorageProvider provider, UserAccount user, Path relativeDirectory) {
+        String storedPath = buildManagedStoredPath(provider, user, relativeDirectory == null ? Path.of("") : relativeDirectory);
+        return albumRepository.findByPath(storedPath).orElseGet(() -> {
+            Album album = new Album();
+            String albumName = relativeDirectory == null || relativeDirectory.getFileName() == null
+                ? provider.getName()
+                : relativeDirectory.getFileName().toString();
+            album.setName(albumName);
+            album.setPath(storedPath);
+            album.setPathHash(computePathHash(storedPath));
+            album.setUserId(user != null ? user.getId() : null);
+            album.setPhotoCount(0);
+            return albumRepository.save(album);
+        });
+    }
+
+    private Optional<Photo> findPhotoByStoredPath(String storedPath) {
+        if (storedPath == null || storedPath.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<Photo> matched = photoRepository.findByOriginalPath(storedPath);
+        if (matched.isPresent()) {
+            return matched;
+        }
+        List<Photo> all = photoRepository.findAllByOriginalPath(storedPath);
+        if (all.isEmpty()) {
+            return Optional.empty();
+        }
+        return all.stream().max(java.util.Comparator.comparingLong(Photo::getId));
+    }
+
+    private String buildManagedStoredPath(com.photoexhibition.entity.StorageProvider provider, UserAccount user, Path relativePath) {
+        Long userId = user != null ? user.getId() : null;
+        Path normalizedRelative = relativePath == null ? Path.of("") : relativePath.normalize();
+        if (userId != null && normalizedRelative.getNameCount() > 0 && String.valueOf(userId).equals(normalizedRelative.getName(0).toString())) {
+            normalizedRelative = normalizedRelative.subpath(1, normalizedRelative.getNameCount());
+        }
+        return userPathService.buildStoragePathReference(provider.getId(), userId, normalizedRelative.toString());
+    }
+
+    private String rewriteSiblingStoredPath(String currentStoredPath, String oldOriginalStoredPath, String newOriginalStoredPath) {
+        if (currentStoredPath == null || currentStoredPath.isBlank()) {
+            return currentStoredPath;
+        }
+        UserPathService.StoragePathReference currentRef = userPathService.parseStoragePathReference(currentStoredPath);
+        UserPathService.StoragePathReference oldRef = userPathService.parseStoragePathReference(oldOriginalStoredPath);
+        UserPathService.StoragePathReference newRef = userPathService.parseStoragePathReference(newOriginalStoredPath);
+        if (currentRef != null && oldRef != null && newRef != null
+            && java.util.Objects.equals(currentRef.getStorageProviderId(), oldRef.getStorageProviderId())
+            && java.util.Objects.equals(currentRef.getStorageProviderId(), newRef.getStorageProviderId())
+            && java.util.Objects.equals(currentRef.getUserId(), oldRef.getUserId())
+            && java.util.Objects.equals(currentRef.getUserId(), newRef.getUserId())) {
+            Path oldParent = oldRef.getRelativePath().getParent() == null ? Path.of("") : oldRef.getRelativePath().getParent();
+            if (!currentRef.getRelativePath().startsWith(oldParent)) {
+                return currentStoredPath;
+            }
+            Path relative = oldParent.relativize(currentRef.getRelativePath());
+            Path newParent = newRef.getRelativePath().getParent() == null ? Path.of("") : newRef.getRelativePath().getParent();
+            Path target = newParent.resolve(relative).normalize();
+            return userPathService.buildStoragePathReference(newRef.getStorageProviderId(), newRef.getUserId(), target.toString());
+        }
+        try {
+            Path oldPath = resolvePath(oldOriginalStoredPath);
+            Path newPath = resolvePath(newOriginalStoredPath);
+            return resolveSiblingStoredPath(currentStoredPath, oldPath, newPath);
+        } catch (Exception e) {
+            return currentStoredPath;
+        }
+    }
+
+    private boolean pathMatchesStoredPrefix(String value, String prefix) {
+        if (value == null || value.isBlank() || prefix == null || prefix.isBlank()) {
+            return false;
+        }
+        return value.equals(prefix) || value.startsWith(prefix + "/");
+    }
+
+    private String rewriteStoredPathPrefix(String currentPath, String sourcePrefix, String targetPrefix) {
+        if (!pathMatchesStoredPrefix(currentPath, sourcePrefix)) {
+            return currentPath;
+        }
+        if (currentPath.equals(sourcePrefix)) {
+            return targetPrefix;
+        }
+        return targetPrefix + currentPath.substring(sourcePrefix.length());
+    }
+
+    private Long extractUserIdFromStoredPath(String storedPath) {
+        UserPathService.StoragePathReference reference = userPathService.parseStoragePathReference(storedPath);
+        return reference == null ? null : reference.getUserId();
     }
 
     private List<String> buildPathLookupCandidates(Path path) {

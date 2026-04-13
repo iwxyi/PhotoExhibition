@@ -734,7 +734,6 @@
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 class="text-lg font-light">工具</h2>
-            <p class="text-xs text-gray-400">用于统一放置迁移、诊断、接口测试等低频工具型能力。</p>
           </div>
           <button
             class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
@@ -784,6 +783,155 @@
             <div>照片文件搬迁：{{ migrationSummary.movedPhotoFileCount ?? 0 }}</div>
             <div>相册路径重写：{{ migrationSummary.rewrittenAlbumPathCount ?? 0 }}</div>
             <div>照片存储引用：{{ migrationSummary.rewrittenPhotoStorageRefCount ?? 0 }}</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <div class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-sm text-white">更换存储提供者</div>
+                <div class="text-xs text-gray-400">无损迁移目录内容，并回写相册与照片路径。</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  class="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-60"
+                  :disabled="previewingStorageMigration || executingStorageMigration"
+                  @click="previewStorageMigration"
+                >
+                  {{ previewingStorageMigration ? '检查中...' : '预检查' }}
+                </button>
+                <button
+                  class="px-3 py-2 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 disabled:opacity-60"
+                  :disabled="executingStorageMigration || previewingStorageMigration"
+                  @click="executeStorageMigration"
+                >
+                  {{ executingStorageMigration ? '迁移中...' : '执行迁移' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="space-y-2">
+                <span class="text-xs text-gray-300">源存储</span>
+                <select v-model.number="storageMigrationDraft.sourceProviderId" class="admin-input">
+                  <option :value="null">请选择</option>
+                  <option v-for="provider in storageProviders" :key="`migration-source-${provider.id}`" :value="provider.id">
+                    {{ provider.name }}
+                  </option>
+                </select>
+              </label>
+              <label class="space-y-2">
+                <span class="text-xs text-gray-300">目标存储</span>
+                <select v-model.number="storageMigrationDraft.targetProviderId" class="admin-input">
+                  <option :value="null">请选择</option>
+                  <option v-for="provider in storageProviders" :key="`migration-target-${provider.id}`" :value="provider.id">
+                    {{ provider.name }}
+                  </option>
+                </select>
+              </label>
+              <label class="space-y-2">
+                <span class="text-xs text-gray-300">源目录</span>
+                <input v-model.trim="storageMigrationDraft.sourcePath" type="text" class="admin-input" placeholder="/" />
+              </label>
+              <label class="space-y-2">
+                <span class="text-xs text-gray-300">目标目录</span>
+                <input v-model.trim="storageMigrationDraft.targetPath" type="text" class="admin-input" placeholder="/" />
+              </label>
+            </div>
+
+            <label class="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+              <div>
+                <div class="text-sm text-amber-100">目标非空时先清空</div>
+                <div class="text-xs text-amber-200/80">会先删除目标目录下已有文件及关联数据。</div>
+              </div>
+              <input v-model="storageMigrationDraft.clearTarget" type="checkbox" class="h-4 w-4 rounded" />
+            </label>
+
+            <div v-if="storageMigrationPreview" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-xs text-gray-300">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
+                  <div class="text-[11px] text-gray-400">源目录</div>
+                  <div class="text-sm text-white">{{ storageMigrationPreview.source.providerName }} · {{ storageMigrationPreview.source.path }}</div>
+                  <div>目录 {{ storageMigrationPreview.source.directoryCount }} · 文件 {{ storageMigrationPreview.source.fileCount }} · {{ formatBytes(storageMigrationPreview.source.totalBytes) }}</div>
+                </div>
+                <div class="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
+                  <div class="text-[11px] text-gray-400">目标目录</div>
+                  <div class="text-sm text-white">{{ storageMigrationPreview.target.providerName }} · {{ storageMigrationPreview.target.path }}</div>
+                  <div>目录 {{ storageMigrationPreview.target.directoryCount }} · 文件 {{ storageMigrationPreview.target.fileCount }} · {{ formatBytes(storageMigrationPreview.target.totalBytes) }}</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="rounded-xl border border-white/10 bg-black/20 p-3">相册关联：{{ storageMigrationPreview.database.albumCount }}</div>
+                <div class="rounded-xl border border-white/10 bg-black/20 p-3">照片关联：{{ storageMigrationPreview.database.photoCount }}</div>
+              </div>
+              <div v-if="storageMigrationPreview.targetNotEmpty" class="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-100">
+                目标目录当前非空，执行前请确认是否需要先清空。
+              </div>
+            </div>
+
+            <div v-if="storageMigrationResult" class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs text-emerald-100 space-y-1">
+              <div>已回写相册 {{ storageMigrationResult.rewrittenAlbumCount ?? 0 }} 项，照片 {{ storageMigrationResult.rewrittenPhotoCount ?? 0 }} 项。</div>
+              <div v-if="storageMigrationResult.executedAt">执行时间：{{ formatDateTime(storageMigrationResult.executedAt) }}</div>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="text-sm text-white">清空指定目录</div>
+                <div class="text-xs text-gray-400">按物理目录删除文件、相册、照片与关联记录。</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  class="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-60"
+                  :disabled="previewingStorageCleanup || executingStorageCleanup"
+                  @click="previewStorageCleanup"
+                >
+                  {{ previewingStorageCleanup ? '检查中...' : '预检查' }}
+                </button>
+                <button
+                  class="px-3 py-2 rounded-lg bg-rose-600 text-xs text-white hover:bg-rose-500 disabled:opacity-60"
+                  :disabled="executingStorageCleanup || previewingStorageCleanup"
+                  @click="executeStorageCleanup"
+                >
+                  {{ executingStorageCleanup ? '清理中...' : '执行清理' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="space-y-2">
+                <span class="text-xs text-gray-300">存储</span>
+                <select v-model.number="storageCleanupDraft.providerId" class="admin-input">
+                  <option :value="null">请选择</option>
+                  <option v-for="provider in storageProviders" :key="`cleanup-${provider.id}`" :value="provider.id">
+                    {{ provider.name }}
+                  </option>
+                </select>
+              </label>
+              <label class="space-y-2">
+                <span class="text-xs text-gray-300">目录</span>
+                <input v-model.trim="storageCleanupDraft.path" type="text" class="admin-input" placeholder="/" />
+              </label>
+            </div>
+
+            <div v-if="storageCleanupPreview" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-xs text-gray-300">
+              <div class="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
+                <div class="text-[11px] text-gray-400">目标目录</div>
+                <div class="text-sm text-white">{{ storageCleanupPreview.target.providerName }} · {{ storageCleanupPreview.target.path }}</div>
+                <div>目录 {{ storageCleanupPreview.target.directoryCount }} · 文件 {{ storageCleanupPreview.target.fileCount }} · {{ formatBytes(storageCleanupPreview.target.totalBytes) }}</div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="rounded-xl border border-white/10 bg-black/20 p-3">相册关联：{{ storageCleanupPreview.database.albumCount }}</div>
+                <div class="rounded-xl border border-white/10 bg-black/20 p-3">照片关联：{{ storageCleanupPreview.database.photoCount }}</div>
+              </div>
+            </div>
+
+            <div v-if="storageCleanupResult" class="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-xs text-rose-100 space-y-1">
+              <div>目录清理已完成。</div>
+              <div v-if="storageCleanupResult.executedAt">执行时间：{{ formatDateTime(storageCleanupResult.executedAt) }}</div>
+            </div>
           </div>
         </div>
 
@@ -2841,6 +2989,7 @@
                 <div class="text-xs text-gray-500">创建于 {{ formatDate(provider.createdAt) }} · 最近更新 {{ formatDate(provider.updatedAt) }}</div>
               </div>
               <button
+                v-if="isProviderDirty(provider) || savingProviderId === provider.id"
                 type="button"
                 class="shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
                 :disabled="savingProviderId === provider.id"
@@ -2870,15 +3019,18 @@
             </div>
 
             <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 space-y-2 text-xs">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-sm text-white">状态说明</div>
-                <button
-                  type="button"
-                  class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
-                  @click="applyProviderPreset(provider)"
-                >
-                  套用推荐
-                </button>
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm text-white">状态说明</div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class="px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-xs border border-white/10 disabled:opacity-60"
+                      :disabled="testingProviderId === provider.id"
+                      @click="testStorageProvider(provider)"
+                    >
+                      {{ testingProviderId === provider.id ? '测试中...' : '测试可用性' }}
+                    </button>
+                  </div>
               </div>
               <div class="text-gray-300">解析根目录：{{ provider.resolvedBaseDirectory || '—' }}</div>
               <div class="text-gray-300">{{ providerStatusSummary(provider) }}</div>
@@ -2890,6 +3042,31 @@
               </div>
               <div v-if="getProviderAssessment(provider).configError" class="text-rose-300">
                 JSON 错误：{{ getProviderAssessment(provider).configError }}
+              </div>
+              <div
+                v-if="storageProviderTestResults[provider.id]"
+                class="rounded-xl border p-3 space-y-2"
+                :class="storageProviderTestResults[provider.id]?.success
+                  ? 'border-emerald-400/20 bg-emerald-500/10'
+                  : 'border-amber-400/20 bg-amber-500/10'"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div :class="storageProviderTestResults[provider.id]?.success ? 'text-emerald-100' : 'text-amber-100'">
+                    {{ storageProviderTestResults[provider.id]?.message }}
+                  </div>
+                  <div class="text-[11px] text-gray-400">
+                    {{ storageProviderTestedAt[provider.id] || '' }}
+                  </div>
+                </div>
+                <div
+                  v-for="check in storageProviderTestResults[provider.id]?.checks || []"
+                  :key="`${provider.id}-${check.key}`"
+                  class="text-[11px] flex items-start justify-between gap-3"
+                  :class="check.success ? 'text-gray-200' : 'text-rose-200'"
+                >
+                  <span>{{ check.label }}</span>
+                  <span class="text-right">{{ check.message || (check.success ? '通过' : '失败') }}</span>
+                </div>
               </div>
               <div class="text-gray-500">{{ getStoragePreset(provider.type).hint }}</div>
             </div>
@@ -2910,7 +3087,6 @@
               <label class="block space-y-1">
                 <span class="text-[11px] text-gray-400">优先级</span>
                 <input v-model.number="provider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-                <span class="text-[11px] text-gray-500">数值越小越优先。</span>
               </label>
               <div class="flex flex-col gap-2 self-start">
                 <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
@@ -2924,41 +3100,9 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label
-                v-for="field in getVisibleStorageFields(provider.type)"
-                :key="`${provider.id}-${field.key}`"
-                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
-                    <a
-                      v-if="getStorageFieldDocLink(provider.type, field.key)"
-                      :href="getStorageFieldDocLink(provider.type, field.key)?.url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-[10px] text-sky-300 hover:text-sky-200"
-                      :title="`打开${getStorageFieldDocLink(provider.type, field.key)?.label || '文档'}`"
-                    >
-                      ↗
-                    </a>
-                  </div>
-                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">{{ field.shortHint }}</span>
-                </div>
-                <input
-                  v-model="(provider as any)[field.key]"
-                  type="text"
-                  :placeholder="field.placeholder"
-                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
-                />
-                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
-              </label>
-            </div>
-
-            <div v-if="getVisibleStorageConfigFields(provider.type).length" class="grid grid-cols-1 gap-3">
-              <label
-                v-for="field in getVisibleStorageConfigFields(provider.type)"
+                v-for="field in getVisibleStorageFormFields(provider.type)"
                 :key="`${provider.id}-${field.key}`"
                 class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
               >
@@ -2976,20 +3120,19 @@
                       ↗
                     </a>
                   </div>
-                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">配置</span>
                 </div>
                 <input
                   v-model="(provider as any)[field.modelKey]"
                   :type="field.secret ? 'password' : 'text'"
-                  :placeholder="field.placeholder"
+                  :placeholder="getStorageFormFieldPlaceholder(provider, field)"
                   class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                  @input="handleStorageFormFieldInput(provider, field)"
                 />
-                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
               </label>
             </div>
 
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">扩展配置 JSON（高级可选项）</span>
+              <span class="text-[11px] text-gray-400">扩展配置 JSON</span>
               <textarea v-model="provider.configJson" rows="8" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-2xl text-xs font-mono" />
             </label>
           </article>
@@ -3220,7 +3363,6 @@
               <label class="block space-y-1">
                 <span class="text-[11px] text-gray-400">优先级</span>
                 <input v-model.number="newProvider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-                <span class="text-[11px] text-gray-500">数值越小越优先。</span>
               </label>
               <div class="flex flex-col gap-2 self-start">
                 <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
@@ -3234,41 +3376,9 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label
-                v-for="field in getVisibleStorageFields(newProvider.type)"
-                :key="`new-${field.key}`"
-                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
-                    <a
-                      v-if="getStorageFieldDocLink(newProvider.type, field.key)"
-                      :href="getStorageFieldDocLink(newProvider.type, field.key)?.url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-[10px] text-sky-300 hover:text-sky-200"
-                      :title="`打开${getStorageFieldDocLink(newProvider.type, field.key)?.label || '文档'}`"
-                    >
-                      ↗
-                    </a>
-                  </div>
-                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">{{ field.shortHint }}</span>
-                </div>
-                <input
-                  v-model="(newProvider as any)[field.key]"
-                  type="text"
-                  :placeholder="field.placeholder"
-                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
-                />
-                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
-              </label>
-            </div>
-
-            <div v-if="getVisibleStorageConfigFields(newProvider.type).length" class="grid grid-cols-1 gap-3">
-              <label
-                v-for="field in getVisibleStorageConfigFields(newProvider.type)"
+                v-for="field in getVisibleStorageFormFields(newProvider.type)"
                 :key="`new-${field.key}`"
                 class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
               >
@@ -3286,20 +3396,19 @@
                       ↗
                     </a>
                   </div>
-                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">配置</span>
                 </div>
                 <input
                   v-model="(newProvider as any)[field.modelKey]"
                   :type="field.secret ? 'password' : 'text'"
-                  :placeholder="field.placeholder"
+                  :placeholder="getStorageFormFieldPlaceholder(newProvider, field)"
                   class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                  @input="handleStorageFormFieldInput(newProvider, field)"
                 />
-                <span class="text-[11px] text-gray-500">{{ field.description }}</span>
               </label>
             </div>
 
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">扩展配置 JSON（高级可选项）</span>
+              <span class="text-[11px] text-gray-400">扩展配置 JSON</span>
               <textarea
                 v-model="newProvider.configJson"
                 rows="8"
@@ -3441,6 +3550,11 @@ import {
   type OperationLogSummary,
   type PageResponse,
   type ProcessingOverviewTaskSummary,
+  type StorageProviderTestResult,
+  type StorageMigrationPreview,
+  type StorageMigrationResult,
+  type StorageCleanupPreview,
+  type StorageCleanupResult,
   type SuperAdminTablePreferences,
   type SuperAdminProcessingOverview,
   api,
@@ -3472,9 +3586,14 @@ const savingSettings = ref(false)
 const savingUserId = ref<number | null>(null)
 const savingAllUsers = ref(false)
 const savingProviderId = ref<number | null>(null)
+const testingProviderId = ref<number | null>(null)
 const savingVipPlanId = ref<number | null>(null)
 const savingVipOrderId = ref<number | null>(null)
 const runningMigration = ref(false)
+const previewingStorageMigration = ref(false)
+const executingStorageMigration = ref(false)
+const previewingStorageCleanup = ref(false)
+const executingStorageCleanup = ref(false)
 const sendingTestSms = ref(false)
 const sendingTestEmail = ref(false)
 const sendingCustomEmail = ref(false)
@@ -3488,6 +3607,21 @@ const rebuildingModelKey = ref<string | null>(null)
 const statusMessage = ref('')
 const statusType = ref<'success' | 'error'>('success')
 const migrationSummary = ref<LegacyMigrationSummary | null>(null)
+const storageMigrationPreview = ref<StorageMigrationPreview | null>(null)
+const storageMigrationResult = ref<StorageMigrationResult | null>(null)
+const storageCleanupPreview = ref<StorageCleanupPreview | null>(null)
+const storageCleanupResult = ref<StorageCleanupResult | null>(null)
+const storageMigrationDraft = reactive({
+  sourceProviderId: null as number | null,
+  sourcePath: '/',
+  targetProviderId: null as number | null,
+  targetPath: '/',
+  clearTarget: false
+})
+const storageCleanupDraft = reactive({
+  providerId: null as number | null,
+  path: '/'
+})
 const selectedLoginRecordUserId = ref<number | null>(null)
 const userKeyword = ref('')
 const usersPage = reactive({ page: 0, size: 8, totalElements: 0, totalPages: 0, first: true, last: true })
@@ -3668,7 +3802,6 @@ const superScanTasks = ref<any[]>([])
 const superScanProgress = ref({ current: 0, total: 0 })
 const superScanSummary = ref({ total: 0, scanned: 0, failed: 0, waiting: 0 })
 const superScanLastTime = ref<string | null>(null)
-const superScanPageLoadingInFlight = ref(false)
 const showSuperScanTaskDetailModal = ref(false)
 const loadingSuperScanTaskDetail = ref(false)
 const superSelectedTaskDetail = ref<any | null>(null)
@@ -3692,6 +3825,8 @@ const superAdminSkippedFiles = ref<Array<{
   recordedAt?: string | null
 }>>([])
 const storageProviders = ref<StorageProviderSummary[]>([])
+const storageProviderTestResults = reactive<Record<number, StorageProviderTestResult | undefined>>({})
+const storageProviderTestedAt = reactive<Record<number, string | undefined>>({})
 const showCreateStorageModal = ref(false)
 const originalStorageProviderPayloads = ref<Record<number, string>>({})
 const vipPlans = ref<VipPlanSummary[]>([])
@@ -3708,6 +3843,7 @@ const modelTaskDetails = reactive<Record<string, ModelRebuildTask | null>>({})
 let modelTaskPollTimer: ReturnType<typeof setInterval> | null = null
 let processingOverviewPollTimer: ReturnType<typeof setInterval> | null = null
 let superScanPollTimer: ReturnType<typeof setInterval> | null = null
+let superScanRequestSequence = 0
 const previewingVipOrderId = ref<number | null>(null)
 const initiatingVipOrderId = ref<number | null>(null)
 const mockingVipOrderId = ref<number | null>(null)
@@ -3886,12 +4022,12 @@ const storageDirectConfigFieldsByType: Record<string, StorageConfigFieldMeta[]> 
       docUrl: 'https://cloud.tencent.com/document/product/436/6224',
       docLabel: '地域'
     }),
-    createStorageConfigField('secretId', 'SecretId / 密钥 ID', '填写腾讯云 SecretId', '腾讯云 API 密钥 ID。', {
+    createStorageConfigField('secretId', 'SecretId / API 密钥 ID', '填写腾讯云 SecretId（不是 APPID）', '腾讯云 API 密钥 ID，不是 APPID、账号 ID、桶名后缀。', {
       aliases: ['accessKeyId'],
       docUrl: 'https://console.cloud.tencent.com/cam/capi',
       docLabel: '密钥'
     }),
-    createStorageConfigField('secretKey', 'SecretKey / 密钥', '填写腾讯云 SecretKey', '腾讯云 API 密钥 Secret。', {
+    createStorageConfigField('secretKey', 'SecretKey / API 密钥', '填写腾讯云 SecretKey', '与 SecretId 成对使用的腾讯云 API 密钥。', {
       secret: true,
       aliases: ['accessKeySecret'],
       docUrl: 'https://console.cloud.tencent.com/cam/capi',
@@ -4615,6 +4751,7 @@ const shouldShowStorageField = (type?: string | null, field?: 'endpoint' | 'buck
 const getStorageFieldLabel = (type?: string | null, field?: 'endpoint' | 'bucketName' | 'baseDirectory') => {
   const normalizedType = type || 'LOCAL'
   if (field === 'endpoint') {
+    if (normalizedType === 'COS') return 'Endpoint（选填）'
     if (['FTP', 'SFTP'].includes(normalizedType)) return '服务器地址'
     if (normalizedType === 'WEBDAV') return 'WebDAV 地址'
     if (normalizedType === 'SMB') return '共享地址'
@@ -4703,6 +4840,102 @@ const parseStorageConfigObject = (configJson?: string | null) => {
 
 const getVisibleStorageConfigFields = (type?: string | null) =>
   storageDirectConfigFieldsByType[type || 'LOCAL'] || []
+
+type StorageFormFieldMeta = {
+  key: string
+  modelKey: string
+  label: string
+  placeholder: string
+  secret?: boolean
+  docUrl?: string
+  docLabel?: string
+}
+
+const storageFieldOrderByType: Record<string, string[]> = {
+  COS: ['secretId', 'secretKey', 'bucketName', 'region', 'endpoint', 'baseDirectory']
+}
+
+const buildCosEndpointPlaceholder = (provider: Partial<StorageProviderSummary>) => {
+  const { merged } = buildStorageConfigObject(provider)
+  const region = String(merged.region || '').trim()
+  if (!region) {
+    return '例如 cos.ap-shanghai.myqcloud.com，可留空'
+  }
+  return `例如 cos.${region}.myqcloud.com，可留空`
+}
+
+const getStorageFormFieldPlaceholder = (provider: Partial<StorageProviderSummary>, field: StorageFormFieldMeta) => {
+  if (provider.type === 'COS' && field.key === 'endpoint') {
+    return buildCosEndpointPlaceholder(provider)
+  }
+  return field.placeholder
+}
+
+const inferCosPartsFromEndpoint = (endpoint?: string | null) => {
+  const raw = String(endpoint || '').trim()
+  if (!raw) return { bucketName: '', region: '' }
+  try {
+    const normalized = raw.includes('://') ? raw : `https://${raw}`
+    const url = new URL(normalized)
+    const parts = url.hostname.split('.')
+    if (parts.length < 4) return { bucketName: '', region: '' }
+    const first = parts[0]
+    const bucketName = first !== 'cos' && first.includes('-') ? first : ''
+    const region = first === 'cos' ? (parts[1] || '') : (parts[2] || '')
+    return { bucketName, region }
+  } catch {
+    return { bucketName: '', region: '' }
+  }
+}
+
+const syncCosLinkedFields = (provider: Partial<StorageProviderSummary>) => {
+  if (provider.type !== 'COS') return
+  const endpoint = String(provider.endpoint || '').trim()
+  if (!endpoint) return
+  const { bucketName, region } = inferCosPartsFromEndpoint(endpoint)
+  if (bucketName && !String(provider.bucketName || '').trim()) {
+    provider.bucketName = bucketName
+  }
+  if (region && !String((provider as any).__config_region || '').trim()) {
+    ;(provider as any).__config_region = region
+  }
+}
+
+const handleStorageFormFieldInput = (provider: Partial<StorageProviderSummary>, field: StorageFormFieldMeta) => {
+  if (provider.type !== 'COS') return
+  if (field.key === 'endpoint') {
+    syncCosLinkedFields(provider)
+  }
+}
+
+const getVisibleStorageFormFields = (type?: string | null): StorageFormFieldMeta[] => {
+  const normalizedType = type || 'LOCAL'
+  const baseFields = getVisibleStorageFields(normalizedType).map((field) => ({
+    key: field.key,
+    modelKey: field.key,
+    label: field.label,
+    placeholder: field.placeholder,
+    docUrl: getStorageFieldDocLink(normalizedType, field.key)?.url,
+    docLabel: getStorageFieldDocLink(normalizedType, field.key)?.label
+  }))
+  const configFields = getVisibleStorageConfigFields(normalizedType).map((field) => ({
+    key: field.key,
+    modelKey: field.modelKey,
+    label: field.label,
+    placeholder: field.placeholder,
+    secret: field.secret,
+    docUrl: field.docUrl,
+    docLabel: field.docLabel
+  }))
+  const allFields = [...baseFields, ...configFields]
+  const order = storageFieldOrderByType[normalizedType] || allFields.map((field) => field.key)
+  const byKey = new Map(allFields.map((field) => [field.key, field]))
+  const ordered = order
+    .map((key) => byKey.get(key))
+    .filter((field): field is StorageFormFieldMeta => !!field)
+  const remaining = allFields.filter((field) => !order.includes(field.key))
+  return [...ordered, ...remaining]
+}
 
 const hydrateStorageConfigDraft = (provider: Partial<StorageProviderSummary>) => {
   const { parsed } = parseStorageConfigObject(provider.configJson)
@@ -4817,6 +5050,7 @@ const providerHasStructuralChanges = (provider: Partial<StorageProviderSummary>)
 const getStorageFieldPlaceholder = (type?: string | null, field?: 'endpoint' | 'bucketName' | 'baseDirectory') => {
   const normalizedType = type || 'LOCAL'
   if (field === 'endpoint') {
+    if (normalizedType === 'COS') return '可留空；通常按 Region 自动推断，只有自定义节点时才需要填写。'
     return storageTypePresets[normalizedType]?.endpoint || '请输入服务地址'
   }
   if (field === 'bucketName') {
@@ -4848,7 +5082,7 @@ const getProviderAssessment = (provider: Partial<StorageProviderSummary>) => {
   if (shouldShowStorageField(type, 'baseDirectory') && !hasText(provider.baseDirectory)) {
     missingLabels.push('基础目录')
   }
-  if (shouldShowStorageField(type, 'endpoint') && !hasText(provider.endpoint)) {
+  if (type !== 'COS' && shouldShowStorageField(type, 'endpoint') && !hasText(provider.endpoint)) {
     missingLabels.push(getStorageFieldLabel(type, 'endpoint'))
   }
   if (shouldShowStorageField(type, 'bucketName') && !hasText(provider.bucketName)) {
@@ -5189,7 +5423,7 @@ const loadProcessingOverview = async () => {
 
 const loadSuperScanProviderOptions = async () => {
   try {
-    const { data } = await api.get('/admin/folders/base-path')
+    const { data } = await api.get('/admin/folders/base-path', { timeout: 10000 })
     const providers = Array.isArray(data?.availableStorageProviders) ? data.availableStorageProviders : []
     superScanProviderOptions.value = providers
       .filter((item: any) => item?.browserSupported && item?.scanSupported !== false)
@@ -5206,8 +5440,45 @@ const loadSuperScanProviderOptions = async () => {
   }
 }
 
+const normalizeSuperScanTask = (item: any) => ({
+  id: item?.id ?? item?.taskId,
+  taskType: item?.taskType ?? item?.taskName,
+  status: item?.status,
+  ownerLabel: item?.ownerLabel,
+  rootPath: item?.rootPath ?? item?.path,
+  rootPathDisplay: item?.rootPathDisplay ?? item?.path,
+  processedItems: item?.processedItems ?? item?.current ?? 0,
+  totalItems: item?.totalItems ?? item?.total ?? 0,
+  skippedItems: item?.skippedItems ?? item?.skipped ?? 0,
+  failedItems: item?.failedItems ?? item?.failed ?? 0,
+  progressPercent: item?.progressPercent,
+  errorMessage: item?.errorMessage ?? item?.error ?? null,
+  createdAt: item?.createdAt ?? item?.startedAt ?? item?.updatedAt,
+  startedAt: item?.startedAt ?? null,
+  finishedAt: item?.finishedAt ?? null,
+  lastProcessedPath: item?.lastProcessedPath ?? null,
+  lastProcessedPathDisplay: item?.lastProcessedPathDisplay ?? item?.lastProcessedPath ?? null,
+  storageProviderId: item?.storageProviderId ?? null,
+  storageProviderName: item?.storageProviderName ?? null,
+  storageProviderType: item?.storageProviderType ?? null
+})
+
+const mergeSuperScanTasks = (items: any[]) => {
+  const normalized = items
+    .filter(item => item)
+    .map(normalizeSuperScanTask)
+    .filter(item => item.id != null)
+
+  if (!normalized.length) return
+
+  const merged = [...normalized, ...superScanTasks.value]
+  superScanTasks.value = merged.filter((item, index, list) =>
+    list.findIndex(candidate => candidate.id === item.id) === index
+  )
+}
+
 const loadSuperScanStatus = async () => {
-  const { data } = await api.get('/admin/scan/status')
+  const { data } = await api.get('/admin/scan/status', { timeout: 10000 })
   const payload = data || {}
   superScanning.value = !!payload.scanning
   superQueueCount.value = payload.queuedTaskCount ?? 0
@@ -5227,11 +5498,14 @@ const loadSuperScanStatus = async () => {
     waiting: payload.scanSummary?.waiting ?? payload.filesystemStats?.unscanned ?? 0
   }
   superScanLastTime.value = payload.lastScanStart ? new Date(payload.lastScanStart).toLocaleString('zh-CN') : null
+  if (Array.isArray(payload.recentTasks) && payload.recentTasks.length) {
+    mergeSuperScanTasks(payload.recentTasks)
+  }
 }
 
 const loadSuperScanTasks = async () => {
-  const { data } = await api.get('/admin/scan/tasks')
-  superScanTasks.value = Array.isArray(data) ? data : []
+  const { data } = await api.get('/admin/scan/tasks', { timeout: 10000 })
+  superScanTasks.value = Array.isArray(data) ? data.map(normalizeSuperScanTask) : []
 }
 
 const fillSuperScanTasksFromProcessingOverview = async () => {
@@ -5244,27 +5518,7 @@ const fillSuperScanTasksFromProcessingOverview = async () => {
   ]
   const normalized = merged
     .filter((item: any) => item)
-    .map((item: any) => ({
-      id: item.id ?? item.taskId,
-      taskType: item.taskType ?? item.taskName,
-      status: item.status,
-      ownerLabel: item.ownerLabel,
-      rootPath: item.rootPath ?? item.path,
-      rootPathDisplay: item.rootPathDisplay ?? item.path,
-      processedItems: item.processedItems ?? item.current ?? 0,
-      totalItems: item.totalItems ?? item.total ?? 0,
-      skippedItems: item.skippedItems ?? item.skipped ?? 0,
-      failedItems: item.failedItems ?? item.failed ?? 0,
-      progressPercent: item.progressPercent,
-      errorMessage: item.errorMessage ?? item.error ?? null,
-      createdAt: item.createdAt ?? item.startedAt ?? item.updatedAt,
-      startedAt: item.startedAt ?? null,
-      finishedAt: item.finishedAt ?? null,
-      lastProcessedPath: item.lastProcessedPath ?? null,
-      lastProcessedPathDisplay: item.lastProcessedPathDisplay ?? item.lastProcessedPath ?? null,
-      storageProviderName: item.storageProviderName ?? null,
-      storageProviderType: item.storageProviderType ?? null
-    }))
+    .map((item: any) => normalizeSuperScanTask(item))
     .filter((item: any) => item.id != null)
   const deduped = normalized.filter((item: any, index: number, list: any[]) =>
     list.findIndex(candidate => candidate.id === item.id) === index
@@ -5274,28 +5528,56 @@ const fillSuperScanTasksFromProcessingOverview = async () => {
   }
 }
 
-const loadSuperScanPage = async () => {
-  if (superScanPageLoadingInFlight.value) return
-  superScanPageLoadingInFlight.value = true
-  loadingSuperScan.value = true
+const loadSuperScanPage = async (options: { silent?: boolean } = {}) => {
+  const requestId = ++superScanRequestSequence
+  const silent = !!options.silent
+  if (!silent) {
+    loadingSuperScan.value = true
+  }
+  let hasLoadedAnySection = false
+  let firstError: any = null
+  const captureError = (error: any) => {
+    if (!firstError) firstError = error
+  }
+
   try {
     const results = await Promise.allSettled([
       loadSuperScanProviderOptions(),
       loadSuperScanStatus(),
       loadSuperScanTasks()
     ])
-    const firstRejected = results.find((item): item is PromiseRejectedResult => item.status === 'rejected')
-    if (firstRejected) {
-      throw firstRejected.reason
-    }
+
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        hasLoadedAnySection = true
+      } else {
+        captureError(result.reason)
+      }
+    })
+
     if (!superScanTasks.value.length) {
-      await fillSuperScanTasksFromProcessingOverview()
+      try {
+        await fillSuperScanTasksFromProcessingOverview()
+        hasLoadedAnySection = true
+      } catch (error) {
+        captureError(error)
+      }
+    }
+
+    if (!hasLoadedAnySection && firstError) {
+      throw firstError
+    }
+    if (firstError && !silent) {
+      showMessage(firstError?.response?.data?.error || firstError?.message || '部分扫描状态加载失败', 'error')
     }
   } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '加载扫描管理失败', 'error')
+    if (!silent) {
+      showMessage(error?.response?.data?.error || error?.message || '加载扫描管理失败', 'error')
+    }
   } finally {
-    loadingSuperScan.value = false
-    superScanPageLoadingInFlight.value = false
+    if (requestId === superScanRequestSequence) {
+      loadingSuperScan.value = false
+    }
   }
 }
 
@@ -5308,9 +5590,14 @@ const triggerSuperScan = async () => {
   try {
     const params = superSelectedScanProviderId.value != null ? { storageProviderId: superSelectedScanProviderId.value } : undefined
     const { data } = await api.post('/admin/scan', null, { params })
+    mergeSuperScanTasks([data])
+    superScanning.value = true
+    superQueueCount.value = Math.max(1, Number(superQueueCount.value || 0))
+    superRunningTaskCount.value = Math.max(superRunningTaskCount.value, 1)
+    superScanLastTime.value = new Date().toLocaleString('zh-CN')
     const message = data?.message || (data?.merged ? '扫描任务已合并到现有队列' : '扫描任务已加入队列')
     showMessage(message)
-    await loadSuperScanPage()
+    loadSuperScanPage({ silent: true }).catch(() => {})
   } catch (error: any) {
     showMessage(error?.response?.data?.message || error?.message || '触发扫描失败', 'error')
   } finally {
@@ -5627,6 +5914,16 @@ const loadStorageProviders = async () => {
     storageProviders.value.map(provider => [provider.id, snapshotStorageProviderPayload(provider)])
   )
   sanitizeStorageSelections()
+  const defaultProviderId = storageProviders.value.find(provider => provider.isDefault)?.id ?? storageProviders.value[0]?.id ?? null
+  if (storageMigrationDraft.sourceProviderId == null) {
+    storageMigrationDraft.sourceProviderId = defaultProviderId
+  }
+  if (storageMigrationDraft.targetProviderId == null) {
+    storageMigrationDraft.targetProviderId = defaultProviderId
+  }
+  if (storageCleanupDraft.providerId == null) {
+    storageCleanupDraft.providerId = defaultProviderId
+  }
 }
 
 const resetEmailTemplateVariables = (template?: EmailTemplateSummary | null) => {
@@ -5737,7 +6034,7 @@ const stopProcessingOverviewPolling = () => {
 const startSuperScanPolling = () => {
   if (superScanPollTimer) return
   superScanPollTimer = setInterval(() => {
-    loadSuperScanPage().catch(() => {})
+    loadSuperScanPage({ silent: true }).catch(() => {})
   }, 5000)
 }
 
@@ -6168,23 +6465,22 @@ const ensureTabDataLoaded = async (tab: SuperAdminTabKey, force = false) => {
 const loadAll = async () => {
   loading.value = true
   try {
-    const bootstrapTasks: Array<{ label: string; loader: () => Promise<any> }> = [
-      { label: '全局设置', loader: loadSettings },
-      { label: '表格偏好', loader: loadTablePreferences }
-    ]
+    const bootstrapTasks: Array<{ label: string; loader: () => Promise<any> }> = []
     if (typeof route.query.focusOrderNo === 'string' && route.query.focusOrderNo.trim()) {
       bootstrapTasks.push({ label: '订单定位', loader: loadFocusedVipOrder })
     }
-    const bootstrapResults = await Promise.allSettled(bootstrapTasks.map(task => task.loader()))
-    const bootstrapFailed = bootstrapResults
-      .map((result, index) => ({ result, index }))
-      .filter(item => item.result.status === 'rejected')
-      .map(item => ({
-        label: bootstrapTasks[item.index].label,
-        error: (item.result as PromiseRejectedResult).reason
-      }))
-    handleSuperAdminLoadErrors(bootstrapFailed)
-    if (bootstrapFailed.length) return
+    if (bootstrapTasks.length) {
+      const bootstrapResults = await Promise.allSettled(bootstrapTasks.map(task => task.loader()))
+      const bootstrapFailed = bootstrapResults
+        .map((result, index) => ({ result, index }))
+        .filter(item => item.result.status === 'rejected')
+        .map(item => ({
+          label: bootstrapTasks[item.index].label,
+          error: (item.result as PromiseRejectedResult).reason
+        }))
+      handleSuperAdminLoadErrors(bootstrapFailed)
+      if (bootstrapFailed.length) return
+    }
     await ensureTabDataLoaded(activeTab.value, true)
   } catch (error: any) {
     showMessage(error?.response?.data?.error || error?.message || '加载超级管理员数据失败', 'error')
@@ -6546,7 +6842,9 @@ const applyPaymentPreset = () => {
 
 const applyStoragePreset = () => {
   const preset = storagePreset.value
-  newProvider.endpoint = shouldShowStorageField(newProvider.type, 'endpoint') ? preset.endpoint : ''
+  newProvider.endpoint = newProvider.type === 'COS'
+    ? ''
+    : (shouldShowStorageField(newProvider.type, 'endpoint') ? preset.endpoint : '')
   newProvider.bucketName = shouldShowStorageField(newProvider.type, 'bucketName') ? preset.bucketName : ''
   newProvider.baseDirectory = shouldShowStorageField(newProvider.type, 'baseDirectory') ? preset.baseDirectory : ''
   if (!String(newProvider.configJson || '').trim()) {
@@ -6558,7 +6856,7 @@ const applyStoragePreset = () => {
 
 const fillProviderPresetByVisibility = (provider: Partial<StorageProviderSummary>) => {
   const preset = getStoragePreset(provider.type)
-  if (shouldShowStorageField(provider.type, 'endpoint') && !String(provider.endpoint || '').trim()) {
+  if (provider.type !== 'COS' && shouldShowStorageField(provider.type, 'endpoint') && !String(provider.endpoint || '').trim()) {
     provider.endpoint = preset.endpoint
   }
   if (shouldShowStorageField(provider.type, 'bucketName') && !String(provider.bucketName || '').trim()) {
@@ -6591,18 +6889,6 @@ const handleProviderTypeChange = (provider: Partial<StorageProviderSummary>) => 
   clearHiddenStorageFields(provider)
   fillProviderPresetByVisibility(provider)
   hydrateStorageConfigDraft(provider)
-}
-
-const applyProviderPreset = (provider: Partial<StorageProviderSummary>) => {
-  const preset = getStoragePreset(provider.type)
-  provider.endpoint = shouldShowStorageField(provider.type, 'endpoint') ? preset.endpoint : ''
-  provider.bucketName = shouldShowStorageField(provider.type, 'bucketName') ? preset.bucketName : ''
-  provider.baseDirectory = shouldShowStorageField(provider.type, 'baseDirectory') ? preset.baseDirectory : ''
-  if (!String(provider.configJson || '').trim()) {
-    provider.configJson = preset.configJson
-  }
-  hydrateStorageConfigDraft(provider)
-  showMessage(`已为 ${provider.name || storageTypeLabel(provider.type)} 套用推荐配置`)
 }
 
 const validateProviderDraft = (provider: Partial<StorageProviderSummary>) => {
@@ -6652,6 +6938,99 @@ const runLegacyMigration = async () => {
     showMessage(error?.response?.data?.error || error?.message || '执行旧数据迁移失败', 'error')
   } finally {
     runningMigration.value = false
+  }
+}
+
+const buildStorageMigrationPayload = () => ({
+  sourceProviderId: storageMigrationDraft.sourceProviderId,
+  sourcePath: storageMigrationDraft.sourcePath || '/',
+  targetProviderId: storageMigrationDraft.targetProviderId,
+  targetPath: storageMigrationDraft.targetPath || '/',
+  clearTarget: storageMigrationDraft.clearTarget
+})
+
+const buildStorageCleanupPayload = () => ({
+  providerId: storageCleanupDraft.providerId,
+  path: storageCleanupDraft.path || '/'
+})
+
+const previewStorageMigration = async () => {
+  if (!storageMigrationDraft.sourceProviderId || !storageMigrationDraft.targetProviderId) {
+    showMessage('请先选择源存储和目标存储', 'error')
+    return
+  }
+  previewingStorageMigration.value = true
+  try {
+    const { data } = await superAdminApi.previewStorageMigration(buildStorageMigrationPayload())
+    storageMigrationPreview.value = data
+    storageMigrationResult.value = null
+    showMessage(data?.message || '迁移预检查已完成')
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '迁移预检查失败', 'error')
+  } finally {
+    previewingStorageMigration.value = false
+  }
+}
+
+const executeStorageMigration = async () => {
+  if (!storageMigrationDraft.sourceProviderId || !storageMigrationDraft.targetProviderId) {
+    showMessage('请先选择源存储和目标存储', 'error')
+    return
+  }
+  if (!confirm('确认执行存储迁移？迁移完成后会切换数据引用，跨存储迁移还会清理原目录。')) {
+    return
+  }
+  executingStorageMigration.value = true
+  try {
+    const { data } = await superAdminApi.executeStorageMigration(buildStorageMigrationPayload())
+    storageMigrationResult.value = data
+    storageMigrationPreview.value = data
+    await Promise.all([loadOverview(), loadStorageProviders()])
+    showMessage(data?.message || '存储迁移已完成')
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '执行存储迁移失败', 'error')
+  } finally {
+    executingStorageMigration.value = false
+  }
+}
+
+const previewStorageCleanup = async () => {
+  if (!storageCleanupDraft.providerId) {
+    showMessage('请先选择要清理的存储', 'error')
+    return
+  }
+  previewingStorageCleanup.value = true
+  try {
+    const { data } = await superAdminApi.previewStorageCleanup(buildStorageCleanupPayload())
+    storageCleanupPreview.value = data
+    storageCleanupResult.value = null
+    showMessage(data?.message || '清理预检查已完成')
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '清理预检查失败', 'error')
+  } finally {
+    previewingStorageCleanup.value = false
+  }
+}
+
+const executeStorageCleanup = async () => {
+  if (!storageCleanupDraft.providerId) {
+    showMessage('请先选择要清理的存储', 'error')
+    return
+  }
+  if (!confirm('确认清理该物理目录？该操作会删除目录下的文件、相册、照片及关联记录。')) {
+    return
+  }
+  executingStorageCleanup.value = true
+  try {
+    const { data } = await superAdminApi.executeStorageCleanup(buildStorageCleanupPayload())
+    storageCleanupResult.value = data
+    storageCleanupPreview.value = data
+    await Promise.all([loadOverview(), loadStorageProviders()])
+    showMessage(data?.message || '目录清理已完成')
+  } catch (error: any) {
+    showMessage(error?.response?.data?.error || error?.message || '执行目录清理失败', 'error')
+  } finally {
+    executingStorageCleanup.value = false
   }
 }
 
@@ -6918,6 +7297,40 @@ const saveProvider = async (provider: StorageProviderSummary) => {
   }
 }
 
+const testStorageProvider = async (provider: StorageProviderSummary) => {
+  const validationMessage = validateProviderDraft(provider)
+  if (validationMessage) {
+    showMessage(validationMessage, 'error')
+    return
+  }
+  testingProviderId.value = provider.id
+  try {
+    const { data } = await superAdminApi.testStorageProvider(toStorageProviderPayload(provider))
+    storageProviderTestResults[provider.id] = data
+    storageProviderTestedAt[provider.id] = `测试于 ${new Date().toLocaleString('zh-CN')}`
+    showMessage(data?.message || '存储测试已完成', data?.success ? 'success' : 'error')
+  } catch (error: any) {
+    const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || '存储测试失败'
+    storageProviderTestResults[provider.id] = {
+      success: false,
+      reachable: false,
+      message,
+      checks: [
+        {
+          key: 'request',
+          label: '请求结果',
+          success: false,
+          message
+        }
+      ]
+    }
+    storageProviderTestedAt[provider.id] = `测试于 ${new Date().toLocaleString('zh-CN')}`
+    showMessage(message, 'error')
+  } finally {
+    testingProviderId.value = null
+  }
+}
+
 function yuanTextToFen(value?: string | number | null) {
   return Math.max(0, Math.round(Number(value || 0) * 100))
 }
@@ -7170,6 +7583,13 @@ const formatDate = (value?: string | null) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
+}
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN')
 }
 
 const normalizeDateTimeLocal = (value?: string | null) => {

@@ -22,6 +22,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -68,6 +69,7 @@ public class SuperAdminService {
     private final PhotoScanService photoScanService;
     private final BackgroundRemovalService backgroundRemovalService;
     private final RequestMonitoringService requestMonitoringService;
+    private final StorageMigrationService storageMigrationService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -910,7 +912,7 @@ public class SuperAdminService {
     @Transactional
     public Map<String, Object> createStorageProvider(Map<String, Object> request) {
         StorageProvider provider = new StorageProvider();
-        applyStorageProvider(provider, request, true);
+        applyStorageProvider(provider, request, true, true);
         return toStorageProviderMap(storageProviderRepository.save(provider));
     }
 
@@ -918,17 +920,46 @@ public class SuperAdminService {
     public Map<String, Object> updateStorageProvider(Long providerId, Map<String, Object> request) {
         StorageProvider provider = storageProviderRepository.findById(providerId)
             .orElseThrow(() -> new RuntimeException("存储提供者不存在"));
-        applyStorageProvider(provider, request, false);
+        applyStorageProvider(provider, request, false, true);
         return toStorageProviderMap(storageProviderRepository.save(provider));
     }
 
-    private void applyStorageProvider(StorageProvider provider, Map<String, Object> request, boolean creating) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> testStorageProvider(Map<String, Object> request) {
+        StorageProvider provider = new StorageProvider();
+        applyStorageProvider(provider, request, true, false);
+        return storageProviderService.testProviderAvailability(provider, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> previewStorageMigration(Map<String, Object> request) {
+        return storageMigrationService.previewMigration(request);
+    }
+
+    @Transactional
+    public Map<String, Object> executeStorageMigration(Map<String, Object> request) throws Exception {
+        return storageMigrationService.executeMigration(request);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> previewStorageCleanup(Map<String, Object> request) {
+        return storageMigrationService.previewCleanup(request);
+    }
+
+    @Transactional
+    public Map<String, Object> executeStorageCleanup(Map<String, Object> request) throws Exception {
+        return storageMigrationService.executeCleanup(request);
+    }
+
+    private void applyStorageProvider(StorageProvider provider, Map<String, Object> request, boolean creating, boolean validateNameUniqueness) {
         String name = parseRequiredString(request.get("name"), "name");
-        storageProviderRepository.findByName(name)
-            .filter(existing -> !Objects.equals(existing.getId(), provider.getId()))
-            .ifPresent(existing -> {
-                throw new RuntimeException("存储提供者名称已存在");
-            });
+        if (validateNameUniqueness) {
+            storageProviderRepository.findByName(name)
+                .filter(existing -> !Objects.equals(existing.getId(), provider.getId()))
+                .ifPresent(existing -> {
+                    throw new RuntimeException("存储提供者名称已存在");
+                });
+        }
 
         provider.setName(name);
         provider.setType(StorageType.valueOf(parseRequiredString(request.get("type"), "type").toUpperCase()));
@@ -971,7 +1002,11 @@ public class SuperAdminService {
         if (type == null) {
             return;
         }
-        if (!requiresEndpoint(type)) {
+        if (type == StorageType.COS) {
+            inferCosFieldsFromEndpoint(provider);
+            provider.setEndpoint(normalizeCosEndpoint(provider));
+        }
+        if (!requiresEndpoint(type) && type != StorageType.COS) {
             provider.setEndpoint(null);
         }
         if (!requiresBucket(type)) {
@@ -1003,8 +1038,107 @@ public class SuperAdminService {
         }
     }
 
+    private String normalizeCosEndpoint(StorageProvider provider) {
+        String raw = parseNullableString(provider.getEndpoint());
+        if (raw == null) {
+            return buildDefaultCosEndpoint(parseCosRegion(provider));
+        }
+        String normalized = raw.trim();
+        if (!normalized.contains("://")) {
+            normalized = "https://" + normalized;
+        }
+        try {
+            URI uri = URI.create(normalized);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return raw.trim();
+            }
+            String bucket = parseNullableString(provider.getBucketName());
+            if (bucket != null) {
+                String prefix = bucket.toLowerCase() + ".";
+                if (host.toLowerCase().startsWith(prefix)) {
+                    host = host.substring(prefix.length());
+                }
+            }
+            URI cleaned = new URI(
+                uri.getScheme() == null ? "https" : uri.getScheme(),
+                uri.getUserInfo(),
+                host,
+                uri.getPort(),
+                null,
+                null,
+                null
+            );
+            return cleaned.toString();
+        } catch (Exception ignored) {
+            return raw.trim();
+        }
+    }
+
+    private String parseCosRegion(StorageProvider provider) {
+        Map<String, Object> config = parseObject(provider.getConfigJson());
+        return parseNullableString(config.get("region"));
+    }
+
+    private String buildDefaultCosEndpoint(String region) {
+        String normalizedRegion = parseNullableString(region);
+        return normalizedRegion == null ? null : "https://cos." + normalizedRegion + ".myqcloud.com";
+    }
+
+    private Map<String, Object> parseObject(String rawJson) {
+        String raw = parseNullableString(rawJson);
+        if (raw == null) {
+            return new HashMap<>();
+        }
+        try {
+            return objectMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception ignored) {
+            return new HashMap<>();
+        }
+    }
+
+    private void inferCosFieldsFromEndpoint(StorageProvider provider) {
+        String endpoint = parseNullableString(provider.getEndpoint());
+        if (endpoint == null) {
+            return;
+        }
+        String normalized = endpoint.contains("://") ? endpoint : "https://" + endpoint;
+        try {
+            URI uri = URI.create(normalized);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return;
+            }
+            String[] parts = host.split("\\.");
+            if (parts.length < 4) {
+                return;
+            }
+            String first = parts[0];
+            if (provider.getBucketName() == null || provider.getBucketName().isBlank()) {
+                if (!"cos".equalsIgnoreCase(first) && first.contains("-")) {
+                    provider.setBucketName(first);
+                }
+            }
+            String region = parts[0].equalsIgnoreCase("cos") ? parts[1] : (parts.length > 2 ? parts[2] : null);
+            if (region != null && !region.isBlank()) {
+                Map<String, Object> config = parseObject(provider.getConfigJson());
+                if (parseNullableString(config.get("region")) == null) {
+                    config.put("region", region);
+                    try {
+                        provider.setConfigJson(objectMapper.writeValueAsString(config));
+                    } catch (Exception ignored) {
+                        // keep original configJson if serialization fails
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // ignore malformed endpoint and keep existing values
+        }
+    }
+
     private boolean requiresEndpoint(StorageType type) {
         return type != StorageType.LOCAL
+            && type != StorageType.COS
             && type != StorageType.SFTP
             && type != StorageType.SMB
             && type != StorageType.NFS;

@@ -35,6 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -147,6 +148,18 @@ public class StorageUploadService {
             return;
         }
         throw new IllegalArgumentException("当前存储类型暂不支持真实上传: " + provider.getType());
+    }
+
+    public void storeDownloadedFile(StorageProvider provider, UserAccount user, Path relativePath, DownloadedFile file) throws Exception {
+        if (file == null) {
+            throw new IllegalArgumentException("待写入文件不能为空");
+        }
+        storeFile(provider, user, relativePath, new InMemoryMultipartFile(
+            file.getFilename(),
+            file.getFilename(),
+            file.getContentType(),
+            file.getBytes()
+        ));
     }
 
     public DownloadedFile downloadFile(StorageProvider provider, UserAccount user, Path relativePath) throws Exception {
@@ -439,20 +452,43 @@ public class StorageUploadService {
 
     public Path resolveLocalDirectoryPath(StorageProvider provider, UserAccount user, Path relativeDirectory) {
         Path providerBase = storageProviderService.resolveAbsoluteBaseDirectory(provider);
-        Path scopedRoot = isMultiUserScoped(user)
-            ? providerBase.resolve(String.valueOf(user.getId())).normalize()
-            : providerBase.normalize();
+        Path scopedRoot = resolveLocalScopedRoot(providerBase, user);
         if (relativeDirectory == null) {
             return scopedRoot;
         }
         Path relative = relativeDirectory.normalize();
-        if (isMultiUserScoped(user) && relative.getNameCount() > 0) {
+        if (shouldStripLeadingUserSegment(user, scopedRoot, providerBase) && relative.getNameCount() > 0) {
             String first = relative.getName(0).toString();
             if (first.equals(String.valueOf(user.getId()))) {
                 relative = relative.getNameCount() == 1 ? Path.of("") : relative.subpath(1, relative.getNameCount());
             }
         }
         return scopedRoot.resolve(relative).normalize();
+    }
+
+    private Path resolveLocalScopedRoot(Path providerBase, UserAccount user) {
+        Path normalizedBase = providerBase == null ? null : providerBase.toAbsolutePath().normalize();
+        if (normalizedBase == null || user == null) {
+            return normalizedBase;
+        }
+        if (isMultiUserScoped(user)) {
+            return normalizedBase.resolve(String.valueOf(user.getId())).normalize();
+        }
+        Path ownedRoot = normalizedBase.resolve(String.valueOf(user.getId())).normalize();
+        if (Files.isDirectory(ownedRoot)) {
+            return ownedRoot;
+        }
+        return normalizedBase;
+    }
+
+    private boolean shouldStripLeadingUserSegment(UserAccount user, Path scopedRoot, Path providerBase) {
+        if (user == null || scopedRoot == null || providerBase == null) {
+            return false;
+        }
+        if (isMultiUserScoped(user)) {
+            return true;
+        }
+        return !scopedRoot.equals(providerBase.toAbsolutePath().normalize());
     }
 
     public String resolvePreviewUrl(StorageProvider provider, UserAccount user, Path relativePath) {
@@ -573,6 +609,18 @@ public class StorageUploadService {
         Path fullPath = relativePath == null ? base : base.resolve(relativePath).normalize();
         String value = "/" + fullPath.toString().replace('\\', '/');
         return value.replaceAll("/+", "/");
+    }
+
+    private String toLogicalBrowserPath(Path relativePath) {
+        if (relativePath == null) {
+            return "/";
+        }
+        String normalized = relativePath.normalize().toString().replace('\\', '/');
+        if (normalized.isBlank()) {
+            return "/";
+        }
+        normalized = normalized.replaceAll("^/+", "");
+        return "/" + normalized;
     }
 
     private long resolveWebDavExistingSize(StorageProvider provider, UserAccount user, Path relativePath) throws Exception {
@@ -1223,8 +1271,7 @@ public class StorageUploadService {
     }
 
     private String toDropboxBrowserPath(StorageProvider provider, UserAccount user, Path relativePath) {
-        String value = buildDropboxPath(provider, user, relativePath);
-        return value == null || value.isBlank() ? "/" : value;
+        return toLogicalBrowserPath(relativePath);
     }
 
     private long resolveOneDriveExistingSize(StorageProvider provider, UserAccount user, Path relativePath) throws Exception {
@@ -1510,8 +1557,7 @@ public class StorageUploadService {
     }
 
     private String toOneDriveBrowserPath(StorageProvider provider, UserAccount user, Path relativePath) {
-        String value = buildOneDrivePath(provider, user, relativePath);
-        return value == null || value.isBlank() ? "/" : value;
+        return toLogicalBrowserPath(relativePath);
     }
 
     private long resolveUpyunExistingSize(StorageProvider provider, UserAccount user, Path relativePath) throws Exception {
@@ -1748,8 +1794,7 @@ public class StorageUploadService {
     }
 
     private String toUpyunBrowserPath(StorageProvider provider, UserAccount user, Path relativePath) {
-        String key = combineRemoteSegments(provider.getBaseDirectory(), resolveTenantPrefix(user), toUnixPath(relativePath));
-        return key.isBlank() ? "/" : key;
+        return toLogicalBrowserPath(relativePath);
     }
 
     private long resolveS3ExistingSize(StorageProvider provider, UserAccount user, Path relativePath) throws Exception {
@@ -2424,13 +2469,7 @@ public class StorageUploadService {
     }
 
     private String toAzureBlobBrowserPath(StorageProvider provider, UserAccount user, Path relativePath) {
-        Path base = resolveRemoteBase(provider);
-        if (isMultiUserScoped(user)) {
-            base = base.resolve(String.valueOf(user.getId()));
-        }
-        Path fullPath = relativePath == null ? base : base.resolve(relativePath).normalize();
-        String value = "/" + fullPath.toString().replace('\\', '/');
-        return value.replaceAll("/+", "/");
+        return toLogicalBrowserPath(relativePath);
     }
 
     private boolean azureBlobExists(StorageProvider provider, String key) throws Exception {
@@ -2795,8 +2834,7 @@ public class StorageUploadService {
     }
 
     private String toS3BrowserPath(StorageProvider provider, UserAccount user, Path relativePath) {
-        String key = buildS3Key(provider, user, relativePath);
-        return key.isBlank() ? "/" : "/" + key;
+        return toLogicalBrowserPath(relativePath);
     }
 
     private String toCanonicalQuery(Map<String, String> query) {
@@ -3153,8 +3191,7 @@ public class StorageUploadService {
     }
 
     private String toCosBrowserPath(StorageProvider provider, UserAccount user, Path relativePath) {
-        String key = buildCosKey(provider, user, relativePath);
-        return key.isBlank() ? "/" : "/" + key;
+        return toLogicalBrowserPath(relativePath);
     }
 
     private String resolveTenantPrefix(UserAccount user) {
@@ -3374,6 +3411,60 @@ public class StorageUploadService {
 
         public String getFilename() {
             return filename;
+        }
+    }
+
+    private static final class InMemoryMultipartFile implements MultipartFile {
+        private final String name;
+        private final String originalFilename;
+        private final String contentType;
+        private final byte[] bytes;
+
+        private InMemoryMultipartFile(String name, String originalFilename, String contentType, byte[] bytes) {
+            this.name = name == null || name.isBlank() ? "file" : name;
+            this.originalFilename = originalFilename == null || originalFilename.isBlank() ? this.name : originalFilename;
+            this.contentType = contentType;
+            this.bytes = bytes == null ? new byte[0] : bytes;
+        }
+
+        @Override
+        public String getName() {
+            return name;
+        }
+
+        @Override
+        public String getOriginalFilename() {
+            return originalFilename;
+        }
+
+        @Override
+        public String getContentType() {
+            return contentType;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return bytes.length == 0;
+        }
+
+        @Override
+        public long getSize() {
+            return bytes.length;
+        }
+
+        @Override
+        public byte[] getBytes() {
+            return bytes;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return new ByteArrayInputStream(bytes);
+        }
+
+        @Override
+        public void transferTo(java.io.File dest) throws IOException {
+            java.nio.file.Files.write(dest.toPath(), bytes);
         }
     }
 }

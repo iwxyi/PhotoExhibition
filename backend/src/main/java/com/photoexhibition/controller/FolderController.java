@@ -264,6 +264,52 @@ public class FolderController {
         }
     }
 
+    @PostMapping("/browser/bind-album")
+    public ResponseEntity<Map<String, Object>> bindDirectoryAlbum(@RequestHeader("Authorization") String authorization,
+                                                                  HttpServletRequest request,
+                                                                  @RequestParam String path,
+                                                                  @RequestParam(required = false) Long providerId) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            Long normalizedProviderId = normalizeProviderId(user, providerId);
+            StorageProviderService.BrowserStorageContext storageContext = resolveStorageContext(user, normalizedProviderId);
+            Path resolvedPath = resolveScopedPath(path, user, normalizedProviderId);
+            resp.putAll(folderService.bindDirectoryAlbum(resolvedPath.toString(), storageContext.getProvider(), user, storageContext.getScopedRoot()));
+            operationLogService.log(user, OperationType.UPDATE, "ALBUM", null, path,
+                metadata("path", path, "action", "bindDirectoryAlbum", "providerId", normalizedProviderId), request.getRemoteAddr());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage()));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PostMapping("/browser/delete-preview")
+    public ResponseEntity<Map<String, Object>> previewDeleteItems(@RequestHeader("Authorization") String authorization,
+                                                                  @RequestBody(required = false) Map<String, Object> request,
+                                                                  @RequestParam(required = false) Long providerId) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            Long normalizedProviderId = normalizeProviderId(user, providerId);
+            StorageProviderService.BrowserStorageContext storageContext = resolveStorageContext(user, normalizedProviderId);
+            List<String> paths = request != null && request.get("paths") instanceof List<?>
+                ? ((List<?>) request.get("paths")).stream().map(String::valueOf).collect(Collectors.toList())
+                : List.of();
+            Map<String, Object> result = folderService.previewDeleteItems(
+                paths.stream().map(path -> resolveScopedPath(path, user, normalizedProviderId).toString()).collect(Collectors.toList()),
+                storageContext.getProvider(),
+                user,
+                storageContext.getScopedRoot()
+            );
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage()));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
     /**
      * 批量移动文件或文件夹
      */
@@ -481,14 +527,28 @@ public class FolderController {
             return scopedRoot;
         }
 
-        Path candidate = Path.of(requestedPath.trim());
-        if (!candidate.isAbsolute()) {
-            String clean = requestedPath.startsWith("./") ? requestedPath.substring(2) : requestedPath;
-            Path relative = Path.of(clean).normalize();
+        String normalizedRequest = requestedPath.trim().replace("\\", "/");
+        Path candidate;
+        if ("/".equals(normalizedRequest)) {
+            candidate = scopedRoot;
+        } else if (normalizedRequest.startsWith("/")) {
+            Path relative = Path.of(normalizedRequest.substring(1)).normalize();
             if (user != null) {
                 relative = userPathService.stripLeadingUserSegment(relative, user.getId());
             }
             candidate = scopedRoot.resolve(relative);
+        } else {
+            Path rawCandidate = Path.of(requestedPath.trim());
+            if (!rawCandidate.isAbsolute()) {
+                String clean = requestedPath.startsWith("./") ? requestedPath.substring(2) : requestedPath;
+                Path relative = Path.of(clean).normalize();
+                if (user != null) {
+                    relative = userPathService.stripLeadingUserSegment(relative, user.getId());
+                }
+                candidate = scopedRoot.resolve(relative);
+            } else {
+                candidate = rawCandidate;
+            }
         }
 
         candidate = candidate.toAbsolutePath().normalize();

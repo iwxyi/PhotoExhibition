@@ -122,11 +122,13 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
+const LAST_ADMIN_ROUTE_KEY = 'pe_last_admin_route'
 
 const username = ref('')
 const password = ref('')
@@ -147,15 +149,18 @@ const handleLogin = async () => {
       loginType: 'password'
     })
     if (result.success) {
+      const redirectTarget = typeof route.query.redirect === 'string' && route.query.redirect.trim()
+        ? route.query.redirect
+        : (localStorage.getItem(LAST_ADMIN_ROUTE_KEY) || '/admin')
       // 检查是否是初始化消息
       if (result.message && result.message.includes('系统初始化完成')) {
         successMessage.value = result.message
         // 3秒后跳转到管理页面
         setTimeout(() => {
-          router.push('/admin')
+          router.push(redirectTarget)
         }, 3000)
       } else {
-      router.push('/admin')
+        router.push(redirectTarget)
       }
     } else {
       error.value = result.message || '登录失败'

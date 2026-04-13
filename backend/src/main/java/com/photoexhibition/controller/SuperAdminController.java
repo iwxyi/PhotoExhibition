@@ -523,6 +523,21 @@ public class SuperAdminController {
         });
     }
 
+    @PostMapping("/storage-providers/test")
+    public ResponseEntity<?> testStorageProvider(@RequestHeader("Authorization") String authorization,
+                                                 HttpServletRequest requestContext,
+                                                 @RequestBody Map<String, Object> request) {
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result = superAdminService.testStorageProvider(request);
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "testStorageProvider");
+            detail.put("payload", request);
+            operationLogService.log(operator, OperationType.UPDATE, "STORAGE_PROVIDER_TEST", null, null, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
     @PostMapping("/legacy-migration/run")
     public ResponseEntity<?> runLegacyMigration(@RequestHeader("Authorization") String authorization,
                                                 HttpServletRequest requestContext) {
@@ -532,6 +547,58 @@ public class SuperAdminController {
             Map<String, Object> detail = new HashMap<>();
             detail.put("action", "runLegacyMigration");
             operationLogService.log(operator, OperationType.UPDATE, "LEGACY_MIGRATION", null, null, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @PostMapping("/storage-migration/preview")
+    public ResponseEntity<?> previewStorageMigration(@RequestHeader("Authorization") String authorization,
+                                                     @RequestBody(required = false) Map<String, Object> request) {
+        return handle(authorization, () -> superAdminService.previewStorageMigration(request == null ? Map.of() : request));
+    }
+
+    @PostMapping("/storage-migration/execute")
+    public ResponseEntity<?> executeStorageMigration(@RequestHeader("Authorization") String authorization,
+                                                     HttpServletRequest requestContext,
+                                                     @RequestBody(required = false) Map<String, Object> request) {
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result;
+            try {
+                result = superAdminService.executeStorageMigration(request == null ? Map.of() : request);
+            } catch (Exception e) {
+                throw new RuntimeException(e.getMessage(), e);
+            }
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "executeStorageMigration");
+            detail.put("payload", request);
+            operationLogService.log(operator, OperationType.UPDATE, "STORAGE_MIGRATION", null, null, detail, requestContext.getRemoteAddr());
+            return result;
+        });
+    }
+
+    @PostMapping("/storage-cleanup/preview")
+    public ResponseEntity<?> previewStorageCleanup(@RequestHeader("Authorization") String authorization,
+                                                   @RequestBody(required = false) Map<String, Object> request) {
+        return handle(authorization, () -> superAdminService.previewStorageCleanup(request == null ? Map.of() : request));
+    }
+
+    @PostMapping("/storage-cleanup/execute")
+    public ResponseEntity<?> executeStorageCleanup(@RequestHeader("Authorization") String authorization,
+                                                   HttpServletRequest requestContext,
+                                                   @RequestBody(required = false) Map<String, Object> request) {
+        return handle(authorization, () -> {
+            UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
+            Object result;
+            try {
+                result = superAdminService.executeStorageCleanup(request == null ? Map.of() : request);
+            } catch (Exception e) {
+                throw new RuntimeException(e.getMessage(), e);
+            }
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("action", "executeStorageCleanup");
+            detail.put("payload", request);
+            operationLogService.log(operator, OperationType.DELETE, "STORAGE_CLEANUP", null, null, detail, requestContext.getRemoteAddr());
             return result;
         });
     }

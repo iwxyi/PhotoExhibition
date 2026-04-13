@@ -1115,6 +1115,19 @@ export interface StorageProviderSummary {
   updatedAt: string
 }
 
+export interface StorageProviderTestResult {
+  success: boolean
+  reachable: boolean
+  message: string
+  supportMessage?: string | null
+  checks: Array<{
+    key: string
+    label: string
+    success: boolean
+    message?: string | null
+  }>
+}
+
 export interface LegacyMigrationSummary {
   success: boolean
   message?: string | null
@@ -1136,6 +1149,52 @@ export interface LegacyMigrationSummary {
   rewrittenPhotoStorageRefCount?: number
   totalOwnershipMigrationCount?: number
   totalPathRewriteCount?: number
+}
+
+export interface StoragePathSummary {
+  providerId: number
+  providerName: string
+  path: string
+  directoryCount: number
+  fileCount: number
+  totalBytes: number
+  samples: string[]
+}
+
+export interface StorageMigrationMatchSummary {
+  albumCount: number
+  photoCount: number
+  albumSamples: string[]
+  photoSamples: string[]
+}
+
+export interface StorageMigrationPreview {
+  source: StoragePathSummary
+  target: StoragePathSummary
+  database: StorageMigrationMatchSummary
+  targetNotEmpty?: boolean
+  canExecute?: boolean
+  message?: string | null
+}
+
+export interface StorageCleanupPreview {
+  target: StoragePathSummary
+  database: StorageMigrationMatchSummary
+  hasContent?: boolean
+  message?: string | null
+}
+
+export interface StorageMigrationResult extends StorageMigrationPreview {
+  success: boolean
+  rewrittenAlbumCount?: number
+  rewrittenPhotoCount?: number
+  clearedTarget?: boolean
+  executedAt?: string | null
+}
+
+export interface StorageCleanupResult extends StorageCleanupPreview {
+  success: boolean
+  executedAt?: string | null
 }
 
 export interface ConfigurableTablePreference {
@@ -1232,7 +1291,12 @@ export const superAdminApi = {
   resetUserPassword: (userId: number, newPassword: string) => api.post<Record<string, any>>(`/admin/super-admin/users/${userId}/password`, { newPassword }),
   getStorageProviders: () => api.get<{ storageProviders: StorageProviderSummary[] }>('/admin/super-admin/storage-providers'),
   createStorageProvider: (data: Partial<StorageProviderSummary>) => api.post<StorageProviderSummary>('/admin/super-admin/storage-providers', data),
+  testStorageProvider: (data: Partial<StorageProviderSummary>) => api.post<StorageProviderTestResult>('/admin/super-admin/storage-providers/test', data),
   runLegacyMigration: () => api.post<LegacyMigrationSummary>('/admin/super-admin/legacy-migration/run'),
+  previewStorageMigration: (data: Record<string, any>) => api.post<StorageMigrationPreview>('/admin/super-admin/storage-migration/preview', data),
+  executeStorageMigration: (data: Record<string, any>) => api.post<StorageMigrationResult>('/admin/super-admin/storage-migration/execute', data),
+  previewStorageCleanup: (data: Record<string, any>) => api.post<StorageCleanupPreview>('/admin/super-admin/storage-cleanup/preview', data),
+  executeStorageCleanup: (data: Record<string, any>) => api.post<StorageCleanupResult>('/admin/super-admin/storage-cleanup/execute', data),
   sendTestSms: (phone?: string) => api.post<Record<string, any>>('/admin/super-admin/sms/test', { phone }),
   sendTestEmail: (recipient?: string) => api.post<Record<string, any>>('/admin/super-admin/email/test', { recipient }),
   sendEmail: (payload: SendEmailPayload) => api.post<Record<string, any>>('/admin/super-admin/email/send', payload),

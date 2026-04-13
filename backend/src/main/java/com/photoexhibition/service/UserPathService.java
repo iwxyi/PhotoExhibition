@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
@@ -439,11 +440,7 @@ public class UserPathService {
     }
 
     private Path resolveStorageProviderLocalRoot(StorageProvider provider, Long userId) {
-        String baseDirectory = provider.getBaseDirectory();
-        if (baseDirectory == null || baseDirectory.isBlank()) {
-            baseDirectory = systemConfigService.getLocalStorageRoot();
-        }
-        Path base = resolveConfiguredPath(baseDirectory);
+        Path base = resolveStorageProviderBaseDirectory(provider);
         if (userId != null) {
             return base.resolve(String.valueOf(userId)).normalize();
         }
@@ -458,7 +455,15 @@ public class UserPathService {
         if (baseDirectory == null || baseDirectory.isBlank()) {
             baseDirectory = systemConfigService.getLocalStorageRoot();
         }
-        return resolveConfiguredPath(baseDirectory);
+        Path configuredBase = resolveConfiguredPath(baseDirectory);
+        if (provider.getType() == StorageType.LOCAL
+            && sameConfiguredPath(baseDirectory, systemConfigService.getLocalStorageRoot())) {
+            Path photoBase = resolvePhotoBasePath();
+            if (Files.isDirectory(photoBase) && !photoBase.equals(configuredBase)) {
+                return photoBase;
+            }
+        }
+        return configuredBase;
     }
 
     public Path normalizeAbsolutePath(String rawPath) {
@@ -483,6 +488,23 @@ public class UserPathService {
             base = Paths.get(projectRoot, clean);
         }
         return base.toAbsolutePath().normalize();
+    }
+
+    private boolean sameConfiguredPath(String left, String right) {
+        String normalizedLeft = normalizeConfigPath(left);
+        String normalizedRight = normalizeConfigPath(right);
+        return Objects.equals(normalizedLeft, normalizedRight);
+    }
+
+    private String normalizeConfigPath(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().replace("\\", "/");
+        while (normalized.endsWith("/") && normalized.length() > 1) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized.isBlank() ? null : normalized;
     }
 
     public static class StoragePathReference {

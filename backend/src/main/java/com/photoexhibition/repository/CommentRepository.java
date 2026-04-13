@@ -14,6 +14,8 @@ import java.util.List;
 @Repository
 public interface CommentRepository extends JpaRepository<Comment, Long> {
 
+    void deleteByAlbumIdIn(List<Long> albumIds);
+
     /**
      * 根据相册ID查询顶级评论（parentId为null，未删除）
      */
