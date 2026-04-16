@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import axios from 'axios'
+import { clearStoredAuthSession, getEffectiveAuthToken } from '@/api'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('auth_token') || localStorage.getItem('admin_token'))
+  const token = ref<string | null>(getEffectiveAuthToken())
   const username = ref<string | null>(localStorage.getItem('auth_username') || localStorage.getItem('admin_username'))
   const role = ref<string | null>(localStorage.getItem('auth_role'))
   const userId = ref<string | null>(localStorage.getItem('auth_user_id'))
@@ -438,31 +439,7 @@ export const useAuthStore = defineStore('auth', () => {
     effectiveStorageQuotaBytes.value = 0
     storageUsedBytes.value = 0
     isAuthenticated.value = false
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_username')
-    localStorage.removeItem('auth_role')
-    localStorage.removeItem('auth_user_id')
-    localStorage.removeItem('auth_slug')
-    localStorage.removeItem('auth_nickname')
-    localStorage.removeItem('auth_phone')
-    localStorage.removeItem('auth_phone_verified')
-    localStorage.removeItem('auth_email')
-    localStorage.removeItem('auth_email_verified')
-    localStorage.removeItem('auth_project_name_zh')
-    localStorage.removeItem('auth_project_name_en')
-    localStorage.removeItem('auth_avatar_path')
-    localStorage.removeItem('auth_multi_user_enabled')
-    localStorage.removeItem('auth_sms_login_enabled')
-    localStorage.removeItem('auth_email_code_login_enabled')
-    localStorage.removeItem('auth_current_vip_plan_id')
-    localStorage.removeItem('auth_current_vip_plan_name')
-    localStorage.removeItem('auth_current_vip_plan_code')
-    localStorage.removeItem('auth_vip_expire_at')
-    localStorage.removeItem('auth_effective_storage_quota_bytes')
-    localStorage.removeItem('auth_storage_used_bytes')
-    localStorage.removeItem('admin_token')
-    localStorage.removeItem('admin_username')
-    delete axios.defaults.headers.common['Authorization']
+    clearStoredAuthSession()
   }
 
   const checkAuth = async () => {

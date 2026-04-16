@@ -1,21 +1,20 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
+  <div class="min-h-screen admin-shell admin-dashboard-page">
+    <AdminStyleChrome />
     <!-- 顶部导航 -->
     <nav class="glass-toolbar">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex min-h-[84px] items-center justify-between gap-4 py-3 flex-wrap">
-          <div class="flex min-w-0 items-center gap-4 flex-wrap">
-            <div class="shrink-0">
-              <h1 class="text-xl font-light tracking-wide whitespace-nowrap">管理后台</h1>
-            </div>
-            <div class="min-w-0">
-              <AdminSectionTabs />
+        <div class="flex min-h-[84px] items-center justify-between gap-4 py-3 flex-wrap admin-dashboard-toolbar-shell">
+          <div class="flex min-w-0 items-center gap-3 flex-wrap admin-dashboard-toolbar-brand">
+            <div class="shrink-0 admin-dashboard-toolbar-title">
+              <h1 class="text-xl font-light tracking-wide whitespace-nowrap text-[color:var(--pe-admin-text-primary)]">后台管理</h1>
             </div>
           </div>
-          <div class="flex items-center gap-3 flex-wrap justify-end">
+          <div class="flex items-center gap-3 flex-wrap justify-end admin-dashboard-toolbar-actions">
+            <AdminSectionTabs />
             <button
               @click="themeStore.toggleTheme"
-              class="p-2 rounded-full bg-black/20 hover:bg-black/35 border border-white/15 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80"
+              class="admin-button-soft rounded-full p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80"
               :title="themeStore.isDark ? '切换为浅色模式' : '切换为深色模式'"
             >
               <svg v-if="!themeStore.isDark" class="w-4 h-4 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -25,16 +24,16 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </button>
-            <span class="text-gray-200/80 text-sm">欢迎，{{ authStore.username }}</span>
+            <span class="text-sm text-[color:var(--pe-admin-text-secondary)]">欢迎，{{ authStore.username }}</span>
             <button
               @click="handleLogout"
-              class="px-3 py-1.5 text-xs bg-gray-900/70 hover:bg-gray-800 rounded-lg transition-colors border border-white/15"
+              class="admin-button-contrast rounded-lg px-3 py-1.5 text-xs transition-colors"
             >
               退出登录
             </button>
             <router-link
               to="/"
-              class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors border border-blue-500/30"
+              class="admin-button-primary rounded-lg px-3 py-1.5 text-xs transition-colors"
             >
               返回首页
             </router-link>
@@ -43,24 +42,24 @@
       </div>
     </nav>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 admin-dashboard-shell">
       <!-- Hero 区域 -->
-      <section class="admin-hero">
+      <section class="admin-hero admin-dashboard-hero">
         <div class="admin-hero-gradient"></div>
         <div class="admin-hero-particle admin-hero-particle--small"></div>
         <div class="admin-hero-particle admin-hero-particle--medium"></div>
         <div class="admin-hero-particle admin-hero-particle--large"></div>
         <div class="admin-hero-content">
-          <div class="space-y-4">
+          <div class="space-y-4 admin-dashboard-hero-copy">
             <div>
               <h2 class="text-2xl sm:text-3xl lg:text-4xl font-light tracking-wide mb-2">
                 {{ authStore.projectDisplayName || '光忆集' }}
               </h2>
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-1">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-1 admin-dashboard-stat-grid">
         <router-link
           to="/admin/albums"
-                class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+                class="admin-hero-stat admin-dashboard-stat-card hover:bg-slate-900/70 transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">相册</div>
@@ -68,7 +67,7 @@
         </router-link>
         <router-link
           to="/admin/photos"
-                class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+                class="admin-hero-stat admin-dashboard-stat-card hover:bg-slate-900/70 transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">照片</div>
@@ -76,7 +75,7 @@
         </router-link>
         <router-link
           to="/admin/persons"
-                class="admin-hero-stat hover:bg-slate-900/70 transition-colors cursor-pointer"
+                class="admin-hero-stat admin-dashboard-stat-card hover:bg-slate-900/70 transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">人物</div>
@@ -84,10 +83,10 @@
         </router-link>
             </div>
           </div>
-          <div class="admin-hero-secondary space-y-3">
-            <div class="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-              <div class="text-sm text-white">我的扫描进度</div>
-              <div class="mt-2 space-y-1 text-xs text-slate-300/90">
+          <div class="admin-hero-secondary space-y-3 admin-dashboard-hero-side">
+            <div class="admin-soft-surface rounded-2xl p-4">
+              <div class="text-sm text-[color:var(--pe-admin-text-primary)]">我的扫描进度</div>
+              <div class="mt-2 space-y-1 text-xs text-[color:var(--pe-admin-text-secondary)]">
                 <p>进度：
                   <span
                     class="text-sky-300 cursor-pointer hover:underline hover:text-sky-200 transition-colors"
@@ -95,7 +94,7 @@
                     title="点击查看你的异常文件"
                   >{{ scanProgressText }}</span>
                 </p>
-                <p>时间：<span class="text-slate-300">{{ lastScanTime || '—' }}</span></p>
+                <p>时间：<span class="text-[color:var(--pe-admin-text-secondary)]">{{ lastScanTime || '—' }}</span></p>
                 <p v-if="currentUserQueueSummary?.hasRunningTask">我的队列：<span class="text-emerald-300">正在扫描中</span></p>
                 <p v-else-if="(currentUserQueueSummary?.queuedTaskCount || 0) > 0">
                   我的等待：前面还有 <span class="text-amber-300">{{ currentUserQueueSummary?.aheadImageCount || 0 }}</span> 张图片
@@ -103,19 +102,27 @@
                 <p v-if="(currentUserQueueSummary?.queuedTaskCount || 0) > 0">
                   我的待扫：<span class="text-sky-300">{{ currentUserQueueSummary?.pendingImageCount || 0 }}</span> 张图片
                 </p>
-                <p class="text-slate-400">{{ currentUserQueueSummary?.message || '上传后的照片会进入后台队列自动处理。' }}</p>
+                <p class="text-[color:var(--pe-admin-text-muted)]">{{ currentUserQueueSummary?.message || '上传后的照片会进入后台队列自动处理。' }}</p>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <div class="glass-panel p-5 md:p-6 space-y-5 admin-card-animate admin-card-4">
+      <router-link
+        to="/admin/file-browser"
+        class="glass-panel block p-5 md:p-6 space-y-3 admin-card-animate admin-card-4 admin-dashboard-feature-card rounded-[28px] border border-cyan-300/20 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--pe-theme-primary)_16%,transparent),color-mix(in_srgb,var(--pe-theme-base)_30%,rgba(255,255,255,0.22)))] transition hover:border-cyan-300/35 hover:bg-[linear-gradient(135deg,color-mix(in_srgb,var(--pe-theme-primary)_22%,transparent),color-mix(in_srgb,var(--pe-theme-base)_38%,rgba(255,255,255,0.26)))]"
+      >
+        <div class="text-xl font-light text-[color:var(--pe-admin-text-primary)]">文件管理</div>
+        <div class="text-sm text-[color:var(--pe-admin-text-secondary)]">目录、相册、图片的统一操作入口。</div>
+      </router-link>
+
+      <div class="glass-panel p-5 md:p-6 space-y-5 admin-card-animate admin-card-4 admin-dashboard-data-panel">
         <div class="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h2 class="text-lg font-light">数据管理</h2>
           </div>
-          <div class="flex flex-wrap gap-2 text-xs text-slate-400">
+          <div class="flex flex-wrap gap-2 text-xs text-slate-400 admin-dashboard-chip-row">
             <span class="chip">照片 {{ stats.photos }}</span>
             <span class="chip">相册 {{ stats.albums }}</span>
             <span class="chip">人物 {{ stats.persons }}</span>
@@ -123,49 +130,61 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 admin-dashboard-entry-grid">
             <router-link
               to="/admin/tags"
-              class="rounded-2xl border border-white/10 bg-gray-900/60 px-4 py-4 text-sm transition-colors hover:bg-gray-800/80"
+              class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
             >
-              <div class="text-white">标签管理</div>
-              <div class="mt-2 text-xs text-slate-400">{{ stats.tags }} 个标签</div>
-            </router-link>
-            <router-link
-              to="/admin/file-browser"
-              class="rounded-2xl border border-white/10 bg-gray-900/60 px-4 py-4 text-sm transition-colors hover:bg-gray-800/80"
-            >
-              <div class="text-white">文件浏览器</div>
+              <div class="text-[color:var(--pe-admin-text-primary)]">标签管理</div>
+              <div class="mt-2 text-xs text-[color:var(--pe-admin-text-muted)]">{{ stats.tags }} 个标签</div>
             </router-link>
             <router-link
               to="/admin/theme"
-              class="rounded-2xl border border-white/10 bg-gray-900/60 px-4 py-4 text-sm transition-colors hover:bg-gray-800/80"
+              class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
             >
-              <div class="text-white">主题与风格</div>
+              <div class="text-[color:var(--pe-admin-text-primary)]">主题与风格</div>
             </router-link>
             <router-link
               to="/admin/settings"
-              class="rounded-2xl border border-white/10 bg-gray-900/60 px-4 py-4 text-sm transition-colors hover:bg-gray-800/80"
+              class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
             >
-              <div class="text-white">系统设置</div>
+              <div class="text-[color:var(--pe-admin-text-primary)]">系统设置</div>
             </router-link>
-            <button
-              @click="cleanupFailedFiles"
-              :disabled="isCleaningFailedFiles"
-              class="rounded-2xl border border-white/10 bg-gray-900/60 px-4 py-4 text-left text-sm transition-colors hover:bg-gray-800/80 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div class="text-white">{{ isCleaningFailedFiles ? '清理中...' : '清理失败文件' }}</div>
-            </button>
-            <button
-              @click="cleanupOrphaned"
-              :disabled="isCleaningUp"
-              class="rounded-2xl border border-white/10 bg-gray-900/60 px-4 py-4 text-left text-sm transition-colors hover:bg-gray-800/80 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div class="text-white">{{ isCleaningUp ? '清理中...' : '清理删除残留' }}</div>
-            </button>
           </div>
       </div>
+
+      <div class="glass-panel p-5 md:p-6 space-y-5 admin-card-animate admin-card-4 admin-dashboard-clean-panel">
+        <div>
+          <h2 class="text-lg font-light">清理</h2>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            @click="cleanupFailedFiles"
+            :disabled="isCleaningFailedFiles"
+            class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <div class="text-[color:var(--pe-admin-text-primary)]">{{ isCleaningFailedFiles ? '清理中...' : '清理失败文件' }}</div>
+          </button>
+          <button
+            @click="cleanupOrphaned"
+            :disabled="isCleaningUp"
+            class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <div class="text-[color:var(--pe-admin-text-primary)]">{{ isCleaningUp ? '清理中...' : '清理删除残留' }}</div>
+          </button>
+        </div>
+      </div>
     </div>
+
+    <router-link
+      to="/admin/file-browser"
+      class="admin-floating-action"
+      title="打开文件管理"
+      aria-label="打开文件管理"
+    >
+      <span class="admin-floating-action-icon">+</span>
+      <span class="admin-floating-action-label">文件管理</span>
+    </router-link>
 
     <!-- 跳过文件详情弹窗 -->
     <div
@@ -344,6 +363,7 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'

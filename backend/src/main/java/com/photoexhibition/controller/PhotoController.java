@@ -111,15 +111,23 @@ public class PhotoController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "false") boolean all,
-            @RequestParam(required = false) String userSlug) {
+            @RequestParam(defaultValue = "false") boolean includeHidden,
+            @RequestParam(required = false) String userSlug,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         Page<PhotoDTO> photos;
         Long userId = publicUserScopeService.resolveUserId(userSlug);
+        if (includeHidden) {
+            UserAccount currentUser = requireCurrentUser(authorization);
+            userId = currentUser.getRole() == com.photoexhibition.entity.UserRole.SUPER_ADMIN
+                ? null
+                : currentUser.getId();
+        }
         if (all) {
             // 返回所有照片，不分页
-            photos = photoService.getAllPhotosByAlbum(albumId, userId);
+            photos = photoService.getAllPhotosByAlbum(albumId, userId, includeHidden);
         } else {
             Pageable pageable = PageRequest.of(page, size);
-            photos = photoService.getPhotosByAlbum(albumId, pageable, userId);
+            photos = photoService.getPhotosByAlbum(albumId, pageable, userId, includeHidden);
         }
         return ResponseEntity.ok(photos);
     }

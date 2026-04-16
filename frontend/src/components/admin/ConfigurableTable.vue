@@ -1,10 +1,10 @@
 <template>
   <div class="admin-table-shell">
-    <div class="flex items-center justify-between gap-3 flex-wrap">
-      <div class="flex items-center gap-3 flex-wrap">
+    <div class="flex items-center justify-between gap-3 flex-wrap admin-table-toolbar">
+      <div class="flex items-center gap-3 flex-wrap admin-table-toolbar-left">
         <slot name="toolbar-left" />
       </div>
-      <div ref="columnPanelRef" class="relative">
+      <div ref="columnPanelRef" class="relative admin-table-toolbar-right">
         <button
           type="button"
           class="admin-table-toolbar-btn"
@@ -14,25 +14,25 @@
         </button>
         <div
           v-if="columnPanelOpen"
-          class="absolute right-0 z-20 mt-2 w-72 rounded-2xl border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-xl"
+          class="glass-popover absolute right-0 z-20 mt-2 w-72 rounded-2xl p-3 admin-table-column-panel"
         >
-          <div class="mb-3 flex items-center justify-between gap-3">
-            <div class="text-sm text-slate-100">列显示</div>
+          <div class="mb-3 flex items-center justify-between gap-3 admin-table-column-panel-head">
+            <div class="text-sm text-[color:var(--pe-admin-text-primary)]">列显示</div>
             <button
               type="button"
-              class="text-xs text-sky-300 hover:text-sky-200"
+              class="text-xs text-sky-300 transition-colors hover:text-sky-200"
               @click="resetPreferences"
             >
               恢复默认
             </button>
           </div>
-          <div class="space-y-2">
+          <div class="space-y-2 admin-table-column-list">
             <label
               v-for="column in orderedColumns"
               :key="column.key"
-              class="flex items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-white/5"
+              class="flex items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-white/5 admin-table-column-item"
             >
-              <span class="text-sm text-slate-300">{{ column.label }}</span>
+              <span class="text-sm text-[color:var(--pe-admin-text-secondary)]">{{ column.label }}</span>
               <input
                 :checked="!hiddenColumnSet.has(column.key)"
                 type="checkbox"
@@ -55,7 +55,7 @@
               v-for="column in visibleColumns"
               :key="column.key"
               draggable="true"
-              class="px-4 py-3 text-left whitespace-nowrap select-none"
+              class="px-4 py-3 text-left whitespace-nowrap select-none admin-table-header-cell"
               :class="[column.headerClass, draggingColumnKey === column.key ? 'opacity-60' : '']"
               @dragstart="startDrag(column.key)"
               @dragover.prevent
@@ -64,7 +64,7 @@
               <button
                 v-if="column.sortable"
                 type="button"
-                class="inline-flex items-center gap-1 text-slate-300 hover:text-white transition-colors"
+                class="inline-flex items-center gap-1 text-[color:var(--pe-admin-text-secondary)] transition-colors hover:text-[color:var(--pe-admin-text-primary)]"
                 @click="toggleSort(column.key)"
               >
                 <span>{{ column.label }}</span>
@@ -78,12 +78,12 @@
           <tr
             v-for="row in sortedRows"
             :key="resolveRowKey(row)"
-            class="border-b border-white/5 align-top last:border-b-0 hover:bg-white/[0.03] transition-colors"
+            class="align-top last:border-b-0 admin-table-row"
           >
             <td
               v-for="column in visibleColumns"
               :key="column.key"
-              class="px-4 py-4"
+              class="px-4 py-4 admin-table-cell"
               :class="column.cellClass"
             >
               <slot

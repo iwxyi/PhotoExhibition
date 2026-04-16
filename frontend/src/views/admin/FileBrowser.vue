@@ -1,92 +1,113 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <!-- 头部 -->
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-2xl font-light">文件浏览器</h1>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
-      </div>
-
-      <!-- 路径导航栏（限制在 basePath 下，只显示相对路径） -->
-      <div class="glass-panel p-4 mb-4">
-        <div class="flex items-center gap-2 flex-wrap">
-          <button
-            @click="goToPath(basePath)"
-            class="px-3 py-1.5 rounded-full text-sm border border-white/10 bg-white/5 hover:bg-white/10 transition-all duration-200"
-          >
-            {{ rootButtonLabel }}
-          </button>
-          <span class="text-gray-500">/</span>
-          <div class="flex items-center gap-2 flex-wrap">
+  <div class="min-h-screen admin-shell admin-file-browser-page">
+    <AdminStyleChrome />
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 admin-file-browser-shell">
+      <section class="admin-page-hero admin-file-browser-hero">
+        <div class="admin-file-browser-hero-inline">
+          <h1 class="admin-page-title admin-file-browser-title">文件浏览器</h1>
+          <div class="flex items-center justify-end gap-2 admin-file-browser-hero-actions">
+          <div v-if="canSelectStorageProvider" class="admin-file-browser-provider-select w-[200px] max-w-[200px] shrink-0" @click.stop>
             <button
-              v-for="(part, index) in pathParts"
-              :key="index"
-              @click="navigateToPart(index)"
-              class="px-2.5 py-1.5 rounded-full text-sm bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 transition-all duration-200"
+              ref="providerTriggerRef"
+              type="button"
+              class="admin-file-browser-select-trigger admin-file-browser-provider-field flex w-[200px] max-w-[200px] items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm"
+              :title="providerSummaryLabel"
+              @click="toggleProviderMenu"
             >
-              {{ part }}
+              <span class="truncate">{{ providerSummaryLabel }}</span>
+              <span class="admin-file-browser-select-arrow">▾</span>
             </button>
+          </div>
+          <router-link to="/admin" class="admin-button-soft admin-page-back-link shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors">返回</router-link>
+          </div>
+        </div>
+      </section>
+
+      <div class="glass-panel p-3 admin-file-browser-breadcrumbs">
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="min-w-0 flex-1 overflow-x-auto">
+            <div class="flex items-center gap-2 min-w-max">
+              <button
+                @click="goToPath(basePath)"
+                @dragover.prevent="handleBreadcrumbDragOver(basePath)"
+                @dragleave.prevent="handleBreadcrumbDragLeave(basePath)"
+                @drop.prevent="handleBreadcrumbDrop($event, basePath)"
+                class="rounded-full border px-2.5 py-1 text-sm transition-all duration-200"
+                :class="breadcrumbClass(-1)"
+              >
+                {{ rootButtonLabel }}
+              </button>
+              <template v-for="(crumb, index) in breadcrumbSegments" :key="crumb.path">
+                <button
+                  @click.stop="toggleBreadcrumbMenu($event, index === 0 ? basePath : breadcrumbSegments[index - 1].path)"
+                  class="rounded-full px-1 py-0.5 text-[color:var(--pe-admin-text-faint)] transition hover:bg-white/8 hover:text-[color:var(--pe-admin-text-primary)]"
+                  title="查看此层级内容"
+                >
+                  /
+                </button>
+                <button
+                  @click="goToPath(crumb.path)"
+                  @dragover.prevent="handleBreadcrumbDragOver(crumb.path)"
+                  @dragleave.prevent="handleBreadcrumbDragLeave(crumb.path)"
+                  @drop.prevent="handleBreadcrumbDrop($event, crumb.path)"
+                  class="rounded-full border px-2.5 py-1 text-sm transition-all duration-200"
+                  :class="breadcrumbClass(index, crumb.isGhost)"
+                >
+                  {{ crumb.label }}
+                </button>
+              </template>
+            </div>
           </div>
           <button
             @click="goToParent"
             :disabled="isAtRoot"
-            class="ml-auto px-3 py-1 rounded text-sm transition-colors"
+            class="px-2.5 py-1 rounded text-sm transition-colors shrink-0"
             :class="isAtRoot ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
           >
             返回上级
+          </button>
+          <button
+            @click="openCurrentDirectoryMenu"
+            class="admin-button-soft shrink-0 rounded px-2.5 py-1 text-sm transition-colors"
+          >
+            目录设置
           </button>
         </div>
       </div>
 
       <!-- 工具栏 -->
-      <div class="glass-panel p-4 mb-4 flex items-center gap-2 flex-wrap sticky top-3 z-20 backdrop-blur-xl">
-        <div v-if="canSelectStorageProvider" class="min-w-[240px] mr-2">
-          <select
-            v-model.number="selectedProviderId"
-            @change="changeStorageProvider"
-            class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
-          >
-            <option
-              v-for="provider in availableStorageProviders"
-              :key="provider.id"
-              :value="provider.id"
-              :disabled="!provider.enabled || !provider.browserSupported"
-            >
-              {{ provider.name }} · {{ storageTypeLabel(provider.type) }}{{ provider.browserSupported ? '' : '（暂不支持浏览）' }}
-            </option>
-          </select>
-        </div>
+      <div class="glass-panel glass-toolbar flex items-center gap-2 flex-wrap admin-file-browser-toolbar">
         <button
           @click="openCreateDialog"
           :disabled="!supportsDirectoryCreation"
-          class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          class="admin-button-primary px-3 py-1.5 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           + 新建文件夹
         </button>
         <button
           @click="refresh"
-          class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg text-sm whitespace-nowrap min-w-[90px] border border-white/10"
+          class="admin-button-soft min-w-[82px] whitespace-nowrap rounded-lg px-3 py-1.5 text-sm"
         >
           刷新
         </button>
         <button
           @click="triggerFileInput(false)"
           :disabled="!activeProviderSupported"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
           上传文件
         </button>
         <button
           @click="triggerFileInput(true)"
           :disabled="!activeProviderSupported"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
           上传文件夹
         </button>
         <button
           @click="toggleMultiSelect"
           :disabled="!supportsItemManagement"
-          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
           :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
         >
           {{ multiSelect ? '关闭多选' : '开启多选' }}
@@ -95,21 +116,21 @@
         <button
           @click="moveSelected"
           :disabled="!selectedPaths.size || !supportsItemManagement"
-          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
         >
             移动已选 ({{ selectedPaths.size }})
           </button>
           <button
             @click="deleteSelected"
             :disabled="!selectedPaths.size || !supportsItemManagement"
-            class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+            class="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
           >
             删除已选 ({{ selectedPaths.size }})
           </button>
           <button
             @click="selectAll"
             :disabled="!supportsItemManagement"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+            class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap"
             :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
           >
             全选
@@ -117,7 +138,7 @@
           <button
             @click="invertSelection"
             :disabled="!supportsItemManagement"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm whitespace-nowrap"
+            class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap"
             :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
           >
             反选
@@ -128,7 +149,7 @@
       </div>
       <div
         v-if="!supportsDirectoryCreation || !supportsItemManagement || !activeProviderSupported"
-        class="glass-panel p-4 mb-4 text-xs text-gray-300 border border-white/10 space-y-1"
+        class="glass-panel p-4 mb-4 text-xs text-gray-300 border border-white/10 space-y-1 admin-file-browser-warning"
       >
         <div v-if="!activeProviderSupported">上传受限：{{ uploadDisabledReason }}</div>
         <div v-if="!supportsDirectoryCreation">建目录受限：{{ directoryCreationDisabledReason }}</div>
@@ -136,16 +157,16 @@
       </div>
 
       <!-- 上传进度 -->
-      <div v-if="uploading" class="glass-panel p-4 mb-4">
+      <div v-if="uploading" class="glass-panel p-4 mb-4 admin-file-browser-uploading">
         <div class="flex items-center gap-3">
           <div class="animate-spin w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full"></div>
           <span class="text-blue-300">{{ uploadStatus }}</span>
         </div>
       </div>
 
-      <!-- 文件列表 -->
       <div
-        class="glass-panel p-4 relative transition-all duration-200"
+        class="glass-panel p-3 pb-24 relative transition-all duration-200"
+        :class="['admin-file-browser-content', viewMode === 'list' ? 'admin-file-browser-content--list' : 'admin-file-browser-content--grid']"
         @dragover.prevent="onDragOver"
         @dragleave.prevent="onDragLeave"
         @drop.prevent="handleDrop"
@@ -168,8 +189,8 @@
               <span class="absolute inset-[10px] rounded-full bg-cyan-300/20 animate-pulse"></span>
             </div>
             <div class="text-left">
-              <div class="text-sm text-white">正在整理当前目录</div>
-              <div class="text-xs text-gray-400 mt-1">读取文件、封面缩略图和目录信息...</div>
+              <div class="text-sm text-[color:var(--pe-admin-text-primary)]">正在整理当前目录</div>
+              <div class="mt-1 text-xs text-[color:var(--pe-admin-text-muted)]">读取文件、封面缩略图和目录信息...</div>
             </div>
           </div>
         </div>
@@ -179,10 +200,14 @@
         <div v-else-if="!items.length" class="text-center py-8 text-gray-400">
           当前目录为空
         </div>
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div v-else>
+          <div class="mb-4 text-xs text-gray-400">
+            共 {{ items.length }} 项，当前第 {{ currentPage }} / {{ totalPages }} 页
+          </div>
+          <div :class="[gridClass, 'admin-file-browser-grid']">
           <!-- 文件夹 -->
           <div
-            v-for="dir in directories"
+            v-for="dir in paginatedDirectories"
             :key="dir.path"
             @click="goToPath(dir.path)"
             @contextmenu.prevent="showContextMenu($event, dir)"
@@ -192,185 +217,473 @@
             @dragleave.prevent="handleFolderDragLeave(dir)"
             @drop.prevent="handleFolderDrop($event, dir)"
             :draggable="supportsItemManagement"
-            class="group rounded-2xl p-4 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+            class="group admin-file-browser-card admin-file-browser-card--directory rounded-2xl p-3 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
             :class="{
               'ring-2 ring-blue-500': selectedItem?.path === dir.path,
-              'ring-2 ring-cyan-400 bg-cyan-500/10': dragMoveTargetPath === dir.path
+              'ring-2 ring-cyan-400 bg-cyan-500/10': dragMoveTargetPath === dir.path,
+              'flex items-center gap-2 px-3 py-1.5 rounded-xl hover:translate-y-0': viewMode === 'list'
             }"
           >
-            <label v-if="multiSelect" class="absolute top-2 right-2">
+            <label v-if="multiSelect" class="absolute top-2 right-12 z-[2]">
               <input type="checkbox" class="w-4 h-4" :checked="selectedPaths.has(dir.path)" @click.stop="toggleSelect(dir.path)" />
             </label>
+            <button
+              @click.stop="showItemMenu($event, dir)"
+              class="absolute right-3 top-3 z-[2] flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/80 transition hover:bg-black/45 hover:text-white"
+              title="更多操作"
+            >
+              ⋯
+            </button>
             <!-- 三合一封面 -->
-            <div v-if="dir.leftVertical || dir.rightTop || dir.rightBottom" class="grid grid-cols-2 gap-[2px] mb-3 h-32 rounded-lg overflow-hidden">
-              <!-- 左侧竖图 -->
-              <div class="row-span-2 overflow-hidden">
+            <div
+              v-if="dir.leftVertical || dir.rightTop || dir.rightBottom"
+              :class="viewMode === 'list'
+                ? 'mb-0 h-10 w-10 shrink-0 overflow-hidden rounded-lg'
+                : 'mb-2 grid h-32 grid-cols-2 gap-[2px] overflow-hidden rounded-lg'"
+            >
+              <template v-if="viewMode === 'list'">
                 <img
-                  v-if="dir.leftVertical"
-                  :src="getImageUrl(dir.leftVertical)"
+                  :src="getImageUrl(dir.leftVertical || dir.rightTop || dir.rightBottom)"
                   :alt="dir.name"
-                  class="w-full h-full object-cover"
+                  class="h-full w-full rounded-xl object-cover"
                   loading="lazy"
                 />
-                <div v-else class="w-full h-full bg-gray-600"></div>
-              </div>
-              <!-- 右侧上方横图 -->
-              <div class="overflow-hidden">
-                <img
-                  v-if="dir.rightTop"
-                  :src="getImageUrl(dir.rightTop)"
-                  :alt="dir.name"
-                  class="w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <div v-else class="w-full h-full bg-gray-600"></div>
-              </div>
-              <!-- 右侧下方横图 -->
-              <div class="overflow-hidden relative">
-                <img
-                  v-if="dir.rightBottom"
-                  :src="getImageUrl(dir.rightBottom)"
-                  :alt="dir.name"
-                  class="w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <div v-else class="w-full h-full bg-gray-600"></div>
-                <!-- 右下角显示照片数量 -->
-                <div
-                  v-if="dir.photoCount && dir.photoCount > 0"
-                  class="absolute inset-0 bg-black/40 text-white flex items-center justify-center text-xs font-semibold"
-                >
-                  共 {{ dir.photoCount }} 张
+              </template>
+              <template v-else>
+                <div class="row-span-2 overflow-hidden">
+                  <img
+                    v-if="dir.leftVertical"
+                    :src="getImageUrl(dir.leftVertical)"
+                    :alt="dir.name"
+                    class="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div v-else class="w-full h-full bg-gray-600"></div>
                 </div>
-              </div>
+                <div class="overflow-hidden">
+                  <img
+                    v-if="dir.rightTop"
+                    :src="getImageUrl(dir.rightTop)"
+                    :alt="dir.name"
+                    class="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div v-else class="w-full h-full bg-gray-600"></div>
+                </div>
+                <div class="overflow-hidden relative">
+                  <img
+                    v-if="dir.rightBottom"
+                    :src="getImageUrl(dir.rightBottom)"
+                    :alt="dir.name"
+                    class="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div v-else class="w-full h-full bg-gray-600"></div>
+                  <div
+                    v-if="dir.photoCount && dir.photoCount > 0"
+                    class="absolute inset-0 bg-black/40 text-white flex items-center justify-center text-xs font-semibold"
+                  >
+                    共 {{ dir.photoCount }} 张
+                  </div>
+                </div>
+              </template>
             </div>
             <!-- 无封面时显示默认图标 -->
-            <div v-else class="mb-3 flex items-center justify-center h-32 rounded-xl bg-white/5 border border-white/5">
-              <div class="text-4xl transition-transform duration-200 group-hover:scale-110">📁</div>
+            <div
+              v-else
+              :class="viewMode === 'list'
+                ? 'mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5'
+                : 'mb-2 flex h-32 items-center justify-center rounded-xl border border-white/5 bg-white/5'"
+            >
+              <div class="transition-transform duration-200 group-hover:scale-110" :class="viewMode === 'list' ? 'text-xl' : 'text-4xl'">📁</div>
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="font-medium truncate" :title="dir.name">{{ dir.name }}</div>
-                  <div class="text-xs text-gray-400 mt-1">
-                    {{ dir.photoCount ? `${dir.photoCount} 张照片` : '文件夹' }}
+                  <div class="truncate font-medium text-[color:var(--pe-admin-text-primary)]" :title="dir.name">{{ dir.name }}</div>
+                  <div class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0 text-[11px] text-[color:var(--pe-admin-text-muted)]">
+                    <span>{{ dir.photoCount ? `${dir.photoCount} 张图片` : '文件夹' }}</span>
+                    <span v-if="dir.lastModified">{{ formatDate(dir.lastModified) }}</span>
                   </div>
                 </div>
-                <button
-                  v-if="!dir.albumBound"
-                  @click.stop="bindAlbum(dir)"
-                  :disabled="bindingAlbumPath === dir.path"
-                  class="shrink-0 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[11px] text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {{ bindingAlbumPath === dir.path ? '绑定中...' : '绑定相册' }}
-                </button>
               </div>
-              <div class="mt-2 flex flex-wrap gap-2">
-                <span
-                  class="rounded-full px-2.5 py-1 text-[11px] border"
-                  :class="dir.albumBound ? 'border-sky-400/30 bg-sky-500/10 text-sky-100' : 'border-white/10 bg-white/5 text-gray-300'"
-                >
-                  {{ dir.albumBound ? '已绑定相册' : '未绑定相册' }}
-                </span>
+              <div class="mt-0.5 flex flex-wrap gap-1" :class="viewMode === 'list' ? 'hidden xl:flex' : ''">
                 <span
                   v-if="dir.albumHasCustomCover"
-                  class="rounded-full px-2.5 py-1 text-[11px] border border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-100"
+                  class="rounded-full px-2 py-0.5 text-[10px] border border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-100"
                 >
                   自定义封面
                 </span>
                 <span
                   v-if="dir.albumAggregateSubAlbums"
-                  class="rounded-full px-2.5 py-1 text-[11px] border border-amber-400/30 bg-amber-500/10 text-amber-100"
+                  class="rounded-full px-2 py-0.5 text-[10px] border border-amber-400/30 bg-amber-500/10 text-amber-100"
                 >
                   聚合子相册
                 </span>
                 <span
                   v-if="dir.albumHidden"
-                  class="rounded-full px-2.5 py-1 text-[11px] border border-rose-400/30 bg-rose-500/10 text-rose-100"
+                  class="rounded-full px-2 py-0.5 text-[10px] border border-rose-400/30 bg-rose-500/10 text-rose-100"
                 >
                   已隐藏
                 </span>
               </div>
-              <div v-if="dir.albumDescription" class="mt-2 truncate text-[11px] text-gray-500">
+              <div v-if="dir.albumDescription && viewMode !== 'list'" class="mt-1 truncate text-[11px] text-[color:var(--pe-admin-text-faint)]">
                 {{ dir.albumDescription }}
-              </div>
-              <div v-if="dir.albumBound" class="mt-3 flex justify-end">
-                <button
-                  @click.stop="openAlbumSettings(dir)"
-                  class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-gray-200 transition hover:bg-white/10"
-                >
-                  相册设置
-                </button>
               </div>
             </div>
           </div>
 
           <!-- 文件 -->
           <div
-            v-for="file in files"
+            v-for="file in paginatedFiles"
             :key="file.path"
             @click="openFile(file)"
             @contextmenu.prevent="showContextMenu($event, file)"
             @dragstart="handleItemDragStart($event, file)"
             @dragend="handleItemDragEnd"
             :draggable="supportsItemManagement"
-            class="group rounded-2xl p-4 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
-            :class="{ 'ring-2 ring-blue-500': selectedItem?.path === file.path }"
+            class="group admin-file-browser-card admin-file-browser-card--file rounded-2xl p-3 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+            :class="{ 'ring-2 ring-blue-500': selectedItem?.path === file.path, 'flex items-center gap-2 px-3 py-1.5 rounded-xl hover:translate-y-0': viewMode === 'list' }"
           >
-            <label v-if="multiSelect" class="absolute top-2 right-2">
+            <label v-if="multiSelect" class="absolute top-2 right-12 z-[2]">
               <input type="checkbox" class="w-4 h-4" :checked="selectedPaths.has(file.path)" @click.stop="toggleSelect(file.path)" />
             </label>
+            <button
+              @click.stop="showItemMenu($event, file)"
+              class="absolute right-3 top-3 z-[2] flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/80 transition hover:bg-black/45 hover:text-white"
+              title="更多操作"
+            >
+              ⋯
+            </button>
             <!-- 图片文件显示缩略图 -->
-            <div v-if="file.thumbnail" class="mb-3 aspect-square rounded-xl overflow-hidden flex items-center justify-center bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_48%),rgba(255,255,255,0.04)] border border-white/8">
+            <div
+              v-if="file.thumbnail"
+              :class="viewMode === 'list'
+                ? 'mb-0 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/8 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_48%),rgba(255,255,255,0.04)]'
+                : 'mb-2 aspect-square flex items-center justify-center overflow-hidden rounded-xl border border-white/8 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_48%),rgba(255,255,255,0.04)]'"
+            >
               <img
                 :src="getImageUrl(file.thumbnail)"
                 :alt="file.name"
-                class="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
+                class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                 loading="lazy"
               />
             </div>
             <!-- 非图片文件显示默认图标 -->
-            <div v-else class="mb-3 flex items-center justify-center h-32 rounded-xl bg-white/5 border border-white/5">
-              <div class="text-4xl transition-transform duration-200 group-hover:scale-110">📄</div>
+            <div
+              v-else
+              :class="viewMode === 'list'
+                ? 'mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5'
+                : 'mb-2 flex h-32 items-center justify-center rounded-xl border border-white/5 bg-white/5'"
+            >
+              <div class="transition-transform duration-200 group-hover:scale-110" :class="viewMode === 'list' ? 'text-xl' : 'text-4xl'">📄</div>
             </div>
             <div class="flex-1 min-w-0">
-              <div class="font-medium truncate" :title="file.name">{{ file.name }}</div>
-              <div class="text-xs text-gray-400 mt-1">
-                {{ formatFileSize(file.size) }}
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="truncate font-medium text-[color:var(--pe-admin-text-primary)]" :title="file.name">{{ file.name }}</div>
+                  <div class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0 text-[11px] text-[color:var(--pe-admin-text-muted)]">
+                    <span>{{ formatFileSize(file.size) }}</span>
+                    <span>{{ formatDate(file.lastModified) }}</span>
+                    <span v-if="file.thumbnail?.id">已入库</span>
+                  </div>
+                </div>
               </div>
-              <div class="text-xs text-gray-500 mt-1">
-                {{ formatDate(file.lastModified) }}
+              <div v-if="file.photoHidden" class="mt-1">
+                <span class="rounded-full border border-rose-400/30 bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-100">
+                  已隐藏
+                </span>
               </div>
             </div>
           </div>
         </div>
+        </div>
       </div>
+    </div>
+
+    <div
+      v-if="breadcrumbMenu.show"
+      class="breadcrumb-menu glass-popover admin-floating-popover admin-file-browser-popover fixed z-[80] w-[320px] overflow-hidden rounded-2xl"
+      :style="{ left: `${breadcrumbMenu.x}px`, top: `${breadcrumbMenu.y}px` }"
+    >
+      <div class="px-4 py-3 border-b border-white/10 text-xs text-gray-400">
+        {{ breadcrumbMenu.pathLabel }}
+      </div>
+      <div v-if="breadcrumbMenu.loading" class="px-4 py-6 text-sm text-gray-400">加载中...</div>
+      <div v-else-if="!breadcrumbMenu.items.length" class="px-4 py-6 text-sm text-gray-400">此层级下暂无内容</div>
+      <div v-else class="max-h-[360px] overflow-auto py-2">
+        <button
+          v-for="entry in breadcrumbMenu.items"
+          :key="entry.path"
+          @click="openBreadcrumbMenuItem(entry)"
+          class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition hover:bg-white/8"
+        >
+          <div class="min-w-0">
+            <div class="truncate text-[color:var(--pe-admin-text-primary)]">{{ entry.name }}</div>
+            <div class="mt-1 text-xs text-[color:var(--pe-admin-text-faint)]">{{ entry.isDirectory ? '文件夹' : formatFileSize(entry.size) }}</div>
+          </div>
+          <span class="shrink-0 text-gray-500">{{ entry.isDirectory ? '📁' : '📄' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="fixed right-4 bottom-0 z-[70] max-w-[calc(100vw-2rem)] rounded-t-2xl border border-white/10 border-b-0 bg-slate-950/88 px-3 py-2 shadow-[0_-10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl admin-file-browser-floating-dock">
+      <div class="flex items-center gap-2 overflow-x-auto overflow-y-visible whitespace-nowrap">
+        <div class="relative" @click.stop>
+          <button
+            ref="viewTriggerRef"
+            type="button"
+            class="admin-file-browser-select-trigger min-w-[166px] rounded-full px-3 py-1.5 text-sm"
+            @click="toggleViewMenu"
+          >
+            <span class="truncate">{{ viewSummaryLabel }}</span>
+            <span class="admin-file-browser-select-arrow">▾</span>
+          </button>
+        </div>
+        <div class="relative" @click.stop>
+          <button
+            ref="sortTriggerRef"
+            @click="toggleSortMenu"
+            class="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-gray-900/70 text-sm"
+            :title="sortSummaryLabel"
+          >
+            <span class="text-base leading-none text-[color:var(--pe-admin-text-primary)]">{{ sortMenu.show ? '↕' : '↕' }}</span>
+          </button>
+        </div>
+        <div class="relative" @click.stop>
+          <button
+            ref="pageSizeTriggerRef"
+            type="button"
+            class="admin-file-browser-select-trigger min-w-[92px] rounded-full px-3 py-1.5 text-sm"
+            @click="togglePageSizeMenu"
+          >
+            <span>{{ pageSize }} / 页</span>
+            <span class="admin-file-browser-select-arrow">▾</span>
+          </button>
+        </div>
+        <button
+          @click="prevPage"
+          :disabled="currentPage <= 1"
+          class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm transition hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          上一页
+        </button>
+        <span class="text-xs text-gray-400">{{ currentPage }}/{{ totalPages }}</span>
+        <button
+          @click="nextPage"
+          :disabled="currentPage >= totalPages"
+          class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm transition hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="providerMenu.show"
+      class="glass-popover admin-floating-popover admin-file-browser-popover fixed z-[95] w-[280px] rounded-2xl"
+      :style="{ left: `${providerMenu.x}px`, top: `${providerMenu.y}px` }"
+      @click.stop
+    >
+      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">存储提供者</div>
+      <button
+        v-for="provider in availableStorageProviders"
+        :key="provider.id"
+        type="button"
+        @click="selectStorageProvider(provider.id)"
+        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
+        :class="selectedProviderId === provider.id ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        :disabled="!provider.enabled || !provider.browserSupported"
+      >
+        <div class="min-w-0">
+          <div class="truncate">{{ provider.name }}</div>
+          <div class="mt-1 text-[11px] text-[color:var(--pe-admin-text-faint)]">
+            {{ storageTypeLabel(provider.type) }}{{ provider.browserSupported ? '' : ' · 暂不支持浏览' }}
+          </div>
+        </div>
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="selectedProviderId === provider.id ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+        >{{ selectedProviderId === provider.id ? '●' : '○' }}</span>
+      </button>
+      <div class="h-1.5 shrink-0"></div>
+    </div>
+
+    <div
+      v-if="viewMenu.show"
+      class="glass-popover admin-floating-popover admin-file-browser-popover fixed z-[95] w-[244px] rounded-2xl"
+      :style="{ left: `${viewMenu.x}px`, top: `${viewMenu.y}px` }"
+      @click.stop
+    >
+      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">视图</div>
+      <button
+        v-for="option in viewModeOptions"
+        :key="option.value"
+        type="button"
+        @click="selectViewMode(option.value)"
+        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
+        :class="viewMode === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+      >
+        <span>{{ option.label }}</span>
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="viewMode === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+        >{{ viewMode === option.value ? '●' : '○' }}</span>
+      </button>
+      <div class="mx-3 border-t border-white/10"></div>
+      <div class="px-3 pb-1 pt-2.5 text-[11px] text-gray-400">尺寸</div>
+      <button
+        v-for="option in gridPresetOptions"
+        :key="option.value"
+        type="button"
+        @click="selectGridPreset(option.value)"
+        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
+        :class="viewMode === 'grid' && gridPreset === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+      >
+        <span>{{ option.label }}</span>
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="viewMode === 'grid' && gridPreset === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+        >{{ viewMode === 'grid' && gridPreset === option.value ? '●' : '○' }}</span>
+      </button>
+      <div class="h-1.5 shrink-0"></div>
+    </div>
+
+    <div
+      v-if="pageSizeMenu.show"
+      class="glass-popover admin-floating-popover admin-file-browser-popover fixed z-[95] w-[136px] rounded-2xl"
+      :style="{ left: `${pageSizeMenu.x}px`, top: `${pageSizeMenu.y}px` }"
+      @click.stop
+    >
+      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">每页数量</div>
+      <button
+        v-for="option in pageSizeOptions"
+        :key="option"
+        type="button"
+        @click="selectPageSize(option)"
+        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
+        :class="pageSize === option ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+      >
+        <span>{{ option }} / 页</span>
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="pageSize === option ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+        >{{ pageSize === option ? '●' : '○' }}</span>
+      </button>
+      <div class="h-1.5 shrink-0"></div>
+    </div>
+
+    <div
+      v-if="sortMenu.show"
+      class="glass-popover admin-floating-popover admin-file-browser-popover fixed z-[95] w-[232px] rounded-2xl"
+      :style="{ left: `${sortMenu.x}px`, top: `${sortMenu.y}px` }"
+      @click.stop
+    >
+      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">排序方式</div>
+      <button
+        v-for="option in sortModeOptions"
+        :key="option.value"
+        @click="selectSortMode(option.value)"
+        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
+        :class="sortMode === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+      >
+        <span>{{ option.label }}</span>
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="sortMode === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+        >{{ sortMode === option.value ? '●' : '○' }}</span>
+      </button>
+      <div class="mx-3 border-t border-white/10"></div>
+      <div class="px-3 pb-1 pt-2.5 text-[11px] text-gray-400">类型策略</div>
+      <button
+        v-for="option in typeOrderOptions"
+        :key="option.value"
+        @click="selectTypeOrderMode(option.value)"
+        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
+        :class="typeOrderMode === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+      >
+        <span>{{ option.label }}</span>
+        <span
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="typeOrderMode === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+        >{{ typeOrderMode === option.value ? '●' : '○' }}</span>
+      </button>
+      <div class="h-1.5 shrink-0"></div>
     </div>
 
     <!-- 右键菜单 -->
     <div
       v-if="contextMenu.show"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-      class="fixed bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50 min-w-[150px]"
+      class="glass-popover admin-floating-popover admin-file-browser-context-menu fixed z-50 min-w-[180px] overflow-hidden rounded-2xl"
     >
       <button
         v-if="contextMenu.item?.isDirectory"
         @click="goToPath(contextMenu.item.path)"
-        class="w-full text-left px-4 py-2 hover:bg-gray-700 rounded-t-lg"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
       >
         打开
       </button>
       <button
+        v-if="contextMenu.item?.isDirectory && !contextMenu.item?.albumBound"
+        @click="bindContextDirectory"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        绑定为相册
+      </button>
+      <button
+        v-if="contextMenu.item?.isDirectory && contextMenu.item?.albumBound"
+        @click="openContextAlbumSettings"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        相册设置
+      </button>
+      <button
+        v-if="contextMenu.item && !contextMenu.item.isDirectory && isImageFile(contextMenu.item)"
+        @click="openContextViewer"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        查看图片
+      </button>
+      <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory"
         @click="downloadContextFile"
-        class="w-full text-left px-4 py-2 hover:bg-gray-700"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
       >
         下载
       </button>
       <button
+        v-if="contextMenu.item && !contextMenu.item.isDirectory && contextMenu.item.thumbnail?.id"
+        @click="toggleContextPhotoHidden"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        {{ contextMenu.item.photoHidden ? '恢复公开显示' : '隐藏图片' }}
+      </button>
+      <button
+        v-if="contextMenu.item && !contextMenu.item.isDirectory && contextMenu.item.thumbnail?.id"
+        @click="openContextPhotoTagDialog"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        标签管理
+      </button>
+      <button
+        v-if="contextMenu.item && !contextMenu.item.isDirectory && contextMenu.item.thumbnail?.id"
+        @click="rescanContextPhotoFaces"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        重建人脸
+      </button>
+      <button
+        v-if="contextMenu.item && !contextMenu.item.isDirectory && currentDirectoryAlbum.albumBound && contextMenu.item.thumbnail?.id"
+        @click="setContextPhotoAsCover"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+      >
+        设为当前相册封面
+      </button>
+      <button
         @click="startRename"
         :disabled="!supportsItemManagement"
-        class="w-full text-left px-4 py-2 hover:bg-gray-700"
+        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
         :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
       >
         重命名
@@ -378,7 +691,7 @@
       <button
         @click="confirmDelete"
         :disabled="!supportsItemManagement"
-        class="w-full text-left px-4 py-2 hover:bg-red-600 rounded-b-lg text-red-300"
+        class="w-full text-left px-4 py-3 text-sm text-rose-200 transition hover:bg-rose-500/20"
         :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
       >
         删除
@@ -388,10 +701,10 @@
     <!-- 创建文件夹对话框 -->
     <div
       v-if="showCreateDialog"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      class="admin-modal-overlay fixed inset-0 flex items-center justify-center z-50"
       @click.self="showCreateDialog = false"
     >
-      <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+      <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-md p-6">
         <h2 class="text-xl font-light mb-4">新建文件夹</h2>
         <div class="mb-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
           <div>当前目录：{{ rootPathSummary }}</div>
@@ -429,10 +742,10 @@
     <!-- 重命名对话框 -->
     <div
       v-if="showRenameDialog"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      class="admin-modal-overlay fixed inset-0 flex items-center justify-center z-50"
       @click.self="showRenameDialog = false"
     >
-      <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+      <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-md p-6">
         <h2 class="text-xl font-light mb-4">重命名</h2>
         <div class="mb-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
           <div>当前对象：{{ itemToRename?.name || '—' }}</div>
@@ -468,11 +781,64 @@
     </div>
 
     <div
+      v-if="showMoveDialog"
+      class="admin-modal-overlay fixed inset-0 z-[64] flex items-center justify-center p-4"
+      @click.self="closeMoveDialog"
+    >
+      <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-lg overflow-hidden rounded-[28px]">
+        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+          <div>
+            <h2 class="text-xl font-light">移动项目</h2>
+            <div class="text-xs text-gray-400 mt-1">已选择 {{ movePendingPaths.length }} 项</div>
+          </div>
+          <button @click="closeMoveDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+        </div>
+        <div class="px-6 py-5 space-y-4">
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+            <div class="text-xs text-gray-400">目标目录</div>
+            <input
+              v-model="moveTargetInput"
+              ref="moveTargetInputRef"
+              @keyup.enter="submitMoveDialog"
+              placeholder="留空表示移动到当前存储根目录"
+              class="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-sky-400/40"
+            />
+            <div class="text-xs text-gray-500">
+              输入相对当前存储根目录的路径，例如 `2026/人像`。
+            </div>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="text-xs text-gray-400">待移动项目</div>
+            <div class="mt-3 flex flex-wrap gap-2 max-h-32 overflow-auto">
+              <span
+                v-for="path in movePendingPaths"
+                :key="`move-${path}`"
+                class="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-gray-300"
+              >
+                {{ path.split('/').filter(Boolean).slice(-1)[0] || path }}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 px-6 py-4 border-t border-white/10 bg-black/20">
+          <button @click="closeMoveDialog" class="px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10">取消</button>
+          <button
+            @click="submitMoveDialog"
+            :disabled="movingItems"
+            class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50"
+          >
+            {{ movingItems ? '移动中...' : '确认移动' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
       v-if="showDeleteDialog"
-      class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[65] p-4"
+      class="admin-modal-overlay fixed inset-0 flex items-center justify-center z-[65] p-4"
       @click.self="closeDeleteDialog"
     >
-      <div class="w-full max-w-4xl rounded-[28px] border border-white/10 bg-slate-950/95 shadow-[0_28px_90px_rgba(0,0,0,0.55)] overflow-hidden">
+      <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-4xl overflow-hidden rounded-[28px]">
         <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
           <div>
             <h2 class="text-xl font-light">确认删除</h2>
@@ -535,10 +901,10 @@
 
     <div
       v-if="showAlbumSettingsDrawer"
-      class="fixed inset-0 z-[68] bg-black/45 backdrop-blur-sm"
+      class="admin-modal-overlay fixed inset-0 z-[78]"
       @click.self="closeAlbumSettingsDrawer"
     >
-      <div class="absolute right-0 top-0 h-full w-full max-w-xl border-l border-white/10 bg-slate-950/95 shadow-[-24px_0_80px_rgba(0,0,0,0.45)]">
+      <div class="glass-modal admin-modal-card admin-file-browser-drawer absolute right-0 top-0 h-full w-full max-w-xl border-l">
         <div class="flex h-full flex-col">
           <div class="flex items-center justify-between gap-4 border-b border-white/10 px-6 py-5">
             <div class="min-w-0">
@@ -605,9 +971,50 @@
               </div>
             </button>
 
-            <div class="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400">
-              这里先放最常用的运行属性。封面、标签、排序、下载权限这些下一步继续并入文件浏览器。
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">图片排序方式</span>
+              <select
+                v-model="albumSettingsForm.photoSortOrder"
+                class="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/40 focus:bg-white/8"
+              >
+                <option value="">跟随全局设置</option>
+                <option value="takenAtDesc">拍摄时间从新到旧</option>
+                <option value="takenAtAsc">拍摄时间从旧到新</option>
+                <option value="createdAtDesc">上传时间从新到旧</option>
+                <option value="createdAtAsc">上传时间从旧到新</option>
+                <option value="qualityDesc">评分从高到低</option>
+                <option value="filenameAsc">文件名正序</option>
+                <option value="filenameDesc">文件名倒序</option>
+              </select>
+            </label>
+
+            <label class="block space-y-2">
+              <span class="text-sm text-gray-300">下载权限</span>
+              <select
+                v-model="albumSettingsForm.downloadAllowed"
+                class="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/40 focus:bg-white/8"
+              >
+                <option value="">跟随全局设置</option>
+                <option value="true">允许下载</option>
+                <option value="false">禁止下载</option>
+              </select>
+            </label>
+
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-sm text-white">自定义封面</div>
+                  <div class="mt-1 text-xs text-gray-400">从当前目录图片中选择最多 4 张，优先用于三合一封面和相册展示。</div>
+                </div>
+                <button
+                  @click="openAlbumCoverDialog"
+                  class="rounded-xl border border-fuchsia-400/25 bg-fuchsia-500/10 px-4 py-2 text-sm text-fuchsia-100 transition hover:bg-fuchsia-500/20"
+                >
+                  设置封面
+                </button>
+              </div>
             </div>
+
           </div>
           <div class="flex items-center justify-end gap-3 border-t border-white/10 bg-black/20 px-6 py-4">
             <button
@@ -629,39 +1036,122 @@
     </div>
 
     <div
-      v-if="previewFile"
-      class="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
-      @click.self="closePreview"
+      v-if="showAlbumCoverDialog"
+      class="admin-modal-overlay fixed inset-0 z-[69] flex items-center justify-center p-4"
+      @click.self="closeAlbumCoverDialog"
     >
-      <div class="w-full max-w-6xl rounded-[28px] border border-white/10 bg-slate-950/90 shadow-[0_30px_120px_rgba(0,0,0,0.55)] overflow-hidden">
-        <div class="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/10">
-          <div class="min-w-0">
-            <div class="truncate text-white">{{ previewFile.name }}</div>
-            <div class="text-xs text-gray-400 mt-1">{{ formatFileSize(previewFile.size) }}<span v-if="previewFile.lastModified"> · {{ formatDate(previewFile.lastModified) }}</span></div>
+      <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-5xl overflow-hidden rounded-[28px]">
+        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+          <div>
+            <h2 class="text-xl font-light">设置相册封面</h2>
+            <div class="text-xs text-gray-400 mt-1">最多选择 4 张图片。首图优先用于主封面。</div>
           </div>
-          <div class="flex items-center gap-2">
+          <button @click="closeAlbumCoverDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+        </div>
+        <div class="px-6 py-5">
+          <div v-if="!browserViewerPhotos.length" class="py-10 text-center text-sm text-gray-400">
+            当前目录还没有可用图片，暂时无法设置自定义封面。
+          </div>
+          <div v-else class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[70vh] overflow-auto">
             <button
-              v-if="previewFile"
-              @click.stop="downloadFile(previewFile)"
-              class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10"
+              v-for="photo in browserViewerPhotos"
+              :key="`cover-${photo.browserPath}`"
+              @click="toggleCoverSelection(photo)"
+              class="group relative rounded-2xl border overflow-hidden text-left transition"
+              :class="selectedCoverIds.includes(photo.id) ? 'border-fuchsia-400/60 ring-2 ring-fuchsia-400/30' : 'border-white/10 hover:border-white/20'"
             >
-              下载
-            </button>
-            <button
-              @click="closePreview"
-              class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10"
-            >
-              关闭
+              <div class="aspect-square bg-white/5">
+                <img
+                  :src="buildPhotoAssetUrl(photo, 'small') || buildPhotoAssetUrl(photo, 'thumbnail') || buildPhotoAssetUrl(photo, 'large') || ''"
+                  :alt="photo.filename"
+                  class="w-full h-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                />
+              </div>
+              <div class="absolute top-3 left-3 rounded-full bg-black/65 px-2.5 py-1 text-[11px] text-white">
+                {{ coverIndexLabel(photo.id) }}
+              </div>
+              <div class="p-3">
+                <div class="truncate text-sm text-white">{{ photo.filename }}</div>
+              </div>
             </button>
           </div>
         </div>
-        <div class="flex items-center justify-center min-h-[60vh] max-h-[78vh] p-6 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]">
-          <img
-            v-if="previewImageUrl"
-            :src="previewImageUrl"
-            :alt="previewFile.name"
-            class="max-w-full max-h-[68vh] rounded-2xl object-contain shadow-[0_20px_80px_rgba(0,0,0,0.4)]"
-          />
+        <div class="flex items-center justify-end gap-3 border-t border-white/10 bg-black/20 px-6 py-4">
+          <button @click="closeAlbumCoverDialog" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 hover:bg-white/10">取消</button>
+          <button
+            @click="saveAlbumCoverSelection"
+            :disabled="savingAlbumSettings"
+            class="rounded-xl bg-fuchsia-600 px-4 py-2 text-white transition hover:bg-fuchsia-500 disabled:opacity-50"
+          >
+            {{ savingAlbumSettings ? '保存中...' : '保存封面' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <PhotoViewer
+      v-if="browserViewerPhotos.length > 0"
+      :photos="browserViewerPhotos"
+      :visible="viewerVisible"
+      :start-index="viewerIndex"
+      :admin-menu-actions="viewerAdminActions"
+      @update:visible="viewerVisible = $event"
+      @viewer-index-change="handleViewerIndexChange"
+      @admin-action="handleViewerAdminAction"
+    />
+
+    <div
+      v-if="showPhotoTagDialog"
+      class="admin-modal-overlay fixed inset-0 z-[72] flex items-center justify-center p-4"
+      @click.self="closePhotoTagDialog"
+    >
+      <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-2xl overflow-hidden rounded-[28px]">
+        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+          <div>
+            <h2 class="text-xl font-light">图片标签管理</h2>
+            <div class="text-xs text-gray-400 mt-1">{{ currentViewerPhoto?.filename }}</div>
+          </div>
+          <button @click="closePhotoTagDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+        </div>
+        <div class="px-6 py-5 space-y-5">
+          <div>
+            <div class="text-sm text-gray-300">当前标签</div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button
+                v-for="tag in (currentViewerPhoto?.tags || [])"
+                :key="`photo-tag-${tag.id}`"
+                @click="removeCurrentPhotoTag(tag.id)"
+                :disabled="savingPhotoTag"
+                class="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-60"
+              >
+                {{ tag.name }} ×
+              </button>
+              <div v-if="!(currentViewerPhoto?.tags || []).length" class="text-xs text-gray-500">
+                这张图片还没有标签。
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-sm text-gray-300">添加标签</div>
+            <input
+              v-model="photoTagKeyword"
+              @keyup.enter="addPhotoTagByName(photoTagKeyword)"
+              placeholder="输入标签名称，回车添加"
+              class="mt-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-sky-400/40 focus:bg-white/8"
+            />
+            <div class="mt-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
+              <button
+                v-for="tag in filteredPhotoTags"
+                :key="`candidate-tag-${tag.id}`"
+                @click="addPhotoTagByName(tag.name)"
+                :disabled="savingPhotoTag"
+                class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10 disabled:opacity-60"
+              >
+                {{ tag.name }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -669,20 +1159,26 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { api, type UploadPrecheckResponse } from '@/api'
+import { api, getEffectiveAuthToken, type UploadPrecheckResponse } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import type { Photo as ViewerPhoto } from '@/stores/photo'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { buildPublicPath } from '@/utils/publicRoute'
 import { storageTypeLabel } from '@/utils/providerLabels'
+import PhotoViewer from '@/components/PhotoViewer.vue'
 
 interface PhotoInfo {
   id?: number
   originalPath?: string
   thumbnailPath?: string
+  smallThumbPath?: string
   webpPath?: string
   width?: number
   height?: number
+  isHidden?: boolean
+  tags?: Array<{ id: number; name: string; color?: string }>
 }
 
 interface FileItem {
@@ -698,10 +1194,28 @@ interface FileItem {
   albumAggregateSubAlbums?: boolean
   albumHasCustomCover?: boolean
   albumDescription?: string | null
+  albumPhotoSortOrder?: string | null
+  albumDownloadAllowed?: boolean | null
+  photoHidden?: boolean
   leftVertical?: PhotoInfo
   rightTop?: PhotoInfo
   rightBottom?: PhotoInfo
   thumbnail?: PhotoInfo
+}
+
+interface DirectoryAlbumMeta {
+  albumBound: boolean
+  albumId?: number | null
+  albumHidden?: boolean
+  albumAggregateSubAlbums?: boolean
+  albumHasCustomCover?: boolean
+  albumDescription?: string | null
+  albumPhotoSortOrder?: string | null
+  albumDownloadAllowed?: boolean | null
+}
+
+interface BrowserViewerPhoto extends ViewerPhoto {
+  browserPath: string
 }
 
 interface DeletePreviewPhotoItem {
@@ -747,6 +1261,7 @@ interface UploadResponse {
 const authStore = useAuthStore()
 const basePath = ref('')
 const currentPath = ref('')
+const breadcrumbTrailPath = ref<string | null>(null)
 const parentPath = ref<string | null>(null)
 const selectedProviderId = ref<number | null>(null)
 const availableStorageProviders = ref<BrowserStorageProvider[]>([])
@@ -763,6 +1278,18 @@ const dragMode = ref<'upload' | 'move'>('upload')
 const dragMoveTargetPath = ref('')
 const draggingPaths = ref<string[]>([])
 const bindingAlbumPath = ref('')
+const currentDirectoryAlbum = ref<DirectoryAlbumMeta>({
+  albumBound: false,
+  albumId: null,
+  albumHidden: false,
+  albumAggregateSubAlbums: false,
+  albumHasCustomCover: false,
+  albumDescription: '',
+  albumPhotoSortOrder: null,
+  albumDownloadAllowed: null
+})
+const viewerVisible = ref(false)
+const viewerIndex = ref(0)
 let dragLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const showCreateDialog = ref(false)
@@ -774,6 +1301,11 @@ const showRenameDialog = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
 const itemToRename = ref<FileItem | null>(null)
+const showMoveDialog = ref(false)
+const movePendingPaths = ref<string[]>([])
+const moveTargetInput = ref('')
+const movingItems = ref(false)
+const moveTargetInputRef = ref<HTMLInputElement | null>(null)
 const showDeleteDialog = ref(false)
 const loadingDeletePreview = ref(false)
 const deletingItems = ref(false)
@@ -783,10 +1315,18 @@ const deletePendingPaths = ref<string[]>([])
 const showAlbumSettingsDrawer = ref(false)
 const albumSettingsTarget = ref<FileItem | null>(null)
 const savingAlbumSettings = ref(false)
+const showAlbumCoverDialog = ref(false)
+const selectedCoverIds = ref<number[]>([])
+const showPhotoTagDialog = ref(false)
+const allTags = ref<Array<{ id: number; name: string; color?: string }>>([])
+const photoTagKeyword = ref('')
+const savingPhotoTag = ref(false)
 const albumSettingsForm = ref({
   description: '',
   isHidden: false,
-  aggregateSubAlbums: false
+  aggregateSubAlbums: false,
+  photoSortOrder: '',
+  downloadAllowed: ''
 })
 
 const contextMenu = ref({
@@ -795,18 +1335,167 @@ const contextMenu = ref({
   y: 0,
   item: null as FileItem | null
 })
+const sortMenu = ref({
+  show: false,
+  x: 0,
+  y: 0
+})
+const providerMenu = ref({
+  show: false,
+  x: 0,
+  y: 0
+})
+const viewMenu = ref({
+  show: false,
+  x: 0,
+  y: 0
+})
+const pageSizeMenu = ref({
+  show: false,
+  x: 0,
+  y: 0
+})
+const breadcrumbMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  path: '',
+  pathLabel: '',
+  loading: false,
+  items: [] as FileItem[]
+})
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
-const previewFile = ref<FileItem | null>(null)
-const previewImageUrl = ref('')
+const providerTriggerRef = ref<HTMLElement | null>(null)
+const viewTriggerRef = ref<HTMLElement | null>(null)
+const sortTriggerRef = ref<HTMLElement | null>(null)
+const pageSizeTriggerRef = ref<HTMLElement | null>(null)
+const sortMode = ref<'name-asc' | 'name-desc' | 'lastModified-desc' | 'lastModified-asc' | 'size-desc' | 'size-asc' | 'photoCount-desc' | 'photoCount-asc'>('name-asc')
+const typeOrderMode = ref<'mixed' | 'directory-first' | 'file-first'>('mixed')
+const pageSize = ref(48)
+const currentPage = ref(1)
+const viewMode = ref<'grid' | 'list'>('grid')
+const gridPreset = ref<'auto-sm' | 'auto-md' | 'auto-lg' | 'cols-2' | 'cols-3' | 'cols-4' | 'cols-5'>('auto-md')
+let fileBrowserPreferenceSaveTimer: ReturnType<typeof setTimeout> | null = null
+const pageSizeOptions = [24, 48, 96, 200] as const
+const viewModeOptions = [
+  { value: 'grid', label: '网格' },
+  { value: 'list', label: '列表' }
+] as const
+const gridPresetOptions = [
+  { value: 'auto-sm', label: '自动小' },
+  { value: 'auto-md', label: '自动中' },
+  { value: 'auto-lg', label: '自动大' },
+  { value: 'cols-2', label: '2 列' },
+  { value: 'cols-3', label: '3 列' },
+  { value: 'cols-4', label: '4 列' },
+  { value: 'cols-5', label: '5 列' }
+] as const
+const sortModeOptions = [
+  { value: 'name-asc', label: '名称 A-Z' },
+  { value: 'name-desc', label: '名称 Z-A' },
+  { value: 'lastModified-desc', label: '时间 新-旧' },
+  { value: 'lastModified-asc', label: '时间 旧-新' },
+  { value: 'size-desc', label: '大小 大-小' },
+  { value: 'size-asc', label: '大小 小-大' },
+  { value: 'photoCount-desc', label: '图片数 多-少' },
+  { value: 'photoCount-asc', label: '图片数 少-多' }
+] as const
+const typeOrderOptions = [
+  { value: 'mixed', label: '混合' },
+  { value: 'directory-first', label: '目录优先' },
+  { value: 'file-first', label: '文件优先' }
+] as const
 
 const selectedStorageProvider = computed(() => (
   availableStorageProviders.value.find(provider => provider.id === selectedProviderId.value) || null
 ))
+const selectedProviderName = computed(() => selectedStorageProvider.value?.name || '')
 const canSelectStorageProvider = computed(() => authStore.role === 'SUPER_ADMIN')
+const providerSummaryLabel = computed(() => (
+  selectedStorageProvider.value
+    ? `${selectedStorageProvider.value.name}`
+    : '选择存储提供者'
+))
+const sortSummaryLabel = computed(() => {
+  const sortLabel = sortModeOptions.find(option => option.value === sortMode.value)?.label || '名称 A-Z'
+  const typeLabel = typeOrderOptions.find(option => option.value === typeOrderMode.value)?.label || '混合'
+  return `${sortLabel} · ${typeLabel}`
+})
+const viewSummaryLabel = computed(() => {
+  const modeLabel = viewModeOptions.find(option => option.value === viewMode.value)?.label || '网格'
+  const presetLabel = gridPresetOptions.find(option => option.value === gridPreset.value)?.label || '自动中'
+  return viewMode.value === 'list' ? `${modeLabel} · ${presetLabel}` : `${modeLabel} · ${presetLabel}`
+})
 const directories = computed(() => items.value.filter(item => item.isDirectory))
 const files = computed(() => items.value.filter(item => !item.isDirectory))
+const sortedItems = computed(() => {
+  const [sortKey, sortOrder] = sortMode.value.split('-') as ['name' | 'lastModified' | 'size' | 'photoCount', 'asc' | 'desc']
+  const factor = sortOrder === 'asc' ? 1 : -1
+  const typeRank = (item: FileItem) => item.isDirectory ? 0 : 1
+  const compareType = (a: FileItem, b: FileItem) => {
+    if (typeOrderMode.value === 'mixed') {
+      return 0
+    }
+    const result = typeRank(a) - typeRank(b)
+    return typeOrderMode.value === 'directory-first' ? result : -result
+  }
+  return [...items.value].sort((a, b) => {
+    let result = compareType(a, b)
+    if (result !== 0) {
+      return result
+    }
+    result = 0
+    if (sortKey === 'name') {
+      result = a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+    } else if (sortKey === 'lastModified') {
+      result = (a.lastModified || 0) - (b.lastModified || 0)
+    } else if (sortKey === 'size') {
+      result = (a.size || 0) - (b.size || 0)
+    } else if (sortKey === 'photoCount') {
+      result = (a.photoCount || 0) - (b.photoCount || 0)
+    }
+    if (result === 0) {
+      result = compareType(a, b) || a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+    }
+    return result * factor
+  })
+})
+const totalPages = computed(() => Math.max(1, Math.ceil(sortedItems.value.length / pageSize.value)))
+const paginatedItems = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return sortedItems.value.slice(start, start + pageSize.value)
+})
+const paginatedDirectories = computed(() => paginatedItems.value.filter(item => item.isDirectory))
+const paginatedFiles = computed(() => paginatedItems.value.filter(item => !item.isDirectory))
+const gridClass = computed(() => {
+  if (viewMode.value === 'list') {
+    return 'grid grid-cols-1 gap-1'
+  }
+  if (gridPreset.value === 'auto-sm') {
+    return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2'
+  }
+  if (gridPreset.value === 'auto-md') {
+    return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2'
+  }
+  if (gridPreset.value === 'auto-lg') {
+    return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5'
+  }
+  if (gridPreset.value === 'cols-2') {
+    return 'grid grid-cols-1 sm:grid-cols-2 gap-2.5'
+  }
+  if (gridPreset.value === 'cols-3') {
+    return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5'
+  }
+  if (gridPreset.value === 'cols-4') {
+    return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2'
+  }
+  return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2'
+})
+const selectedDirectoryItems = computed(() => directories.value.filter(item => selectedPaths.value.has(item.path)))
+const selectedFileItems = computed(() => files.value.filter(item => selectedPaths.value.has(item.path)))
+const unboundSelectedDirectories = computed(() => selectedDirectoryItems.value.filter(item => !item.albumBound))
 const activeProviderSupported = computed(() => (
   selectedStorageProvider.value ? selectedStorageProvider.value.uploadSupported : false
 ))
@@ -839,8 +1528,102 @@ const albumSettingsDirty = computed(() => {
   return (
     (albumSettingsForm.value.description || '') !== (target.albumDescription || '') ||
     !!albumSettingsForm.value.isHidden !== !!target.albumHidden ||
-    !!albumSettingsForm.value.aggregateSubAlbums !== !!target.albumAggregateSubAlbums
+    !!albumSettingsForm.value.aggregateSubAlbums !== !!target.albumAggregateSubAlbums ||
+    (albumSettingsForm.value.photoSortOrder || '') !== (target.albumPhotoSortOrder || '') ||
+    albumSettingsForm.value.downloadAllowed !== downloadAllowedFormValue(target.albumDownloadAllowed)
   )
+})
+const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif', '.avif', '.raw', '.cr2', '.nef', '.arw']
+const browserViewerPhotos = computed<BrowserViewerPhoto[]>(() => {
+  return files.value
+    .filter(file => isImageFile(file) && canOpenInViewer(file))
+    .map((file, index) => {
+      const photoMeta = file.thumbnail || {}
+      return {
+        id: photoMeta.id || -1 * (index + 1),
+        albumId: currentDirectoryAlbum.value.albumId || 0,
+        filename: file.name,
+        originalPath: photoMeta.originalPath || (selectedStorageProvider.value?.type === 'LOCAL' ? file.path : undefined),
+        thumbnailPath: photoMeta.thumbnailPath,
+        webpPath: photoMeta.webpPath,
+        width: photoMeta.width,
+        height: photoMeta.height,
+        fileSize: file.size,
+        isHidden: !!file.photoHidden,
+        tags: photoMeta.tags || [],
+        viewCount: 0,
+        likeCount: 0,
+        isFeatured: false,
+        createdAt: file.lastModified ? new Date(file.lastModified).toISOString() : '',
+        browserPath: file.path
+      }
+    })
+})
+const currentViewerPhoto = computed(() => browserViewerPhotos.value[viewerIndex.value] || null)
+const filteredPhotoTags = computed(() => {
+  const keyword = photoTagKeyword.value.trim().toLowerCase()
+  if (!keyword) return allTags.value
+  return allTags.value.filter(tag => tag.name.toLowerCase().includes(keyword))
+})
+const currentDirectoryDirectImageCount = computed(() => files.value.filter(file => isImageFile(file)).length)
+const currentDirectoryAggregatedChildPhotoCount = computed(() => {
+  return directories.value.reduce((sum, dir) => sum + (dir.photoCount || 0), 0)
+})
+const currentDirectoryState = computed(() => {
+  const album = currentDirectoryAlbum.value
+  const directCount = currentDirectoryDirectImageCount.value
+  const childCount = currentDirectoryAggregatedChildPhotoCount.value
+  if (!album.albumBound) {
+    return {
+      label: directCount > 0 ? '目录内有图片，建议绑定相册' : '普通目录',
+      tone: 'neutral' as const,
+      detail: directCount > 0 ? `当前目录有 ${directCount} 张直接图片，但还没有绑定相册。` : '当前目录仅作为文件夹使用。'
+    }
+  }
+  if (directCount > 0) {
+    return {
+      label: '可展示相册',
+      tone: 'active' as const,
+      detail: `当前目录有 ${directCount} 张直接图片，可直接作为相册展示。`
+    }
+  }
+  if (album.albumAggregateSubAlbums && childCount > 0) {
+    return {
+      label: '聚合相册',
+      tone: 'aggregate' as const,
+      detail: `当前目录没有直接图片，但会聚合下级目录中的 ${childCount} 张图片。`
+    }
+  }
+  return {
+    label: '空相册',
+    tone: 'empty' as const,
+    detail: '当前目录已绑定相册，但暂时没有可展示图片。'
+  }
+})
+const viewerAdminActions = computed(() => {
+  const actions: Array<{ key: string; label: string; tone?: 'default' | 'danger' }> = []
+  if (currentViewerPhoto.value) {
+    actions.push({ key: 'download', label: '下载原图' })
+  }
+  if (currentViewerPhoto.value?.id && currentViewerPhoto.value.id > 0) {
+    actions.push({ key: 'manage-tags', label: '标签管理' })
+  }
+  if (currentViewerPhoto.value?.id && currentViewerPhoto.value.id > 0) {
+    actions.push({
+      key: 'toggle-hidden',
+      label: currentViewerPhoto.value.isHidden ? '恢复公开显示' : '隐藏图片'
+    })
+  }
+  if (currentDirectoryAlbum.value.albumBound && currentDirectoryAlbum.value.albumId && currentViewerPhoto.value?.id && currentViewerPhoto.value.id > 0) {
+    actions.push({ key: 'set-cover', label: '设为相册封面' })
+  }
+  if (currentViewerPhoto.value?.id && currentViewerPhoto.value.id > 0) {
+    actions.push({ key: 'rescan-faces', label: '重建人脸' })
+  }
+  if (currentViewerPhoto.value) {
+    actions.push({ key: 'delete', label: '删除图片', tone: 'danger' })
+  }
+  return actions
 })
 const currentRelativePath = computed(() => {
   const normalizedBase = normalizePath(basePath.value || '/').replace(/[\/\\]+$/, '')
@@ -863,6 +1646,63 @@ const normalizePath = (p: string | null | undefined) => {
   return p.replace(/\\/g, '/')
 }
 
+const isImageFile = (file: FileItem) => {
+  const lower = (file.name || '').toLowerCase()
+  return imageExtensions.some(ext => lower.endsWith(ext))
+}
+
+const canOpenInViewer = (file: FileItem) => {
+  if (file.thumbnail?.id) return true
+  return selectedStorageProvider.value?.type === 'LOCAL'
+}
+
+const directoryStateLabel = (dir: FileItem) => {
+  if (!dir.albumBound) {
+    return (dir.photoCount || 0) > 0 ? '建议绑定相册' : '普通目录'
+  }
+  if ((dir.photoCount || 0) > 0) {
+    return dir.albumAggregateSubAlbums ? '聚合相册' : '可展示相册'
+  }
+  if (dir.albumAggregateSubAlbums) {
+    return '聚合相册'
+  }
+  return '空相册'
+}
+
+const directoryStateClass = (dir: FileItem) => {
+  const label = directoryStateLabel(dir)
+  if (label === '可展示相册') {
+    return 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+  }
+  if (label === '聚合相册') {
+    return 'border-amber-400/30 bg-amber-500/10 text-amber-100'
+  }
+  if (label === '空相册') {
+    return 'border-slate-400/20 bg-slate-500/10 text-slate-200'
+  }
+  return 'border-white/10 bg-white/5 text-gray-300'
+}
+
+const directoryStateMutedClass = (dir: FileItem) => {
+  const label = directoryStateLabel(dir)
+  if (label === '可展示相册') {
+    return 'text-emerald-300'
+  }
+  if (label === '聚合相册') {
+    return 'text-amber-300'
+  }
+  if (label === '空相册') {
+    return 'text-slate-300'
+  }
+  return 'text-gray-500'
+}
+
+function downloadAllowedFormValue(value: boolean | null | undefined) {
+  if (value === true) return 'true'
+  if (value === false) return 'false'
+  return ''
+}
+
 const isUnderBase = (p: string | null | undefined, base = basePath.value) => {
   if (!p) return false
   if (!base) return true
@@ -873,12 +1713,44 @@ const isUnderBase = (p: string | null | undefined, base = basePath.value) => {
   return target === normalizedBase || target.startsWith(baseWithSlash)
 }
 
+const isSameOrAncestorPath = (target: string, descendant: string) => {
+  const normalizedTarget = normalizePath(target)
+  const normalizedDescendant = normalizePath(descendant)
+  if (!normalizedTarget || !normalizedDescendant) return false
+  if (normalizedTarget === normalizedDescendant) return true
+  if (normalizedTarget === '/') {
+    return normalizedDescendant.startsWith('/')
+  }
+  const targetWithSlash = normalizedTarget.endsWith('/') ? normalizedTarget : `${normalizedTarget}/`
+  return normalizedDescendant.startsWith(targetWithSlash)
+}
+
 const pathParts = computed(() => {
   if (!currentPath.value || currentPath.value === basePath.value) return []
   const cur = normalizePath(currentPath.value)
   const base = normalizePath(basePath.value)
   const relative = cur.startsWith(base) ? cur.slice(base.length).replace(/^[\/\\]+/, '') : cur
   return relative.split(/[\/\\]+/).filter(p => p)
+})
+
+const breadcrumbSegments = computed(() => {
+  const activeParts = pathParts.value
+  const trailSource = breadcrumbTrailPath.value && isUnderBase(breadcrumbTrailPath.value)
+    ? normalizePath(breadcrumbTrailPath.value)
+    : normalizePath(currentPath.value)
+  const base = normalizePath(basePath.value)
+  const relative = trailSource.startsWith(base) ? trailSource.slice(base.length).replace(/^[\/\\]+/, '') : trailSource
+  const parts = relative ? relative.split(/[\/\\]+/).filter(Boolean) : []
+  return parts.map((label, index) => {
+    const activePath = index < activeParts.length
+      ? buildPathFromParts(parts.slice(0, index + 1))
+      : buildPathFromParts(parts.slice(0, index + 1))
+    return {
+      label,
+      path: activePath,
+      isGhost: index >= activeParts.length
+    }
+  })
 })
 
 const applyStorageContext = (data: any, resetCurrentPath = false) => {
@@ -928,6 +1800,16 @@ const loadFiles = async (path?: string, allowRecovery = true) => {
     }
     currentPath.value = isUnderBase(serverPath) ? serverPath : basePath.value
     parentPath.value = data.parent && isUnderBase(data.parent) ? data.parent : null
+    currentDirectoryAlbum.value = {
+      albumBound: !!data.currentDirectoryAlbum?.albumBound,
+      albumId: data.currentDirectoryAlbum?.albumId ?? null,
+      albumHidden: !!data.currentDirectoryAlbum?.albumHidden,
+      albumAggregateSubAlbums: !!data.currentDirectoryAlbum?.albumAggregateSubAlbums,
+      albumHasCustomCover: !!data.currentDirectoryAlbum?.albumHasCustomCover,
+      albumDescription: data.currentDirectoryAlbum?.albumDescription ?? '',
+      albumPhotoSortOrder: data.currentDirectoryAlbum?.albumPhotoSortOrder ?? '',
+      albumDownloadAllowed: data.currentDirectoryAlbum?.albumDownloadAllowed ?? null
+    }
     
     const dirs = (data.directories || []).map((d: any) => ({
       name: d.name,
@@ -940,6 +1822,8 @@ const loadFiles = async (path?: string, allowRecovery = true) => {
       albumAggregateSubAlbums: !!d.albumAggregateSubAlbums,
       albumHasCustomCover: !!d.albumHasCustomCover,
       albumDescription: d.albumDescription ?? '',
+      albumPhotoSortOrder: d.albumPhotoSortOrder ?? '',
+      albumDownloadAllowed: d.albumDownloadAllowed ?? null,
       leftVertical: d.leftVertical,
       rightTop: d.rightTop,
       rightBottom: d.rightBottom
@@ -950,10 +1834,12 @@ const loadFiles = async (path?: string, allowRecovery = true) => {
       isDirectory: false,
       size: f.size,
       lastModified: f.lastModified,
+      photoHidden: !!f.thumbnail?.isHidden,
       thumbnail: f.thumbnail
     }))
     
     items.value = [...dirs, ...filesList]
+    currentPage.value = 1
   } catch (e: any) {
     if (requestId !== loadFilesRequestId) return
     const errorMessage = e.response?.data?.error || e.message || '加载失败'
@@ -971,6 +1857,17 @@ const loadFiles = async (path?: string, allowRecovery = true) => {
     }
     error.value = errorMessage
     items.value = []
+    currentPage.value = 1
+    currentDirectoryAlbum.value = {
+      albumBound: false,
+      albumId: null,
+      albumHidden: false,
+      albumAggregateSubAlbums: false,
+      albumHasCustomCover: false,
+      albumDescription: '',
+      albumPhotoSortOrder: null,
+      albumDownloadAllowed: null
+    }
   } finally {
     if (requestId === loadFilesRequestId) {
       loading.value = false
@@ -983,7 +1880,19 @@ const goToPath = (path: string) => {
   if (!isUnderBase(target)) {
     target = basePath.value
   }
-  currentPath.value = target
+  const normalizedTarget = normalizePath(target)
+  const referenceTrail = breadcrumbTrailPath.value && isUnderBase(breadcrumbTrailPath.value)
+    ? normalizePath(breadcrumbTrailPath.value)
+    : normalizePath(currentPath.value)
+  if (
+    referenceTrail &&
+    normalizedTarget !== referenceTrail &&
+    isSameOrAncestorPath(normalizedTarget, referenceTrail)
+  ) {
+    breadcrumbTrailPath.value = referenceTrail
+  } else {
+    breadcrumbTrailPath.value = null
+  }
   selectedPaths.value.clear()
   loadFiles(target)
 }
@@ -1010,18 +1919,133 @@ const goToParent = () => {
 
 const navigateToPart = (index: number) => {
   const parts = pathParts.value.slice(0, index + 1)
+  const path = buildPathFromParts(parts)
+  goToPath(path)
+}
+
+const buildPathFromParts = (parts: string[]) => {
   const normalizedBase = normalizePath(basePath.value || '/').replace(/[\/\\]+$/, '')
   const joined = parts.join('/')
-  const path = normalizedBase && normalizedBase !== '/'
+  if (!joined) return normalizedBase || '/'
+  return normalizedBase && normalizedBase !== '/'
     ? `${normalizedBase}/${joined}`
     : `/${joined}`
-  goToPath(path)
+}
+
+const breadcrumbClass = (index: number, isGhost = false) => {
+  if (dragMoveTargetPath.value && dragMoveTargetPath.value === (index < 0 ? basePath.value : breadcrumbSegments.value[index]?.path)) {
+    return 'border-cyan-400/60 bg-cyan-500/15 text-cyan-100'
+  }
+  if (isGhost) {
+    return 'border-white/10 bg-white/5 text-gray-500 hover:bg-white/8'
+  }
+  if ((index < 0 && !pathParts.value.length) || (!isGhost && index === pathParts.value.length - 1)) {
+    return 'border-white/20 bg-white/12 text-white'
+  }
+  return 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'
+}
+
+const toggleBreadcrumbMenu = async (event: MouseEvent, targetPath: string) => {
+  event.preventDefault()
+  event.stopPropagation()
+  if (breadcrumbMenu.value.show && breadcrumbMenu.value.path === targetPath) {
+    breadcrumbMenu.value.show = false
+    return
+  }
+  breadcrumbMenu.value = {
+    show: true,
+    x: event.clientX - 12,
+    y: event.clientY + 16,
+    path: targetPath,
+    pathLabel: normalizePath(targetPath) || rootButtonLabel.value,
+    loading: true,
+    items: []
+  }
+  try {
+    const { data } = await api.get('/admin/folders/browser/list', {
+      params: {
+        path: targetPath,
+        providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
+      }
+    })
+    breadcrumbMenu.value.items = [
+      ...((data.directories || []).map((d: any) => ({
+        name: d.name,
+        path: d.path,
+        isDirectory: true,
+        photoCount: d.photoCount || 0
+      }))),
+      ...((data.files || []).map((f: any) => ({
+        name: f.name,
+        path: f.path,
+        isDirectory: false,
+        size: f.size,
+        lastModified: f.lastModified,
+        photoHidden: !!f.thumbnail?.isHidden,
+        thumbnail: f.thumbnail
+      })))
+    ]
+  } catch (_error) {
+    breadcrumbMenu.value.items = []
+  } finally {
+    breadcrumbMenu.value.loading = false
+  }
+}
+
+const openBreadcrumbMenuItem = (entry: FileItem) => {
+  breadcrumbMenu.value.show = false
+  if (entry.isDirectory) {
+    goToPath(entry.path)
+  } else {
+    openFile(entry)
+  }
 }
 
 const refresh = () => {
   if (loading.value) return
   selectedPaths.value.clear()
   loadFiles()
+}
+
+const prevPage = () => {
+  if (currentPage.value > 1) {
+    currentPage.value -= 1
+  }
+}
+
+const nextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value += 1
+  }
+}
+
+const loadFileBrowserPreferences = async () => {
+  try {
+    const { data } = await api.get('/admin/config/file-browser-preferences')
+    viewMode.value = data?.viewMode === 'list' ? 'list' : 'grid'
+    gridPreset.value = ['auto-sm', 'auto-md', 'auto-lg', 'cols-2', 'cols-3', 'cols-4', 'cols-5'].includes(data?.gridPreset) ? data.gridPreset : 'auto-md'
+    sortMode.value = ['name-asc', 'name-desc', 'lastModified-desc', 'lastModified-asc', 'size-desc', 'size-asc', 'photoCount-desc', 'photoCount-asc'].includes(data?.sortMode)
+      ? data.sortMode
+      : 'name-asc'
+    typeOrderMode.value = ['mixed', 'directory-first', 'file-first'].includes(data?.typeOrderMode)
+      ? data.typeOrderMode
+      : 'mixed'
+    pageSize.value = [24, 48, 96, 200].includes(Number(data?.pageSize)) ? Number(data.pageSize) : 48
+  } catch (_error) {
+  }
+}
+
+const persistFileBrowserPreferences = async () => {
+  try {
+    await api.put('/admin/config/file-browser-preferences', {
+      viewMode: viewMode.value,
+      gridPreset: gridPreset.value,
+      sortMode: sortMode.value,
+      typeOrderMode: typeOrderMode.value,
+      pageSize: pageSize.value
+    })
+  } catch (_error) {
+  }
 }
 
 const openCreateDialog = () => {
@@ -1067,6 +2091,32 @@ const showContextMenu = (event: MouseEvent, item: FileItem) => {
   selectedItem.value = item
 }
 
+const showItemMenu = (event: MouseEvent, item: FileItem) => {
+  event.preventDefault()
+  event.stopPropagation()
+  showContextMenu(event, item)
+}
+
+const openCurrentDirectoryMenu = (event?: MouseEvent) => {
+  const fallbackEvent = event || new MouseEvent('click', {
+    clientX: window.innerWidth - 240,
+    clientY: 140
+  })
+  showContextMenu(fallbackEvent, {
+    name: pathParts.value[pathParts.value.length - 1] || rootButtonLabel.value,
+    path: currentPath.value || basePath.value,
+    isDirectory: true,
+    albumBound: currentDirectoryAlbum.value.albumBound,
+    albumId: currentDirectoryAlbum.value.albumId,
+    albumHidden: currentDirectoryAlbum.value.albumHidden,
+    albumAggregateSubAlbums: currentDirectoryAlbum.value.albumAggregateSubAlbums,
+    albumHasCustomCover: currentDirectoryAlbum.value.albumHasCustomCover,
+    albumDescription: currentDirectoryAlbum.value.albumDescription,
+    albumPhotoSortOrder: currentDirectoryAlbum.value.albumPhotoSortOrder,
+    albumDownloadAllowed: currentDirectoryAlbum.value.albumDownloadAllowed
+  })
+}
+
 const startRename = () => {
   if (!supportsItemManagement.value) return
   if (!contextMenu.value.item) return
@@ -1074,6 +2124,33 @@ const startRename = () => {
   renameValue.value = contextMenu.value.item.name
   showRenameDialog.value = true
   contextMenu.value.show = false
+}
+
+const bindContextDirectory = async () => {
+  if (!contextMenu.value.item?.isDirectory) return
+  contextMenu.value.show = false
+  await bindAlbum(contextMenu.value.item)
+  await loadFiles(currentPath.value, false)
+}
+
+const openContextAlbumSettings = () => {
+  if (!contextMenu.value.item?.isDirectory) return
+  contextMenu.value.show = false
+  if (contextMenu.value.item.path === currentPath.value) {
+    openCurrentDirectoryAlbumSettings()
+    return
+  }
+  openAlbumSettings(contextMenu.value.item)
+}
+
+const clearSelection = () => {
+  selectedPaths.value.clear()
+}
+
+const selectByType = (type: 'directory' | 'file') => {
+  if (!multiSelect.value) return
+  const targetItems = type === 'directory' ? directories.value : files.value
+  selectedPaths.value = new Set(targetItems.map(item => item.path))
 }
 
 const renameItem = async () => {
@@ -1096,6 +2173,21 @@ const renameItem = async () => {
   } finally {
     renaming.value = false
   }
+}
+
+const openMoveDialog = (paths: string[]) => {
+  const uniquePaths = Array.from(new Set(paths.filter(Boolean)))
+  if (!uniquePaths.length) return
+  movePendingPaths.value = uniquePaths
+  moveTargetInput.value = currentRelativePath.value || ''
+  showMoveDialog.value = true
+}
+
+const closeMoveDialog = () => {
+  if (movingItems.value) return
+  showMoveDialog.value = false
+  movePendingPaths.value = []
+  moveTargetInput.value = ''
 }
 
 const closeDeleteDialog = () => {
@@ -1157,16 +2249,14 @@ const deleteItem = async (item: FileItem) => {
 }
 
 const openFile = async (file: FileItem) => {
+  if (isImageFile(file) && openPhotoViewer(file)) {
+    return
+  }
   if (!supportsPreview.value) {
     alert(selectedStorageProvider.value?.supportMessage || '当前存储位置暂未接通文件预览，请先使用已支持预览的存储查看文件内容。')
     return
   }
   const localPreviewUrl = getImageUrl(file.thumbnail || { originalPath: file.path })
-  if (localPreviewUrl) {
-    previewFile.value = file
-    previewImageUrl.value = localPreviewUrl
-    return
-  }
   // 如果是图片并且有对应的 Photo 记录，跳转到图片详情
   if (file.thumbnail && file.thumbnail.id) {
     window.open(buildPublicPath(`/photo/${file.thumbnail.id}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
@@ -1198,8 +2288,8 @@ const openFile = async (file: FileItem) => {
       if (response.data) {
         const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
         const blobUrl = URL.createObjectURL(blob)
-        previewFile.value = file
-        previewImageUrl.value = blobUrl
+        window.open(blobUrl, '_blank')
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000)
         return
       }
       alert('未获取到可用的预览内容')
@@ -1210,8 +2300,7 @@ const openFile = async (file: FileItem) => {
   }
   // 尝试直接打开文件
   if (localPreviewUrl) {
-    previewFile.value = file
-    previewImageUrl.value = localPreviewUrl
+    window.open(localPreviewUrl, '_blank')
   }
 }
 
@@ -1260,10 +2349,115 @@ const bindAlbum = async (dir: FileItem) => {
     dir.albumAggregateSubAlbums = !!data?.albumAggregateSubAlbums
     dir.albumHasCustomCover = !!data?.albumHasCustomCover
     dir.albumDescription = data?.albumDescription ?? ''
+    if (dir.path === currentPath.value) {
+      currentDirectoryAlbum.value = {
+        albumBound: true,
+        albumId: data?.albumId ?? null,
+        albumHidden: !!data?.albumHidden,
+        albumAggregateSubAlbums: !!data?.albumAggregateSubAlbums,
+        albumHasCustomCover: !!data?.albumHasCustomCover,
+        albumDescription: data?.albumDescription ?? ''
+      }
+    }
   } catch (e: any) {
     alert('绑定相册失败: ' + (e.response?.data?.error || e.message))
   } finally {
     bindingAlbumPath.value = ''
+  }
+}
+
+const bindCurrentDirectoryAlbum = async () => {
+  if (!currentPath.value || bindingAlbumPath.value) return
+  await bindAlbum({
+    name: pathParts.value[pathParts.value.length - 1] || rootButtonLabel.value,
+    path: currentPath.value,
+    isDirectory: true,
+    albumBound: currentDirectoryAlbum.value.albumBound,
+    albumId: currentDirectoryAlbum.value.albumId,
+    albumHidden: currentDirectoryAlbum.value.albumHidden,
+    albumAggregateSubAlbums: currentDirectoryAlbum.value.albumAggregateSubAlbums,
+    albumHasCustomCover: currentDirectoryAlbum.value.albumHasCustomCover,
+    albumDescription: currentDirectoryAlbum.value.albumDescription
+  })
+  await loadFiles(currentPath.value, false)
+}
+
+const loadAllTags = async () => {
+  const { data } = await api.get('/tags')
+  allTags.value = Array.isArray(data) ? data : (data?.content || [])
+}
+
+const openPhotoViewer = (file: FileItem) => {
+  const index = browserViewerPhotos.value.findIndex(photo => photo.browserPath === file.path)
+  if (index < 0) return false
+  viewerIndex.value = index
+  viewerVisible.value = true
+  return true
+}
+
+const openPhotoTagDialog = async () => {
+  if (!currentViewerPhoto.value?.id || currentViewerPhoto.value.id <= 0) {
+    alert('当前图片还没有可用的照片记录，暂时无法管理标签')
+    return
+  }
+  await loadAllTags()
+  photoTagKeyword.value = ''
+  showPhotoTagDialog.value = true
+}
+
+const openContextPhotoTagDialog = async () => {
+  const item = contextMenu.value.item
+  if (!item || item.isDirectory) return
+  contextMenu.value.show = false
+  if (openPhotoViewer(item)) {
+    await openPhotoTagDialog()
+  }
+}
+
+const closePhotoTagDialog = () => {
+  if (savingPhotoTag.value) return
+  showPhotoTagDialog.value = false
+  photoTagKeyword.value = ''
+}
+
+const syncCurrentViewerPhotoTags = (tags: Array<{ id: number; name: string; color?: string }>) => {
+  if (!currentViewerPhoto.value) return
+  currentViewerPhoto.value.tags = tags
+  const matchedFile = files.value.find(file => file.path === currentViewerPhoto.value?.browserPath)
+  if (matchedFile?.thumbnail) {
+    matchedFile.thumbnail.tags = tags
+  }
+}
+
+const addPhotoTagByName = async (tagName: string) => {
+  const photo = currentViewerPhoto.value
+  if (!photo?.id || photo.id <= 0) return
+  const normalizedName = tagName.trim()
+  if (!normalizedName) return
+  savingPhotoTag.value = true
+  try {
+    const { data } = await api.post(`/admin/photos/${photo.id}/tags`, { name: normalizedName })
+    syncCurrentViewerPhotoTags(data?.tags || [])
+    await loadAllTags()
+    photoTagKeyword.value = ''
+  } catch (e: any) {
+    alert('添加图片标签失败: ' + (e.response?.data?.message || e.response?.data?.error || e.message))
+  } finally {
+    savingPhotoTag.value = false
+  }
+}
+
+const removeCurrentPhotoTag = async (tagId: number) => {
+  const photo = currentViewerPhoto.value
+  if (!photo?.id || photo.id <= 0) return
+  savingPhotoTag.value = true
+  try {
+    const { data } = await api.delete(`/admin/photos/${photo.id}/tags/${tagId}`)
+    syncCurrentViewerPhotoTags(data?.tags || [])
+  } catch (e: any) {
+    alert('移除图片标签失败: ' + (e.response?.data?.message || e.response?.data?.error || e.message))
+  } finally {
+    savingPhotoTag.value = false
   }
 }
 
@@ -1273,15 +2467,61 @@ const openAlbumSettings = (dir: FileItem) => {
   albumSettingsForm.value = {
     description: dir.albumDescription || '',
     isHidden: !!dir.albumHidden,
-    aggregateSubAlbums: !!dir.albumAggregateSubAlbums
+    aggregateSubAlbums: !!dir.albumAggregateSubAlbums,
+    photoSortOrder: dir.albumPhotoSortOrder || '',
+    downloadAllowed: downloadAllowedFormValue(dir.albumDownloadAllowed)
   }
   showAlbumSettingsDrawer.value = true
+}
+
+const openCurrentDirectoryAlbumSettings = () => {
+  if (!currentDirectoryAlbum.value.albumBound || !currentDirectoryAlbum.value.albumId) return
+  openAlbumSettings({
+    name: pathParts.value[pathParts.value.length - 1] || rootButtonLabel.value,
+    path: currentPath.value || '/',
+    isDirectory: true,
+    albumBound: currentDirectoryAlbum.value.albumBound,
+    albumId: currentDirectoryAlbum.value.albumId,
+    albumHidden: currentDirectoryAlbum.value.albumHidden,
+    albumAggregateSubAlbums: currentDirectoryAlbum.value.albumAggregateSubAlbums,
+    albumHasCustomCover: currentDirectoryAlbum.value.albumHasCustomCover,
+    albumDescription: currentDirectoryAlbum.value.albumDescription
+  })
 }
 
 const closeAlbumSettingsDrawer = () => {
   if (savingAlbumSettings.value) return
   showAlbumSettingsDrawer.value = false
   albumSettingsTarget.value = null
+}
+
+const openAlbumCoverDialog = () => {
+  if (!albumSettingsTarget.value?.albumId) return
+  selectedCoverIds.value = []
+  showAlbumCoverDialog.value = true
+}
+
+const closeAlbumCoverDialog = () => {
+  if (savingAlbumSettings.value) return
+  showAlbumCoverDialog.value = false
+}
+
+const toggleCoverSelection = (photo: BrowserViewerPhoto) => {
+  if (!photo?.id || photo.id <= 0) return
+  const current = [...selectedCoverIds.value]
+  const index = current.indexOf(photo.id)
+  if (index >= 0) {
+    current.splice(index, 1)
+  } else {
+    if (current.length >= 4) return
+    current.push(photo.id)
+  }
+  selectedCoverIds.value = current
+}
+
+const coverIndexLabel = (photoId: number) => {
+  const index = selectedCoverIds.value.indexOf(photoId)
+  return index >= 0 ? `封面 ${index + 1}` : '未选择'
 }
 
 const saveAlbumSettings = async () => {
@@ -1298,10 +2538,25 @@ const saveAlbumSettings = async () => {
     await api.put(`/albums/${target.albumId}/aggregate-sub-albums`, {
       aggregateSubAlbums: !!albumSettingsForm.value.aggregateSubAlbums
     })
+    await api.put(`/albums/${target.albumId}/photo-sort-order`, {
+      photoSortOrder: albumSettingsForm.value.photoSortOrder || null
+    })
+    await api.put(`/albums/${target.albumId}/download-allowed`, {
+      downloadAllowed: albumSettingsForm.value.downloadAllowed === '' ? null : albumSettingsForm.value.downloadAllowed === 'true'
+    })
 
     target.albumDescription = albumSettingsForm.value.description
     target.albumHidden = !!albumSettingsForm.value.isHidden
     target.albumAggregateSubAlbums = !!albumSettingsForm.value.aggregateSubAlbums
+    target.albumPhotoSortOrder = albumSettingsForm.value.photoSortOrder || null
+    target.albumDownloadAllowed = albumSettingsForm.value.downloadAllowed === '' ? null : albumSettingsForm.value.downloadAllowed === 'true'
+    if (currentDirectoryAlbum.value.albumId === target.albumId) {
+      currentDirectoryAlbum.value.albumDescription = target.albumDescription
+      currentDirectoryAlbum.value.albumHidden = target.albumHidden
+      currentDirectoryAlbum.value.albumAggregateSubAlbums = target.albumAggregateSubAlbums
+      currentDirectoryAlbum.value.albumPhotoSortOrder = target.albumPhotoSortOrder
+      currentDirectoryAlbum.value.albumDownloadAllowed = target.albumDownloadAllowed
+    }
     closeAlbumSettingsDrawer()
   } catch (e: any) {
     alert('保存相册设置失败: ' + (e.response?.data?.error || e.message))
@@ -1310,12 +2565,148 @@ const saveAlbumSettings = async () => {
   }
 }
 
-const closePreview = () => {
-  if (previewImageUrl.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewImageUrl.value)
+const saveAlbumCoverSelection = async () => {
+  const target = albumSettingsTarget.value
+  if (!target?.albumId || savingAlbumSettings.value) return
+  savingAlbumSettings.value = true
+  try {
+    await api.put(`/albums/${target.albumId}/cover`, {
+      coverImageIds: [...selectedCoverIds.value]
+    })
+    target.albumHasCustomCover = selectedCoverIds.value.length > 0
+    if (currentDirectoryAlbum.value.albumId === target.albumId) {
+      currentDirectoryAlbum.value.albumHasCustomCover = target.albumHasCustomCover
+    }
+    closeAlbumCoverDialog()
+  } catch (e: any) {
+    alert('保存相册封面失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    savingAlbumSettings.value = false
   }
-  previewImageUrl.value = ''
-  previewFile.value = null
+}
+
+const handleViewerIndexChange = ({ index }: { index: number }) => {
+  viewerIndex.value = index
+}
+
+const handleViewerAdminAction = async ({ key }: { key: string }) => {
+  const photo = currentViewerPhoto.value
+  if (!photo) return
+  if (key === 'download') {
+    const matchedFile = files.value.find(file => file.path === photo.browserPath)
+    if (matchedFile) {
+      await downloadFile(matchedFile)
+    }
+    return
+  }
+  if (key === 'manage-tags') {
+    await openPhotoTagDialog()
+    return
+  }
+  if (key === 'set-cover') {
+    if (!currentDirectoryAlbum.value.albumId || !photo.id || photo.id <= 0) {
+      alert('当前图片还没有可用的照片记录，暂时无法设为封面')
+      return
+    }
+    try {
+      await api.put(`/albums/${currentDirectoryAlbum.value.albumId}/cover`, {
+        coverImageIds: [photo.id]
+      })
+      currentDirectoryAlbum.value.albumHasCustomCover = true
+    } catch (e: any) {
+      alert('设置封面失败: ' + (e.response?.data?.error || e.message))
+    }
+    return
+  }
+  if (key === 'toggle-hidden') {
+    if (!photo.id || photo.id <= 0) {
+      alert('当前图片还没有可用的照片记录，暂时无法修改显示状态')
+      return
+    }
+    try {
+      const nextHidden = !photo.isHidden
+      await api.put(`/admin/photos/${photo.id}/hidden`, {
+        isHidden: nextHidden
+      })
+      photo.isHidden = nextHidden
+      const matchedFile = files.value.find(file => file.path === photo.browserPath)
+      if (matchedFile) {
+        matchedFile.photoHidden = nextHidden
+        if (matchedFile.thumbnail) {
+          matchedFile.thumbnail.isHidden = nextHidden
+        }
+      }
+    } catch (e: any) {
+      alert('修改图片显示状态失败: ' + (e.response?.data?.error || e.message))
+    }
+    return
+  }
+  if (key === 'rescan-faces') {
+    if (!photo.id || photo.id <= 0) {
+      alert('当前图片还没有可用的照片记录，暂时无法重建人脸')
+      return
+    }
+    try {
+      await api.post(`/admin/photos/${photo.id}/rescan-faces`)
+    } catch (e: any) {
+      alert('重建人脸失败: ' + (e.response?.data?.error || e.message))
+    }
+    return
+  }
+  if (key === 'delete') {
+    viewerVisible.value = false
+    await openDeleteDialog([photo.browserPath])
+  }
+}
+
+const openContextViewer = () => {
+  const item = contextMenu.value.item
+  if (!item || item.isDirectory) return
+  contextMenu.value.show = false
+  openFile(item)
+}
+
+const toggleContextPhotoHidden = async () => {
+  const item = contextMenu.value.item
+  if (!item || item.isDirectory || !item.thumbnail?.id) return
+  contextMenu.value.show = false
+  try {
+    const nextHidden = !item.photoHidden
+    await api.put(`/admin/photos/${item.thumbnail.id}/hidden`, {
+      isHidden: nextHidden
+    })
+    item.photoHidden = nextHidden
+    if (item.thumbnail) {
+      item.thumbnail.isHidden = nextHidden
+    }
+  } catch (e: any) {
+    alert('修改图片显示状态失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const rescanContextPhotoFaces = async () => {
+  const item = contextMenu.value.item
+  if (!item || item.isDirectory || !item.thumbnail?.id) return
+  contextMenu.value.show = false
+  try {
+    await api.post(`/admin/photos/${item.thumbnail.id}/rescan-faces`)
+  } catch (e: any) {
+    alert('重建人脸失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const setContextPhotoAsCover = async () => {
+  const item = contextMenu.value.item
+  if (!item || item.isDirectory || !item.thumbnail?.id || !currentDirectoryAlbum.value.albumId) return
+  contextMenu.value.show = false
+  try {
+    await api.put(`/albums/${currentDirectoryAlbum.value.albumId}/cover`, {
+      coverImageIds: [item.thumbnail.id]
+    })
+    currentDirectoryAlbum.value.albumHasCustomCover = true
+  } catch (e: any) {
+    alert('设置封面失败: ' + (e.response?.data?.error || e.message))
+  }
 }
 
 const resolveDownloadFilename = (contentDisposition?: string, fallback = 'download') => {
@@ -1333,7 +2724,7 @@ const resolveDownloadFilename = (contentDisposition?: string, fallback = 'downlo
 }
 
 const handleClickOutside = () => {
-  contextMenu.value.show = false
+  closeFloatingMenus()
   selectedItem.value = null
 }
 
@@ -1417,30 +2808,46 @@ const moveSelected = async () => {
     return
   }
   if (!selectedPaths.value.size) return
-  const targetInput = prompt(
-    '输入目标目录（相对当前存储根目录，不支持 .. 回退）',
-    currentRelativePath.value || ''
-  )
-  if (!targetInput) return
+  openMoveDialog(Array.from(selectedPaths.value))
+}
+
+const submitMoveDialog = async () => {
+  if (!movePendingPaths.value.length || movingItems.value) return
   let target = ''
   try {
-    target = resolveTargetPath(targetInput)
+    target = resolveTargetPath(moveTargetInput.value)
   } catch (e: any) {
     alert(e?.message || '目标目录格式不合法')
     return
   }
+  movingItems.value = true
   try {
     await api.post('/admin/folders/browser/move-items', null, {
       params: {
-        paths: Array.from(selectedPaths.value),
+        paths: movePendingPaths.value,
         target,
         providerId: canSelectStorageProvider.value ? (selectedProviderId.value ?? undefined) : undefined
       }
     })
+    movingItems.value = false
     selectedPaths.value.clear()
+    closeMoveDialog()
     await loadFiles()
   } catch (e: any) {
     alert('移动失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    movingItems.value = false
+  }
+}
+
+const bindSelectedAlbums = async () => {
+  if (!unboundSelectedDirectories.value.length || bindingAlbumPath.value) return
+  try {
+    for (const dir of unboundSelectedDirectories.value) {
+      await bindAlbum(dir)
+    }
+    await loadFiles(currentPath.value, false)
+  } catch (_error) {
   }
 }
 
@@ -1480,9 +2887,10 @@ const getImageUrl = (photo: PhotoInfo) => {
   return buildPhotoAssetUrl({
     id: photo.id,
     webpPath: photo.webpPath,
+    smallThumbPath: photo.smallThumbPath,
     thumbnailPath: photo.thumbnailPath,
     originalPath: photo.originalPath
-  }, 'auto') || ''
+  }, 'small') || ''
 }
 
 const triggerFileInput = (isDir: boolean) => {
@@ -1554,13 +2962,58 @@ const movePathsToTarget = async (paths: string[], target: string) => {
   })
 }
 
+const isInvalidMoveTarget = (paths: string[], target: string) => {
+  return paths.some(path => {
+    const normalizedSource = normalizePath(path)
+    const normalizedTarget = normalizePath(target)
+    return normalizedSource === normalizedTarget || normalizedTarget.startsWith(`${normalizedSource}/`)
+  })
+}
+
+const handleBreadcrumbDragOver = (targetPath: string) => {
+  if (!draggingPaths.value.length) return
+  dragMoveTargetPath.value = targetPath
+  dragMode.value = 'move'
+}
+
+const handleBreadcrumbDragLeave = (targetPath: string) => {
+  if (dragMoveTargetPath.value === targetPath) {
+    dragMoveTargetPath.value = ''
+  }
+}
+
+const handleBreadcrumbDrop = async (event: DragEvent, targetPath: string) => {
+  event.stopPropagation()
+  const raw = event.dataTransfer?.getData('application/x-photoexhibition-paths')
+  const paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
+  dragMoveTargetPath.value = ''
+  if (!paths?.length) return
+  if (isInvalidMoveTarget(paths, targetPath)) {
+    alert('不能移动到自身或其子目录中')
+    handleItemDragEnd()
+    return
+  }
+  try {
+    await movePathsToTarget(paths, targetPath)
+    selectedPaths.value.clear()
+    await loadFiles()
+  } catch (e: any) {
+    const message = e.response?.data?.error || e.message || ''
+    if (!String(message).includes('不能移动到自身') && !String(message).includes('其子目录')) {
+      alert('移动失败: ' + message)
+    }
+  } finally {
+    handleItemDragEnd()
+  }
+}
+
 const handleFolderDrop = async (event: DragEvent, dir: FileItem) => {
   event.stopPropagation()
   const raw = event.dataTransfer?.getData('application/x-photoexhibition-paths')
   const paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
   dragMoveTargetPath.value = ''
   if (!paths?.length) return
-  if (paths.some(path => path === dir.path || dir.path.startsWith(`${path}/`))) {
+  if (isInvalidMoveTarget(paths, dir.path)) {
     alert('不能移动到自身或其子目录中')
     handleItemDragEnd()
     return
@@ -1661,7 +3114,7 @@ const uploadFiles = async (fileList: File[], relativePaths?: string[]) => {
   }
   const uploadUrl = '/api/admin/folders/browser/upload'
   const BATCH_SIZE = 10
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('admin_token')
+  const token = getEffectiveAuthToken()
   uploading.value = true
   uploadStatus.value = `正在上传 0 / ${fileList.length} 个文件...`
   let totalSaved = 0
@@ -1793,14 +3246,147 @@ const changeStorageProvider = async () => {
   }
 }
 
+const closeFloatingMenus = () => {
+  breadcrumbMenu.value.show = false
+  contextMenu.value.show = false
+  sortMenu.value.show = false
+  providerMenu.value.show = false
+  viewMenu.value.show = false
+  pageSizeMenu.value.show = false
+}
+
+const openFloatingMenu = (
+  trigger: HTMLElement | null,
+  target: { show: boolean, x: number, y: number },
+  menuWidth: number,
+  estimatedHeight: number,
+  preferAbove = false
+) => {
+  const gap = 10
+  const viewportPadding = 16
+  const rect = trigger?.getBoundingClientRect()
+  const fallbackLeft = Math.max(16, window.innerWidth - menuWidth - 20)
+  const left = rect
+    ? Math.min(Math.max(viewportPadding, rect.right - menuWidth), window.innerWidth - menuWidth - viewportPadding)
+    : fallbackLeft
+  const availableAbove = rect ? rect.top - gap - viewportPadding : window.innerHeight - 120
+  const availableBelow = rect ? window.innerHeight - rect.bottom - gap - viewportPadding : window.innerHeight - 120
+  const shouldOpenAbove = preferAbove
+    ? (availableAbove >= estimatedHeight || availableAbove > availableBelow)
+    : !(availableBelow >= estimatedHeight || availableBelow > availableAbove)
+  const top = rect
+    ? (shouldOpenAbove
+      ? Math.max(viewportPadding, rect.top - gap - estimatedHeight)
+      : Math.min(window.innerHeight - viewportPadding - estimatedHeight, rect.bottom + gap))
+    : Math.max(viewportPadding, window.innerHeight - viewportPadding - estimatedHeight)
+  target.x = left
+  target.y = top
+  target.show = true
+}
+
+const toggleProviderMenu = () => {
+  if (providerMenu.value.show) {
+    providerMenu.value.show = false
+    return
+  }
+  closeFloatingMenus()
+  openFloatingMenu(providerTriggerRef.value, providerMenu.value, 280, 72 + availableStorageProviders.value.length * 52)
+}
+
+const toggleViewMenu = () => {
+  if (viewMenu.value.show) {
+    viewMenu.value.show = false
+    return
+  }
+  closeFloatingMenus()
+  openFloatingMenu(viewTriggerRef.value, viewMenu.value, 244, 72 + viewModeOptions.length * 32 + gridPresetOptions.length * 32 + 20, true)
+}
+
+const toggleSortMenu = () => {
+  if (sortMenu.value.show) {
+    sortMenu.value.show = false
+    return
+  }
+  const headerHeight = 26
+  const optionHeight = 32
+  const dividerHeight = 9
+  const footerHeight = 8
+  const estimatedHeight =
+    headerHeight
+    + sortModeOptions.length * optionHeight
+    + dividerHeight
+    + headerHeight
+    + typeOrderOptions.length * optionHeight
+    + footerHeight
+  closeFloatingMenus()
+  openFloatingMenu(sortTriggerRef.value, sortMenu.value, 232, estimatedHeight, true)
+}
+
+const togglePageSizeMenu = () => {
+  if (pageSizeMenu.value.show) {
+    pageSizeMenu.value.show = false
+    return
+  }
+  closeFloatingMenus()
+  openFloatingMenu(pageSizeTriggerRef.value, pageSizeMenu.value, 136, 72 + pageSizeOptions.length * 32, true)
+}
+
+const selectStorageProvider = async (providerId: number) => {
+  providerMenu.value.show = false
+  if (selectedProviderId.value === providerId) {
+    return
+  }
+  selectedProviderId.value = providerId
+  await changeStorageProvider()
+}
+
+const selectSortMode = (value: typeof sortMode.value) => {
+  sortMode.value = value
+}
+
+const selectTypeOrderMode = (value: typeof typeOrderMode.value) => {
+  typeOrderMode.value = value
+}
+
+const selectViewMode = (value: typeof viewMode.value) => {
+  viewMode.value = value
+}
+
+const selectGridPreset = (value: typeof gridPreset.value) => {
+  viewMode.value = 'grid'
+  gridPreset.value = value
+}
+
+const selectPageSize = (value: typeof pageSizeOptions[number]) => {
+  pageSize.value = value
+  pageSizeMenu.value.show = false
+}
+
 watch(showCreateDialog, (val) => {
   if (val) {
     nextTick(() => newFolderInput.value?.focus())
   }
 })
 
+watch(showMoveDialog, (val) => {
+  if (val) {
+    nextTick(() => moveTargetInputRef.value?.focus())
+  }
+})
+
+watch([sortMode, typeOrderMode, pageSize, viewMode, gridPreset], () => {
+  currentPage.value = 1
+  if (fileBrowserPreferenceSaveTimer) {
+    clearTimeout(fileBrowserPreferenceSaveTimer)
+  }
+  fileBrowserPreferenceSaveTimer = setTimeout(() => {
+    persistFileBrowserPreferences()
+  }, 250)
+})
+
 onMounted(async () => {
   try {
+    await loadFileBrowserPreferences()
     await loadBasePath(selectedProviderId.value, true)
     await loadFiles(basePath.value, false)
   } catch (e: any) {
@@ -1811,8 +3397,12 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   const escHandler = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (previewFile.value) {
-        closePreview()
+      if (viewerVisible.value) {
+        viewerVisible.value = false
+        return
+      }
+      if (breadcrumbMenu.value.show) {
+        breadcrumbMenu.value.show = false
         return
       }
       if (contextMenu.value.show) {
@@ -1829,7 +3419,9 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  closePreview()
   document.removeEventListener('click', handleClickOutside)
+  if (fileBrowserPreferenceSaveTimer) {
+    clearTimeout(fileBrowserPreferenceSaveTimer)
+  }
 })
 </script>

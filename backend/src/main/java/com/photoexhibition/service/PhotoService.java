@@ -121,6 +121,10 @@ public class PhotoService {
     }
 
     public Page<PhotoDTO> getPhotosByAlbum(Long albumId, Pageable pageable, Long userId) {
+        return getPhotosByAlbum(albumId, pageable, userId, false);
+    }
+
+    public Page<PhotoDTO> getPhotosByAlbum(Long albumId, Pageable pageable, Long userId, boolean includeHidden) {
         validateAlbumOwnership(albumId, userId);
         // 应用相册或系统配置的排序方式
         Sort sort = getPhotoSort(albumId);
@@ -130,12 +134,14 @@ public class PhotoService {
         List<Long> albumIds = getAggregatedAlbumIds(albumId);
 
         if (albumIds.size() == 1) {
-            // 没有聚合，直接查询单个相册，排除隐藏的照片
-            Page<Photo> photos = photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, sortedPageable);
+            // 没有聚合，直接查询单个相册
+            Page<Photo> photos = includeHidden
+                ? photoRepository.findByAlbumId(albumId, sortedPageable)
+                : photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, sortedPageable);
             return photos.map(this::convertToDTO);
         } else {
-            // 聚合模式，查询多个相册的照片（排除隐藏）
-            return getPhotosByAlbumIds(albumIds, sortedPageable);
+            // 聚合模式，查询多个相册的照片
+            return getPhotosByAlbumIds(albumIds, sortedPageable, includeHidden);
         }
     }
 
@@ -147,6 +153,10 @@ public class PhotoService {
     }
 
     public Page<PhotoDTO> getAllPhotosByAlbum(Long albumId, Long userId) {
+        return getAllPhotosByAlbum(albumId, userId, false);
+    }
+
+    public Page<PhotoDTO> getAllPhotosByAlbum(Long albumId, Long userId, boolean includeHidden) {
         validateAlbumOwnership(albumId, userId);
         // 检查相册是否开启了聚合下级相册
         boolean isAggregated = albumRepository.findById(albumId)
@@ -162,7 +172,12 @@ public class PhotoService {
         List<Photo> allPhotos;
         if (!isAggregated) {
             // 没有聚合，直接查询单个相册的所有照片
-            allPhotos = new java.util.ArrayList<>(photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, PageRequest.of(0, 1000)).getContent());
+            allPhotos = new java.util.ArrayList<>(
+                (includeHidden
+                    ? photoRepository.findByAlbumId(albumId, PageRequest.of(0, 1000))
+                    : photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, PageRequest.of(0, 1000)))
+                    .getContent()
+            );
             log.debug("getAllPhotosByAlbum - 非聚合模式，直接查询相册 {} 的照片，数量: {}", albumId, allPhotos.size());
         } else {
             // 聚合模式：查找所有相关的相册ID，然后查询所有照片
@@ -171,7 +186,10 @@ public class PhotoService {
 
             allPhotos = new java.util.ArrayList<>();
             for (Long id : albumIds) {
-                List<Photo> albumPhotos = photoRepository.findByAlbumIdAndIsHiddenFalse(id, PageRequest.of(0, 1000)).getContent();
+                List<Photo> albumPhotos = (includeHidden
+                    ? photoRepository.findByAlbumId(id, PageRequest.of(0, 1000))
+                    : photoRepository.findByAlbumIdAndIsHiddenFalse(id, PageRequest.of(0, 1000)))
+                    .getContent();
                 log.debug("getAllPhotosByAlbum - 子相册 {} 的照片数量: {}", id, albumPhotos.size());
                 allPhotos.addAll(albumPhotos);
             }
@@ -1127,14 +1145,17 @@ public class PhotoService {
     /**
      * 获取多个相册中的所有照片（用于聚合模式，排除隐藏的照片）
      */
-    private Page<PhotoDTO> getPhotosByAlbumIds(List<Long> albumIds, Pageable pageable) {
+    private Page<PhotoDTO> getPhotosByAlbumIds(List<Long> albumIds, Pageable pageable, boolean includeHidden) {
         // 使用自定义查询获取多个相册的照片
         List<Photo> allPhotos = new java.util.ArrayList<>();
         int totalElements = 0;
 
-        // 分别查询每个相册的照片（排除隐藏），然后合并
+        // 分别查询每个相册的照片，然后合并
         for (Long albumId : albumIds) {
-            List<Photo> albumPhotos = photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, PageRequest.of(0, 1000)).getContent();
+            List<Photo> albumPhotos = (includeHidden
+                ? photoRepository.findByAlbumId(albumId, PageRequest.of(0, 1000))
+                : photoRepository.findByAlbumIdAndIsHiddenFalse(albumId, PageRequest.of(0, 1000)))
+                .getContent();
             allPhotos.addAll(albumPhotos);
         }
 

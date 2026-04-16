@@ -3,6 +3,7 @@ package com.photoexhibition.service;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.Tag;
 import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.AlbumRepository;
@@ -10,6 +11,7 @@ import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +39,7 @@ public class PhotoManageService {
     private final FaceRepository faceRepository;
     private final PhotoAIScoringRepository photoAIScoringRepository;
     private final PhotoAssignmentRepository photoAssignmentRepository;
+    private final TagRepository tagRepository;
     private final UserPathService userPathService;
 
     @Value("${photo.scan.base-path}")
@@ -313,6 +316,68 @@ public class PhotoManageService {
         return count;
     }
 
+    @Transactional
+    public Map<String, Object> setPhotoHidden(UserAccount currentUser, Long photoId, boolean hidden) {
+        Map<String, Object> result = new HashMap<>();
+        Photo photo = photoRepository.findById(photoId)
+                .orElseThrow(() -> new RuntimeException("照片不存在"));
+        ensurePhotoAccess(currentUser, List.of(photo));
+        photo.setIsHidden(hidden);
+        photoRepository.save(photo);
+        result.put("success", true);
+        result.put("photoId", photo.getId());
+        result.put("isHidden", Boolean.TRUE.equals(photo.getIsHidden()));
+        result.put("message", hidden ? "已隐藏图片" : "已恢复公开显示");
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> addPhotoTag(UserAccount currentUser, Long photoId, String tagName) {
+        Map<String, Object> result = new HashMap<>();
+        Photo photo = photoRepository.findById(photoId)
+                .orElseThrow(() -> new RuntimeException("照片不存在"));
+        ensurePhotoAccess(currentUser, List.of(photo));
+        Long userId = requireOwnerUserId(currentUser);
+        String normalizedName = normalizeTagName(tagName);
+        Tag tag = tagRepository.findByNameAndUserId(normalizedName, userId).orElseGet(() -> {
+            Tag created = new Tag();
+            created.setUserId(userId);
+            created.setName(normalizedName);
+            return tagRepository.save(created);
+        });
+        photo.getTags().add(tag);
+        photoRepository.save(photo);
+        result.put("success", true);
+        result.put("photoId", photo.getId());
+        result.put("tags", photo.getTags().stream()
+                .sorted(Comparator.comparing(Tag::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(this::toTagMap)
+                .collect(Collectors.toList()));
+        result.put("message", "已添加标签");
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> removePhotoTag(UserAccount currentUser, Long photoId, Long tagId) {
+        Map<String, Object> result = new HashMap<>();
+        Photo photo = photoRepository.findById(photoId)
+                .orElseThrow(() -> new RuntimeException("照片不存在"));
+        ensurePhotoAccess(currentUser, List.of(photo));
+        Long userId = requireOwnerUserId(currentUser);
+        Tag tag = tagRepository.findByIdAndUserId(tagId, userId)
+                .orElseThrow(() -> new RuntimeException("标签不存在"));
+        photo.getTags().removeIf(item -> Objects.equals(item.getId(), tag.getId()));
+        photoRepository.save(photo);
+        result.put("success", true);
+        result.put("photoId", photo.getId());
+        result.put("tags", photo.getTags().stream()
+                .sorted(Comparator.comparing(Tag::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(this::toTagMap)
+                .collect(Collectors.toList()));
+        result.put("message", "已移除标签");
+        return result;
+    }
+
     // ======================== Internal methods ========================
 
     private void movePhotoToDir(Photo photo, Path targetDir, Album targetAlbum, String conflictResolution) throws IOException {
@@ -380,6 +445,28 @@ public class PhotoManageService {
             moveStoredFile(oldLargeThumbPath, newLargeThumbPath);
             moveStoredFile(oldBackgroundRemovedPath, newBackgroundRemovedPath);
         }
+    }
+
+    private Map<String, Object> toTagMap(Tag tag) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", tag.getId());
+        item.put("name", tag.getName());
+        item.put("color", tag.getColor());
+        return item;
+    }
+
+    private Long requireOwnerUserId(UserAccount currentUser) {
+        if (currentUser == null || currentUser.getId() == null) {
+            throw new RuntimeException("未授权，请先登录");
+        }
+        return currentUser.getId();
+    }
+
+    private String normalizeTagName(String tagName) {
+        if (tagName == null || tagName.trim().isEmpty()) {
+            throw new RuntimeException("标签名称不能为空");
+        }
+        return tagName.trim();
     }
 
     /**
@@ -597,6 +684,21 @@ public class PhotoManageService {
         return count;
     }
 
+    @Transactional
+    public int hidePhotos(UserAccount currentUser, List<Long> photoIds) {
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        ensurePhotoAccess(currentUser, photos);
+        int count = 0;
+        for (Photo photo : photos) {
+            if (photo.getIsHidden() == null || !photo.getIsHidden()) {
+                photo.setIsHidden(true);
+                photoRepository.save(photo);
+                count++;
+            }
+        }
+        return count;
+    }
+
     /**
      * 批量显示照片（取消隐藏）
      */
@@ -612,6 +714,21 @@ public class PhotoManageService {
                     photoRepository.save(photo);
                     count++;
                 }
+            }
+        }
+        return count;
+    }
+
+    @Transactional
+    public int showPhotos(UserAccount currentUser, List<Long> photoIds) {
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        ensurePhotoAccess(currentUser, photos);
+        int count = 0;
+        for (Photo photo : photos) {
+            if (photo.getIsHidden() != null && photo.getIsHidden()) {
+                photo.setIsHidden(false);
+                photoRepository.save(photo);
+                count++;
             }
         }
         return count;

@@ -1,20 +1,44 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-2xl font-light tracking-wide mb-1">系统设置</h1>
-          <p class="text-sm text-gray-300">
-            配置相册扫描和系统行为参数。
-          </p>
+  <div class="min-h-screen admin-shell admin-settings-shell text-white">
+    <AdminStyleChrome />
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 admin-settings-page">
+      <section class="admin-page-hero admin-settings-hero">
+        <div class="admin-page-hero-grid admin-settings-hero-grid">
+          <div class="space-y-4 admin-settings-hero-copy">
+            <div class="admin-page-hero-badge">系统设置</div>
+            <div class="space-y-2">
+              <h1 class="admin-page-title">系统设置</h1>
+              <p class="admin-page-subtitle">
+                管理相册结构、扫描行为、下载权限与 AI 搜索参数。
+              </p>
+            </div>
+          </div>
+          <div class="admin-settings-hero-side">
+            <div class="admin-settings-meta-card glass-panel">
+              <span>待保存变更</span>
+              <strong>{{ settingsChangeCount }}</strong>
+            </div>
+            <div class="admin-settings-meta-card glass-panel">
+              <span>扫描权限</span>
+              <strong>{{ authStore.isSuperAdmin ? '超级管理员' : '排队处理' }}</strong>
+            </div>
+          </div>
         </div>
-        <router-link
-          to="/admin"
-          class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors text-sm"
-        >
-          返回控制台
-        </router-link>
-      </div>
+        <div class="flex items-center justify-between gap-4 flex-wrap admin-settings-hero-actions">
+          <div class="admin-settings-chip-row">
+            <span class="admin-settings-chip">排序</span>
+            <span class="admin-settings-chip">层级</span>
+            <span class="admin-settings-chip">AI 搜索</span>
+            <span class="admin-settings-chip">账户安全</span>
+          </div>
+          <router-link
+            to="/admin"
+            class="admin-button-contrast rounded-lg px-4 py-2 text-sm transition-colors"
+          >
+            返回控制台
+          </router-link>
+        </div>
+      </section>
 
       <AdminSectionTabs />
 
@@ -33,7 +57,7 @@
           <div class="flex items-center gap-3">
             <select
               v-model="albumSortOrder"
-              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="name_asc">相册名称正序</option>
               <option value="name_desc">相册名称倒序</option>
@@ -48,7 +72,7 @@
         </div>
 
         <!-- 排序说明 -->
-        <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+        <div class="admin-note-card rounded-lg p-4">
           <h3 class="text-sm font-medium text-blue-300 mb-2">排序说明</h3>
           <div class="text-xs text-gray-300 space-y-1">
             <p>• 相册名称：按照相册文件夹名称排序</p>
@@ -75,7 +99,7 @@
           <div class="flex items-center gap-3">
             <select
               v-model="photoSortOrder"
-              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="taken_at_desc">拍摄时间倒序</option>
               <option value="taken_at_asc">拍摄时间正序</option>
@@ -88,7 +112,7 @@
         </div>
 
         <!-- 排序说明 -->
-        <div class="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+        <div class="admin-note-card rounded-lg p-4">
           <h3 class="text-sm font-medium text-green-300 mb-2">排序说明</h3>
           <div class="text-xs text-gray-300 space-y-1">
             <p>• 拍摄时间：按照片EXIF信息中的拍摄时间排序</p>
@@ -114,7 +138,7 @@
           <div class="flex items-center gap-3">
             <select
               v-model="wallSortOrder"
-              class="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="taken_at_desc">拍摄时间倒序</option>
               <option value="taken_at_asc">拍摄时间正序</option>
@@ -551,12 +575,12 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@/api'
+import { api, getEffectiveAuthToken } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
-
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -602,6 +626,23 @@ const currentUsername = ref('')
 const newUsername = ref('')
 const usernameChangePassword = ref('')
 const changingUsername = ref(false)
+
+const settingsChangeCount = computed(() => {
+  let count = 0
+  if (maxAlbumDepth.value !== originalMaxAlbumDepth.value) count += 1
+  if (photoSortOrder.value !== originalPhotoSortOrder.value) count += 1
+  if (albumSortOrder.value !== originalAlbumSortOrder.value) count += 1
+  if (wallSortOrder.value !== originalWallSortOrder.value) count += 1
+  if (minClusterFaceCount.value !== originalMinClusterFaceCount.value) count += 1
+  if (globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value) count += 1
+  if (albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value) count += 1
+  if (tagIgnoreList.value !== originalTagIgnoreList.value) count += 1
+  if (aiSearchEnabled.value !== originalAiSearchEnabled.value) count += 1
+  if (aiSearchApiUrl.value !== originalAiSearchApiUrl.value) count += 1
+  if (aiSearchApiKey.value !== originalAiSearchApiKey.value) count += 1
+  if (aiSearchModel.value !== originalAiSearchModel.value) count += 1
+  return count
+})
 
 const loadSettings = async () => {
   try {
@@ -979,7 +1020,7 @@ const changeUsername = async () => {
 const initCurrentUsername = () => {
   // 从localStorage或API获取当前用户名
   // 这里可以从已有的用户信息中获取，或者从token中解析
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('admin_token')
+  const token = getEffectiveAuthToken()
   if (token) {
     try {
       // 简单解析JWT token获取用户名（实际项目中建议使用专门的解析方法）

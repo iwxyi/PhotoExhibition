@@ -1,7 +1,8 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      <section class="admin-page-hero">
+  <div class="min-h-screen admin-shell admin-super-admin-page">
+    <AdminStyleChrome />
+    <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 admin-super-admin-shell">
+      <section class="admin-page-hero admin-super-admin-hero">
         <div class="admin-page-hero-grid">
           <div class="space-y-5">
             <div class="space-y-3">
@@ -11,18 +12,18 @@
           </div>
 
           <div class="space-y-4">
-            <div class="admin-kpi-grid">
-              <div class="admin-kpi-card">
+            <div class="admin-kpi-grid admin-super-admin-kpi-grid">
+              <div class="admin-kpi-card admin-super-admin-kpi-card">
                 <div class="admin-kpi-label">当前用户</div>
                 <div class="admin-kpi-value">{{ overview.userCount }}</div>
                 <div class="admin-kpi-note">启用 {{ overview.activeUserCount }} · 异常 {{ overview.disabledUserCount + overview.lockedUserCount }}</div>
               </div>
-              <div class="admin-kpi-card">
+              <div class="admin-kpi-card admin-super-admin-kpi-card">
                 <div class="admin-kpi-label">默认空间</div>
                 <div class="admin-kpi-value">{{ formatQuotaGb(overview.defaultUserQuotaBytes) }}</div>
                 <div class="admin-kpi-note">VIP 默认增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }}</div>
               </div>
-              <div class="admin-kpi-card">
+              <div class="admin-kpi-card admin-super-admin-kpi-card">
                 <div class="admin-kpi-label">存储提供者</div>
                 <div class="admin-kpi-value">{{ overview.storageProviderCount }}</div>
                 <div class="admin-kpi-note">可用 {{ overview.enabledStorageProviderCount }} · 模型 {{ overview.modelCount || 0 }}</div>
@@ -31,7 +32,7 @@
             <div class="flex justify-end">
               <router-link
                 to="/admin"
-                class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-xl border border-white/10 transition-colors text-sm"
+                class="admin-button-contrast rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 返回后台管理
               </router-link>
@@ -40,7 +41,7 @@
         </div>
       </section>
 
-      <div class="admin-tabbar">
+      <div class="admin-tabbar admin-super-admin-tabbar admin-super-admin-tabbar-shell">
         <button
           v-for="(tab, index) in superAdminTabs"
           :key="tab.key"
@@ -66,30 +67,30 @@
         {{ statusMessage }}
       </div>
 
-      <section v-if="activeTab === 'overview'" class="space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div class="glass-panel p-5 space-y-2">
+      <section v-if="activeTab === 'overview'" class="space-y-4 admin-super-admin-overview">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 admin-super-admin-overview-grid">
+          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card">
             <div class="text-sm text-gray-400">用户总数</div>
             <div class="text-3xl font-light">{{ overview.userCount }}</div>
             <div class="text-xs text-gray-400">
               启用 {{ overview.activeUserCount }} / 禁用 {{ overview.disabledUserCount }} / 锁定 {{ overview.lockedUserCount }}
             </div>
           </div>
-          <div class="glass-panel p-5 space-y-2">
+          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card">
             <div class="text-sm text-gray-400">默认用户配额</div>
             <div class="text-3xl font-light">{{ formatQuotaGb(overview.defaultUserQuotaBytes) }}</div>
             <div class="text-xs text-gray-400">
               VIP 默认增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }} · 已用 {{ formatBytes(overview.totalUsedBytes) }} / 总配额 {{ formatBytes(overview.totalQuotaBytes) }}
             </div>
           </div>
-          <div class="glass-panel p-5 space-y-2">
+          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card">
             <div class="text-sm text-gray-400">存储提供者</div>
             <div class="text-3xl font-light">{{ overview.storageProviderCount }}</div>
             <div class="text-xs text-gray-400">可用 {{ overview.enabledStorageProviderCount }} 个</div>
           </div>
-          <div class="glass-panel p-5 space-y-2">
+          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card admin-super-admin-status-card">
             <div class="text-sm text-gray-400">系统开关</div>
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2 admin-super-admin-chip-cluster">
               <span class="chip" :class="overview.multiUserEnabled ? 'text-emerald-200' : 'text-gray-300'">
                 多用户：{{ overview.multiUserEnabled ? '开启' : '关闭' }}
               </span>
@@ -123,21 +124,21 @@
             </div>
           </div>
         </div>
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div class="glass-panel p-5 space-y-3">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 admin-super-admin-overview-detail-grid">
+          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card">
             <div class="text-sm text-gray-300">存储与目录</div>
             <div class="text-xs text-gray-400 break-all">原图根目录：{{ overview.localStorageRoot || '—' }}</div>
             <div class="text-xs text-gray-400 break-all">用户数据目录：{{ overview.userDataRoot || '—' }}</div>
             <div class="text-xs text-gray-400">平均每用户已用：{{ overview.userCount ? formatBytes(Math.round(overview.totalUsedBytes / overview.userCount)) : '0 B' }}</div>
           </div>
-          <div class="glass-panel p-5 space-y-3">
+          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card">
             <div class="text-sm text-gray-300">认证与通知</div>
             <div class="text-xs text-gray-400">短信：{{ overview.smsEnabled ? smsProviderLabel(overview.smsProviderType) : '关闭' }}</div>
             <div class="text-xs text-gray-400">邮件：{{ overview.emailEnabled ? emailProviderLabel(overview.emailProviderType) : '关闭' }}</div>
             <div class="text-xs text-gray-400">邮箱验证码：{{ overview.emailCodeLoginEnabled ? `开启 · ${overview.emailCodeExpireMinutes || 5} 分钟` : '关闭' }} / Mock {{ overview.emailMockEnabled ? '开启' : '关闭' }}</div>
             <div class="text-xs text-gray-400">支付：{{ overview.paymentEnabled ? paymentProviderLabel(overview.paymentProviderType) : '关闭' }} / Mock {{ overview.paymentMockEnabled ? '开启' : '关闭' }}</div>
           </div>
-          <div class="glass-panel p-5 space-y-3">
+          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card">
             <div class="text-sm text-gray-300">风险提示</div>
             <div class="text-xs text-gray-400">锁定用户：{{ overview.lockedUserCount }}</div>
             <div class="text-xs text-gray-400">禁用用户：{{ overview.disabledUserCount }}</div>
@@ -148,7 +149,7 @@
           </div>
         </div>
 
-        <div class="glass-panel p-5 space-y-4">
+        <div class="glass-panel p-5 space-y-4 admin-super-admin-thread-panel">
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <div class="text-sm text-gray-300">后台处理线程</div>
@@ -172,7 +173,7 @@
             <div
               v-for="worker in processingOverview.workers || []"
               :key="worker.threadType"
-              class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3"
+              class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3 admin-super-admin-worker-card"
             >
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
@@ -222,16 +223,24 @@
                 <template v-if="worker.slowRequestThresholdMs"> · 慢请求阈值 {{ worker.slowRequestThresholdMs }}ms</template>
               </div>
 
-              <div v-if="worker.topActiveEndpoints?.length" class="space-y-1 text-xs text-gray-400">
+              <div v-if="worker.topActiveEndpoints?.length" class="space-y-2 text-xs text-gray-400">
                 <div class="text-gray-300">当前最活跃接口</div>
-                <div v-for="endpoint in worker.topActiveEndpoints.slice(0, 3)" :key="`${worker.threadType}-${endpoint.endpoint}`">
+                <div
+                  v-for="endpoint in worker.topActiveEndpoints.slice(0, 3)"
+                  :key="`${worker.threadType}-${endpoint.endpoint}`"
+                  class="border-t border-white/10 pt-2 first:border-t-0 first:pt-0"
+                >
                   {{ endpoint.endpoint }}：{{ endpoint.activeCount }} 个请求
                 </div>
               </div>
 
-              <div v-if="worker.queuedOwnerSummaries?.length" class="space-y-1 text-xs text-gray-400">
+              <div v-if="worker.queuedOwnerSummaries?.length" class="space-y-2 text-xs text-gray-400">
                 <div class="text-gray-300">排队用户</div>
-                <div v-for="owner in worker.queuedOwnerSummaries.slice(0, 3)" :key="`${worker.threadType}-${owner.ownerKey}`">
+                <div
+                  v-for="owner in worker.queuedOwnerSummaries.slice(0, 3)"
+                  :key="`${worker.threadType}-${owner.ownerKey}`"
+                  class="border-t border-white/10 pt-2 first:border-t-0 first:pt-0"
+                >
                   {{ owner.ownerLabel }}：{{ owner.taskCount }} 个任务
                 </div>
               </div>
@@ -239,77 +248,83 @@
               <div v-if="isScanQueueWorker(worker) && (worker.runningTasks?.length || scanWorkerQueuedTasks(worker).length || scanWorkerFailedTasks(worker).length)" class="space-y-3">
                 <div v-if="worker.runningTasks?.length" class="space-y-2">
                   <div class="text-xs text-gray-300">运行中的扫描任务</div>
-                  <div
-                    v-for="task in worker.runningTasks.slice(0, 5)"
-                    :key="`scan-running-${task.id}`"
-                    class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="text-gray-100">
-                        #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                        <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                  <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                    <div
+                      v-for="task in worker.runningTasks.slice(0, 5)"
+                      :key="`scan-running-${task.id}`"
+                      class="p-3 text-xs space-y-1 admin-super-admin-task-item"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="text-gray-100">
+                          #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
+                          <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                        </div>
+                        <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
+                          {{ scanTaskStatusLabel(task.status) }}
+                        </span>
                       </div>
-                      <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
-                        {{ scanTaskStatusLabel(task.status) }}
-                      </span>
-                    </div>
-                    <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
-                    <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                    <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="text-gray-500 break-all">
-                      当前断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
-                    </div>
-                    <div class="text-gray-500">
-                      创建：{{ formatDate(task.createdAt || null) }} · 开始：{{ formatDate(task.startedAt || null) }}
+                      <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
+                      <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                      <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="text-gray-500 break-all">
+                        当前断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
+                      </div>
+                      <div class="text-gray-500">
+                        创建：{{ formatDate(task.createdAt || null) }} · 开始：{{ formatDate(task.startedAt || null) }}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 <div v-if="scanWorkerQueuedTasks(worker).length" class="space-y-2">
                   <div class="text-xs text-gray-300">排队中的扫描任务</div>
-                  <div
-                    v-for="task in scanWorkerQueuedTasks(worker).slice(0, 5)"
-                    :key="`scan-queued-${task.id}`"
-                    class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="text-gray-100">
-                        #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                        <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                  <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                    <div
+                      v-for="task in scanWorkerQueuedTasks(worker).slice(0, 5)"
+                      :key="`scan-queued-${task.id}`"
+                      class="p-3 text-xs space-y-1 admin-super-admin-task-item"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="text-gray-100">
+                          #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
+                          <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                        </div>
+                        <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
+                          {{ scanTaskStatusLabel(task.status) }}
+                        </span>
                       </div>
-                      <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
-                        {{ scanTaskStatusLabel(task.status) }}
-                      </span>
-                    </div>
-                    <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
-                    <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                    <div class="text-gray-500">
-                      创建：{{ formatDate(task.createdAt || null) }}
+                      <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
+                      <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                      <div class="text-gray-500">
+                        创建：{{ formatDate(task.createdAt || null) }}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 <div v-if="scanWorkerFailedTasks(worker).length" class="space-y-2">
                   <div class="text-xs text-gray-300">最近失败的扫描任务</div>
-                  <div
-                    v-for="task in scanWorkerFailedTasks(worker).slice(0, 5)"
-                    :key="`scan-failed-${task.id}`"
-                    class="rounded-xl border border-rose-400/20 bg-rose-500/5 p-3 text-xs space-y-1"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="text-rose-100">
-                        #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                        <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                  <div class="divide-y divide-rose-400/20 overflow-hidden rounded-xl border border-rose-400/20 bg-rose-500/5 admin-super-admin-task-stack admin-super-admin-task-stack--error">
+                    <div
+                      v-for="task in scanWorkerFailedTasks(worker).slice(0, 5)"
+                      :key="`scan-failed-${task.id}`"
+                      class="p-3 text-xs space-y-1 admin-super-admin-task-item"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="text-rose-100">
+                          #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
+                          <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                        </div>
+                        <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
+                          {{ scanTaskStatusLabel(task.status) }}
+                        </span>
                       </div>
-                      <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
-                        {{ scanTaskStatusLabel(task.status) }}
-                      </span>
-                    </div>
-                    <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
-                    <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                    <div v-if="task.errorMessage" class="text-rose-300 break-all">失败原因：{{ task.errorMessage }}</div>
-                    <div class="text-gray-500">
-                      创建：{{ formatDate(task.createdAt || null) }}
-                      <template v-if="task.finishedAt"> · 完成：{{ formatDate(task.finishedAt || null) }}</template>
+                      <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
+                      <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                      <div v-if="task.errorMessage" class="text-rose-300 break-all">失败原因：{{ task.errorMessage }}</div>
+                      <div class="text-gray-500">
+                        创建：{{ formatDate(task.createdAt || null) }}
+                        <template v-if="task.finishedAt"> · 完成：{{ formatDate(task.finishedAt || null) }}</template>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -317,46 +332,50 @@
 
               <div v-if="worker.recentSlowRequests?.length" class="space-y-2">
                 <div class="text-xs text-gray-300">最近慢请求</div>
-                <div
-                  v-for="item in worker.recentSlowRequests.slice(0, 5)"
-                  :key="`${worker.threadType}-${item.finishedAt}-${item.path}`"
-                  class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
-                >
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="text-gray-200 truncate">{{ item.method }} {{ item.path }}</div>
-                    <span class="chip text-[11px] text-amber-200">{{ item.durationMs || 0 }}ms</span>
+                <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                  <div
+                    v-for="item in worker.recentSlowRequests.slice(0, 5)"
+                    :key="`${worker.threadType}-${item.finishedAt}-${item.path}`"
+                    class="p-3 text-xs space-y-1 admin-super-admin-task-item"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-gray-200 truncate">{{ item.method }} {{ item.path }}</div>
+                      <span class="chip text-[11px] text-amber-200">{{ item.durationMs || 0 }}ms</span>
+                    </div>
+                    <div class="text-gray-400">
+                      {{ item.actorLabel || item.ipAddress || '未知访问者' }}
+                      <template v-if="item.statusCode != null"> · 状态 {{ item.statusCode }}</template>
+                    </div>
+                    <div v-if="item.error" class="text-rose-300">{{ item.error }}</div>
+                    <div class="text-gray-500">{{ formatDate(item.finishedAt || null) }}</div>
                   </div>
-                  <div class="text-gray-400">
-                    {{ item.actorLabel || item.ipAddress || '未知访问者' }}
-                    <template v-if="item.statusCode != null"> · 状态 {{ item.statusCode }}</template>
-                  </div>
-                  <div v-if="item.error" class="text-rose-300">{{ item.error }}</div>
-                  <div class="text-gray-500">{{ formatDate(item.finishedAt || null) }}</div>
                 </div>
               </div>
 
               <div v-if="worker.recentTasks?.length" class="space-y-2">
                 <div class="text-xs text-gray-300">最近任务</div>
-                <div
-                  v-for="task in worker.recentTasks.slice(0, 3)"
-                  :key="`${worker.threadType}-${task.taskId || task.photoId || task.updatedAt}`"
-                  class="rounded-xl bg-gray-950/70 p-3 text-xs space-y-1"
-                >
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="text-gray-200 truncate">{{ processingTaskTitle(task) }}</div>
-                    <span class="chip text-[11px]" :class="processingTaskStatusClass(task.status)">
-                      {{ processingTaskStatusLabel(task.status) }}
-                    </span>
+                <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                  <div
+                    v-for="task in worker.recentTasks.slice(0, 3)"
+                    :key="`${worker.threadType}-${task.taskId || task.photoId || task.updatedAt}`"
+                    class="p-3 text-xs space-y-1 admin-super-admin-task-item"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="text-gray-200 truncate">{{ processingTaskTitle(task) }}</div>
+                      <span class="chip text-[11px]" :class="processingTaskStatusClass(task.status)">
+                        {{ processingTaskStatusLabel(task.status) }}
+                      </span>
+                    </div>
+                    <div class="text-gray-400">
+                      <template v-if="task.total">
+                        进度 {{ task.current || 0 }}/{{ task.total }} · {{ task.progressPercent ?? processingTaskPercent(task) }}%
+                      </template>
+                      <template v-else>
+                        {{ isScanQueueWorker(worker) ? scanTaskRecentSummary(task) : (task.message || task.latestLog || '暂无附加说明') }}
+                      </template>
+                    </div>
+                    <div class="text-gray-500">{{ formatDate(task.updatedAt || task.finishedAt || task.startedAt || null) }}</div>
                   </div>
-                  <div class="text-gray-400">
-                    <template v-if="task.total">
-                      进度 {{ task.current || 0 }}/{{ task.total }} · {{ task.progressPercent ?? processingTaskPercent(task) }}%
-                    </template>
-                    <template v-else>
-                      {{ isScanQueueWorker(worker) ? scanTaskRecentSummary(task) : (task.message || task.latestLog || '暂无附加说明') }}
-                    </template>
-                  </div>
-                  <div class="text-gray-500">{{ formatDate(task.updatedAt || task.finishedAt || task.startedAt || null) }}</div>
                 </div>
               </div>
             </div>
@@ -364,8 +383,8 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'scan'" class="space-y-4">
-        <div class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'scan'" class="space-y-4 admin-super-admin-scan-page">
+        <div class="glass-panel p-6 space-y-5 admin-super-admin-scan-panel">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <h2 class="text-lg font-light">扫描管理</h2>
@@ -388,36 +407,36 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 admin-super-admin-scan-metrics">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
               <div class="text-xs text-gray-400">扫描状态</div>
               <div class="text-2xl font-light">{{ superScanStatusLabel }}</div>
               <div class="text-xs text-gray-500">最近开始：{{ superScanLastTime || '—' }}</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
               <div class="text-xs text-gray-400">图片进度</div>
               <div class="text-2xl font-light">{{ superScanProgressText }}</div>
               <div class="text-xs text-gray-500">总 {{ superScanSummary.total }} · 已扫 {{ superScanSummary.scanned }}</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
               <div class="text-xs text-gray-400">任务情况</div>
               <div class="text-2xl font-light">{{ superRunningTaskCount }}/{{ superQueueCount }}</div>
               <div class="text-xs text-gray-500">运行中 / 排队中</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
               <div class="text-xs text-gray-400">待扫描</div>
               <div class="text-2xl font-light text-amber-200">{{ superScanSummary.waiting }}</div>
               <div class="text-xs text-gray-500">队列图片 {{ superQueuedImageCount }}</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
               <div class="text-xs text-gray-400">失败 / 异常</div>
               <div class="text-2xl font-light text-rose-200">{{ superScanSummary.failed }}</div>
               <div class="text-xs text-gray-500">点击“查看异常文件”加载详情</div>
             </div>
           </div>
 
-          <div class="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4">
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4">
+          <div class="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4 admin-super-admin-scan-layout">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4 admin-super-admin-scan-sidecard">
               <div class="text-sm text-white">立即扫描</div>
               <div
                 v-if="superScanDisabledReason"
@@ -458,7 +477,7 @@
               </div>
             </div>
 
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4">
+            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4 admin-super-admin-scan-records">
               <div class="flex items-center justify-between gap-3">
                 <div>
                   <div class="text-sm text-white">最近扫描记录与结果</div>
@@ -470,9 +489,9 @@
                 暂无扫描任务
               </div>
 
-              <div v-else class="overflow-auto">
-                <table class="w-full text-sm text-slate-200">
-                  <thead class="text-slate-400 border-b border-slate-800">
+              <div v-else class="overflow-auto rounded-2xl border border-white/10 admin-super-admin-table-wrap">
+                <table class="admin-data-table w-full text-sm">
+                  <thead>
                     <tr>
                       <th class="text-left py-3 pr-4">任务</th>
                       <th class="text-left py-3 pr-4">状态</th>
@@ -485,13 +504,13 @@
                   </thead>
                   <tbody>
                     <template v-for="task in superScanTasks" :key="task.id">
-                      <tr class="border-b border-slate-900/80 align-top">
+                      <tr class="align-top">
                         <td class="py-3 pr-4">
                           <button
                             @click="openSuperScanTaskDetail(task.id)"
-                            class="font-medium text-white hover:text-sky-300 transition-colors"
+                            class="font-medium text-[color:var(--pe-admin-text-primary)] transition-colors hover:text-sky-300"
                           >#{{ task.id }}</button>
-                          <div class="text-xs text-slate-400 mt-1">{{ scanTaskTypeLabel(task.taskType) }}</div>
+                          <div class="mt-1 text-xs admin-table-muted">{{ scanTaskTypeLabel(task.taskType) }}</div>
                         </td>
                         <td class="py-3 pr-4">
                           <span class="px-2 py-1 rounded-full text-xs border" :class="superScanTaskStatusBadgeClass(task.status)">
@@ -501,23 +520,23 @@
                             {{ task.errorMessage }}
                           </div>
                         </td>
-                        <td class="py-3 pr-4 text-xs text-slate-300">
+                        <td class="py-3 pr-4 text-xs admin-table-muted">
                           <div>{{ task.ownerLabel || '系统任务' }}</div>
-                          <div class="text-slate-500 mt-1">
+                          <div class="mt-1 admin-table-faint">
                             存储：{{ task.storageProviderName || task.storageProviderId || '默认' }}
                             <span v-if="task.storageProviderType"> · {{ storageTypeLabel(task.storageProviderType) }}</span>
                           </div>
                         </td>
                         <td class="py-3 pr-4">
-                          <div class="max-w-sm break-all text-xs text-slate-300">{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                          <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="text-xs text-slate-500 mt-1 break-all">
+                          <div class="max-w-sm break-all text-xs admin-table-muted">{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                          <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="mt-1 break-all text-xs admin-table-faint">
                             断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
                           </div>
                         </td>
                         <td class="py-3 pr-4">
                           <div>{{ scanTaskProgressText(task) }}</div>
                         </td>
-                        <td class="py-3 pr-4 text-xs text-slate-400 whitespace-nowrap">
+                        <td class="py-3 pr-4 text-xs admin-table-muted whitespace-nowrap">
                           <div>创建：{{ formatDateTime(task.createdAt) }}</div>
                           <div class="mt-1">开始：{{ formatDateTime(task.startedAt) }}</div>
                           <div class="mt-1">完成：{{ formatDateTime(task.finishedAt) }}</div>
@@ -526,7 +545,7 @@
                           <div class="flex justify-end gap-2">
                             <button
                               @click="openSuperScanTaskDetail(task.id)"
-                              class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10"
+                              class="admin-button-soft rounded-lg border px-3 py-1.5 text-xs transition-colors"
                             >
                               详情
                             </button>
@@ -1746,7 +1765,7 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'users'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'users'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">用户管理</h2>
@@ -1925,7 +1944,7 @@
               </button>
               <div
                 v-if="openUserActionMenuId === user.id"
-                class="absolute right-0 top-full z-20 mt-2 w-40 rounded-xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
+                class="glass-popover admin-floating-popover admin-super-admin-action-menu absolute right-0 top-full z-20 mt-2 w-40 rounded-xl p-2"
               >
                 <button
                   type="button"
@@ -1947,7 +1966,7 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'logins'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'logins'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">登录记录</h2>
@@ -2036,7 +2055,7 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'operations'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'operations'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">操作记录</h2>
@@ -2118,7 +2137,7 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'vip'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'vip'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
         <div>
           <h2 class="text-lg font-light">VIP 套餐</h2>
           <p class="text-xs text-gray-400">用于预置后续付费套餐；当前支持管理套餐名称、扩容空间、时长与价格，并可分配给用户。</p>
@@ -2291,7 +2310,7 @@
         </ConfigurableTable>
       </section>
 
-      <section v-if="activeTab === 'vipOrders'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'vipOrders'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">VIP 订单</h2>
@@ -3141,11 +3160,10 @@
 
       <div
         v-if="showSmsTestModal"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeSmsTestModal"
       >
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="admin-modal-card relative w-full max-w-lg overflow-hidden">
+        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-lg overflow-hidden">
           <div class="border-b border-white/10 px-6 py-5">
             <div class="flex items-start justify-between gap-4">
               <div class="space-y-2">
@@ -3198,11 +3216,10 @@
 
       <div
         v-if="showResetPasswordModal"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeResetPasswordModal"
       >
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="admin-modal-card relative w-full max-w-xl overflow-hidden">
+        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-xl overflow-hidden">
           <div class="border-b border-white/10 px-6 py-5">
             <div class="flex items-start justify-between gap-4">
               <div class="space-y-2">
@@ -3271,11 +3288,10 @@
 
       <div
         v-if="showCreateStorageModal"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="showCreateStorageModal = false"
       >
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-5xl max-h-[88vh] overflow-auto rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
+        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[88vh] overflow-auto rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
           <div class="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/10 bg-slate-950/95 px-6 py-5 backdrop-blur">
             <div class="space-y-2 min-w-0">
               <div class="flex flex-wrap items-center gap-2">
@@ -3422,11 +3438,10 @@
 
       <div
         v-if="showSuperScanTaskDetailModal"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeSuperScanTaskDetailModal"
       >
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-5xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
             <div>
               <h3 class="text-base font-medium text-white">
@@ -3491,11 +3506,10 @@
 
       <div
         v-if="showSuperAdminSkippedModal"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeSuperAdminSkippedModal"
       >
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-        <div class="relative w-full max-w-5xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
             <div>
               <h3 class="text-base font-medium text-white">扫描失败原因（全用户）</h3>
@@ -3506,8 +3520,8 @@
           <div class="overflow-auto flex-1">
             <div v-if="loadingSuperAdminSkipped" class="flex items-center justify-center py-16 text-slate-400 text-sm">加载中…</div>
             <div v-else-if="!superAdminSkippedFiles.length" class="flex items-center justify-center py-16 text-slate-400 text-sm">暂无扫描异常记录</div>
-            <table v-else class="w-full text-xs text-slate-200 border-collapse">
-              <thead class="sticky top-0 bg-slate-800 text-slate-400 uppercase tracking-wide">
+            <table v-else class="admin-data-table w-full text-xs border-collapse">
+              <thead class="sticky top-0 uppercase tracking-wide">
                 <tr>
                   <th class="px-4 py-2.5 text-left w-12">#</th>
                   <th class="px-4 py-2.5 text-left">相对路径</th>
@@ -3517,23 +3531,35 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="item in superAdminSkippedFiles" :key="`${item.index}-${item.recordedAt || ''}`" class="border-t border-slate-800 hover:bg-slate-800/50 transition-colors">
-                  <td class="px-4 py-2 text-slate-500">{{ item.index }}</td>
-                  <td class="px-4 py-2 font-mono text-slate-300 break-all">{{ item.relativePath }}</td>
-                  <td class="px-4 py-2 text-slate-300">{{ item.userId != null ? `用户#${item.userId}` : '—' }}</td>
+                <tr v-for="item in superAdminSkippedFiles" :key="`${item.index}-${item.recordedAt || ''}`">
+                  <td class="px-4 py-2 admin-table-faint">{{ item.index }}</td>
+                  <td class="px-4 py-2 break-all font-mono admin-table-muted">{{ item.relativePath }}</td>
+                  <td class="px-4 py-2 admin-table-muted">{{ item.userId != null ? `用户#${item.userId}` : '—' }}</td>
                   <td class="px-4 py-2"><span class="cursor-help border-b border-dashed border-amber-400/50 text-amber-300" :title="item.detail">{{ item.reason }}</span></td>
-                  <td class="px-4 py-2 text-right text-slate-400">{{ formatBytes(item.fileSizeBytes || 0) }}</td>
+                  <td class="px-4 py-2 text-right admin-table-muted">{{ formatBytes(item.fileSizeBytes || 0) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      <button
+        type="button"
+        class="admin-floating-action admin-floating-action--super"
+        title="返回概览"
+        aria-label="返回概览"
+        @click="changeActiveTab('overview')"
+      >
+        <span class="admin-floating-action-icon">◎</span>
+        <span class="admin-floating-action-label">概览</span>
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiTestToolPanel from '@/components/admin/ApiTestToolPanel.vue'

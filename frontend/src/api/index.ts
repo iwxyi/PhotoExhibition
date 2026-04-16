@@ -1,6 +1,71 @@
 import axios from 'axios'
 import { getCurrentPublicSlug, shouldAttachUserSlug } from '@/utils/publicRoute'
 
+const LAST_ADMIN_ROUTE_KEY = 'pe_last_admin_route'
+
+export function getEffectiveAuthToken(): string | null {
+  const authToken = localStorage.getItem('auth_token')
+  const adminToken = localStorage.getItem('admin_token')
+
+  if (authToken && adminToken && authToken !== adminToken) {
+    localStorage.setItem('auth_token', adminToken)
+    return adminToken
+  }
+
+  if (adminToken && !authToken) {
+    localStorage.setItem('auth_token', adminToken)
+    return adminToken
+  }
+
+  if (authToken && !adminToken) {
+    localStorage.setItem('admin_token', authToken)
+    return authToken
+  }
+
+  return authToken || adminToken || null
+}
+
+export function clearStoredAuthSession() {
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('admin_token')
+  localStorage.removeItem('auth_username')
+  localStorage.removeItem('admin_username')
+  localStorage.removeItem('auth_role')
+  localStorage.removeItem('auth_user_id')
+  localStorage.removeItem('auth_slug')
+  localStorage.removeItem('auth_nickname')
+  localStorage.removeItem('auth_phone')
+  localStorage.removeItem('auth_phone_verified')
+  localStorage.removeItem('auth_email')
+  localStorage.removeItem('auth_email_verified')
+  localStorage.removeItem('auth_project_name_zh')
+  localStorage.removeItem('auth_project_name_en')
+  localStorage.removeItem('auth_avatar_path')
+  localStorage.removeItem('auth_multi_user_enabled')
+  localStorage.removeItem('auth_sms_login_enabled')
+  localStorage.removeItem('auth_email_code_login_enabled')
+  localStorage.removeItem('auth_current_vip_plan_id')
+  localStorage.removeItem('auth_current_vip_plan_name')
+  localStorage.removeItem('auth_current_vip_plan_code')
+  localStorage.removeItem('auth_vip_expire_at')
+  localStorage.removeItem('auth_effective_storage_quota_bytes')
+  localStorage.removeItem('auth_storage_used_bytes')
+  delete axios.defaults.headers.common['Authorization']
+}
+
+function handleInvalidAuthSession() {
+  clearStoredAuthSession()
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  if (window.location.pathname.startsWith('/admin') && window.location.pathname !== '/admin/login') {
+    localStorage.setItem(LAST_ADMIN_ROUTE_KEY, currentPath)
+    window.location.replace('/admin/login')
+    return
+  }
+
+  const redirect = encodeURIComponent(currentPath || '/')
+  window.location.replace(`/login?redirect=${redirect}`)
+}
+
 // 类型定义
 export interface FaceFace {
   id: number
@@ -155,7 +220,7 @@ export const api = axios.create({
 api.interceptors.request.use(
   config => {
     // 添加认证token
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('admin_token')
+    const token = getEffectiveAuthToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -181,6 +246,16 @@ api.interceptors.response.use(
   },
   error => {
     console.error('API Error:', error)
+    const status = error?.response?.status
+    const errorMessage = String(error?.response?.data?.error || error?.response?.data?.message || '')
+    const hasToken = !!getEffectiveAuthToken()
+    const invalidAuth =
+      status === 401 ||
+      (hasToken && (errorMessage.includes('Token无效') || errorMessage.includes('未授权') || errorMessage.includes('未登录')))
+
+    if (invalidAuth) {
+      handleInvalidAuthSession()
+    }
     return Promise.reject(error)
   }
 )

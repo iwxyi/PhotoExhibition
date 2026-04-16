@@ -1,7 +1,11 @@
 package com.photoexhibition.controller;
 
+import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.SystemConfigService;
 import com.photoexhibition.service.UserPathService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -22,8 +26,10 @@ public class SystemConfigController {
     private static final Pattern EMBEDDED_PATH_PATTERN =
         Pattern.compile("(storage://[^\\s,;]+|[A-Za-z]:\\\\[^\\s,;]+|/(?:[^\\s,;])+)");
 
+    private final AuthService authService;
     private final SystemConfigService systemConfigService;
     private final UserPathService userPathService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 获取所有系统配置
@@ -53,6 +59,146 @@ public class SystemConfigController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/admin-theme")
+    public ResponseEntity<Map<String, Object>> getAdminThemePreferences(@RequestHeader("Authorization") String authorization) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            resp.put("themeKey", user.getAdminThemeKey() == null || user.getAdminThemeKey().isBlank() ? "default" : user.getAdminThemeKey());
+            resp.put("colorMode", user.getAdminColorMode() == null || user.getAdminColorMode().isBlank() ? "dark" : user.getAdminColorMode());
+            resp.put("styleFamily", user.getAdminStyleFamily() == null || user.getAdminStyleFamily().isBlank() ? "material" : user.getAdminStyleFamily());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取后台主题失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/admin-theme")
+    public ResponseEntity<Map<String, Object>> updateAdminThemePreferences(@RequestHeader("Authorization") String authorization,
+                                                                           @RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            String themeKey = request.get("themeKey") == null ? "default" : String.valueOf(request.get("themeKey")).trim();
+            String colorMode = request.get("colorMode") == null ? "dark" : String.valueOf(request.get("colorMode")).trim().toLowerCase();
+            String styleFamily = request.get("styleFamily") == null ? "material" : String.valueOf(request.get("styleFamily")).trim().toLowerCase();
+            if (themeKey.isEmpty()) {
+                themeKey = "default";
+            }
+            if (!"dark".equals(colorMode) && !"light".equals(colorMode)) {
+                colorMode = "dark";
+            }
+            if (!"material".equals(styleFamily)
+                && !"glass".equals(styleFamily)
+                && !"classic".equals(styleFamily)
+                && !"gallery".equals(styleFamily)
+                && !"compact".equals(styleFamily)
+                && !"brutalist".equals(styleFamily)
+                && !"paper".equals(styleFamily)
+                && !"neon".equals(styleFamily)
+                && !"zen".equals(styleFamily)
+                && !"terminal".equals(styleFamily)) {
+                styleFamily = "material";
+            }
+            user.setAdminThemeKey(themeKey);
+            user.setAdminColorMode(colorMode);
+            user.setAdminStyleFamily(styleFamily);
+            authService.saveUserAccount(user);
+            resp.put("themeKey", themeKey);
+            resp.put("colorMode", colorMode);
+            resp.put("styleFamily", styleFamily);
+            resp.put("message", "后台主题已保存");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存后台主题失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/file-browser-preferences")
+    public ResponseEntity<Map<String, Object>> getFileBrowserPreferences(@RequestHeader("Authorization") String authorization) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            Map<String, Object> preferences = loadFileBrowserPreferences(user.getId());
+            resp.put("viewMode", normalizeAllowed(
+                preferences.get("viewMode") == null ? null : String.valueOf(preferences.get("viewMode")),
+                "grid",
+                new String[]{"grid", "list"}
+            ));
+            resp.put("gridPreset", normalizeAllowed(
+                preferences.get("gridPreset") == null ? null : String.valueOf(preferences.get("gridPreset")),
+                "auto-md",
+                new String[]{"auto-sm", "auto-md", "auto-lg", "cols-2", "cols-3", "cols-4", "cols-5"}
+            ));
+            resp.put("sortMode", normalizeAllowed(
+                preferences.get("sortMode") == null ? null : String.valueOf(preferences.get("sortMode")),
+                "name-asc",
+                new String[]{"name-asc", "name-desc", "lastModified-desc", "lastModified-asc", "size-desc", "size-asc", "photoCount-desc", "photoCount-asc", "type-asc", "type-desc"}
+            ));
+            Integer pageSize = parseInteger(preferences.get("pageSize"), 48);
+            resp.put("pageSize", (pageSize != null && (pageSize == 24 || pageSize == 48 || pageSize == 96 || pageSize == 200)) ? pageSize : 48);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取文件浏览器偏好失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/file-browser-preferences")
+    public ResponseEntity<Map<String, Object>> updateFileBrowserPreferences(@RequestHeader("Authorization") String authorization,
+                                                                            @RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            String viewMode = normalizeAllowed(
+                request.get("viewMode") == null ? null : String.valueOf(request.get("viewMode")).trim(),
+                "grid",
+                new String[]{"grid", "list"}
+            );
+            String gridPreset = normalizeAllowed(
+                request.get("gridPreset") == null ? null : String.valueOf(request.get("gridPreset")).trim(),
+                "auto-md",
+                new String[]{"auto-sm", "auto-md", "auto-lg", "cols-2", "cols-3", "cols-4", "cols-5"}
+            );
+            String sortMode = normalizeAllowed(
+                request.get("sortMode") == null ? null : String.valueOf(request.get("sortMode")).trim(),
+                "name-asc",
+                new String[]{"name-asc", "name-desc", "lastModified-desc", "lastModified-asc", "size-desc", "size-asc", "photoCount-desc", "photoCount-asc", "type-asc", "type-desc"}
+            );
+            Integer pageSize = 48;
+            Object pageSizeValue = request.get("pageSize");
+            if (pageSizeValue instanceof Number) {
+                pageSize = ((Number) pageSizeValue).intValue();
+            } else if (pageSizeValue != null) {
+                pageSize = Integer.parseInt(String.valueOf(pageSizeValue));
+            }
+            if (!(pageSize == 24 || pageSize == 48 || pageSize == 96 || pageSize == 200)) {
+                pageSize = 48;
+            }
+            Map<String, Object> preferences = new HashMap<>();
+            preferences.put("viewMode", viewMode);
+            preferences.put("gridPreset", gridPreset);
+            preferences.put("sortMode", sortMode);
+            preferences.put("pageSize", pageSize);
+            systemConfigService.setConfigValue(
+                buildFileBrowserPreferenceKey(user.getId()),
+                objectMapper.writeValueAsString(preferences),
+                "文件浏览器偏好配置(JSON)"
+            );
+            resp.put("viewMode", viewMode);
+            resp.put("gridPreset", gridPreset);
+            resp.put("sortMode", sortMode);
+            resp.put("pageSize", pageSize);
+            resp.put("message", "文件浏览器偏好已保存");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存文件浏览器偏好失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -589,5 +735,52 @@ public class SystemConfigController {
         }
         matcher.appendTail(buffer);
         return replaced ? buffer.toString() : message;
+    }
+
+    private UserAccount requireCurrentUser(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new RuntimeException("未授权，请先登录");
+        }
+        return authService.getCurrentUserEntity(authorization.substring(7));
+    }
+
+    private String normalizeAllowed(String value, String fallback, String[] allowedValues) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        for (String allowedValue : allowedValues) {
+            if (allowedValue.equals(value)) {
+                return value;
+            }
+        }
+        return fallback;
+    }
+
+    private Map<String, Object> loadFileBrowserPreferences(Long userId) {
+        try {
+            String raw = systemConfigService.getConfigValue(buildFileBrowserPreferenceKey(userId), "{}");
+            Map<String, Object> data = objectMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+            return data == null ? new HashMap<>() : data;
+        } catch (Exception ignored) {
+            return new HashMap<>();
+        }
+    }
+
+    private String buildFileBrowserPreferenceKey(Long userId) {
+        return "user_file_browser_preferences_" + (userId == null ? 0 : userId);
+    }
+
+    private Integer parseInteger(Object value, Integer fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 }

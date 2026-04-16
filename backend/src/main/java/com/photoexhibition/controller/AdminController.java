@@ -1311,18 +1311,60 @@ public class AdminController {
      */
     @PostMapping("/photos/batch")
     public ResponseEntity<Map<String, Object>> batchOperation(
-            @RequestParam String operation,
-            @RequestBody List<Long> photoIds) {
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(required = false) String operation,
+            @RequestBody(required = false) Object requestBody) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            List<Long> photoIds = new ArrayList<>();
+            if (requestBody instanceof Map) {
+                Map<?, ?> requestMap = (Map<?, ?>) requestBody;
+                Object bodyOperation = requestMap.get("operation");
+                if (operation == null && bodyOperation instanceof String) {
+                    operation = (String) bodyOperation;
+                }
+                Object bodyIds = requestMap.get("photoIds");
+                if (bodyIds instanceof List) {
+                    List<?> rawIds = (List<?>) bodyIds;
+                    for (Object rawId : rawIds) {
+                        if (rawId instanceof Number) {
+                            photoIds.add(((Number) rawId).longValue());
+                        } else if (rawId instanceof String && !((String) rawId).isBlank()) {
+                            photoIds.add(Long.parseLong((String) rawId));
+                        }
+                    }
+                }
+            } else if (requestBody instanceof List) {
+                List<?> rawIds = (List<?>) requestBody;
+                for (Object rawId : rawIds) {
+                    if (rawId instanceof Number) {
+                        photoIds.add(((Number) rawId).longValue());
+                    } else if (rawId instanceof String && !((String) rawId).isBlank()) {
+                        photoIds.add(Long.parseLong((String) rawId));
+                    }
+                }
+            }
+
+            if (operation == null || operation.isBlank()) {
+                resp.put("error", "缺少 operation 参数");
+                resp.put("success", false);
+                return ResponseEntity.badRequest().body(resp);
+            }
+            if (photoIds.isEmpty()) {
+                resp.put("error", "缺少 photoIds 参数");
+                resp.put("success", false);
+                return ResponseEntity.badRequest().body(resp);
+            }
+
+            UserAccount currentUser = requireCurrentUser(authorization);
             int count = 0;
             switch (operation) {
                 case "hide":
-                    count = photoManageService.hidePhotos(photoIds);
+                    count = photoManageService.hidePhotos(currentUser, photoIds);
                     resp.put("message", "已隐藏 " + count + " 张照片");
                     break;
                 case "show":
-                    count = photoManageService.showPhotos(photoIds);
+                    count = photoManageService.showPhotos(currentUser, photoIds);
                     resp.put("message", "已显示 " + count + " 张照片");
                     break;
                 case "delete":

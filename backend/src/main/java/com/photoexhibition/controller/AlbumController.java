@@ -189,12 +189,10 @@ public class AlbumController {
     public ResponseEntity<AlbumDTO> setAlbumDownloadAllowed(
             @RequestHeader("Authorization") String authorization,
             @PathVariable Long id,
-            @RequestBody java.util.Map<String, Boolean> request) {
+            @RequestBody java.util.Map<String, Object> request) {
         UserAccount currentUser = requireCurrentUser(authorization);
-        Boolean downloadAllowed = request.get("downloadAllowed");
-        if (downloadAllowed == null) {
-            return ResponseEntity.badRequest().build();
-        }
+        Object rawValue = request.get("downloadAllowed");
+        Boolean downloadAllowed = rawValue == null ? null : Boolean.valueOf(String.valueOf(rawValue));
         AlbumDTO album = albumService.setAlbumDownloadAllowed(id, downloadAllowed, albumService.resolveScopedUserId(currentUser));
         return ResponseEntity.ok(album);
     }

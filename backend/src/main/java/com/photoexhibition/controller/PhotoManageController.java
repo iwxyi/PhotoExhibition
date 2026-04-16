@@ -75,6 +75,35 @@ public class PhotoManageController {
         return ResponseEntity.ok(result);
     }
 
+    @PutMapping("/{photoId}/hidden")
+    public ResponseEntity<Map<String, Object>> setPhotoHidden(@RequestHeader("Authorization") String authorization,
+                                                              @PathVariable Long photoId,
+                                                              @RequestBody Map<String, Boolean> request) {
+        Boolean hidden = request.get("isHidden");
+        if (hidden == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "缺少 isHidden 参数"));
+        }
+        return ResponseEntity.ok(photoManageService.setPhotoHidden(requireCurrentUser(authorization), photoId, hidden));
+    }
+
+    @PostMapping("/{photoId}/tags")
+    public ResponseEntity<Map<String, Object>> addPhotoTag(@RequestHeader("Authorization") String authorization,
+                                                           @PathVariable Long photoId,
+                                                           @RequestBody Map<String, String> request) {
+        String tagName = request.get("name");
+        if (tagName == null || tagName.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "缺少标签名称"));
+        }
+        return ResponseEntity.ok(photoManageService.addPhotoTag(requireCurrentUser(authorization), photoId, tagName));
+    }
+
+    @DeleteMapping("/{photoId}/tags/{tagId}")
+    public ResponseEntity<Map<String, Object>> removePhotoTag(@RequestHeader("Authorization") String authorization,
+                                                              @PathVariable Long photoId,
+                                                              @PathVariable Long tagId) {
+        return ResponseEntity.ok(photoManageService.removePhotoTag(requireCurrentUser(authorization), photoId, tagId));
+    }
+
     private UserAccount requireCurrentUser(String authorization) {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new RuntimeException("未授权，请先登录");

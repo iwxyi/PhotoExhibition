@@ -1,5 +1,6 @@
 <template>
   <div class="min-h-screen admin-shell text-white">
+    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex items-center justify-between mb-6">
         <div>
@@ -134,6 +135,7 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'

@@ -1,32 +1,33 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
+  <div class="min-h-screen admin-shell admin-photos-page">
+    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-light">图片管理</h1>
         <div class="space-x-3">
           <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
+          <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
         </div>
       </div>
 
-      <div class="glass-panel p-4">
+      <div class="glass-panel p-4 admin-photos-panel">
         <div class="flex flex-wrap gap-4 mb-4">
           <label class="space-y-2">
             <span class="text-sm text-gray-300">搜索图片</span>
-            <input v-model="keyword" placeholder="按文件名、相机或镜头搜索" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input v-model="keyword" placeholder="按文件名、相机或镜头搜索" class="admin-field px-3 py-2 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </label>
           <label class="space-y-2">
             <span class="text-sm text-gray-300">去重视图</span>
             <select
               v-model="dedupFilter"
-              class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-40 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field px-3 py-2 rounded w-40 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">全部</option>
               <option value="canonical">仅规范源</option>
               <option value="duplicate">仅重复副本</option>
             </select>
           </label>
-          <button @click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
+          <button @click="load" :disabled="loading" class="admin-button-soft px-4 py-2 rounded-lg text-sm disabled:opacity-50">查询</button>
           <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50">删除</button>
         </div>
 
@@ -37,7 +38,7 @@
         </div>
 
         <div class="overflow-auto">
-          <table class="min-w-full text-sm">
+          <table class="min-w-full text-sm admin-photos-table">
             <thead class="text-left text-gray-400">
               <tr>
                 <th class="py-2 pr-4">
@@ -54,14 +55,14 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in photos" :key="p.id" class="border-t border-gray-700 hover:bg-gray-700/60" :class="p.isHidden ? 'opacity-50' : ''">
+              <tr v-for="p in photos" :key="p.id" class="border-t border-gray-700 admin-photos-row" :class="p.isHidden ? 'opacity-50' : ''">
                 <td class="py-2 pr-4">
                   <input type="checkbox" class="accent-blue-500" v-model="selectedIds" :value="p.id" />
                 </td>
                 <td class="py-2 pr-4">{{ p.id }}</td>
                 <td class="py-2 pr-4">
                   <div
-                    class="w-16 h-16 bg-gray-700 rounded overflow-hidden border border-gray-600 flex items-center justify-center cursor-pointer"
+                    class="w-16 h-16 admin-photos-thumb rounded overflow-hidden flex items-center justify-center cursor-pointer"
                     @click="openPhoto(p.id)"
                     @mouseenter="showPreview(p)"
                     @mousemove="movePreview"
@@ -109,7 +110,7 @@
                 <td class="py-2 pr-4">{{ p.format }}</td>
                 <td class="py-2 pr-4 whitespace-nowrap">{{ formatDate(p.takenAt) }}</td>
                 <td class="py-2 pr-4 space-x-2">
-                  <button @click="openFaceDialog(p)" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">人脸</button>
+                  <button @click="openFaceDialog(p)" class="admin-button-soft px-3 py-1 rounded text-xs">人脸</button>
                 </td>
               </tr>
               <tr v-if="!loading && photos.length === 0">
@@ -124,7 +125,7 @@
         <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
           <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
           <div class="flex items-center gap-2">
-            <button @click="prev" :disabled="page===0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">上一页</button>
+            <button @click="prev" :disabled="page===0 || loading" class="admin-button-soft px-3 py-1 rounded disabled:opacity-40">上一页</button>
             <div class="flex items-center gap-1">
               <button
                 v-for="pnum in pageNumbers"
@@ -132,25 +133,25 @@
                 @click="jumpTo(pnum)"
                 :disabled="loading"
                 class="px-3 py-1 rounded border border-gray-700"
-                :class="pnum === page ? 'bg-blue-600 border-blue-500' : 'bg-gray-700 hover:bg-gray-600'"
+                :class="pnum === page ? 'bg-blue-600 border-blue-500 text-white' : 'admin-photos-page-btn'"
               >
                 {{ pnum + 1 }}
               </button>
             </div>
-            <button @click="next" :disabled="page>=totalPages-1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">下一页</button>
+            <button @click="next" :disabled="page>=totalPages-1 || loading" class="admin-button-soft px-3 py-1 rounded disabled:opacity-40">下一页</button>
           </div>
         </div>
       </div>
     </div>
   <!-- 人脸标注弹窗 -->
-  <div v-if="showFaceDialog" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="closeFaceDialog">
-      <div class="glass-panel w-full max-w-3xl p-6 max-h-[80vh] overflow-y-auto">
+  <div v-if="showFaceDialog" class="fixed inset-0 admin-modal-backdrop flex items-center justify-center z-50" @click.self="closeFaceDialog">
+      <div class="glass-panel admin-photos-dialog w-full max-w-3xl p-6 max-h-[80vh] overflow-y-auto">
       <div class="flex items-center justify-between mb-4">
         <div>
           <h3 class="text-lg font-light">人脸标注 - {{ activePhoto?.filename }}</h3>
           <p class="text-sm text-gray-400">可为检测到的人脸设置姓名和说明</p>
         </div>
-        <button @click="closeFaceDialog" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">关闭</button>
+        <button @click="closeFaceDialog" class="admin-button-soft px-3 py-1 rounded text-sm">关闭</button>
       </div>
 
       <div v-if="faceLoading" class="text-gray-400">加载中...</div>
@@ -162,13 +163,13 @@
             <div class="flex-shrink-0">
               <div
                 v-if="getFaceImageUrl(face)"
-                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 overflow-hidden relative"
+                class="w-28 h-28 rounded-full admin-photos-avatar overflow-hidden relative"
                 :style="getFaceCropStyle(face)"
               >
               </div>
               <div
                 v-else
-                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center text-gray-500 text-xs"
+                class="w-28 h-28 rounded-full admin-photos-avatar flex items-center justify-center text-gray-500 text-xs"
               >
                 无图
               </div>
@@ -180,7 +181,7 @@
                 <input
                   v-model="face.personName"
                   placeholder="留空则移除当前人物关联"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  class="admin-field w-full px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
               </label>
               <label class="block space-y-1">
@@ -189,7 +190,7 @@
                   v-model="face.personDescription"
                   rows="2"
                   placeholder="例如：家庭成员、朋友、客户等"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  class="admin-field w-full px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 ></textarea>
               </label>
               <!-- 位置、置信度信息 -->
@@ -232,6 +233,7 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'

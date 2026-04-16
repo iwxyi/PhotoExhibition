@@ -24,6 +24,28 @@
           </div>
         </div>
         <div class="flex items-center gap-3">
+          <div v-if="currentAdminActions.length" class="relative">
+            <button class="btn-icon" @click.stop="toggleAdminMenu" title="管理操作">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6h.01M12 12h.01M12 18h.01" />
+              </svg>
+            </button>
+            <div
+              v-if="showAdminMenu"
+              class="absolute right-0 mt-2 min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.45)]"
+            >
+              <button
+                v-for="action in currentAdminActions"
+                :key="action.key"
+                class="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/8"
+                :class="action.tone === 'danger' ? 'text-rose-200' : 'text-white/90'"
+                @click.stop="triggerAdminAction(action.key)"
+              >
+                <span>{{ action.label }}</span>
+                <span v-if="action.tone === 'danger'" class="text-[11px] text-rose-300/80">高风险</span>
+              </button>
+            </div>
+          </div>
           <button class="btn-icon" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏查看'">
             <svg v-if="!isFullscreen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M4 4l6 6M20 16v4h-4m4 0l-6-6M16 4h4v4m0-4l-6 6M8 20H4v-4m0 4l6-6" />
@@ -669,6 +691,12 @@ import type { Photo } from '@/stores/photo'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
+type AdminMenuAction = {
+  key: string
+  label: string
+  tone?: 'default' | 'danger'
+}
+
 const props = defineProps<{
   photos: Photo[]
   visible: boolean
@@ -677,11 +705,13 @@ const props = defineProps<{
   forceShowFaces?: boolean  // 强制显示人脸框（用于人物管理页面）
   originRect?: { top: number; left: number; width: number; height: number } | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
+  adminMenuActions?: AdminMenuAction[] | null
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', val: boolean): void
   (e: 'viewer-index-change', payload: { index: number; photoId?: number; faceIds?: number[] }): void
+  (e: 'admin-action', payload: { key: string; photo?: Photo; index: number }): void
 }>()
 
 // 核心状态
@@ -692,6 +722,7 @@ const modalRoot = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const showFocusBox = ref(false)
 const showFaceBoxes = ref(false)
+const showAdminMenu = ref(false)
 // 标记是否正在切换图片（切换时禁用框体动画）
 const isSwitchingPhoto = ref(false)
 
@@ -728,10 +759,24 @@ const onWindowResize = () => {
   windowWidth.value = window.innerWidth
 }
 
+const toggleAdminMenu = () => {
+  showAdminMenu.value = !showAdminMenu.value
+}
+
+const triggerAdminAction = (key: string) => {
+  emit('admin-action', {
+    key,
+    photo: currentPhoto.value || undefined,
+    index: currentIndex.value
+  })
+  showAdminMenu.value = false
+}
+
 // 判断信息栏遮罩层是否需要显示（信息栏宽度超过窗口一半时显示，点击遮罩可关闭信息栏）
 const showInfoOverlay = computed(() => {
   return !infoCollapsed.value && infoPanelWidth.value > windowWidth.value / 2
 })
+const currentAdminActions = computed(() => props.adminMenuActions || [])
 
 // 记录鼠标/指针最近位置（用于触控板 pinch 时以“鼠标所在位置”为中心缩放）
 const lastPointerPos = ref({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
@@ -1026,6 +1071,7 @@ const currentAlbumPath = computed(() => {
 // 监听 visible 变化，重置状态
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
+    showAdminMenu.value = false
     // 打开查看器时，根据 startIndex 设置当前索引
     currentIndex.value = props.startIndex ?? 0
     // 标记为初始加载
@@ -1046,6 +1092,7 @@ watch(() => props.visible, (newVisible) => {
       forceShowFaces: props.forceShowFaces
     })
   } else {
+    showAdminMenu.value = false
     // 人脸框现在直接绑定在图片内部，无需清理
   }
 })
@@ -1053,6 +1100,7 @@ watch(() => props.visible, (newVisible) => {
 // 监听 startIndex 变化
 watch(() => props.startIndex, (newStartIndex) => {
   if (props.visible && newStartIndex !== undefined) {
+    showAdminMenu.value = false
     currentIndex.value = newStartIndex
     // 标记为非初始加载，避免切换时的透明度闪烁
     isInitialLoad.value = false
@@ -1180,6 +1228,7 @@ if (savedWidth) {
 
 // 基本功能函数
 const close = () => {
+  showAdminMenu.value = false
   emit('update:visible', false)
 }
 
@@ -1195,6 +1244,7 @@ const toggleFullscreen = () => {
 
 const prev = () => {
   if (!props.photos?.length) return
+  showAdminMenu.value = false
   const oldIndex = currentIndex.value
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true
@@ -1226,6 +1276,7 @@ const prev = () => {
 
 const next = () => {
   if (!props.photos?.length) return
+  showAdminMenu.value = false
   const oldIndex = currentIndex.value
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true

@@ -19,7 +19,7 @@
               name="username"
               type="text"
               required
-              class="appearance-none rounded-lg relative block w-full px-4 py-3 border border-gray-700 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              class="appearance-none rounded-lg relative block w-full px-4 py-3 border border-white/10 bg-white/5 placeholder:text-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="输入管理员用户名"
             />
           </div>
@@ -31,7 +31,7 @@
               name="password"
               type="password"
               required
-              class="appearance-none rounded-lg relative block w-full px-4 py-3 border border-gray-700 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              class="appearance-none rounded-lg relative block w-full px-4 py-3 border border-white/10 bg-white/5 placeholder:text-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="输入管理员密码"
             />
           </div>
@@ -83,7 +83,7 @@
           <button
             type="submit"
             :disabled="loading"
-            class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg !text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <span v-if="!loading">登录</span>
             <span v-else>登录中...</span>
@@ -100,14 +100,14 @@
         </div>
 
         <!-- 忘记密码帮助 -->
-        <div class="mt-6 bg-gray-800/50 border border-gray-600 rounded-lg p-4">
+        <div class="mt-6 rounded-lg border border-white/10 bg-white/5 p-4">
           <div class="text-center">
             <h3 class="text-sm font-medium text-gray-300 mb-2">
               忘记密码？
             </h3>
             <div class="text-xs text-gray-400 space-y-1">
               <p>如果您忘记了管理员密码，需要：</p>
-              <p class="font-mono bg-gray-900/50 px-2 py-1 rounded">
+              <p class="font-mono rounded border border-white/10 bg-white/8 px-2 py-1">
                 在数据库中删除 admin_user 表的所有记录
               </p>
               <p>然后使用默认账户重新登录：</p>

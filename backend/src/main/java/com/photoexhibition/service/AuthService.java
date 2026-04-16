@@ -373,6 +373,11 @@ public class AuthService {
     }
 
     @Transactional
+    public UserAccount saveUserAccount(UserAccount user) {
+        return userAccountRepository.save(user);
+    }
+
+    @Transactional
     public LoginResponse register(RegisterRequest request) {
         if (!systemConfigService.isMultiUserEnabled()) {
             throw new RuntimeException("系统未开启多用户注册");

@@ -1,5 +1,6 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
+  <div class="min-h-screen admin-shell admin-albums-page">
+    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-light">相册管理</h1>
@@ -8,7 +9,7 @@
           <button v-if="authStore.isSuperAdmin" v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary disabled:opacity-50">
             重新扫描
           </button>
-          <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
+          <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
         </div>
       </div>
 
@@ -1058,16 +1059,27 @@
                   <!-- 分割线 -->
                   <div class="border-t border-gray-600 my-1"></div>
 
-                  <!-- 隐藏/显示 -->
+                  <!-- 隐藏 -->
                   <button
-                    @click="togglePhotoHidden"
-                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+                    @click="togglePhotoHidden('hide')"
+                    :disabled="photoModalSelected.size === 0 || !hasVisiblePhotos"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
-                    {{ hasHiddenPhotos ? '显示' : '隐藏' }} ({{ photoModalSelected.size }})
+                    隐藏 ({{ visibleSelectedCount }})
+                  </button>
+                  <button
+                    @click="togglePhotoHidden('show')"
+                    :disabled="photoModalSelected.size === 0 || !hasHiddenPhotos"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.956 9.956 0 012.223-3.592m3.1-2.223A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a9.965 9.965 0 01-4.132 5.411M15 12a3 3 0 00-4.243-2.829M3 3l18 18" />
+                    </svg>
+                    显示 ({{ hiddenSelectedCount }})
                   </button>
                   <!-- 删除 -->
                   <button
@@ -1189,9 +1201,10 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, albumApi } from '@/api'
+import { api, albumApi, getEffectiveAuthToken } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { getEffectParamDefs } from '@/config/particlePresets'
 import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
@@ -2531,11 +2544,42 @@ const photoModalAlbum = ref<any>(null)
 const photoModalPhotos = ref<any[]>([])
 const photoModalSelected = ref<Set<number>>(new Set())
 const photoModalLoading = ref(false)
+
+const sortPhotoModalPhotos = (photos: any[]) => {
+  return [...photos].sort((left, right) => {
+    const leftHidden = Boolean(left?.isHidden)
+    const rightHidden = Boolean(right?.isHidden)
+    if (leftHidden !== rightHidden) {
+      return leftHidden ? 1 : -1
+    }
+    return 0
+  })
+}
 const photoMoveMenuVisible = ref(false)
 const photoMoveTargets = ref<any>({})
 // 菜单展开状态
 const photoMoveExpandedSiblings = ref(false)
 const photoMoveExpandedChildren = ref(false)
+
+const getAdminRequestConfig = () => {
+  const token = authStore.token || getEffectiveAuthToken()
+  return token
+    ? {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    : undefined
+}
+
+const getApiErrorMessage = (error: any, fallback: string) => {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    fallback
+  )
+}
 
 // 检查选中的照片是否有隐藏的
 const hasHiddenPhotos = computed(() => {
@@ -2544,31 +2588,58 @@ const hasHiddenPhotos = computed(() => {
   )
 })
 
+const hasVisiblePhotos = computed(() => {
+  return photoModalPhotos.value.some(
+    p => photoModalSelected.value.has(p.id) && !p.isHidden
+  )
+})
+
+const hiddenSelectedCount = computed(() => {
+  return photoModalPhotos.value.filter(
+    p => photoModalSelected.value.has(p.id) && p.isHidden
+  ).length
+})
+
+const visibleSelectedCount = computed(() => {
+  return photoModalPhotos.value.filter(
+    p => photoModalSelected.value.has(p.id) && !p.isHidden
+  ).length
+})
+
+const applyPhotoHiddenState = (targetHidden: boolean) => {
+  const selectedIds = photoModalSelected.value
+  photoModalPhotos.value = sortPhotoModalPhotos(
+    photoModalPhotos.value.map((photo: any) => (
+      selectedIds.has(photo.id)
+        ? { ...photo, isHidden: targetHidden }
+        : photo
+    ))
+  )
+  photoModalSelected.value = new Set()
+}
+
 // 切换照片隐藏/显示状态
-const togglePhotoHidden = async () => {
+const togglePhotoHidden = async (operation: 'hide' | 'show') => {
   if (photoModalSelected.value.size === 0) return
 
-  const operation = hasHiddenPhotos.value ? 'show' : 'hide'
-  const action = hasHiddenPhotos.value ? '显示' : '隐藏'
-  const count = photoModalSelected.value.size
-
-  if (!confirm(`确定${action}选中的 ${count} 张照片吗？`)) return
+  const action = operation === 'hide' ? '隐藏' : '显示'
+  const count = operation === 'hide' ? visibleSelectedCount.value : hiddenSelectedCount.value
+  if (count <= 0) return
 
   try {
     const res = await api.post('/admin/photos/batch', {
       operation,
       photoIds: Array.from(photoModalSelected.value)
-    })
+    }, getAdminRequestConfig())
     const result = res.data
 
     if (result.success) {
-      alert('✅ ' + result.message)
-      await refreshPhotoModalAfterChange()
+      applyPhotoHiddenState(operation === 'hide')
     } else {
-      alert(`${action}失败: ` + (result.message || '未知错误'))
+      alert(`${action}失败: ` + (result.message || result.error || '未知错误'))
     }
   } catch (e: any) {
-    alert(`${action}失败: ` + (e.response?.data?.message || e.message))
+    alert(`${action}失败: ` + getApiErrorMessage(e, '未知错误'))
   }
 }
 
@@ -2580,8 +2651,8 @@ const openPhotoManageModal = async (album: any) => {
   photoModalLoading.value = true
 
   try {
-    const res = await api.get(`/photos/album/${album.id}`, { params: { all: true } })
-    photoModalPhotos.value = res.data.content || []
+    const res = await api.get(`/photos/album/${album.id}`, { params: { all: true, includeHidden: true } })
+    photoModalPhotos.value = sortPhotoModalPhotos(res.data.content || [])
   } catch (e: any) {
     console.error('获取相册照片失败:', e)
     photoModalPhotos.value = []
@@ -2638,7 +2709,7 @@ const doMovePhotosTo = async (targetPath: string, conflictResolution?: string) =
       photoIds: Array.from(photoModalSelected.value),
       targetPath,
       conflictResolution: conflictResolution || null
-    })
+    }, getAdminRequestConfig())
     const result = res.data
 
     if (result.conflict) {
@@ -2652,10 +2723,10 @@ const doMovePhotosTo = async (targetPath: string, conflictResolution?: string) =
       photoConflictDialogVisible.value = false
       await refreshPhotoModalAfterChange()
     } else {
-      alert('移动失败: ' + (result.message || '未知错误'))
+      alert('移动失败: ' + (result.message || result.error || '未知错误'))
     }
   } catch (e: any) {
-    alert('移动失败: ' + (e.response?.data?.message || e.message))
+    alert('移动失败: ' + getApiErrorMessage(e, '未知错误'))
   }
 }
 
@@ -2670,8 +2741,8 @@ const refreshPhotoModalAfterChange = async () => {
   if (photoModalAlbum.value) {
     const albumId = photoModalAlbum.value.id
     try {
-      const res = await api.get(`/photos/album/${albumId}`, { params: { all: true } })
-      photoModalPhotos.value = res.data.content || []
+      const res = await api.get(`/photos/album/${albumId}`, { params: { all: true, includeHidden: true } })
+      photoModalPhotos.value = sortPhotoModalPhotos(res.data.content || [])
     } catch {
       photoModalPhotos.value = []
     }
@@ -2690,16 +2761,16 @@ const deleteSelectedPhotos = async () => {
   try {
     const res = await api.post('/admin/photos/batch-delete', {
       photoIds: Array.from(photoModalSelected.value)
-    })
+    }, getAdminRequestConfig())
     const result = res.data
     if (result.success) {
       alert('✅ ' + result.message)
       await refreshPhotoModalAfterChange()
     } else {
-      alert('删除失败: ' + (result.message || '未知错误'))
+      alert('删除失败: ' + (result.message || result.error || '未知错误'))
     }
   } catch (e: any) {
-    alert('删除失败: ' + (e.response?.data?.message || e.message))
+    alert('删除失败: ' + getApiErrorMessage(e, '未知错误'))
   }
 }
 

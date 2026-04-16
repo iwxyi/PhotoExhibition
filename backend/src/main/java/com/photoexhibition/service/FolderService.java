@@ -391,6 +391,7 @@ public class FolderService {
 
         Path normalizedRoot = scopedRoot == null ? null : scopedRoot.toAbsolutePath().normalize();
         Path parent = dir.getParent();
+        result.put("currentDirectoryAlbum", buildAlbumMetadataMap(findAlbumByDirectoryPath(dir).orElse(null)));
         result.put("path", toClientBrowserPath(dir, scopedRoot));
         result.put("parent", parent != null
             && (normalizedRoot == null || (parent.startsWith(normalizedRoot) && !parent.equals(normalizedRoot)))
@@ -903,6 +904,17 @@ public class FolderService {
         map.put("webpPath", toRelativePath(photo.getWebpPath()));
         map.put("width", photo.getWidth());
         map.put("height", photo.getHeight());
+        map.put("isHidden", Boolean.TRUE.equals(photo.getIsHidden()));
+        map.put("tags", photo.getTags() == null ? List.of() : photo.getTags().stream()
+            .sorted(java.util.Comparator.comparing(com.photoexhibition.entity.Tag::getName, String.CASE_INSENSITIVE_ORDER))
+            .map(tag -> {
+                Map<String, Object> item = new HashMap<>();
+                item.put("id", tag.getId());
+                item.put("name", tag.getName());
+                item.put("color", tag.getColor());
+                return item;
+            })
+            .collect(Collectors.toList()));
         return map;
     }
 
@@ -1198,6 +1210,17 @@ public class FolderService {
         if (result == null) {
             return;
         }
+        Path currentRelativePath = Path.of("");
+        Object currentPathValue = result.get("path");
+        if (currentPathValue != null) {
+            String browserPath = String.valueOf(currentPathValue);
+            if (browserPath != null && !browserPath.isBlank() && !"/".equals(browserPath)) {
+                currentRelativePath = Path.of(browserPath.replaceFirst("^/+", ""));
+            }
+        }
+        result.put("currentDirectoryAlbum", buildAlbumMetadataMap(
+            findAlbumByStoredPath(buildManagedStoredPath(provider, user, currentRelativePath)).orElse(null)
+        ));
         Object directoriesObject = result.get("directories");
         if (!(directoriesObject instanceof List<?>)) {
             return;
@@ -1289,21 +1312,29 @@ public class FolderService {
         if (target == null) {
             return;
         }
+        target.putAll(buildAlbumMetadataMap(album));
+    }
+
+    private Map<String, Object> buildAlbumMetadataMap(Album album) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
         if (album == null) {
-            target.put("albumBound", false);
-            target.put("albumId", null);
-            target.put("albumHidden", false);
-            target.put("albumAggregateSubAlbums", false);
-            target.put("albumHasCustomCover", false);
-            target.put("albumDescription", null);
-            return;
+            metadata.put("albumBound", false);
+            metadata.put("albumId", null);
+            metadata.put("albumHidden", false);
+            metadata.put("albumAggregateSubAlbums", false);
+            metadata.put("albumHasCustomCover", false);
+            metadata.put("albumDescription", null);
+            return metadata;
         }
-        target.put("albumBound", true);
-        target.put("albumId", album.getId());
-        target.put("albumHidden", Boolean.TRUE.equals(album.getIsHidden()));
-        target.put("albumAggregateSubAlbums", Boolean.TRUE.equals(album.getAggregateSubAlbums()));
-        target.put("albumHasCustomCover", album.getCoverImageIds() != null && !album.getCoverImageIds().isBlank());
-        target.put("albumDescription", album.getDescription());
+        metadata.put("albumBound", true);
+        metadata.put("albumId", album.getId());
+        metadata.put("albumHidden", Boolean.TRUE.equals(album.getIsHidden()));
+        metadata.put("albumAggregateSubAlbums", Boolean.TRUE.equals(album.getAggregateSubAlbums()));
+        metadata.put("albumHasCustomCover", album.getCoverImageIds() != null && !album.getCoverImageIds().isBlank());
+        metadata.put("albumDescription", album.getDescription());
+        metadata.put("albumPhotoSortOrder", album.getPhotoSortOrder());
+        metadata.put("albumDownloadAllowed", album.getDownloadAllowed());
+        return metadata;
     }
 
     private Map<String, Object> buildDeletePreviewForDirectory(com.photoexhibition.entity.StorageProvider provider,
