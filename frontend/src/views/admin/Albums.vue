@@ -16,11 +16,11 @@
       <div class="glass-panel p-4 mb-6">
         <div class="flex flex-wrap gap-4">
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">搜索相册</span>
-            <input v-model="keyword" placeholder="按名称或路径关键词搜索" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <span class="admin-albums-field-label text-sm text-gray-300">搜索相册</span>
+            <input v-model="keyword" placeholder="按名称或路径关键词搜索" class="admin-field admin-albums-field px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </label>
-          <button v-on:click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
-          <span v-if="loading && albums.length === 0" class="text-sm text-gray-400 py-2">加载中...</span>
+          <button v-on:click="load" :disabled="loading" class="admin-button-soft px-4 py-2 rounded-lg text-sm disabled:opacity-50">查询</button>
+          <span v-if="loading && albums.length === 0" class="admin-albums-empty-state text-sm text-gray-400 py-2">加载中...</span>
         </div>
       </div>
 
@@ -28,7 +28,7 @@
         <div
           v-for="album in albums"
           :key="album.id"
-          class="glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
+          class="admin-albums-card glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
           :class="{ 'opacity-50': album.isHidden }"
         >
           <!-- 封面预览 -->
@@ -69,18 +69,18 @@
                 <h3 class="text-base font-medium truncate" :title="album.displayTitle || album.name">
                   {{ album.displayTitle || album.name }}
                 </h3>
-                <span class="text-xs text-gray-500">
+                <span class="admin-albums-meta text-xs text-gray-500">
                   {{ formatDate(album.takenAt) }}
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <p class="text-xs text-gray-400 truncate flex-grow" :title="album.relativePath">
+                <p class="admin-albums-meta text-xs text-gray-400 truncate flex-grow" :title="album.relativePath">
                   {{ album.relativePath || album.path }}
                 </p>
                 <!-- 更多菜单按钮 -->
                 <button
                   @click="openMenu($event, album)"
-                  class="p-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors flex-shrink-0"
+                  class="admin-button-soft p-1 rounded text-xs transition-colors flex-shrink-0"
                   title="更多操作"
                 >
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -98,7 +98,7 @@
                   <span
                     v-for="effect in album.atmosphereEffects"
                     :key="effect.type"
-                    class="px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-md text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500/30 transition-colors"
+                    class="admin-albums-effect-pill px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-md text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500/30 transition-colors"
                     :title="'点击编辑特效: ' + getEffectDisplayName(effect.type)"
                     @click.stop="editAlbumEffects(album)"
                   >
@@ -116,14 +116,14 @@
                   <span
                     v-for="t in album.tags"
                     :key="t.id"
-                    class="px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-blue-500/30 transition-colors"
+                    class="admin-albums-tag-pill px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-blue-500/30 transition-colors"
                     :title="'点击编辑标签'"
                     @click.stop="editAlbumTags(album)"
                   >
                     {{ t.name }}
                     <button
                       v-on:click.stop="removeTag(album, t.id)"
-                      class="hover:text-red-400"
+                      class="admin-albums-tag-remove hover:text-red-400"
                       title="移除标签"
                     >
                       ×
@@ -133,7 +133,7 @@
               </div>
 
               <!-- 备注 -->
-              <div v-if="album.description" class="text-xs text-gray-300 bg-gray-900/50 p-1.5 rounded line-clamp-2">
+              <div v-if="album.description" class="admin-albums-description text-xs text-gray-300 bg-gray-900/50 p-1.5 rounded line-clamp-2">
                 {{ album.description }}
               </div>
             </div>
@@ -151,7 +151,7 @@
       >
         <!-- 菜单毛玻璃背景 -->
         <div
-          class="absolute glass-menu rounded-lg shadow-2xl z-10 w-48"
+          class="absolute glass-menu admin-albums-menu admin-albums-menu--album rounded-lg shadow-2xl z-10 w-48"
           :style="menuStyle"
           @click.stop
         >
@@ -236,7 +236,7 @@
               <!-- 移动至子菜单 - 使用绝对定位和 JS 控制显示，移除间隙避免鼠标移出隐藏 -->
               <div
                 v-show="showMoveMenu"
-                class="absolute glass-menu rounded-lg shadow-2xl z-20"
+                class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-20"
                 :style="subMenuStyle"
               >
                 <div class="py-1">
@@ -249,7 +249,7 @@
                     <!-- 分类子菜单 -->
                     <div
                       v-show="showCatMenu"
-                      class="absolute glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
                       :style="subSubMenuStyle"
                     >
                       <div class="py-1">
@@ -285,7 +285,7 @@
                     <!-- 下一级子菜单 -->
                     <div
                       v-show="showChildMenu"
-                      class="absolute glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
                       :style="subSubMenuStyle"
                     >
                       <div class="py-1">
@@ -316,7 +316,7 @@
                     <!-- 合并至同级子菜单 -->
                     <div
                       v-show="showMergeMenu"
-                      class="absolute glass-menu rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
+                      class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
                       :style="subSubMenuStyle"
                     >
                       <div class="py-1">
@@ -356,7 +356,7 @@
             <!-- 删除菜单项 -->
             <button
               @click="deleteAlbum(showMenuForAlbum)"
-              class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-900/50 flex items-center gap-2"
+              class="admin-albums-menu__button admin-albums-menu__button--danger w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-900/50 flex items-center gap-2"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -375,7 +375,7 @@
               <div class="flex items-center">
                 <div
                   :class="showMenuForAlbum.aggregateSubAlbums ? 'bg-green-500' : 'bg-gray-600'"
-                  class="w-3 h-3 rounded-full transition-colors"
+                  class="admin-albums-toggle-dot w-3 h-3 rounded-full transition-colors"
                 ></div>
               </div>
             </button>
@@ -389,11 +389,11 @@
             </button>
             <!-- 设置排序方式菜单项 -->
             <div class="px-4 py-2">
-              <label class="block text-xs text-gray-400 mb-1">相册排序方式</label>
+              <label class="admin-albums-field-label block text-xs text-gray-400 mb-1">相册排序方式</label>
               <select
                 :value="showMenuForAlbum.photoSortOrder"
                 @change="setAlbumSortOrder(showMenuForAlbum, ($event.target as HTMLSelectElement).value)"
-                class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                class="admin-field admin-albums-inline-select w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">跟随全局设置</option>
                 <option value="taken_at_desc">拍摄时间倒序</option>
@@ -407,11 +407,11 @@
 
             <!-- 下载权限设置 -->
             <div class="px-4 py-2">
-              <label class="block text-xs text-gray-400 mb-1">下载权限</label>
+              <label class="admin-albums-field-label block text-xs text-gray-400 mb-1">下载权限</label>
               <select
                 :value="showMenuForAlbum.downloadAllowed"
                 @change="setAlbumDownloadAllowed(showMenuForAlbum, ($event.target as HTMLSelectElement).value)"
-                class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                class="admin-field admin-albums-inline-select w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">跟随全局设置</option>
                 <option :value="true">允许下载</option>
@@ -430,53 +430,53 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeAllMenus"
       >
-        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--tag rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">添加标签</h3>
           <div class="mb-4">
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">标签名称</span>
+              <span class="admin-albums-field-label text-sm text-gray-300">标签名称</span>
               <input
                 ref="tagInputRef"
                 v-model="tagKeyword"
                 v-on:input="searchTags"
                 placeholder="搜索已有标签或输入新标签名称"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field admin-albums-field w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 v-on:keyup.enter="confirmAddTag"
               />
             </label>
           </div>
           <!-- 标签候选：瀑布流胶囊布局 -->
-          <div class="max-h-60 overflow-auto mb-4 border border-gray-700 rounded bg-gray-900/60">
+          <div class="admin-albums-tag-results max-h-60 overflow-auto mb-4 border border-gray-700 rounded bg-gray-900/60">
             <div v-if="filteredTags.length > 0" class="p-2">
               <div class="flex flex-wrap gap-2">
                 <button
                   v-for="tag in filteredTags"
                   :key="tag.id"
                   v-on:click="selectTag(tag)"
-                  class="px-3 py-1 rounded-full bg-gray-700 hover:bg-blue-600 text-xs text-gray-100 border border-gray-500 transition-colors cursor-pointer"
+                  class="admin-albums-tag-candidate px-3 py-1 rounded-full bg-gray-700 hover:bg-blue-600 text-xs text-gray-100 border border-gray-500 transition-colors cursor-pointer"
                 >
                   {{ tag.name }}
                 </button>
               </div>
             </div>
-            <div v-else-if="tagKeyword.trim()" class="px-3 py-2 text-gray-200 text-sm">
+            <div v-else-if="tagKeyword.trim()" class="admin-albums-note px-3 py-2 text-gray-200 text-sm">
               没有找到标签 "{{ tagKeyword }}"，点击确定创建新标签
             </div>
-            <div v-else class="px-3 py-2 text-gray-200 text-sm">
+            <div v-else class="admin-albums-note px-3 py-2 text-gray-200 text-sm">
               请输入标签名称
             </div>
           </div>
           <div class="flex gap-2">
             <button
               v-on:click="confirmAddTag"
-              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50"
+              class="admin-button-primary flex-1 px-4 py-2 rounded text-sm disabled:opacity-50"
               :disabled="!tagKeyword.trim()"
             >
               确定
             </button>
             <button
               v-on:click="tagDialogVisible = false"
-              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft flex-1 px-4 py-2 rounded text-sm"
             >
               取消
             </button>
@@ -492,10 +492,10 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeAllMenus"
       >
-        <div class="glass-dialog rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--effects rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-6 pb-4">
-            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效： <span class="text-sm text-gray-400 mb-4"><strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong></span></h3>
+            <h3 class="text-lg font-medium mb-4 text-gray-100">设置相册特效： <span class="admin-albums-note text-sm text-gray-400 mb-4"><strong>{{ currentAlbum?.displayTitle || currentAlbum?.name }}</strong></span></h3>
           </div>
 
           <!-- 可滚动内容区域 -->
@@ -503,24 +503,24 @@
 
             <!-- 当前特效列表 -->
             <div class="mb-4">
-              <h4 class="text-sm font-medium text-gray-300 mb-2">当前特效</h4>
-              <div v-if="currentEffects.length === 0" class="text-sm text-gray-500 italic">
+              <h4 class="admin-albums-subtitle text-sm font-medium text-gray-300 mb-2">当前特效</h4>
+              <div v-if="currentEffects.length === 0" class="admin-albums-empty-state text-sm text-gray-500 italic">
                 暂无特效，可从下方添加
               </div>
               <div v-else class="space-y-2">
                 <div
                   v-for="(effect, index) in currentEffects"
                   :key="index"
-                  class="bg-gray-700/50 rounded p-3"
+                  class="admin-albums-effect-card bg-gray-700/50 rounded p-3"
                 >
                   <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium">{{ getEffectName(effect.type) }}</span>
-                      <span class="text-xs text-gray-400">({{ getIntensityDisplay(effect.intensity || 'medium') }})</span>
+                      <span class="admin-albums-note text-xs text-gray-400">({{ getIntensityDisplay(effect.intensity || 'medium') }})</span>
                     </div>
                     <button
                       @click="removeEffect(index)"
-                      class="text-red-400 hover:text-red-300 text-sm"
+                      class="admin-albums-effect-remove text-red-400 hover:text-red-300 text-sm"
                       title="移除特效"
                     >
                       ✕
@@ -529,11 +529,11 @@
                   <!-- 预设强度选择 -->
                   <div class="flex items-center gap-4 mb-3">
                     <div class="flex items-center gap-2">
-                      <label class="text-xs text-gray-400">预设强度:</label>
+                      <label class="admin-albums-field-label text-xs text-gray-400">预设强度:</label>
                       <select
                         :value="effect.intensity || 'medium'"
                         @change="updateEffectIntensity(index, ($event.target as HTMLSelectElement).value)"
-                        class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+                        class="admin-field admin-albums-inline-select px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
                       >
                         <option value="low">低</option>
                         <option value="medium">中</option>
@@ -542,11 +542,11 @@
                       </select>
                     </div>
                     <div class="flex items-center gap-2">
-                      <label class="text-xs text-gray-400">层级:</label>
+                      <label class="admin-albums-field-label text-xs text-gray-400">层级:</label>
                       <select
                         :value="effect.layer || 'above'"
                         @change="updateEffectLayer(index, ($event.target as HTMLSelectElement).value)"
-                        class="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
+                        class="admin-field admin-albums-inline-select px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-200"
                       >
                         <option value="above">图片上方</option>
                         <option value="background">背景层</option>
@@ -556,21 +556,21 @@
 
                   <!-- 按类型显示对应参数 -->
                   <div class="space-y-2">
-                    <div class="text-xs text-gray-400 mb-2">自定义参数 (1-10):</div>
+                    <div class="admin-albums-field-label text-xs text-gray-400 mb-2">自定义参数 (1-10):</div>
                     <div class="grid grid-cols-2 gap-3">
                       <div
                         v-for="param in getEffectParams(effect.type)"
                         :key="param.key"
                         class="flex flex-col"
                       >
-                        <label class="text-xs text-gray-400 mb-1">{{ param.label }}: {{ getCustomValue(effect, param.key) }}</label>
+                        <label class="admin-albums-field-label text-xs text-gray-400 mb-1">{{ param.label }}: {{ getCustomValue(effect, param.key) }}</label>
                         <input
                           type="range"
                           :min="param.min || 1"
                           :max="param.max || 10"
                           :value="getCustomValue(effect, param.key)"
                           @input="updateCustomParam(index, param.key, parseInt(($event.target as HTMLInputElement).value))"
-                          class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                          class="admin-albums-slider w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
                         />
                       </div>
                     </div>
@@ -581,17 +581,17 @@
 
             <!-- 添加特效 -->
             <div class="mb-6">
-              <h4 class="text-sm font-medium text-gray-300 mb-3">添加特效</h4>
+              <h4 class="admin-albums-subtitle text-sm font-medium text-gray-300 mb-3">添加特效</h4>
               <div class="max-h-60 overflow-y-auto">
                 <div class="grid grid-cols-3 gap-3">
                   <div
                     v-for="effect in availableEffects"
                     :key="effect.type"
                     :class="[
-                      'border rounded p-3 cursor-pointer transition-colors relative',
+                      'admin-albums-effect-option border rounded p-3 cursor-pointer transition-colors relative',
                       isEffectSelected(effect.type)
-                        ? 'border-blue-500 bg-blue-500/20 text-blue-100'
-                        : 'border-gray-600 hover:border-blue-500/50 hover:bg-gray-700/30'
+                        ? 'admin-albums-effect-option--active border-blue-500 bg-blue-500/20 text-blue-100'
+                        : 'admin-albums-effect-option--idle border-gray-600 hover:border-blue-500/50 hover:bg-gray-700/30'
                     ]"
                     @click="toggleEffect(effect)"
                   >
@@ -604,7 +604,7 @@
                       class="absolute top-1 right-1 px-1.5 py-0.5 bg-emerald-500/30 border border-emerald-500/50 rounded text-[10px] text-emerald-300 leading-none"
                     >Canvas</span>
                     <div class="font-medium text-sm">{{ effect.name }}</div>
-                    <div class="text-xs text-gray-400 mt-1">{{ effect.description }}</div>
+                    <div class="admin-albums-note text-xs text-gray-400 mt-1">{{ effect.description }}</div>
                   </div>
                 </div>
               </div>
@@ -616,14 +616,14 @@
           <div class="flex gap-3 p-6 pt-4 border-t border-gray-700">
             <button
               @click="saveAtmosphereEffects"
-              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50"
+              class="admin-button-primary flex-1 px-4 py-2 rounded text-sm disabled:opacity-50"
               :disabled="!currentAlbum"
             >
               保存
             </button>
             <button
               @click="effectsDialogVisible = false"
-              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft flex-1 px-4 py-2 rounded text-sm"
             >
               取消
             </button>
@@ -639,13 +639,13 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="coverDialogVisible = false"
       >
-        <div class="glass-dialog rounded-lg max-w-4xl w-full max-h-[80vh] flex flex-col text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--cover rounded-lg max-w-4xl w-full max-h-[80vh] flex flex-col text-gray-100">
           <!-- 头部 -->
           <div class="p-4 border-b border-gray-700 flex items-center justify-between">
             <h3 class="text-lg font-medium">设置封面</h3>
             <button
               @click="coverDialogVisible = false"
-              class="text-gray-400 hover:text-white"
+              class="admin-albums-dialog-close text-gray-400 hover:text-white"
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -655,12 +655,12 @@
 
           <!-- 已选封面预览 -->
           <div class="p-4 bg-gray-900/50 border-b border-gray-700">
-            <div class="text-sm text-gray-400 mb-2">已选封面 ({{ selectedCoverIds.length }}/4)</div>
+            <div class="admin-albums-note text-sm text-gray-400 mb-2">已选封面 ({{ selectedCoverIds.length }}/4)</div>
             <div class="flex gap-2">
               <div
                 v-for="id in selectedCoverIds"
                 :key="id"
-                class="relative w-20 h-20 rounded overflow-hidden border-2 border-blue-500"
+                class="admin-albums-cover-preview relative w-20 h-20 rounded overflow-hidden border-2 border-blue-500"
               >
                 <img
                   :src="getPhotoUrl(coverDialogPhotos.find(p => p.id === id))"
@@ -668,17 +668,17 @@
                 />
                 <button
                   @click="toggleCoverSelection(coverDialogPhotos.find(p => p.id === id))"
-                  class="absolute top-0 right-0 bg-red-500 text-white w-5 h-5 flex items-center justify-center text-xs"
+                  class="admin-albums-cover-remove absolute top-0 right-0 bg-red-500 text-white w-5 h-5 flex items-center justify-center text-xs"
                 >
                   ×
                 </button>
-                <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-center text-xs py-0.5">
+                <div class="admin-albums-cover-order absolute bottom-0 left-0 right-0 bg-black/60 text-center text-xs py-0.5">
                   {{ getCoverIndex(id) }}
                 </div>
               </div>
               <div
                 v-if="selectedCoverIds.length === 0"
-                class="text-gray-500 text-sm flex items-center"
+                class="admin-albums-empty-state text-gray-500 text-sm flex items-center"
               >
                 未选择封面，将使用自动生成的封面
               </div>
@@ -687,18 +687,18 @@
 
           <!-- 照片列表 -->
           <div class="flex-1 overflow-y-auto p-4">
-            <div v-if="coverDialogLoading" class="text-center py-8 text-gray-400">
+            <div v-if="coverDialogLoading" class="admin-albums-empty-state text-center py-8 text-gray-400">
               加载中...
             </div>
-            <div v-else-if="coverDialogPhotos.length === 0" class="text-center py-8 text-gray-400">
+            <div v-else-if="coverDialogPhotos.length === 0" class="admin-albums-empty-state text-center py-8 text-gray-400">
               暂无照片
             </div>
             <div v-else class="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-              <div
-                v-for="photo in coverDialogPhotos"
-                :key="photo.id"
-                :class="[
-                  'relative aspect-square rounded overflow-hidden cursor-pointer transition-all',
+                <div
+                  v-for="photo in coverDialogPhotos"
+                  :key="photo.id"
+                  :class="[
+                  'admin-albums-cover-option relative aspect-square rounded overflow-hidden cursor-pointer transition-all',
                   isCoverSelected(photo.id) ? 'ring-2 ring-blue-500' : 'hover:ring-2 hover:ring-gray-400'
                 ]"
                 @click="toggleCoverSelection(photo)"
@@ -711,7 +711,7 @@
                 <!-- 选中标记 -->
                 <div
                   v-if="isCoverSelected(photo.id)"
-                  class="absolute inset-0 bg-blue-500/30 flex items-center justify-center"
+                  class="admin-albums-cover-selected absolute inset-0 bg-blue-500/30 flex items-center justify-center"
                 >
                   <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center font-bold text-white">
                     {{ getCoverIndex(photo.id) }}
@@ -725,7 +725,7 @@
           <div class="p-4 border-t border-gray-700 flex gap-3">
             <button
               @click="clearCover"
-              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft px-4 py-2 rounded text-sm"
               :disabled="selectedCoverIds.length === 0"
             >
               清除封面
@@ -733,13 +733,13 @@
             <div class="flex-1"></div>
             <button
               @click="coverDialogVisible = false"
-              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft px-4 py-2 rounded text-sm"
             >
               取消
             </button>
             <button
               @click="saveCover"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+              class="admin-button-primary px-4 py-2 rounded text-sm"
             >
               保存
             </button>
@@ -755,28 +755,28 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="descriptionDialogVisible = false"
       >
-        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--description rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">编辑备注</h3>
           <label class="block space-y-2">
-            <span class="text-sm text-gray-300">相册备注</span>
+            <span class="admin-albums-field-label text-sm text-gray-300">相册备注</span>
             <textarea
               ref="descriptionInputRef"
               v-model="descriptionInput"
               rows="4"
               placeholder="输入相册说明、拍摄背景或其它备注"
-              class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              class="admin-field admin-albums-field w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             ></textarea>
           </label>
           <div class="flex gap-3 mt-4">
             <button
               @click="saveDescription"
-              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm"
+              class="admin-button-primary flex-1 px-4 py-2 rounded text-sm"
             >
               保存
             </button>
             <button
               @click="descriptionDialogVisible = false"
-              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft flex-1 px-4 py-2 rounded text-sm"
             >
               取消
             </button>
@@ -792,28 +792,28 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="renameDialogVisible = false"
       >
-        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--rename rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-4 text-gray-100">重命名相册</h3>
           <label class="block space-y-2">
-            <span class="text-sm text-gray-300">相册新名称</span>
+            <span class="admin-albums-field-label text-sm text-gray-300">相册新名称</span>
             <input
               ref="nameInputRef"
               v-model="nameInput"
               placeholder="输入新的相册名称"
-              class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-albums-field w-full px-3 py-2 bg-gray-700/50 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               @keyup.enter="saveName"
             />
           </label>
           <div class="flex gap-3 mt-4">
             <button
               @click="saveName"
-              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm"
+              class="admin-button-primary flex-1 px-4 py-2 rounded text-sm"
             >
               保存
             </button>
             <button
               @click="renameDialogVisible = false"
-              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft flex-1 px-4 py-2 rounded text-sm"
             >
               取消
             </button>
@@ -829,35 +829,35 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="moveConflictDialogVisible = false"
       >
-        <div class="glass-dialog rounded-lg p-6 max-w-lg w-full text-gray-100">
-          <h3 class="text-lg font-medium mb-3 text-yellow-400 flex items-center gap-2">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--move-conflict rounded-lg p-6 max-w-lg w-full text-gray-100">
+          <h3 class="admin-albums-warning-title text-lg font-medium mb-3 text-yellow-400 flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
             同名文件夹冲突
           </h3>
-          <p class="text-sm text-gray-300 mb-3">{{ moveConflictInfo.message }}</p>
+          <p class="admin-albums-note text-sm text-gray-300 mb-3">{{ moveConflictInfo.message }}</p>
           <!-- 文件清单 -->
           <div v-if="moveConflictInfo.conflictFiles && moveConflictInfo.conflictFiles.length > 0" class="mb-4 max-h-40 overflow-y-auto bg-gray-900/60 rounded p-2 border border-gray-700">
-            <div class="text-xs text-gray-400 mb-1">目标文件夹内的文件：</div>
-            <div v-for="f in moveConflictInfo.conflictFiles" :key="f" class="text-xs text-gray-300 py-0.5 truncate" :title="f">
+            <div class="admin-albums-field-label text-xs text-gray-400 mb-1">目标文件夹内的文件：</div>
+            <div v-for="f in moveConflictInfo.conflictFiles" :key="f" class="admin-albums-note text-xs text-gray-300 py-0.5 truncate" :title="f">
               📄 {{ f }}
             </div>
           </div>
           <div class="flex flex-col gap-2">
             <button
               @click="executeMoveWithResolution('overwrite')"
-              class="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm flex items-center justify-center gap-2"
+              class="admin-button-danger w-full px-4 py-2 rounded text-sm flex items-center justify-center gap-2"
             >
               覆盖（删除目标文件夹内容后移动）
             </button>
             <button
               @click="executeMoveWithResolution('rename')"
-              class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm flex items-center justify-center gap-2"
+              class="admin-button-primary w-full px-4 py-2 rounded text-sm flex items-center justify-center gap-2"
             >
               重命名为 "{{ moveConflictInfo.suggestedNewName }}"
             </button>
             <button
               @click="moveConflictDialogVisible = false"
-              class="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft w-full px-4 py-2 rounded text-sm"
             >
               取消
             </button>
@@ -873,27 +873,27 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="pathPickerVisible = false"
       >
-        <div class="glass-dialog rounded-lg max-w-lg w-full max-h-[70vh] flex flex-col text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--path-picker rounded-lg max-w-lg w-full max-h-[70vh] flex flex-col text-gray-100">
           <div class="p-4 border-b border-gray-700">
             <h3 class="text-lg font-medium">选择目标路径</h3>
-            <p class="text-xs text-gray-400 mt-1">将相册 "{{ pathPickerAlbum?.displayTitle || pathPickerAlbum?.name }}" 移动到选定目录</p>
+            <p class="admin-albums-note text-xs text-gray-400 mt-1">将相册 "{{ pathPickerAlbum?.displayTitle || pathPickerAlbum?.name }}" 移动到选定目录</p>
           </div>
           <!-- 当前路径 -->
           <div class="px-4 py-2 bg-gray-900/50 border-b border-gray-700 flex items-center gap-2">
-            <span class="text-xs text-gray-400">当前：</span>
-            <span class="text-xs text-gray-200 truncate flex-1" :title="pathPickerCurrentPath">{{ pathPickerCurrentPath }}</span>
+            <span class="admin-albums-field-label text-xs text-gray-400">当前：</span>
+            <span class="admin-albums-note text-xs text-gray-200 truncate flex-1" :title="pathPickerCurrentPath">{{ pathPickerCurrentPath }}</span>
             <button
               v-if="pathPickerParentPath"
               @click="navigatePathPicker(pathPickerParentPath)"
-              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs flex-shrink-0"
+              class="admin-button-soft px-2 py-1 rounded text-xs flex-shrink-0"
             >
               ↑ 上级
             </button>
           </div>
           <!-- 目录列表 -->
           <div class="flex-1 overflow-y-auto p-2">
-            <div v-if="pathPickerLoading" class="text-center py-4 text-gray-400 text-sm">加载中...</div>
-            <div v-else-if="pathPickerDirs.length === 0" class="text-center py-4 text-gray-500 text-sm">该目录下无子目录</div>
+            <div v-if="pathPickerLoading" class="admin-albums-empty-state text-center py-4 text-gray-400 text-sm">加载中...</div>
+            <div v-else-if="pathPickerDirs.length === 0" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">该目录下无子目录</div>
             <div v-else>
               <button
                 v-for="dir in pathPickerDirs"
@@ -902,7 +902,7 @@
                 @click="selectPickerDir(dir)"
                 :class="[
                   'w-full text-left px-3 py-2 rounded text-sm flex items-center gap-2 mb-1',
-                  pathPickerSelectedDir?.path === dir.path ? 'bg-blue-600/30 border border-blue-500/50' : 'hover:bg-gray-700/50'
+                  pathPickerSelectedDir?.path === dir.path ? 'admin-albums-picker-option admin-albums-picker-option--active bg-blue-600/30 border border-blue-500/50' : 'admin-albums-picker-option hover:bg-gray-700/50'
                 ]"
               >
                 <svg class="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
@@ -912,18 +912,18 @@
           </div>
           <!-- 底部按钮 -->
           <div class="p-4 border-t border-gray-700 flex gap-3">
-            <div class="text-xs text-gray-400 flex-1 self-center truncate">
+            <div class="admin-albums-note text-xs text-gray-400 flex-1 self-center truncate">
               移动到：{{ pathPickerSelectedDir?.path || pathPickerCurrentPath }}
             </div>
             <button
               @click="pathPickerVisible = false"
-              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft px-4 py-2 rounded text-sm"
             >
               取消
             </button>
             <button
               @click="confirmPathPicker"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+              class="admin-button-primary px-4 py-2 rounded text-sm"
             >
               确认移动
             </button>
@@ -939,14 +939,14 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closePhotoModal"
       >
-        <div class="glass-dialog rounded-lg w-full sm:max-w-5xl max-h-[90vh] sm:max-h-[85vh] flex flex-col text-gray-100 overflow-hidden">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--photos rounded-lg w-full sm:max-w-5xl max-h-[90vh] sm:max-h-[85vh] flex flex-col text-gray-100 overflow-hidden">
           <!-- Header -->
           <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border-b border-gray-600/50 flex-shrink-0 gap-2">
             <div class="flex-1 min-w-0">
               <h3 class="text-base sm:text-lg font-medium truncate">{{ photoModalAlbum?.displayTitle || photoModalAlbum?.name }}</h3>
               <div class="flex items-center gap-2 text-xs text-gray-400 mt-1">
                 <span>{{ photoModalPhotos.length }} 张照片</span>
-                <span v-if="photoModalSelected.size > 0" class="text-blue-400">
+                <span v-if="photoModalSelected.size > 0" class="admin-albums-selection-note text-blue-400">
                   已选 {{ photoModalSelected.size }} 张
                 </span>
               </div>
@@ -956,7 +956,7 @@
               <button
                 v-if="photoModalPhotos.length > 0"
                 @click="toggleSelectAllPhotos"
-                class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+                class="admin-button-soft px-3 py-1.5 rounded text-xs transition-colors"
               >
                 {{ photoModalSelected.size === photoModalPhotos.length ? '取消全选' : '全选' }}
               </button>
@@ -967,7 +967,7 @@
                 :offset="4"
               >
                 <template #trigger>
-                  <button class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded text-xs transition-colors flex items-center gap-1">
+                  <button class="admin-button-primary px-3 py-1.5 rounded text-xs transition-colors flex items-center gap-1">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                     </svg>
@@ -975,11 +975,11 @@
                   </button>
                 </template>
 
-                <div class="w-56 glass-menu rounded-lg shadow-2xl py-1">
+                <div class="w-56 glass-menu admin-albums-menu admin-albums-menu--photo rounded-lg shadow-2xl py-1">
                   <!-- 移动至 -->
                   <DropMenu trigger="hover" placement="right" :offset="2">
                     <template #trigger>
-                      <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                      <button class="admin-albums-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                         <span class="flex items-center gap-2">
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -992,12 +992,12 @@
                       </button>
                     </template>
 
-                    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]">
+                    <div class="glass-menu admin-albums-menu admin-albums-menu--photo-sub rounded-lg shadow-xl py-1 min-w-[180px]">
                       <!-- 上一级 -->
                       <button
                         v-if="photoMoveTargets.parentDir"
                         @click="doMovePhotosTo(photoMoveTargets.parentDir.path)"
-                        class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                        class="admin-albums-menu__button w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
                         :title="photoMoveTargets.parentDir.name"
                       >
                         ⬆️ 上一级 ({{ photoMoveTargets.parentDir.name }})
@@ -1005,19 +1005,19 @@
                       <!-- 同级目录 -->
                       <DropMenu v-if="photoMoveTargets.siblingDirs?.length > 0" trigger="hover" placement="right" :offset="2">
                         <template #trigger>
-                          <button class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                          <button class="admin-albums-menu__button w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                             <span>📂 同级 ({{ photoMoveTargets.siblingDirs.length }})</span>
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                             </svg>
                           </button>
                         </template>
-                        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                        <div class="glass-menu admin-albums-menu admin-albums-menu--photo-sub rounded-lg shadow-xl py-1 min-w-[160px]">
                           <button
                             v-for="dir in photoMoveTargets.siblingDirs"
                             :key="'sibling-' + dir.path"
                             @click="doMovePhotosTo(dir.path)"
-                            class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                            class="admin-albums-menu__button w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
                             :title="dir.name"
                           >
                             📁 {{ dir.name }}
@@ -1027,19 +1027,19 @@
                       <!-- 下一级 -->
                       <DropMenu v-if="photoMoveTargets.childDirs?.length > 0" trigger="hover" placement="right" :offset="2">
                         <template #trigger>
-                          <button class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                          <button class="admin-albums-menu__button w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
                             <span>📂 下一级 ({{ photoMoveTargets.childDirs.length }})</span>
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                             </svg>
                           </button>
                         </template>
-                        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                        <div class="glass-menu admin-albums-menu admin-albums-menu--photo-sub rounded-lg shadow-xl py-1 min-w-[160px]">
                           <button
                             v-for="dir in photoMoveTargets.childDirs"
                             :key="'child-' + dir.path"
                             @click="doMovePhotosTo(dir.path)"
-                            class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                            class="admin-albums-menu__button w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
                             :title="dir.name"
                           >
                             📁 {{ dir.name }}
@@ -1049,7 +1049,7 @@
                       <!-- 无可移动位置 -->
                       <div
                         v-if="!photoMoveTargets.parentDir && !photoMoveTargets.siblingDirs?.length && !photoMoveTargets.childDirs?.length"
-                        class="px-3 py-2 text-xs text-gray-500"
+                        class="admin-albums-empty-state px-3 py-2 text-xs text-gray-500"
                       >
                         暂无可移动位置
                       </div>
@@ -1063,7 +1063,7 @@
                   <button
                     @click="togglePhotoHidden('hide')"
                     :disabled="photoModalSelected.size === 0 || !hasVisiblePhotos"
-                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    class="admin-albums-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -1074,7 +1074,7 @@
                   <button
                     @click="togglePhotoHidden('show')"
                     :disabled="photoModalSelected.size === 0 || !hasHiddenPhotos"
-                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    class="admin-albums-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.956 9.956 0 012.223-3.592m3.1-2.223A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a9.965 9.965 0 01-4.132 5.411M15 12a3 3 0 00-4.243-2.829M3 3l18 18" />
@@ -1084,7 +1084,7 @@
                   <!-- 删除 -->
                   <button
                     @click="deleteSelectedPhotos"
-                    class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2"
+                    class="admin-albums-menu__button admin-albums-menu__button--danger w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1097,7 +1097,7 @@
               <!-- Close -->
               <button
                 @click="closePhotoModal"
-                class="p-1.5 hover:bg-gray-700 rounded transition-colors"
+                class="admin-button-soft p-1.5 rounded transition-colors"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -1107,14 +1107,14 @@
           </div>
           <!-- Photo grid -->
           <div class="flex-1 overflow-y-auto p-4 min-h-0">
-            <div v-if="photoModalLoading" class="text-center py-8 text-gray-400">加载中...</div>
-            <div v-else-if="photoModalPhotos.length === 0" class="text-center py-8 text-gray-500">暂无照片</div>
+            <div v-if="photoModalLoading" class="admin-albums-empty-state text-center py-8 text-gray-400">加载中...</div>
+            <div v-else-if="photoModalPhotos.length === 0" class="admin-albums-empty-state text-center py-8 text-gray-500">暂无照片</div>
             <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-1 sm:gap-2">
               <div
                 v-for="photo in photoModalPhotos"
                 :key="photo.id"
-                class="relative aspect-square rounded overflow-hidden cursor-pointer group"
-                :class="[photoModalSelected.has(photo.id) ? 'ring-2 ring-blue-500' : 'hover:ring-1 hover:ring-gray-500', photo.isHidden ? 'opacity-50' : '']"
+                class="admin-albums-photo-tile relative aspect-square rounded overflow-hidden cursor-pointer group"
+                :class="[photoModalSelected.has(photo.id) ? 'admin-albums-photo-tile--selected ring-2 ring-blue-500' : 'admin-albums-photo-tile--idle hover:ring-1 hover:ring-gray-500', photo.isHidden ? 'opacity-50' : '']"
                 @click="togglePhotoSelect(photo.id)"
               >
                 <img
@@ -1125,11 +1125,11 @@
                 <!-- Selection overlay -->
                 <div
                   v-if="photoModalSelected.has(photo.id)"
-                  class="absolute inset-0 bg-blue-500/20"
+                  class="admin-albums-photo-selection absolute inset-0 bg-blue-500/20"
                 ></div>
                 <!-- Checkbox -->
                 <div
-                  class="absolute top-1 left-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
+                  class="admin-albums-photo-checkbox absolute top-1 left-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
                   :class="photoModalSelected.has(photo.id)
                     ? 'bg-blue-500 border-blue-500'
                     : 'border-white/50 bg-black/30 opacity-0 group-hover:opacity-100'"
@@ -1139,7 +1139,7 @@
                   </svg>
                 </div>
                 <!-- Filename tooltip -->
-                <div class="absolute bottom-0 left-0 right-0 p-1 bg-black/60 text-xs text-gray-300 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="admin-albums-photo-caption absolute bottom-0 left-0 right-0 p-1 bg-black/60 text-xs text-gray-300 truncate opacity-0 group-hover:opacity-100 transition-opacity">
                   {{ photo.filename }}
                 </div>
               </div>
@@ -1156,29 +1156,29 @@
         class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         @click.self="photoConflictDialogVisible = false"
       >
-        <div class="glass-dialog rounded-lg p-6 max-w-md w-full text-gray-100">
+        <div class="glass-dialog admin-albums-dialog admin-albums-dialog--photo-conflict rounded-lg p-6 max-w-md w-full text-gray-100">
           <h3 class="text-lg font-medium mb-3">文件名冲突</h3>
-          <p class="text-sm text-gray-300 mb-2">{{ photoConflictInfo.message }}</p>
+          <p class="admin-albums-note text-sm text-gray-300 mb-2">{{ photoConflictInfo.message }}</p>
           <div v-if="photoConflictInfo.conflictFiles?.length" class="mb-4 p-2 bg-gray-900/50 rounded text-xs text-gray-400 max-h-32 overflow-y-auto">
             <div v-for="f in photoConflictInfo.conflictFiles" :key="f">{{ f }}</div>
           </div>
-          <p class="text-sm text-gray-400 mb-4">请选择处理方式：</p>
+          <p class="admin-albums-note text-sm text-gray-400 mb-4">请选择处理方式：</p>
           <div class="flex gap-3">
             <button
               @click="resolvePhotoConflict('overwrite')"
-              class="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
+              class="admin-button-danger flex-1 px-4 py-2 rounded text-sm"
             >
               覆盖
             </button>
             <button
               @click="resolvePhotoConflict('rename')"
-              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+              class="admin-button-primary flex-1 px-4 py-2 rounded text-sm"
             >
               重命名
             </button>
             <button
               @click="resolvePhotoConflict('cancel')"
-              class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              class="admin-button-soft flex-1 px-4 py-2 rounded text-sm"
             >
               取消
             </button>
@@ -1188,13 +1188,13 @@
     </teleport>
 
     <!-- 加载状态提示 -->
-    <div v-if="loadingMore" class="text-center py-4 text-gray-400 text-sm">
+    <div v-if="loadingMore" class="admin-albums-empty-state text-center py-4 text-gray-400 text-sm">
       加载中...
     </div>
-    <div v-else-if="!hasMoreData && albums.length > 0" class="text-center py-4 text-gray-500 text-sm">
+    <div v-else-if="!hasMoreData && albums.length > 0" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
       已加载全部 {{ albums.length }} 个相册
     </div>
-    <div v-else-if="albums.length === 0 && !loading" class="text-center py-4 text-gray-500 text-sm">
+    <div v-else-if="albums.length === 0 && !loading" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
       没有找到相册
     </div>
   </div>

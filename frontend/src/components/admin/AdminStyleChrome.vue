@@ -1,27 +1,29 @@
 <template>
   <div v-if="authStore.token && isLegacyStyle" class="admin-style-chrome" :data-style="themeStore.currentStyleFamily">
     <template v-if="themeStore.currentStyleFamily === 'material'">
-      <aside class="admin-style-drawer admin-style-drawer--material">
-        <div class="admin-style-drawer-head">
-          <div class="admin-style-drawer-mark"></div>
-          <div>
-            <div class="admin-style-drawer-title">Workspace</div>
-            <div class="admin-style-drawer-subtitle">{{ authStore.projectDisplayName || '后台管理' }}</div>
+      <header class="admin-style-topbar admin-style-topbar--material">
+        <div class="admin-style-topbar-material-wrap">
+          <div class="admin-style-topbar-material-rail">
+            <div class="admin-style-topbar-brand admin-style-topbar-brand--material">
+              <div class="admin-style-topbar-avatar">{{ shortLabel(authStore.projectDisplayName || '后台') }}</div>
+              <div class="admin-style-topbar-copy">
+                <div class="admin-style-topbar-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
+              </div>
+            </div>
+            <nav class="admin-style-topbar-nav admin-style-topbar-nav--material">
+              <router-link
+                v-for="item in quickLinks"
+                :key="`material-top-${item.to}`"
+                :to="item.to"
+                class="admin-style-topbar-nav-link"
+                :class="{ 'admin-style-topbar-nav-link--active': route.path === item.to }"
+              >
+                {{ item.label }}
+              </router-link>
+            </nav>
           </div>
         </div>
-        <nav class="admin-style-drawer-nav">
-          <router-link
-            v-for="item in quickLinks"
-            :key="`material-${item.to}`"
-            :to="item.to"
-            class="admin-style-drawer-link"
-            :class="{ 'admin-style-drawer-link--active': route.path === item.to }"
-          >
-            <span class="admin-style-drawer-link-dot"></span>
-            <span>{{ item.label }}</span>
-          </router-link>
-        </nav>
-      </aside>
+      </header>
 
       <nav class="admin-style-bottom-nav admin-style-bottom-nav--material">
         <router-link
@@ -38,30 +40,58 @@
     </template>
 
     <template v-else-if="themeStore.currentStyleFamily === 'glass'">
-      <div class="admin-style-island admin-style-island--glass">
-        <router-link
-          v-for="item in compactLinks"
-          :key="`glass-${item.to}`"
-          :to="item.to"
-          class="admin-style-island-link"
-          :class="{ 'admin-style-island-link--active': route.path === item.to }"
-        >
-          {{ item.label }}
-        </router-link>
-      </div>
+      <header class="admin-style-orbit admin-style-orbit--glass">
+        <div class="admin-style-orbit-copy">
+          <div class="admin-style-orbit-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
+        </div>
+        <nav class="admin-style-orbit-nav">
+          <router-link
+            v-for="item in compactLinks"
+            :key="`glass-${item.to}`"
+            :to="item.to"
+            class="admin-style-orbit-link"
+            :class="{ 'admin-style-orbit-link--active': route.path === item.to }"
+          >
+            {{ item.label }}
+          </router-link>
+        </nav>
+      </header>
     </template>
 
     <template v-else-if="themeStore.currentStyleFamily === 'classic'">
-      <div class="admin-style-ribbon admin-style-ribbon--classic">
-        <div class="admin-style-ribbon-title">Enterprise Console</div>
-        <div class="admin-style-ribbon-divider"></div>
-        <div class="admin-style-ribbon-path">{{ currentLabel }}</div>
-      </div>
+      <header class="admin-style-manor admin-style-manor--classic">
+        <div class="admin-style-manor-head">
+          <div class="admin-style-manor-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
+        </div>
+        <nav class="admin-style-manor-nav">
+          <router-link
+            v-for="item in quickLinks"
+            :key="`classic-${item.to}`"
+            :to="item.to"
+            class="admin-style-manor-link"
+            :class="{ 'admin-style-manor-link--active': route.path === item.to }"
+          >
+            {{ item.label }}
+          </router-link>
+        </nav>
+      </header>
     </template>
 
     <template v-else-if="themeStore.currentStyleFamily === 'gallery'">
-      <aside class="admin-style-curator admin-style-curator--gallery">
-        <div class="admin-style-curator-title">{{ currentLabel }}</div>
+      <aside class="admin-style-salon admin-style-salon--gallery">
+        <div class="admin-style-salon-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
+        <nav class="admin-style-salon-nav">
+          <router-link
+            v-for="item in quickLinks"
+            :key="`gallery-${item.to}`"
+            :to="item.to"
+            class="admin-style-salon-link"
+            :class="{ 'admin-style-salon-link--active': route.path === item.to }"
+          >
+            <span class="admin-style-salon-index">{{ shortLabel(item.label) }}</span>
+            <span>{{ item.label }}</span>
+          </router-link>
+        </nav>
       </aside>
     </template>
 
@@ -81,8 +111,7 @@
 
     <template v-else-if="themeStore.currentStyleFamily === 'brutalist'">
       <aside class="admin-style-stack admin-style-stack--brutalist">
-        <div class="admin-style-stack-label">Control Grid</div>
-        <div class="admin-style-stack-title">{{ currentLabel }}</div>
+        <div class="admin-style-stack-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
         <nav class="admin-style-stack-nav">
           <router-link
             v-for="item in quickLinks"
@@ -101,8 +130,7 @@
     <template v-else-if="themeStore.currentStyleFamily === 'paper'">
       <header class="admin-style-editorial admin-style-editorial--paper">
         <div>
-          <div class="admin-style-editorial-kicker">Editorial Desk</div>
-          <div class="admin-style-editorial-title">{{ currentLabel }}</div>
+          <div class="admin-style-editorial-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
         </div>
         <nav class="admin-style-editorial-nav">
           <router-link
@@ -123,8 +151,7 @@
         <div class="admin-style-hud-head">
           <span class="admin-style-hud-dot"></span>
           <div>
-            <div class="admin-style-hud-kicker">Night Grid</div>
-            <div class="admin-style-hud-title">{{ currentLabel }}</div>
+            <div class="admin-style-hud-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
           </div>
         </div>
         <nav class="admin-style-hud-nav">
@@ -143,12 +170,15 @@
     </template>
 
     <template v-else-if="themeStore.currentStyleFamily === 'zen'">
-      <div class="admin-style-breath admin-style-breath--zen">
-        <div class="admin-style-breath-title">{{ currentLabel }}</div>
+      <div
+        class="admin-style-breath admin-style-breath--zen"
+        :class="{ 'admin-style-breath--compact': isZenCompressed }"
+      >
+        <div class="admin-style-breath-title">{{ authStore.projectDisplayName || '后台管理' }}</div>
         <div class="admin-style-breath-divider"></div>
         <nav class="admin-style-breath-nav">
           <router-link
-            v-for="item in compactLinks"
+            v-for="item in quickLinks"
             :key="`zen-${item.to}`"
             :to="item.to"
             class="admin-style-breath-link"
@@ -158,13 +188,24 @@
           </router-link>
         </nav>
       </div>
+      <nav class="admin-style-bottom-nav admin-style-bottom-nav--zen">
+        <router-link
+          v-for="item in mobileLinks"
+          :key="`zen-mobile-${item.to}`"
+          :to="item.to"
+          class="admin-style-bottom-nav-link"
+          :class="{ 'admin-style-bottom-nav-link--active': route.path === item.to }"
+        >
+          <span>{{ item.label }}</span>
+        </router-link>
+      </nav>
     </template>
 
     <template v-else-if="themeStore.currentStyleFamily === 'terminal'">
       <div class="admin-style-console admin-style-console--terminal">
         <div class="admin-style-console-head">
           <span class="admin-style-console-prompt">$</span>
-          <span>{{ currentLabel }}</span>
+          <span>{{ authStore.projectDisplayName || '后台管理' }}</span>
         </div>
         <nav class="admin-style-console-nav">
           <router-link
@@ -183,7 +224,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
@@ -191,8 +232,9 @@ import { useAuthStore } from '@/stores/auth'
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
+const isZenCompressed = ref(false)
 
-const isLegacyStyle = computed(() => ['material', 'glass', 'classic', 'gallery', 'compact'].includes(themeStore.currentStyleFamily))
+const isLegacyStyle = computed(() => Object.prototype.hasOwnProperty.call(themeStore.styleFamilies, themeStore.currentStyleFamily))
 
 const quickLinks = computed(() => {
   const links = [
@@ -211,15 +253,18 @@ const mobileLinks = computed(() => quickLinks.value.slice(0, authStore.isSuperAd
 
 const compactLinks = computed(() => quickLinks.value.slice(0, authStore.isSuperAdmin ? 4 : 3))
 
-const currentLabel = computed(() => {
-  const matched = quickLinks.value.find((item) => route.path === item.to)
-  if (matched) return matched.label
-  if (route.path.startsWith('/admin/super-admin')) return '超管'
-  if (route.path.startsWith('/admin/file-browser')) return '文件浏览器'
-  if (route.path.startsWith('/admin/settings')) return '系统设置'
-  if (route.path.startsWith('/admin/theme')) return '后台主题'
-  return '后台管理'
+const shortLabel = (label: string) => label.slice(0, 2).toUpperCase()
+
+const updateZenCompression = () => {
+  isZenCompressed.value = themeStore.currentStyleFamily === 'zen' && window.scrollY > 24
+}
+
+onMounted(() => {
+  updateZenCompression()
+  window.addEventListener('scroll', updateZenCompression, { passive: true })
 })
 
-const shortLabel = (label: string) => label.slice(0, 2).toUpperCase()
+onUnmounted(() => {
+  window.removeEventListener('scroll', updateZenCompression)
+})
 </script>

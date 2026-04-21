@@ -1,17 +1,17 @@
 <template>
   <div class="min-h-screen admin-shell admin-super-admin-page">
     <AdminStyleChrome />
-    <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 admin-super-admin-shell">
+    <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-3 space-y-3 admin-super-admin-shell">
       <section class="admin-page-hero admin-super-admin-hero">
         <div class="admin-page-hero-grid">
-          <div class="space-y-5">
+          <div class="space-y-5 admin-super-admin-hero-copy">
             <div class="space-y-3">
               <h1 class="admin-page-title">超级管理员控制台</h1>
+              <p class="admin-page-subtitle admin-super-admin-hero-subtitle">管理用户、扫描、模型与系统状态。</p>
             </div>
-            <AdminSectionTabs />
           </div>
 
-          <div class="space-y-4">
+          <div class="space-y-4 admin-super-admin-hero-side">
             <div class="admin-kpi-grid admin-super-admin-kpi-grid">
               <div class="admin-kpi-card admin-super-admin-kpi-card">
                 <div class="admin-kpi-label">当前用户</div>
@@ -28,14 +28,6 @@
                 <div class="admin-kpi-value">{{ overview.storageProviderCount }}</div>
                 <div class="admin-kpi-note">可用 {{ overview.enabledStorageProviderCount }} · 模型 {{ overview.modelCount || 0 }}</div>
               </div>
-            </div>
-            <div class="flex justify-end">
-              <router-link
-                to="/admin"
-                class="admin-button-contrast rounded-xl px-4 py-2 text-sm transition-colors"
-              >
-                返回后台管理
-              </router-link>
             </div>
           </div>
         </div>
@@ -59,7 +51,7 @@
 
       <div
         v-if="statusMessage"
-        class="rounded-xl border px-4 py-3 text-sm"
+        class="rounded-xl border px-4 py-3 text-sm admin-super-admin-status-banner"
         :class="statusType === 'success'
           ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200'
           : 'bg-rose-500/10 border-rose-400/30 text-rose-200'"
@@ -69,27 +61,8 @@
 
       <section v-if="activeTab === 'overview'" class="space-y-4 admin-super-admin-overview">
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 admin-super-admin-overview-grid">
-          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card">
-            <div class="text-sm text-gray-400">用户总数</div>
-            <div class="text-3xl font-light">{{ overview.userCount }}</div>
-            <div class="text-xs text-gray-400">
-              启用 {{ overview.activeUserCount }} / 禁用 {{ overview.disabledUserCount }} / 锁定 {{ overview.lockedUserCount }}
-            </div>
-          </div>
-          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card">
-            <div class="text-sm text-gray-400">默认用户配额</div>
-            <div class="text-3xl font-light">{{ formatQuotaGb(overview.defaultUserQuotaBytes) }}</div>
-            <div class="text-xs text-gray-400">
-              VIP 默认增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }} · 已用 {{ formatBytes(overview.totalUsedBytes) }} / 总配额 {{ formatBytes(overview.totalQuotaBytes) }}
-            </div>
-          </div>
-          <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card">
-            <div class="text-sm text-gray-400">存储提供者</div>
-            <div class="text-3xl font-light">{{ overview.storageProviderCount }}</div>
-            <div class="text-xs text-gray-400">可用 {{ overview.enabledStorageProviderCount }} 个</div>
-          </div>
           <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card admin-super-admin-status-card">
-            <div class="text-sm text-gray-400">系统开关</div>
+            <div class="text-sm admin-table-faint">系统开关</div>
             <div class="flex flex-wrap gap-2 admin-super-admin-chip-cluster">
               <span class="chip" :class="overview.multiUserEnabled ? 'text-emerald-200' : 'text-gray-300'">
                 多用户：{{ overview.multiUserEnabled ? '开启' : '关闭' }}
@@ -125,24 +98,24 @@
           </div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 admin-super-admin-overview-detail-grid">
-          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card">
-            <div class="text-sm text-gray-300">存储与目录</div>
-            <div class="text-xs text-gray-400 break-all">原图根目录：{{ overview.localStorageRoot || '—' }}</div>
-            <div class="text-xs text-gray-400 break-all">用户数据目录：{{ overview.userDataRoot || '—' }}</div>
-            <div class="text-xs text-gray-400">平均每用户已用：{{ overview.userCount ? formatBytes(Math.round(overview.totalUsedBytes / overview.userCount)) : '0 B' }}</div>
+          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card admin-super-admin-detail-card--storage">
+            <div class="text-sm admin-table-muted">存储与目录</div>
+            <div class="text-xs admin-table-faint break-all">原图根目录：{{ overview.localStorageRoot || '—' }}</div>
+            <div class="text-xs admin-table-faint break-all">用户数据目录：{{ overview.userDataRoot || '—' }}</div>
+            <div class="text-xs admin-table-faint">平均每用户已用：{{ overview.userCount ? formatBytes(Math.round(overview.totalUsedBytes / overview.userCount)) : '0 B' }}</div>
           </div>
-          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card">
-            <div class="text-sm text-gray-300">认证与通知</div>
-            <div class="text-xs text-gray-400">短信：{{ overview.smsEnabled ? smsProviderLabel(overview.smsProviderType) : '关闭' }}</div>
-            <div class="text-xs text-gray-400">邮件：{{ overview.emailEnabled ? emailProviderLabel(overview.emailProviderType) : '关闭' }}</div>
-            <div class="text-xs text-gray-400">邮箱验证码：{{ overview.emailCodeLoginEnabled ? `开启 · ${overview.emailCodeExpireMinutes || 5} 分钟` : '关闭' }} / Mock {{ overview.emailMockEnabled ? '开启' : '关闭' }}</div>
-            <div class="text-xs text-gray-400">支付：{{ overview.paymentEnabled ? paymentProviderLabel(overview.paymentProviderType) : '关闭' }} / Mock {{ overview.paymentMockEnabled ? '开启' : '关闭' }}</div>
+          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card admin-super-admin-detail-card--notify">
+            <div class="text-sm admin-table-muted">认证与通知</div>
+            <div class="text-xs admin-table-faint">短信：{{ overview.smsEnabled ? smsProviderLabel(overview.smsProviderType) : '关闭' }}</div>
+            <div class="text-xs admin-table-faint">邮件：{{ overview.emailEnabled ? emailProviderLabel(overview.emailProviderType) : '关闭' }}</div>
+            <div class="text-xs admin-table-faint">邮箱验证码：{{ overview.emailCodeLoginEnabled ? `开启 · ${overview.emailCodeExpireMinutes || 5} 分钟` : '关闭' }} / Mock {{ overview.emailMockEnabled ? '开启' : '关闭' }}</div>
+            <div class="text-xs admin-table-faint">支付：{{ overview.paymentEnabled ? paymentProviderLabel(overview.paymentProviderType) : '关闭' }} / Mock {{ overview.paymentMockEnabled ? '开启' : '关闭' }}</div>
           </div>
-          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card">
-            <div class="text-sm text-gray-300">风险提示</div>
-            <div class="text-xs text-gray-400">锁定用户：{{ overview.lockedUserCount }}</div>
-            <div class="text-xs text-gray-400">禁用用户：{{ overview.disabledUserCount }}</div>
-            <div class="text-xs text-gray-400">默认容量：{{ formatQuotaGb(overview.defaultUserQuotaBytes) }} / VIP 增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }}</div>
+          <div class="glass-panel p-5 space-y-3 admin-super-admin-detail-card admin-super-admin-detail-card--risk">
+            <div class="text-sm admin-table-muted">风险提示</div>
+            <div class="text-xs admin-table-faint">锁定用户：{{ overview.lockedUserCount }}</div>
+            <div class="text-xs admin-table-faint">禁用用户：{{ overview.disabledUserCount }}</div>
+            <div class="text-xs admin-table-faint">默认容量：{{ formatQuotaGb(overview.defaultUserQuotaBytes) }} / VIP 增量 {{ formatQuotaGb(overview.defaultVipExtraQuotaBytes) }}</div>
             <div class="text-xs" :class="overview.modelHealthy ? 'text-emerald-300' : 'text-amber-200'">
               模型健康：总计 {{ overview.modelCount || 0 }} 个，缺文件 {{ overview.missingModelFileCount || 0 }} 个，未启用 {{ overview.inactiveModelCount || 0 }} 个
             </div>
@@ -150,13 +123,13 @@
         </div>
 
         <div class="glass-panel p-5 space-y-4 admin-super-admin-thread-panel">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div class="text-sm text-gray-300">后台处理线程</div>
-              <div class="text-xs text-gray-400">{{ processingOverview.nonBlockingNote || '图片处理尽量走后台线程，不阻塞实时请求。' }}</div>
-            </div>
-            <button
-              class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm"
+          <div class="flex items-center justify-between gap-3 flex-wrap admin-super-admin-thread-head">
+            <div class="admin-super-admin-thread-copy">
+            <div class="text-sm admin-super-admin-modal-title">后台处理线程</div>
+            <div class="text-xs admin-table-faint">{{ processingOverview.nonBlockingNote || '图片处理尽量走后台线程，不阻塞实时请求。' }}</div>
+          </div>
+          <button
+              class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="loadingProcessingOverview"
               @click="loadProcessingOverview"
             >
@@ -173,18 +146,18 @@
             <div
               v-for="worker in processingOverview.workers || []"
               :key="worker.threadType"
-              class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3 admin-super-admin-worker-card"
+              class="rounded-2xl p-4 space-y-3 admin-super-admin-worker-card"
             >
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <div class="text-sm text-white">{{ worker.label }}</div>
-                  <div class="text-xs text-gray-400">{{ worker.threadType }}</div>
+                  <div class="text-sm admin-super-admin-modal-title">{{ worker.label }}</div>
+                  <div class="text-xs admin-table-faint">{{ worker.threadType }}</div>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
                   <button
                     v-if="worker.threadType === 'SCAN_QUEUE'"
                     type="button"
-                    class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs"
+                    class="admin-button-soft px-3 py-1.5 rounded-lg text-xs"
                     @click="openSuperAdminSkippedModal"
                   >
                     查看失败原因
@@ -195,7 +168,7 @@
                 </div>
               </div>
 
-              <div class="flex flex-wrap gap-2 text-xs text-gray-300">
+              <div class="flex flex-wrap gap-2 text-xs admin-table-muted">
                 <span v-if="worker.activeRequestCount != null" class="chip">活跃请求：{{ worker.activeRequestCount }}</span>
                 <span v-if="worker.activeUserCount != null" class="chip">活跃用户：{{ worker.activeUserCount }}</span>
                 <span v-if="worker.recentMinuteRequestCount != null" class="chip">近1分钟请求：{{ worker.recentMinuteRequestCount }}</span>
@@ -211,35 +184,35 @@
                 <span v-if="worker.pausedTaskCount != null" class="chip">暂停任务：{{ worker.pausedTaskCount }}</span>
               </div>
 
-              <div v-if="worker.scanStatus?.processingStats" class="text-xs text-gray-400">
+              <div v-if="worker.scanStatus?.processingStats" class="text-xs admin-table-faint">
                 扫描统计：已完成 {{ worker.scanStatus.processingStats.completed || 0 }} / 未完成 {{ worker.scanStatus.processingStats.incomplete || 0 }} / 失败 {{ worker.scanStatus.processingStats.failed || 0 }}
               </div>
-              <div v-if="worker.scanStatus?.scanSummary" class="text-xs text-gray-400">
+              <div v-if="worker.scanStatus?.scanSummary" class="text-xs admin-table-faint">
                 图片总数 {{ worker.scanStatus.scanSummary.total || 0 }} · 已扫描 {{ worker.scanStatus.scanSummary.scanned || 0 }} · 待扫描 {{ worker.scanStatus.scanSummary.waiting || 0 }}
               </div>
 
-              <div v-if="worker.summary" class="text-xs text-gray-400">
+              <div v-if="worker.summary" class="text-xs admin-table-faint">
                 {{ worker.summary }}
                 <template v-if="worker.slowRequestThresholdMs"> · 慢请求阈值 {{ worker.slowRequestThresholdMs }}ms</template>
               </div>
 
-              <div v-if="worker.topActiveEndpoints?.length" class="space-y-2 text-xs text-gray-400">
-                <div class="text-gray-300">当前最活跃接口</div>
+              <div v-if="worker.topActiveEndpoints?.length" class="space-y-2 text-xs admin-table-faint">
+                <div class="admin-table-muted">当前最活跃接口</div>
                 <div
                   v-for="endpoint in worker.topActiveEndpoints.slice(0, 3)"
                   :key="`${worker.threadType}-${endpoint.endpoint}`"
-                  class="border-t border-white/10 pt-2 first:border-t-0 first:pt-0"
+                  class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
                 >
                   {{ endpoint.endpoint }}：{{ endpoint.activeCount }} 个请求
                 </div>
               </div>
 
-              <div v-if="worker.queuedOwnerSummaries?.length" class="space-y-2 text-xs text-gray-400">
-                <div class="text-gray-300">排队用户</div>
+              <div v-if="worker.queuedOwnerSummaries?.length" class="space-y-2 text-xs admin-table-faint">
+                <div class="admin-table-muted">排队用户</div>
                 <div
                   v-for="owner in worker.queuedOwnerSummaries.slice(0, 3)"
                   :key="`${worker.threadType}-${owner.ownerKey}`"
-                  class="border-t border-white/10 pt-2 first:border-t-0 first:pt-0"
+                  class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
                 >
                   {{ owner.ownerLabel }}：{{ owner.taskCount }} 个任务
                 </div>
@@ -247,28 +220,28 @@
 
               <div v-if="isScanQueueWorker(worker) && (worker.runningTasks?.length || scanWorkerQueuedTasks(worker).length || scanWorkerFailedTasks(worker).length)" class="space-y-3">
                 <div v-if="worker.runningTasks?.length" class="space-y-2">
-                  <div class="text-xs text-gray-300">运行中的扫描任务</div>
-                  <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                  <div class="text-xs admin-table-muted">运行中的扫描任务</div>
+                  <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
                     <div
                       v-for="task in worker.runningTasks.slice(0, 5)"
                       :key="`scan-running-${task.id}`"
                       class="p-3 text-xs space-y-1 admin-super-admin-task-item"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <div class="text-gray-100">
+                        <div class="admin-super-admin-modal-title">
                           #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                          <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                          <span class="admin-table-faint">· {{ task.ownerLabel || '系统任务' }}</span>
                         </div>
                         <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
                           {{ scanTaskStatusLabel(task.status) }}
                         </span>
                       </div>
-                      <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
-                      <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                      <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="text-gray-500 break-all">
+                      <div class="admin-table-muted">{{ scanTaskProgressText(task) }}</div>
+                      <div class="admin-table-faint break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                      <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="admin-table-faint break-all">
                         当前断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
                       </div>
-                      <div class="text-gray-500">
+                      <div class="admin-table-faint">
                         创建：{{ formatDate(task.createdAt || null) }} · 开始：{{ formatDate(task.startedAt || null) }}
                       </div>
                     </div>
@@ -276,25 +249,25 @@
                 </div>
 
                 <div v-if="scanWorkerQueuedTasks(worker).length" class="space-y-2">
-                  <div class="text-xs text-gray-300">排队中的扫描任务</div>
-                  <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                  <div class="text-xs admin-table-muted">排队中的扫描任务</div>
+                  <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
                     <div
                       v-for="task in scanWorkerQueuedTasks(worker).slice(0, 5)"
                       :key="`scan-queued-${task.id}`"
                       class="p-3 text-xs space-y-1 admin-super-admin-task-item"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <div class="text-gray-100">
+                        <div class="admin-super-admin-modal-title">
                           #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                          <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                          <span class="admin-table-faint">· {{ task.ownerLabel || '系统任务' }}</span>
                         </div>
                         <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
                           {{ scanTaskStatusLabel(task.status) }}
                         </span>
                       </div>
-                      <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
-                      <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                      <div class="text-gray-500">
+                      <div class="admin-table-muted">{{ scanTaskProgressText(task) }}</div>
+                      <div class="admin-table-faint break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                      <div class="admin-table-faint">
                         创建：{{ formatDate(task.createdAt || null) }}
                       </div>
                     </div>
@@ -302,7 +275,7 @@
                 </div>
 
                 <div v-if="scanWorkerFailedTasks(worker).length" class="space-y-2">
-                  <div class="text-xs text-gray-300">最近失败的扫描任务</div>
+                  <div class="text-xs admin-table-muted">最近失败的扫描任务</div>
                   <div class="divide-y divide-rose-400/20 overflow-hidden rounded-xl border border-rose-400/20 bg-rose-500/5 admin-super-admin-task-stack admin-super-admin-task-stack--error">
                     <div
                       v-for="task in scanWorkerFailedTasks(worker).slice(0, 5)"
@@ -310,18 +283,18 @@
                       class="p-3 text-xs space-y-1 admin-super-admin-task-item"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <div class="text-rose-100">
+                        <div class="text-rose-200">
                           #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                          <span class="text-gray-400">· {{ task.ownerLabel || '系统任务' }}</span>
+                          <span class="admin-table-faint">· {{ task.ownerLabel || '系统任务' }}</span>
                         </div>
                         <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
                           {{ scanTaskStatusLabel(task.status) }}
                         </span>
                       </div>
-                      <div class="text-gray-300">{{ scanTaskProgressText(task) }}</div>
-                      <div class="text-gray-400 break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
+                      <div class="admin-table-muted">{{ scanTaskProgressText(task) }}</div>
+                      <div class="admin-table-faint break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
                       <div v-if="task.errorMessage" class="text-rose-300 break-all">失败原因：{{ task.errorMessage }}</div>
-                      <div class="text-gray-500">
+                      <div class="admin-table-faint">
                         创建：{{ formatDate(task.createdAt || null) }}
                         <template v-if="task.finishedAt"> · 完成：{{ formatDate(task.finishedAt || null) }}</template>
                       </div>
@@ -331,42 +304,42 @@
               </div>
 
               <div v-if="worker.recentSlowRequests?.length" class="space-y-2">
-                <div class="text-xs text-gray-300">最近慢请求</div>
-                <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                <div class="text-xs admin-table-muted">最近慢请求</div>
+                <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
                   <div
                     v-for="item in worker.recentSlowRequests.slice(0, 5)"
                     :key="`${worker.threadType}-${item.finishedAt}-${item.path}`"
                     class="p-3 text-xs space-y-1 admin-super-admin-task-item"
                   >
                     <div class="flex items-center justify-between gap-2">
-                      <div class="text-gray-200 truncate">{{ item.method }} {{ item.path }}</div>
+                      <div class="admin-super-admin-modal-title truncate">{{ item.method }} {{ item.path }}</div>
                       <span class="chip text-[11px] text-amber-200">{{ item.durationMs || 0 }}ms</span>
                     </div>
-                    <div class="text-gray-400">
+                    <div class="admin-table-faint">
                       {{ item.actorLabel || item.ipAddress || '未知访问者' }}
                       <template v-if="item.statusCode != null"> · 状态 {{ item.statusCode }}</template>
                     </div>
                     <div v-if="item.error" class="text-rose-300">{{ item.error }}</div>
-                    <div class="text-gray-500">{{ formatDate(item.finishedAt || null) }}</div>
+                    <div class="admin-table-faint">{{ formatDate(item.finishedAt || null) }}</div>
                   </div>
                 </div>
               </div>
 
               <div v-if="worker.recentTasks?.length" class="space-y-2">
-                <div class="text-xs text-gray-300">最近任务</div>
-                <div class="divide-y divide-white/10 overflow-hidden rounded-xl bg-gray-950/70 admin-super-admin-task-stack">
+                <div class="text-xs admin-table-muted">最近任务</div>
+                <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
                   <div
                     v-for="task in worker.recentTasks.slice(0, 3)"
                     :key="`${worker.threadType}-${task.taskId || task.photoId || task.updatedAt}`"
                     class="p-3 text-xs space-y-1 admin-super-admin-task-item"
                   >
                     <div class="flex items-center justify-between gap-2">
-                      <div class="text-gray-200 truncate">{{ processingTaskTitle(task) }}</div>
+                      <div class="admin-super-admin-modal-title truncate">{{ processingTaskTitle(task) }}</div>
                       <span class="chip text-[11px]" :class="processingTaskStatusClass(task.status)">
                         {{ processingTaskStatusLabel(task.status) }}
                       </span>
                     </div>
-                    <div class="text-gray-400">
+                    <div class="admin-table-faint">
                       <template v-if="task.total">
                         进度 {{ task.current || 0 }}/{{ task.total }} · {{ task.progressPercent ?? processingTaskPercent(task) }}%
                       </template>
@@ -374,7 +347,7 @@
                         {{ isScanQueueWorker(worker) ? scanTaskRecentSummary(task) : (task.message || task.latestLog || '暂无附加说明') }}
                       </template>
                     </div>
-                    <div class="text-gray-500">{{ formatDate(task.updatedAt || task.finishedAt || task.startedAt || null) }}</div>
+                    <div class="admin-table-faint">{{ formatDate(task.updatedAt || task.finishedAt || task.startedAt || null) }}</div>
                   </div>
                 </div>
               </div>
@@ -385,21 +358,21 @@
 
       <section v-if="activeTab === 'scan'" class="space-y-4 admin-super-admin-scan-page">
         <div class="glass-panel p-6 space-y-5 admin-super-admin-scan-panel">
-          <div class="flex items-start justify-between gap-4 flex-wrap">
-            <div>
+          <div class="flex items-start justify-between gap-4 flex-wrap admin-super-admin-scan-head">
+            <div class="admin-super-admin-scan-copy">
               <h2 class="text-lg font-light">扫描管理</h2>
-              <p class="text-xs text-gray-400 mt-1">集中查看当前扫描状态、立即触发扫描、最近扫描记录与异常文件。</p>
+              <p class="text-xs admin-table-faint mt-1">查看扫描状态、记录与异常。</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
               <button
-                class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm border border-white/10"
+                class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
                 :disabled="loadingSuperScan"
                 @click="loadSuperScanPage"
               >
                 {{ loadingSuperScan ? '刷新中...' : '刷新扫描状态' }}
               </button>
               <button
-                class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm"
+                class="admin-button-danger px-4 py-2 rounded-lg text-sm"
                 @click="openSuperAdminSkippedModal"
               >
                 查看异常文件
@@ -408,48 +381,48 @@
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 admin-super-admin-scan-metrics">
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs text-gray-400">扫描状态</div>
+            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
+              <div class="text-xs admin-table-faint">扫描状态</div>
               <div class="text-2xl font-light">{{ superScanStatusLabel }}</div>
-              <div class="text-xs text-gray-500">最近开始：{{ superScanLastTime || '—' }}</div>
+              <div class="text-xs admin-table-faint">最近开始：{{ superScanLastTime || '—' }}</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs text-gray-400">图片进度</div>
+            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
+              <div class="text-xs admin-table-faint">图片进度</div>
               <div class="text-2xl font-light">{{ superScanProgressText }}</div>
-              <div class="text-xs text-gray-500">总 {{ superScanSummary.total }} · 已扫 {{ superScanSummary.scanned }}</div>
+              <div class="text-xs admin-table-faint">总 {{ superScanSummary.total }} · 已扫 {{ superScanSummary.scanned }}</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs text-gray-400">任务情况</div>
+            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
+              <div class="text-xs admin-table-faint">任务情况</div>
               <div class="text-2xl font-light">{{ superRunningTaskCount }}/{{ superQueueCount }}</div>
-              <div class="text-xs text-gray-500">运行中 / 排队中</div>
+              <div class="text-xs admin-table-faint">运行中 / 排队中</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs text-gray-400">待扫描</div>
+            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
+              <div class="text-xs admin-table-faint">待扫描</div>
               <div class="text-2xl font-light text-amber-200">{{ superScanSummary.waiting }}</div>
-              <div class="text-xs text-gray-500">队列图片 {{ superQueuedImageCount }}</div>
+              <div class="text-xs admin-table-faint">队列图片 {{ superQueuedImageCount }}</div>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs text-gray-400">失败 / 异常</div>
+            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
+              <div class="text-xs admin-table-faint">失败 / 异常</div>
               <div class="text-2xl font-light text-rose-200">{{ superScanSummary.failed }}</div>
-              <div class="text-xs text-gray-500">点击“查看异常文件”加载详情</div>
+              <div class="text-xs admin-table-faint">点击“查看异常文件”加载详情</div>
             </div>
           </div>
 
           <div class="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4 admin-super-admin-scan-layout">
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4 admin-super-admin-scan-sidecard">
-              <div class="text-sm text-white">立即扫描</div>
+            <div class="rounded-2xl p-4 space-y-4 admin-super-admin-scan-sidecard">
+              <div class="text-sm admin-super-admin-modal-title">立即扫描</div>
               <div
                 v-if="superScanDisabledReason"
-                class="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100"
+                class="admin-super-admin-warning-box rounded-lg px-3 py-2 text-[11px] leading-5"
               >
                 {{ superScanDisabledReason }}
               </div>
               <label class="block space-y-2">
-                <span class="text-xs text-gray-400">扫描存储</span>
+                <span class="text-xs admin-table-faint">扫描存储</span>
                 <select
                   v-if="superScanProviderOptions.length"
                   v-model="superSelectedScanProviderId"
-                  class="w-full px-3 py-2 text-sm rounded-lg bg-gray-900/70 border border-white/10"
+                  class="admin-input w-full px-3 py-2 text-sm rounded-lg"
                 >
                   <option :value="null">默认存储</option>
                   <option
@@ -462,13 +435,13 @@
                 </select>
               </label>
               <button
-                class="w-full px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-sm"
+                class="admin-button-primary w-full px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
                 :disabled="superTriggeringScan || !superScanActionSupported"
                 @click="triggerSuperScan"
               >
                 {{ superTriggeringScan ? '触发中...' : '立即触发扫描' }}
               </button>
-              <div class="text-xs text-gray-400 space-y-1">
+              <div class="text-xs admin-table-faint space-y-1 admin-super-admin-scan-side-meta">
                 <div>当前目标：{{ selectedSuperScanProvider ? `${selectedSuperScanProvider.name} · ${storageTypeLabel(selectedSuperScanProvider.type)}` : '系统默认扫描根目录' }}</div>
                 <div>排队用户：{{ superQueuedOwnerCount }}</div>
                 <div>暂停任务：{{ superPausedTaskCount }}</div>
@@ -477,19 +450,18 @@
               </div>
             </div>
 
-            <div class="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4 admin-super-admin-scan-records">
+            <div class="rounded-2xl p-4 space-y-4 admin-super-admin-scan-records">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-sm text-white">最近扫描记录与结果</div>
-                  <div class="text-xs text-gray-400 mt-1">支持查看进度、断点、失败原因，并对任务进行暂停 / 重试 / 取消。</div>
+                  <div class="text-sm admin-super-admin-modal-title">最近扫描记录与结果</div>
                 </div>
               </div>
 
-              <div v-if="!superScanTasks.length" class="text-sm text-gray-400 py-8 text-center">
+              <div v-if="!superScanTasks.length" class="text-sm admin-table-faint py-8 text-center">
                 暂无扫描任务
               </div>
 
-              <div v-else class="overflow-auto rounded-2xl border border-white/10 admin-super-admin-table-wrap">
+              <div v-else class="overflow-auto rounded-2xl admin-super-admin-table-wrap admin-super-admin-scan-detail-card">
                 <table class="admin-data-table w-full text-sm">
                   <thead>
                     <tr>
@@ -552,21 +524,21 @@
                             <button
                               v-if="canSuperPauseScanTask(task)"
                               @click="pauseSuperScanTask(task)"
-                              class="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
+                              class="admin-button-warning px-3 py-1.5 text-xs rounded-lg transition-colors"
                             >
                               暂停
                             </button>
                             <button
                               v-if="canSuperRetryScanTask(task)"
                               @click="retrySuperScanTask(task)"
-                              class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                              class="admin-button-primary px-3 py-1.5 text-xs rounded-lg transition-colors"
                             >
                               重试
                             </button>
                             <button
                               v-if="canSuperCancelScanTask(task)"
                               @click="cancelSuperScanTask(task)"
-                              class="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors"
+                              class="admin-button-danger px-3 py-1.5 text-xs rounded-lg transition-colors"
                             >
                               取消
                             </button>
@@ -587,10 +559,10 @@
           <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h2 class="text-lg font-light">模型文件管理</h2>
-              <p class="text-xs text-gray-400">支持按 URL 在线下载、ONNX 验证、热加载启用，以及针对模型影响范围发起重建任务。</p>
+              <p class="text-xs admin-table-faint">支持按 URL 在线下载、ONNX 验证、热加载启用，以及针对模型影响范围发起重建任务。</p>
             </div>
             <button
-              class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+              class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="loadingModels"
               @click="loadModels"
             >
@@ -602,12 +574,12 @@
             <div
               v-for="model in managedModels"
               :key="model.key"
-              class="rounded-2xl border border-white/10 bg-gray-950/50 p-5 space-y-4"
+              class="rounded-2xl p-5 space-y-4 admin-super-admin-model-card"
             >
               <div class="flex items-start justify-between gap-4 flex-wrap">
                 <div class="space-y-2">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <h3 class="text-base text-white">{{ model.name }}</h3>
+                    <h3 class="text-base admin-super-admin-modal-title">{{ model.name }}</h3>
                     <span class="chip text-xs">{{ model.code }}</span>
                     <span class="chip text-xs" :class="model.fileExists ? 'text-emerald-200' : 'text-rose-200'">
                       文件：{{ model.fileExists ? '已就绪' : '缺失' }}
@@ -616,9 +588,9 @@
                       运行：{{ model.active ? '已启用' : '未启用' }}
                     </span>
                   </div>
-                  <div class="text-xs text-gray-400 break-all">配置路径：{{ model.configuredPath }}</div>
-                  <div class="text-xs text-gray-400 break-all">实际路径：{{ model.resolvedPath }}</div>
-                  <div class="text-xs text-gray-400">文件大小：{{ formatBytes(model.sizeBytes) }} · 开关：{{ model.enabled ? '启用' : '关闭' }}</div>
+                  <div class="text-xs admin-table-faint break-all">配置路径：{{ model.configuredPath }}</div>
+                  <div class="text-xs admin-table-faint break-all">实际路径：{{ model.resolvedPath }}</div>
+                  <div class="text-xs admin-table-faint">文件大小：{{ formatBytes(model.sizeBytes) }} · 开关：{{ model.enabled ? '启用' : '关闭' }}</div>
                 </div>
                 <div class="text-xs text-amber-200 max-w-xl">
                   重建说明：{{ (model.rebuildNotes || []).join('；') }}
@@ -626,24 +598,24 @@
               </div>
 
               <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <div class="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div class="text-sm text-gray-200">在线下载并启用</div>
+                <div class="space-y-3 rounded-xl p-4 admin-super-admin-model-subcard">
+                  <div class="text-sm admin-table-muted">在线下载并启用</div>
                   <div class="flex gap-3 flex-wrap">
                     <input
                       v-model="modelDownloadUrls[model.key]"
                       type="text"
                       placeholder="https://example.com/model.onnx"
-                      class="flex-1 min-w-[260px] px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+                      class="admin-input flex-1 min-w-[260px] px-4 py-3 rounded-xl"
                     />
                     <button
-                      class="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm"
+                      class="admin-button-primary px-4 py-3 rounded-xl disabled:opacity-60 text-sm"
                       :disabled="downloadingModelKey === model.key || !String(modelDownloadUrls[model.key] || '').trim()"
                       @click="downloadModel(model)"
                     >
                       {{ downloadingModelKey === model.key ? '下载中...' : '下载并验证' }}
                     </button>
                     <button
-                      class="px-4 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm"
+                      class="admin-button-soft px-4 py-3 rounded-xl disabled:opacity-60 text-sm"
                       :disabled="reloadingModelKey === model.key"
                       @click="reloadModel(model)"
                     >
@@ -652,44 +624,44 @@
                   </div>
                 </div>
 
-                <div class="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div class="text-sm text-gray-200">重建下游数据</div>
-                  <label class="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-gray-900/40 px-4 py-3">
+                <div class="space-y-3 rounded-xl p-4 admin-super-admin-model-subcard">
+                  <div class="text-sm admin-table-muted">重建下游数据</div>
+                  <label class="flex items-start justify-between gap-3 rounded-xl px-4 py-3 admin-super-admin-model-option">
                     <div>
-                      <div class="text-sm text-white">尝试无数据项</div>
-                      <div class="text-xs text-gray-400">例如人脸模型会额外尝试此前没检测到人脸的照片。</div>
+                      <div class="text-sm admin-super-admin-modal-title">尝试无数据项</div>
+                      <div class="text-xs admin-table-faint">例如人脸模型会额外尝试此前没检测到人脸的照片。</div>
                     </div>
                     <input v-model="modelRebuildOptions[model.key].includeMissingItems" type="checkbox" class="mt-1 w-5 h-5 rounded" />
                   </label>
-                  <label class="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-gray-900/40 px-4 py-3">
+                  <label class="flex items-start justify-between gap-3 rounded-xl px-4 py-3 admin-super-admin-model-option">
                     <div>
-                      <div class="text-sm text-white">彻底重建</div>
-                      <div class="text-xs text-gray-400">会覆盖已有结果；人脸重建会尽量继承历史人物绑定与确认关系。</div>
+                      <div class="text-sm admin-super-admin-modal-title">彻底重建</div>
+                      <div class="text-xs admin-table-faint">会覆盖已有结果；人脸重建会尽量继承历史人物绑定与确认关系。</div>
                     </div>
                     <input v-model="modelRebuildOptions[model.key].forceRebuild" type="checkbox" class="mt-1 w-5 h-5 rounded" />
                   </label>
                   <button
-                    class="inline-flex px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
+                    class="admin-button-warning inline-flex px-4 py-3 rounded-xl disabled:opacity-60 text-sm"
                     :disabled="rebuildingModelKey === model.key"
                     @click="triggerModelRebuild(model)"
                   >
-                    {{ rebuildingModelKey === model.key ? '已提交...' : '启动重建任务' }}
+                      {{ rebuildingModelKey === model.key ? '已提交...' : '启动重建' }}
                   </button>
                 </div>
               </div>
 
-              <div v-if="model.latestValidation" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
-                <div class="text-sm text-gray-200">最近验证</div>
-                <div class="text-xs text-gray-400">验证时间：{{ formatDate(model.latestValidation.validatedAt || null) }}</div>
-                <div class="text-xs text-gray-400">验证文件大小：{{ formatBytes(model.latestValidation.sizeBytes) }}</div>
-                <div class="text-xs text-gray-400 break-all">输入节点：{{ (model.latestValidation.inputs || []).join(', ') || '—' }}</div>
-                <div class="text-xs text-gray-400 break-all">输出节点：{{ (model.latestValidation.outputs || []).join(', ') || '—' }}</div>
+              <div v-if="model.latestValidation" class="rounded-xl p-4 space-y-2 admin-super-admin-model-subcard">
+                <div class="text-sm admin-table-muted">最近验证</div>
+                <div class="text-xs admin-table-faint">验证时间：{{ formatDate(model.latestValidation.validatedAt || null) }}</div>
+                <div class="text-xs admin-table-faint">验证文件大小：{{ formatBytes(model.latestValidation.sizeBytes) }}</div>
+                <div class="text-xs admin-table-faint break-all">输入节点：{{ (model.latestValidation.inputs || []).join(', ') || '—' }}</div>
+                <div class="text-xs admin-table-faint break-all">输出节点：{{ (model.latestValidation.outputs || []).join(', ') || '—' }}</div>
               </div>
 
-              <div v-if="modelTaskDetails[model.key] || model.latestTask" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
+              <div v-if="modelTaskDetails[model.key] || model.latestTask" class="rounded-xl p-4 space-y-2 admin-super-admin-model-subcard">
                 <div class="flex items-center justify-between gap-3 flex-wrap">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <div class="text-sm text-gray-200">最近任务</div>
+                    <div class="text-sm admin-table-muted">最近任务</div>
                     <span
                       class="chip text-xs"
                       :class="modelTaskStatusClass(modelTaskDetails[model.key] || model.latestTask)"
@@ -699,48 +671,48 @@
                   </div>
                   <button
                     v-if="(modelTaskDetails[model.key] || model.latestTask)?.taskId"
-                    class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs"
+                    class="admin-button-soft px-3 py-1.5 rounded-lg text-xs"
                     @click="refreshModelTask((modelTaskDetails[model.key] || model.latestTask)!.taskId, model.key)"
                   >
                     刷新任务状态
                   </button>
                 </div>
-                <div class="text-xs text-gray-400">
+                <div class="text-xs admin-table-faint">
                   状态：{{ (modelTaskDetails[model.key] || model.latestTask)?.status || '—' }}
                   · 处理 {{ (modelTaskDetails[model.key] || model.latestTask)?.processed || 0 }}/{{ (modelTaskDetails[model.key] || model.latestTask)?.total || 0 }}
                   · 跳过 {{ (modelTaskDetails[model.key] || model.latestTask)?.skipped || 0 }}
                   · 失败 {{ (modelTaskDetails[model.key] || model.latestTask)?.failed || 0 }}
                 </div>
-                <div class="h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div class="h-2 rounded-full overflow-hidden admin-super-admin-progress-track">
                   <div
                     class="h-full rounded-full transition-all"
                     :class="modelTaskProgressClass(modelTaskDetails[model.key] || model.latestTask)"
                     :style="{ width: `${modelTaskProgress(modelTaskDetails[model.key] || model.latestTask)}%` }"
                   />
                 </div>
-                <div class="text-xs text-gray-300">
+                <div class="text-xs admin-table-muted">
                   {{ (modelTaskDetails[model.key] || model.latestTask)?.message || '暂无任务说明' }}
                 </div>
-                <div v-if="(modelTaskDetails[model.key] || model.latestTask)?.logs?.length" class="max-h-40 overflow-auto rounded-lg bg-gray-950/70 p-3 text-xs text-gray-400 space-y-1">
+                <div v-if="(modelTaskDetails[model.key] || model.latestTask)?.logs?.length" class="max-h-40 overflow-auto rounded-lg p-3 text-xs admin-table-faint space-y-1 admin-super-admin-log-box">
                   <div v-for="(log, index) in (modelTaskDetails[model.key] || model.latestTask)?.logs || []" :key="`${model.key}-${index}`">
                     {{ log }}
                   </div>
                 </div>
               </div>
 
-              <div v-if="model.taskHistory?.length" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
-                <div class="text-sm text-gray-200">任务历史</div>
+              <div v-if="model.taskHistory?.length" class="rounded-xl p-4 space-y-2 admin-super-admin-model-subcard">
+                <div class="text-sm admin-table-muted">任务历史</div>
                 <div class="space-y-2">
                   <div
                     v-for="task in model.taskHistory"
                     :key="task.taskId"
-                    class="rounded-lg border border-white/10 px-3 py-2 text-xs text-gray-300"
+                    class="rounded-lg px-3 py-2 text-xs admin-table-muted admin-super-admin-history-item"
                   >
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                       <div>{{ modelTaskStatusLabel(task) }} · {{ formatDate(task.createdAt || null) }}</div>
                       <div>处理 {{ task.processed }}/{{ task.total }} · 跳过 {{ task.skipped }} · 失败 {{ task.failed }}</div>
                     </div>
-                    <div class="mt-1 text-gray-400">{{ task.message }}</div>
+                    <div class="mt-1 admin-table-faint">{{ task.message }}</div>
                   </div>
                 </div>
               </div>
@@ -755,7 +727,7 @@
             <h2 class="text-lg font-light">工具</h2>
           </div>
           <button
-            class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-sm"
+            class="admin-button-warning px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
             :disabled="runningMigration"
             @click="runLegacyMigration"
           >
@@ -763,33 +735,32 @@
           </button>
         </div>
 
-        <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-100 space-y-1">
-          <div>迁移工具会整理旧版单用户目录、归属字段和存储引用，适合升级多用户或企业版前执行。</div>
-          <div>执行前建议先备份数据库与文件目录；重复执行通常会自动跳过已迁移项。</div>
+        <div class="rounded-2xl px-4 py-3 text-xs admin-super-admin-warning-box">
+          迁移前请先备份数据库与文件目录。
         </div>
 
-        <div v-if="migrationSummary" class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
-          <div class="text-sm text-gray-200">最近一次迁移结果</div>
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs text-gray-300">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div class="text-[11px] text-gray-400">归属迁移总计</div>
-              <div class="text-lg text-white mt-1">{{ migrationSummary.totalOwnershipMigrationCount ?? 0 }}</div>
+        <div v-if="migrationSummary" class="rounded-2xl p-5 space-y-4 admin-super-admin-tool-card">
+          <div class="text-sm admin-table-muted">最近一次迁移结果</div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs admin-table-muted">
+            <div class="rounded-xl p-3 admin-super-admin-stat-card">
+              <div class="text-[11px] admin-table-faint">归属迁移总计</div>
+              <div class="text-lg admin-super-admin-modal-title mt-1">{{ migrationSummary.totalOwnershipMigrationCount ?? 0 }}</div>
               <div class="mt-1">归属用户：{{ migrationSummary.ownerUsername || migrationSummary.ownerUserId || '—' }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div class="text-[11px] text-gray-400">路径改写总计</div>
-              <div class="text-lg text-white mt-1">{{ migrationSummary.totalPathRewriteCount ?? 0 }}</div>
+            <div class="rounded-xl p-3 admin-super-admin-stat-card">
+              <div class="text-[11px] admin-table-faint">路径改写总计</div>
+              <div class="text-lg admin-super-admin-modal-title mt-1">{{ migrationSummary.totalPathRewriteCount ?? 0 }}</div>
               <div class="mt-1">存储引用：{{ migrationSummary.rewrittenPhotoStorageRefCount ?? 0 }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div class="text-[11px] text-gray-400">执行结果</div>
+            <div class="rounded-xl p-3 admin-super-admin-stat-card">
+              <div class="text-[11px] admin-table-faint">执行结果</div>
               <div class="text-lg mt-1" :class="migrationSummary.success ? 'text-emerald-300' : 'text-amber-300'">
                 {{ migrationSummary.success ? '完成' : '未完成' }}
               </div>
               <div class="mt-1">{{ migrationSummary.message || '—' }}</div>
             </div>
           </div>
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-gray-300">
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs admin-table-muted">
             <div>相册归属：{{ migrationSummary.migratedAlbumOwnershipCount ?? 0 }}</div>
             <div>照片归属：{{ migrationSummary.migratedPhotoOwnershipCount ?? 0 }}</div>
             <div>人物归属：{{ migrationSummary.migratedPersonOwnershipCount ?? 0 }}</div>
@@ -806,22 +777,22 @@
         </div>
 
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <div class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
+          <div class="rounded-2xl p-5 space-y-4 admin-super-admin-tool-card">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <div class="text-sm text-white">更换存储提供者</div>
-                <div class="text-xs text-gray-400">无损迁移目录内容，并回写相册与照片路径。</div>
+                <div class="text-sm admin-super-admin-modal-title">更换存储提供者</div>
+                <div class="text-xs admin-table-faint">无损迁移目录内容，并回写相册与照片路径。</div>
               </div>
               <div class="flex items-center gap-2">
                 <button
-                  class="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-60"
+                  class="admin-button-soft px-3 py-2 rounded-lg text-xs disabled:opacity-60"
                   :disabled="previewingStorageMigration || executingStorageMigration"
                   @click="previewStorageMigration"
                 >
                   {{ previewingStorageMigration ? '检查中...' : '预检查' }}
                 </button>
                 <button
-                  class="px-3 py-2 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 disabled:opacity-60"
+                  class="admin-button-primary px-3 py-2 rounded-lg text-xs disabled:opacity-60"
                   :disabled="executingStorageMigration || previewingStorageMigration"
                   @click="executeStorageMigration"
                 >
@@ -832,7 +803,7 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label class="space-y-2">
-                <span class="text-xs text-gray-300">源存储</span>
+                <span class="text-xs admin-table-muted">源存储</span>
                 <select v-model.number="storageMigrationDraft.sourceProviderId" class="admin-input">
                   <option :value="null">请选择</option>
                   <option v-for="provider in storageProviders" :key="`migration-source-${provider.id}`" :value="provider.id">
@@ -841,7 +812,7 @@
                 </select>
               </label>
               <label class="space-y-2">
-                <span class="text-xs text-gray-300">目标存储</span>
+                <span class="text-xs admin-table-muted">目标存储</span>
                 <select v-model.number="storageMigrationDraft.targetProviderId" class="admin-input">
                   <option :value="null">请选择</option>
                   <option v-for="provider in storageProviders" :key="`migration-target-${provider.id}`" :value="provider.id">
@@ -850,16 +821,16 @@
                 </select>
               </label>
               <label class="space-y-2">
-                <span class="text-xs text-gray-300">源目录</span>
+                <span class="text-xs admin-table-muted">源目录</span>
                 <input v-model.trim="storageMigrationDraft.sourcePath" type="text" class="admin-input" placeholder="/" />
               </label>
               <label class="space-y-2">
-                <span class="text-xs text-gray-300">目标目录</span>
+                <span class="text-xs admin-table-muted">目标目录</span>
                 <input v-model.trim="storageMigrationDraft.targetPath" type="text" class="admin-input" placeholder="/" />
               </label>
             </div>
 
-            <label class="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+            <label class="flex items-center justify-between gap-3 rounded-xl px-4 py-3 admin-super-admin-warning-box">
               <div>
                 <div class="text-sm text-amber-100">目标非空时先清空</div>
                 <div class="text-xs text-amber-200/80">会先删除目标目录下已有文件及关联数据。</div>
@@ -867,50 +838,50 @@
               <input v-model="storageMigrationDraft.clearTarget" type="checkbox" class="h-4 w-4 rounded" />
             </label>
 
-            <div v-if="storageMigrationPreview" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-xs text-gray-300">
+            <div v-if="storageMigrationPreview" class="rounded-xl p-4 space-y-3 text-xs text-gray-300 admin-super-admin-preview-card">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
-                  <div class="text-[11px] text-gray-400">源目录</div>
-                  <div class="text-sm text-white">{{ storageMigrationPreview.source.providerName }} · {{ storageMigrationPreview.source.path }}</div>
+                <div class="rounded-xl p-3 space-y-1 admin-super-admin-preview-item">
+                  <div class="text-[11px] admin-table-faint">源目录</div>
+                  <div class="text-sm admin-super-admin-modal-title">{{ storageMigrationPreview.source.providerName }} · {{ storageMigrationPreview.source.path }}</div>
                   <div>目录 {{ storageMigrationPreview.source.directoryCount }} · 文件 {{ storageMigrationPreview.source.fileCount }} · {{ formatBytes(storageMigrationPreview.source.totalBytes) }}</div>
                 </div>
-                <div class="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
-                  <div class="text-[11px] text-gray-400">目标目录</div>
-                  <div class="text-sm text-white">{{ storageMigrationPreview.target.providerName }} · {{ storageMigrationPreview.target.path }}</div>
+                <div class="rounded-xl p-3 space-y-1 admin-super-admin-preview-item">
+                  <div class="text-[11px] admin-table-faint">目标目录</div>
+                  <div class="text-sm admin-super-admin-modal-title">{{ storageMigrationPreview.target.providerName }} · {{ storageMigrationPreview.target.path }}</div>
                   <div>目录 {{ storageMigrationPreview.target.directoryCount }} · 文件 {{ storageMigrationPreview.target.fileCount }} · {{ formatBytes(storageMigrationPreview.target.totalBytes) }}</div>
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-3">
-                <div class="rounded-xl border border-white/10 bg-black/20 p-3">相册关联：{{ storageMigrationPreview.database.albumCount }}</div>
-                <div class="rounded-xl border border-white/10 bg-black/20 p-3">照片关联：{{ storageMigrationPreview.database.photoCount }}</div>
+                <div class="rounded-xl p-3 admin-super-admin-preview-item">相册关联：{{ storageMigrationPreview.database.albumCount }}</div>
+                <div class="rounded-xl p-3 admin-super-admin-preview-item">照片关联：{{ storageMigrationPreview.database.photoCount }}</div>
               </div>
-              <div v-if="storageMigrationPreview.targetNotEmpty" class="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-100">
+              <div v-if="storageMigrationPreview.targetNotEmpty" class="rounded-xl px-3 py-2 admin-super-admin-warning-box">
                 目标目录当前非空，执行前请确认是否需要先清空。
               </div>
             </div>
 
-            <div v-if="storageMigrationResult" class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs text-emerald-100 space-y-1">
+            <div v-if="storageMigrationResult" class="rounded-xl p-4 text-xs space-y-1 admin-super-admin-success-box">
               <div>已回写相册 {{ storageMigrationResult.rewrittenAlbumCount ?? 0 }} 项，照片 {{ storageMigrationResult.rewrittenPhotoCount ?? 0 }} 项。</div>
               <div v-if="storageMigrationResult.executedAt">执行时间：{{ formatDateTime(storageMigrationResult.executedAt) }}</div>
             </div>
           </div>
 
-          <div class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
+          <div class="rounded-2xl p-5 space-y-4 admin-super-admin-tool-card">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <div class="text-sm text-white">清空指定目录</div>
-                <div class="text-xs text-gray-400">按物理目录删除文件、相册、照片与关联记录。</div>
+                <div class="text-sm admin-super-admin-modal-title">清空指定目录</div>
+                <div class="text-xs admin-table-faint">按物理目录删除文件、相册、照片与关联记录。</div>
               </div>
               <div class="flex items-center gap-2">
                 <button
-                  class="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-60"
+                  class="admin-button-soft px-3 py-2 rounded-lg text-xs disabled:opacity-60"
                   :disabled="previewingStorageCleanup || executingStorageCleanup"
                   @click="previewStorageCleanup"
                 >
                   {{ previewingStorageCleanup ? '检查中...' : '预检查' }}
                 </button>
                 <button
-                  class="px-3 py-2 rounded-lg bg-rose-600 text-xs text-white hover:bg-rose-500 disabled:opacity-60"
+                  class="admin-button-danger px-3 py-2 rounded-lg text-xs disabled:opacity-60"
                   :disabled="executingStorageCleanup || previewingStorageCleanup"
                   @click="executeStorageCleanup"
                 >
@@ -921,7 +892,7 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label class="space-y-2">
-                <span class="text-xs text-gray-300">存储</span>
+                <span class="text-xs admin-table-muted">存储</span>
                 <select v-model.number="storageCleanupDraft.providerId" class="admin-input">
                   <option :value="null">请选择</option>
                   <option v-for="provider in storageProviders" :key="`cleanup-${provider.id}`" :value="provider.id">
@@ -930,24 +901,24 @@
                 </select>
               </label>
               <label class="space-y-2">
-                <span class="text-xs text-gray-300">目录</span>
+                <span class="text-xs admin-table-muted">目录</span>
                 <input v-model.trim="storageCleanupDraft.path" type="text" class="admin-input" placeholder="/" />
               </label>
             </div>
 
-            <div v-if="storageCleanupPreview" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-xs text-gray-300">
-              <div class="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
-                <div class="text-[11px] text-gray-400">目标目录</div>
-                <div class="text-sm text-white">{{ storageCleanupPreview.target.providerName }} · {{ storageCleanupPreview.target.path }}</div>
+            <div v-if="storageCleanupPreview" class="rounded-xl p-4 space-y-3 text-xs text-gray-300 admin-super-admin-preview-card">
+              <div class="rounded-xl p-3 space-y-1 admin-super-admin-preview-item">
+                <div class="text-[11px] admin-table-faint">目标目录</div>
+                <div class="text-sm admin-super-admin-modal-title">{{ storageCleanupPreview.target.providerName }} · {{ storageCleanupPreview.target.path }}</div>
                 <div>目录 {{ storageCleanupPreview.target.directoryCount }} · 文件 {{ storageCleanupPreview.target.fileCount }} · {{ formatBytes(storageCleanupPreview.target.totalBytes) }}</div>
               </div>
               <div class="grid grid-cols-2 gap-3">
-                <div class="rounded-xl border border-white/10 bg-black/20 p-3">相册关联：{{ storageCleanupPreview.database.albumCount }}</div>
-                <div class="rounded-xl border border-white/10 bg-black/20 p-3">照片关联：{{ storageCleanupPreview.database.photoCount }}</div>
+                <div class="rounded-xl p-3 admin-super-admin-preview-item">相册关联：{{ storageCleanupPreview.database.albumCount }}</div>
+                <div class="rounded-xl p-3 admin-super-admin-preview-item">照片关联：{{ storageCleanupPreview.database.photoCount }}</div>
               </div>
             </div>
 
-            <div v-if="storageCleanupResult" class="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-xs text-rose-100 space-y-1">
+            <div v-if="storageCleanupResult" class="rounded-xl p-4 text-xs space-y-1 admin-super-admin-danger-box">
               <div>目录清理已完成。</div>
               <div v-if="storageCleanupResult.executedAt">执行时间：{{ formatDateTime(storageCleanupResult.executedAt) }}</div>
             </div>
@@ -957,14 +928,14 @@
         <ApiTestToolPanel />
       </section>
 
-      <section v-if="activeTab === 'global'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'global'" class="glass-panel p-6 space-y-5 admin-super-admin-form-panel admin-super-admin-global-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">全局设置</h2>
-            <p class="text-xs text-gray-400">当前先支持多用户总开关、默认空间、存储根目录与默认上传位置。</p>
+            <p class="text-xs admin-table-faint">当前先支持多用户总开关、默认空间、存储根目录与默认上传位置。</p>
           </div>
           <button
-            class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+            class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
             :disabled="loading || savingSettings"
             @click="saveSettings"
           >
@@ -976,7 +947,7 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启多用户</div>
-              <div class="text-xs text-gray-400">关闭时暂不开放注册入口，仍保留超级管理员登录。</div>
+              <div class="text-xs admin-table-faint">关闭时暂不开放注册入口，仍保留超级管理员登录。</div>
             </div>
             <input v-model="settings.multiUserEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
@@ -984,28 +955,28 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启定时扫描</div>
-              <div class="text-xs text-gray-400">当前默认关闭，避免低配服务器自动拉满。</div>
+              <div class="text-xs admin-table-faint">当前默认关闭，避免低配服务器自动拉满。</div>
             </div>
             <input v-model="settings.scanSchedulerEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">扫描工作线程数</span>
+            <span class="text-sm admin-table-muted">扫描工作线程数</span>
             <input
               v-model.number="settings.scanWorkerCount"
               type="number"
               min="1"
               max="2"
               step="1"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <div class="text-xs text-gray-400">建议弱性能服务器保持 1，需要略微提速时可调为 2。</div>
+            <div class="text-xs admin-table-faint">建议弱性能服务器保持 1，需要略微提速时可调为 2。</div>
           </label>
 
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">强制绑定手机号</div>
-              <div class="text-xs text-gray-400">开启后注册必须填写手机号，但仍允许账号密码登录；手机号验证码登录作为补充能力开放。</div>
+              <div class="text-xs admin-table-faint">开启后注册必须填写手机号，但仍允许账号密码登录；手机号验证码登录作为补充能力开放。</div>
             </div>
             <input v-model="settings.forceBindPhone" type="checkbox" class="w-5 h-5 rounded" />
           </label>
@@ -1013,40 +984,40 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启自动续费建单任务</div>
-              <div class="text-xs text-gray-400">每 5 分钟检查一次到期自动续费订单，仅自动创建续费待支付订单，不直接扣款。</div>
+              <div class="text-xs admin-table-faint">每 5 分钟检查一次到期自动续费订单，仅自动创建续费待支付订单，不直接扣款。</div>
             </div>
             <input v-model="settings.autoRenewSchedulerEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">默认用户空间限额（GB）</span>
+            <span class="text-sm admin-table-muted">默认用户空间限额（GB）</span>
             <input
               v-model.number="settingsQuotaView.defaultUserQuotaGb"
               type="number"
               min="0"
               step="0.5"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <div class="text-xs text-gray-400">注册用户默认获得的基础原图空间。</div>
+            <div class="text-xs admin-table-faint">注册用户默认获得的基础原图空间。</div>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">默认 VIP 额外配额（GB）</span>
+            <span class="text-sm admin-table-muted">默认 VIP 额外配额（GB）</span>
             <input
               v-model.number="settingsQuotaView.defaultVipExtraQuotaGb"
               type="number"
               min="0"
               step="0.5"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <div class="text-xs text-gray-400">与基础配额分离，后续 VIP 方案可在此基础上继续演进。</div>
+            <div class="text-xs admin-table-faint">与基础配额分离，后续 VIP 方案可在此基础上继续演进。</div>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">默认上传存储</span>
+            <span class="text-sm admin-table-muted">默认上传存储</span>
             <select
               v-model="settings.defaultStorageProviderId"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             >
               <option :value="null">请选择默认存储</option>
               <option
@@ -1061,43 +1032,43 @@
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">原图存储根目录</span>
+            <span class="text-sm admin-table-muted">原图存储根目录</span>
             <input
               v-model="settings.localStorageRoot"
               type="text"
               placeholder="例如 data/photos"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">用户资料根目录</span>
+            <span class="text-sm admin-table-muted">用户资料根目录</span>
             <input
               v-model="settings.userDataRoot"
               type="text"
               placeholder="例如 data/users"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
         </div>
       </section>
 
-      <section v-if="activeTab === 'notifications'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'notifications'" class="glass-panel p-6 space-y-5 admin-super-admin-form-panel admin-super-admin-notifications-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">短信登录设置</h2>
-            <p class="text-xs text-gray-400">支持阿里云、腾讯云、Twilio、通用 Webhook 与 mock 模式；默认可仅开启 mock 便于联调测试。</p>
+            <p class="text-xs admin-table-faint">支持阿里云、腾讯云、Twilio、通用 Webhook 与 mock 模式；默认可仅开启 mock 便于联调测试。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <button
-              class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm"
+              class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="sendingTestSms"
               @click="openSmsTestModal"
             >
               {{ sendingTestSms ? '发送中...' : '发送测试验证码' }}
             </button>
             <button
-              class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+              class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="loading || savingSettings"
               @click="saveSettings"
             >
@@ -1108,10 +1079,10 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">短信平台</span>
+            <span class="text-sm admin-table-muted">短信平台</span>
             <select
               v-model="settings.smsProviderType"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             >
               <option value="ALIYUN">阿里云短信</option>
               <option value="TENCENT_CLOUD">腾讯云短信</option>
@@ -1136,7 +1107,7 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启真实短信发送</div>
-              <div class="text-xs text-gray-400">开启后将使用当前所选短信平台发送验证码。</div>
+              <div class="text-xs admin-table-faint">开启后将使用当前所选短信平台发送验证码。</div>
             </div>
             <input v-model="settings.smsEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
@@ -1144,65 +1115,65 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启 Mock 验证码</div>
-              <div class="text-xs text-gray-400">建议开发期保持开启，前端可直接看到 debugCode 方便联调。</div>
+              <div class="text-xs admin-table-faint">建议开发期保持开启，前端可直接看到 debugCode 方便联调。</div>
             </div>
             <input v-model="settings.smsMockEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
 
           <label class="space-y-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-300">短信 Endpoint</span>
+              <span class="text-sm admin-table-muted">短信 Endpoint</span>
               <a v-if="smsFieldDocLinks.endpoint" :href="smsFieldDocLinks.endpoint.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
             <input
               v-model="settings.smsEndpoint"
               type="text"
               :placeholder="smsEndpointPlaceholder"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">用于请求短信服务商接口地址；如平台有默认网关，也可留空交给推荐配置。</span>
+            <span class="text-xs admin-table-faint">用于请求短信服务商接口地址；如平台有默认网关，也可留空交给推荐配置。</span>
           </label>
 
           <label class="space-y-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-300">RegionId</span>
+              <span class="text-sm admin-table-muted">RegionId</span>
               <a v-if="smsFieldDocLinks.region" :href="smsFieldDocLinks.region.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
             <input
               v-model="settings.smsRegionId"
               type="text"
               :placeholder="smsRegionPlaceholder"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">云厂商通常要求填写地域，例如 `cn-hangzhou`、`ap-guangzhou`。</span>
+            <span class="text-xs admin-table-faint">云厂商通常要求填写地域，例如 `cn-hangzhou`、`ap-guangzhou`。</span>
           </label>
 
           <label class="space-y-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-300">{{ smsAccessKeyIdLabel }}</span>
+              <span class="text-sm admin-table-muted">{{ smsAccessKeyIdLabel }}</span>
               <a v-if="smsFieldDocLinks.accessKeyId" :href="smsFieldDocLinks.accessKeyId.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
             <input
               v-model="settings.smsAccessKeyId"
               type="text"
               :placeholder="`${smsAccessKeyIdLabel}`"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">这里填写平台提供的公开标识，密钥本体填在下面的 Secret 字段。</span>
+            <span class="text-xs admin-table-faint">这里填写平台提供的公开标识，密钥本体填在下面的 Secret 字段。</span>
           </label>
 
           <label class="space-y-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-300">{{ smsAccessKeySecretLabel }}</span>
+              <span class="text-sm admin-table-muted">{{ smsAccessKeySecretLabel }}</span>
               <a v-if="smsFieldDocLinks.accessKeySecret" :href="smsFieldDocLinks.accessKeySecret.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
             <input
               v-model="settings.smsAccessKeySecret"
               type="password"
               autocomplete="new-password"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">敏感字段，保存后前端不会主动回显，请妥善保管。</span>
+            <span class="text-xs admin-table-faint">敏感字段，保存后前端不会主动回显，请妥善保管。</span>
           </label>
 
           <label class="space-y-2">
@@ -1214,92 +1185,92 @@
               v-model="settings.smsSignName"
               type="text"
               :placeholder="`${smsSignLabel}`"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
 
           <label class="space-y-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-300">{{ smsTemplateLabel }}</span>
+              <span class="text-sm admin-table-muted">{{ smsTemplateLabel }}</span>
               <a v-if="smsFieldDocLinks.template" :href="smsFieldDocLinks.template.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
             <input
               v-model="settings.smsTemplateCode"
               type="text"
               :placeholder="`${smsTemplateLabel}`"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
 
           <label v-if="settings.smsProviderType === 'TENCENT_CLOUD'" class="space-y-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm text-gray-300">SmsSdkAppId</span>
+              <span class="text-sm admin-table-muted">SmsSdkAppId</span>
               <a v-if="smsFieldDocLinks.sdkAppId" :href="smsFieldDocLinks.sdkAppId.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
             <input
               v-model="settings.smsSdkAppId"
               type="text"
               placeholder="腾讯云短信应用 ID"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">模板参数名</span>
+            <span class="text-sm admin-table-muted">模板参数名</span>
             <input
               v-model="settings.smsTemplateParamName"
               type="text"
               placeholder="code"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
               :disabled="settings.smsProviderType === 'TENCENT_CLOUD'"
             />
-            <span class="text-xs text-gray-500">短信模板中验证码变量名；腾讯云通常走固定参数格式，因此这里会禁用。</span>
+            <span class="text-xs admin-table-faint">短信模板中验证码变量名；腾讯云通常走固定参数格式，因此这里会禁用。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">验证码有效期（分钟）</span>
+            <span class="text-sm admin-table-muted">验证码有效期（分钟）</span>
             <input
               v-model.number="settings.smsCodeExpireMinutes"
               type="number"
               min="1"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">控制短信验证码失效时间，建议保持在 `5~15` 分钟区间。</span>
+            <span class="text-xs admin-table-faint">控制短信验证码失效时间，建议保持在 `5~15` 分钟区间。</span>
           </label>
 
         </div>
       </section>
 
-      <section v-if="activeTab === 'notifications'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'notifications'" class="glass-panel p-6 space-y-5 admin-super-admin-form-panel admin-super-admin-notifications-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">邮件发送设置</h2>
-            <p class="text-xs text-gray-400">当前以 SMTP 为基础，后续可兼容 SES、SendGrid、Mailgun、Resend、企业邮箱等 SMTP 接入方式。</p>
+            <p class="text-xs admin-table-faint">当前以 SMTP 为基础，后续可兼容 SES、SendGrid、Mailgun、Resend、企业邮箱等 SMTP 接入方式。</p>
           </div>
           <div class="flex items-center gap-3">
             <button
-              class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm"
+              class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="sendingTestEmail"
               @click="sendTestEmail"
             >
               {{ sendingTestEmail ? '发送中...' : '发送测试邮件' }}
             </button>
             <button
-              class="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-sm"
+              class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="previewingEmailTemplate || sendingTemplateEmail || !selectedEmailTemplate"
               @click="previewSelectedEmailTemplate"
             >
               {{ previewingEmailTemplate ? '预览中...' : '预览模板邮件' }}
             </button>
             <button
-              class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm"
+              class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="sendingCustomEmail"
               @click="sendCustomEmail"
             >
               {{ sendingCustomEmail ? '发送中...' : '发送自定义邮件' }}
             </button>
             <button
-              class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm border border-white/10"
+              class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
               :disabled="savingSettings"
               @click="applyEmailPreset"
             >
@@ -1310,10 +1281,10 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">邮件平台</span>
+            <span class="text-sm admin-table-muted">邮件平台</span>
             <select
               v-model="settings.emailProviderType"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             >
               <option value="SMTP">SMTP</option>
               <option value="CUSTOM_SMTP">自定义 SMTP</option>
@@ -1340,7 +1311,7 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启邮件发送</div>
-              <div class="text-xs text-gray-400">用于后续邮件注册、通知与找回密码等能力。</div>
+              <div class="text-xs admin-table-faint">用于后续邮件注册、通知与找回密码等能力。</div>
             </div>
             <input v-model="settings.emailEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
@@ -1348,7 +1319,7 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">邮箱验证码 Mock</div>
-              <div class="text-xs text-gray-400">未接真实 SMTP 时也可先联调邮箱验证码登录与绑定。</div>
+              <div class="text-xs admin-table-faint">未接真实 SMTP 时也可先联调邮箱验证码登录与绑定。</div>
             </div>
             <input v-model="settings.emailMockEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
@@ -1356,158 +1327,158 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">开启邮箱验证码登录</div>
-              <div class="text-xs text-gray-400">允许使用邮箱 + 验证码直接登录。</div>
+              <div class="text-xs admin-table-faint">允许使用邮箱 + 验证码直接登录。</div>
             </div>
             <input v-model="settings.emailCodeLoginEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">SMTP Host</span>
+            <span class="text-sm admin-table-muted">SMTP Host</span>
             <input
               v-model="settings.emailHost"
               type="text"
               :placeholder="emailPreset.host || 'smtp.example.com'"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">邮件服务器域名；切换平台后可优先使用下方推荐主机。</span>
+            <span class="text-xs admin-table-faint">邮件服务器域名；切换平台后可优先使用下方推荐主机。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">SMTP Port</span>
+            <span class="text-sm admin-table-muted">SMTP Port</span>
             <input
               v-model.number="settings.emailPort"
               type="number"
               min="1"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">常见为 `465`（SSL）或 `587`（STARTTLS）。</span>
+            <span class="text-xs admin-table-faint">常见为 `465`（SSL）或 `587`（STARTTLS）。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">用户名</span>
+            <span class="text-sm admin-table-muted">用户名</span>
             <input
               v-model="settings.emailUsername"
               type="text"
               placeholder="SMTP 用户名 / 邮箱账号"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">多数平台要求填写完整邮箱地址或专用 SMTP 用户名。</span>
+            <span class="text-xs admin-table-faint">多数平台要求填写完整邮箱地址或专用 SMTP 用户名。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">密码 / 授权码</span>
+            <span class="text-sm admin-table-muted">密码 / 授权码</span>
             <input
               v-model="settings.emailPassword"
               type="password"
               autocomplete="new-password"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">建议使用 SMTP 授权码而不是主账号登录密码。</span>
+            <span class="text-xs admin-table-faint">建议使用 SMTP 授权码而不是主账号登录密码。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">协议</span>
+            <span class="text-sm admin-table-muted">协议</span>
             <input
               v-model="settings.emailProtocol"
               type="text"
               :placeholder="emailPreset.protocol"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">通常填写 `smtp`；如后续接其它协议，可在这里扩展。</span>
+            <span class="text-xs admin-table-faint">通常填写 `smtp`；如后续接其它协议，可在这里扩展。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">发件邮箱</span>
+            <span class="text-sm admin-table-muted">发件邮箱</span>
             <input
               v-model="settings.emailFromAddress"
               type="email"
               placeholder="noreply@example.com"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">用于真正发送邮件时显示在 From 头中的邮箱地址。</span>
+            <span class="text-xs admin-table-faint">用于真正发送邮件时显示在 From 头中的邮箱地址。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">发件人名称</span>
+            <span class="text-sm admin-table-muted">发件人名称</span>
             <input
               v-model="settings.emailFromName"
               type="text"
               placeholder="Photo Exhibition"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">回复邮箱</span>
+            <span class="text-sm admin-table-muted">回复邮箱</span>
             <input
               v-model="settings.emailReplyTo"
               type="email"
               placeholder="support@example.com"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">测试收件人</span>
+            <span class="text-sm admin-table-muted">测试收件人</span>
             <input
               v-model="settings.emailTestRecipient"
               type="email"
               placeholder="you@example.com"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">点击“发送测试邮件”时默认投递到这里。</span>
+            <span class="text-xs admin-table-faint">点击“发送测试邮件”时默认投递到这里。</span>
           </label>
 
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">邮箱验证码有效期（分钟）</span>
+            <span class="text-sm admin-table-muted">邮箱验证码有效期（分钟）</span>
             <input
               v-model.number="settings.emailCodeExpireMinutes"
               type="number"
               min="1"
               step="1"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">登录验证码与邮箱绑定验证码共用该有效期。</span>
+            <span class="text-xs admin-table-faint">登录验证码与邮箱绑定验证码共用该有效期。</span>
           </label>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label class="glass-panel p-4 flex items-center justify-between gap-3">
               <div>
                 <div class="text-sm">启用 SSL</div>
-                <div class="text-xs text-gray-400">常见于 465 端口。</div>
+                <div class="text-xs admin-table-faint">常见于 465 端口。</div>
               </div>
               <input v-model="settings.emailSslEnabled" type="checkbox" class="w-5 h-5 rounded" />
             </label>
             <label class="glass-panel p-4 flex items-center justify-between gap-3">
               <div>
                 <div class="text-sm">启用 STARTTLS</div>
-                <div class="text-xs text-gray-400">常见于 587 端口。</div>
+                <div class="text-xs admin-table-faint">常见于 587 端口。</div>
               </div>
               <input v-model="settings.emailStarttlsEnabled" type="checkbox" class="w-5 h-5 rounded" />
             </label>
           </div>
         </div>
-        <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
+        <div class="rounded-xl px-4 py-3 text-xs admin-table-muted space-y-1 admin-super-admin-preview-card">
           <div>推荐主机：{{ emailPreset.host || '请按服务商文档填写' }}</div>
           <div>推荐端口：{{ emailPreset.port }} · 协议：{{ emailPreset.protocol }} · SSL：{{ emailPreset.sslEnabled ? '开启' : '关闭' }} · STARTTLS：{{ emailPreset.starttlsEnabled ? '开启' : '关闭' }}</div>
           <div>{{ emailPreset.hint }}</div>
         </div>
-        <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 space-y-4">
+        <div class="rounded-xl px-4 py-4 space-y-4 admin-super-admin-preview-card">
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <div class="text-sm text-white">模板邮件</div>
-              <div class="text-xs text-gray-400 mt-1">可直接预览并发送欢迎邮件、验证码邮件、系统通知与维护通知。</div>
+              <div class="text-sm admin-super-admin-modal-title">模板邮件</div>
+              <div class="text-xs admin-table-faint mt-1">可直接预览并发送欢迎邮件、验证码邮件、系统通知与维护通知。</div>
             </div>
             <div class="flex gap-2 flex-wrap">
               <button
-                class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm border border-white/10"
+                class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
                 :disabled="!emailTemplatePreview"
                 @click="applyTemplatePreviewToCustomEmail"
               >
                 套用到自定义邮件
               </button>
               <button
-                class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm"
+                class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
                 :disabled="sendingTemplateEmail || !selectedEmailTemplate"
                 @click="sendSelectedEmailTemplate"
               >
@@ -1517,41 +1488,41 @@
           </div>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <label class="space-y-2">
-              <span class="text-sm text-gray-300">模板类型</span>
-              <select v-model="selectedEmailTemplateKey" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl">
+              <span class="text-sm admin-table-muted">模板类型</span>
+              <select v-model="selectedEmailTemplateKey" class="admin-input w-full px-4 py-3 rounded-xl">
                 <option v-for="template in emailTemplates" :key="template.key" :value="template.key">
                   {{ template.name }}
                 </option>
               </select>
             </label>
             <label class="space-y-2">
-              <span class="text-sm text-gray-300">模板收件人</span>
-              <input v-model="templateEmailRecipient" type="email" placeholder="user@example.com" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl" />
+              <span class="text-sm admin-table-muted">模板收件人</span>
+              <input v-model="templateEmailRecipient" type="email" placeholder="user@example.com" class="admin-input w-full px-4 py-3 rounded-xl" />
             </label>
             <label
               v-for="field in selectedEmailTemplate?.fields || []"
               :key="field.key"
               class="space-y-2"
             >
-              <span class="text-sm text-gray-300">{{ field.label }}</span>
+              <span class="text-sm admin-table-muted">{{ field.label }}</span>
               <input
                 v-model="emailTemplateVariables[field.key]"
                 type="text"
                 :placeholder="field.placeholder || ''"
-                class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+                class="admin-input w-full px-4 py-3 rounded-xl"
               />
             </label>
           </div>
-          <div v-if="selectedEmailTemplate" class="text-xs text-gray-400">
+          <div v-if="selectedEmailTemplate" class="text-xs admin-table-faint">
             {{ selectedEmailTemplate.description }}
           </div>
-          <div v-if="emailTemplatePreview" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
+          <div v-if="emailTemplatePreview" class="rounded-xl p-4 space-y-3 admin-super-admin-preview-item">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <div class="text-sm text-white">{{ emailTemplatePreview.templateName }}</div>
-                <div class="text-xs text-gray-400">主题：{{ emailTemplatePreview.subject }}</div>
+                <div class="text-sm admin-super-admin-modal-title">{{ emailTemplatePreview.templateName }}</div>
+                <div class="text-xs admin-table-faint">主题：{{ emailTemplatePreview.subject }}</div>
               </div>
-              <span class="text-[10px] px-2 py-1 rounded-full border border-white/10 text-gray-400">
+              <span class="text-[10px] px-2 py-1 rounded-full admin-super-admin-preview-item admin-table-faint">
                 {{ emailTemplatePreview.html ? 'HTML' : '纯文本' }}
               </span>
             </div>
@@ -1562,47 +1533,47 @@
             />
             <pre
               v-else
-              class="rounded-lg bg-gray-950/70 p-4 text-xs text-gray-200 whitespace-pre-wrap overflow-x-auto"
+              class="rounded-lg admin-super-admin-log-box p-4 text-xs admin-table-muted whitespace-pre-wrap overflow-x-auto"
             >{{ emailTemplatePreview.content }}</pre>
           </div>
         </div>
-        <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 space-y-4">
+        <div class="rounded-xl px-4 py-4 space-y-4 admin-super-admin-preview-card">
           <div>
-            <div class="text-sm text-white">自定义邮件发送</div>
-            <div class="text-xs text-gray-400 mt-1">用于预演通知邮件、邮箱注册和找回密码等后续链路。</div>
+            <div class="text-sm admin-super-admin-modal-title">自定义邮件发送</div>
+            <div class="text-xs admin-table-faint mt-1">用于预演通知邮件、邮箱注册和找回密码等后续链路。</div>
           </div>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <label class="space-y-2">
-              <span class="text-sm text-gray-300">收件人</span>
-              <input v-model="customEmail.recipient" type="email" placeholder="user@example.com" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl" />
+              <span class="text-sm admin-table-muted">收件人</span>
+              <input v-model="customEmail.recipient" type="email" placeholder="user@example.com" class="admin-input w-full px-4 py-3 rounded-xl" />
             </label>
             <label class="space-y-2">
-              <span class="text-sm text-gray-300">主题</span>
-              <input v-model="customEmail.subject" type="text" placeholder="欢迎使用 Photo Exhibition" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl" />
+              <span class="text-sm admin-table-muted">主题</span>
+              <input v-model="customEmail.subject" type="text" placeholder="欢迎使用 Photo Exhibition" class="admin-input w-full px-4 py-3 rounded-xl" />
             </label>
           </div>
           <label class="space-y-2 block">
-            <span class="text-sm text-gray-300">正文</span>
-            <textarea v-model="customEmail.content" rows="6" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl" placeholder="请输入邮件正文"></textarea>
+            <span class="text-sm admin-table-muted">正文</span>
+            <textarea v-model="customEmail.content" rows="6" class="admin-input w-full px-4 py-3 rounded-xl" placeholder="请输入邮件正文"></textarea>
           </label>
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">HTML 邮件</div>
-              <div class="text-xs text-gray-400">关闭时按纯文本发送，更适合验证码和系统通知。</div>
+              <div class="text-xs admin-table-faint">关闭时按纯文本发送，更适合验证码和系统通知。</div>
             </div>
             <input v-model="customEmail.html" type="checkbox" class="w-5 h-5 rounded" />
           </label>
         </div>
       </section>
 
-      <section v-if="activeTab === 'payment'" class="glass-panel p-6 space-y-5">
+      <section v-if="activeTab === 'payment'" class="glass-panel p-6 space-y-5 admin-super-admin-form-panel admin-super-admin-payment-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">支付设置</h2>
-            <p class="text-xs text-gray-400">先支持支付宝、微信支付、Stripe、PayPal 与自定义 Webhook 的统一配置骨架，后续再接真实下单与回调。</p>
+            <p class="text-xs admin-table-faint">先支持支付宝、微信支付、Stripe、PayPal 与自定义 Webhook 的统一配置骨架，后续再接真实下单与回调。</p>
           </div>
           <button
-            class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-sm border border-white/10"
+            class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
             :disabled="savingSettings"
             @click="applyPaymentPreset"
           >
@@ -1611,8 +1582,8 @@
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <label class="space-y-2">
-            <span class="text-sm text-gray-300">支付平台</span>
-            <select v-model="settings.paymentProviderType" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl">
+            <span class="text-sm admin-table-muted">支付平台</span>
+            <select v-model="settings.paymentProviderType" class="admin-input w-full px-4 py-3 rounded-xl">
               <option value="ALIPAY">支付宝</option>
               <option value="WECHAT_PAY">微信支付</option>
               <option value="STRIPE">Stripe</option>
@@ -1630,14 +1601,14 @@
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">启用支付</div>
-              <div class="text-xs text-gray-400">关闭时仅保留订单骨架，不开放真实支付。</div>
+              <div class="text-xs admin-table-faint">关闭时仅保留订单骨架，不开放真实支付。</div>
             </div>
             <input v-model="settings.paymentEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
           <label class="glass-panel p-4 flex items-center justify-between gap-3">
             <div>
               <div class="text-sm">启用支付 Mock</div>
-              <div class="text-xs text-gray-400">开发期建议开启，用于联调下单和订单状态流转。</div>
+              <div class="text-xs admin-table-faint">开发期建议开启，用于联调下单和订单状态流转。</div>
             </div>
             <input v-model="settings.paymentMockEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
@@ -1649,7 +1620,7 @@
           >
             <div class="flex items-center justify-between gap-3">
               <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-300">{{ field.label }}</span>
+                <span class="text-sm admin-table-muted">{{ field.label }}</span>
                 <a
                   v-if="paymentFieldDocLinks[field.key]"
                   :href="paymentFieldDocLinks[field.key]!.url"
@@ -1661,7 +1632,7 @@
                   ↗
                 </a>
               </div>
-              <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">
+              <span class="text-[10px] px-2 py-0.5 rounded-full admin-super-admin-preview-item admin-table-faint">
                 {{ field.required ? '必填' : '可选' }} · {{ field.shortHint }}
               </span>
             </div>
@@ -1670,32 +1641,32 @@
               v-model="(settings as any)[field.key]"
               :rows="field.rows || 3"
               :placeholder="field.placeholder"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
             <input
               v-else
               v-model="(settings as any)[field.key]"
               type="text"
               :placeholder="field.placeholder"
-              class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl"
+              class="admin-input w-full px-4 py-3 rounded-xl"
             />
-            <span class="text-xs text-gray-500">{{ field.description }}</span>
+            <span class="text-xs admin-table-faint">{{ field.description }}</span>
           </label>
-          <div class="lg:col-span-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-            <div class="text-xs text-gray-400">
+          <div class="lg:col-span-2 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap admin-super-admin-preview-card">
+            <div class="text-xs admin-table-faint">
               推荐优先使用系统统一回调入口，减少各支付平台分别拼接返回页地址的出错概率。
             </div>
             <div class="flex gap-2 flex-wrap">
               <button
                 type="button"
-                class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
+                class="admin-button-soft px-3 py-2 rounded-lg text-xs"
                 @click="fillPaymentCallbackUrls"
               >
                 一键填充统一回调地址
               </button>
               <button
                 type="button"
-                class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
+                class="admin-button-soft px-3 py-2 rounded-lg text-xs"
                 @click="copyPaymentCallbackUrls"
               >
                 复制统一回调地址
@@ -1704,12 +1675,12 @@
           </div>
           <label class="space-y-2">
             <div class="flex items-center justify-between gap-3">
-              <span class="text-sm text-gray-300">验签模式</span>
-              <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-500">
+              <span class="text-sm admin-table-muted">验签模式</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full admin-super-admin-preview-item admin-table-faint">
                 平台可用：{{ paymentVerificationModeOptions.map(item => item.label).join(' / ') }}
               </span>
             </div>
-            <select v-model="settings.paymentVerificationMode" class="w-full px-4 py-3 bg-gray-900/70 border border-white/10 rounded-xl">
+            <select v-model="settings.paymentVerificationMode" class="admin-input w-full px-4 py-3 rounded-xl">
               <option
                 v-for="option in paymentVerificationModeOptions"
                 :key="`${settings.paymentProviderType}-${option.value}`"
@@ -1718,10 +1689,10 @@
                 {{ option.label }}
               </option>
             </select>
-            <span class="text-xs text-gray-500">{{ paymentVerificationModeDescription }}</span>
+            <span class="text-xs admin-table-faint">{{ paymentVerificationModeDescription }}</span>
           </label>
         </div>
-        <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
+        <div class="rounded-xl px-4 py-3 text-xs admin-table-muted space-y-1 admin-super-admin-preview-card">
           <div>推荐接口地址：{{ paymentPreset.apiBaseUrl }}</div>
           <div>{{ paymentPreset.hint }}</div>
           <div>当前验签模式：{{ settings.paymentVerificationMode }}，后续真实网关接入时会按此模式补齐验签链路。</div>
@@ -1734,7 +1705,7 @@
             :class="paymentConfigAssessment.liveModeReady
               ? 'border-emerald-400/30 bg-emerald-500/5 text-emerald-100'
               : 'border-amber-400/30 bg-amber-500/5 text-amber-100'">
-            <div class="text-sm text-white">配置体检</div>
+            <div class="text-sm">配置体检</div>
             <div>当前平台：{{ paymentProviderLabel(settings.paymentProviderType) }}</div>
             <div>真实支付：{{ paymentConfigAssessment.liveModeReady ? '可进入联调' : '仍需补配置' }}</div>
             <div>当前状态：{{ paymentConfigAssessment.summary }}</div>
@@ -1745,8 +1716,8 @@
               验签建议：{{ paymentConfigAssessment.verificationHints.join('；') }}
             </div>
           </div>
-          <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 space-y-2 text-xs text-gray-300">
-            <div class="text-sm text-white">统一回调建议</div>
+          <div class="rounded-xl px-4 py-4 space-y-2 text-xs admin-table-muted admin-super-admin-preview-card">
+            <div class="text-sm admin-super-admin-modal-title">统一回调建议</div>
             <div>推荐异步回调：{{ paymentUnifiedUrls.notifyUrl || '—' }}</div>
             <div>推荐完成返回：{{ paymentUnifiedUrls.returnUrl || '—' }}</div>
             <div :class="paymentConfigAssessment.notifyMatches ? 'text-emerald-200' : 'text-amber-200'">
@@ -1757,30 +1728,29 @@
             </div>
           </div>
         </div>
-        <div class="rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-xs text-gray-300 space-y-2">
-          <div class="text-sm text-white">接入步骤建议</div>
+        <div class="rounded-xl px-4 py-4 text-xs admin-table-muted space-y-2 admin-super-admin-preview-card">
+          <div class="text-sm admin-super-admin-modal-title">接入步骤建议</div>
           <div v-for="(step, index) in paymentProviderMeta.integrationSteps" :key="`${settings.paymentProviderType}-${index}`">
             {{ index + 1 }}. {{ step }}
           </div>
         </div>
       </section>
 
-      <section v-if="activeTab === 'users'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
+      <section v-if="activeTab === 'users'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-users-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">用户管理</h2>
-            <p class="text-xs text-gray-400">支持搜索、分页、邮箱/手机号维护、配额调整、角色状态切换与密码重置。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <input
               v-model.trim="userKeyword"
               type="text"
               placeholder="搜索用户名 / 昵称 / slug / 手机号 / 邮箱"
-              class="px-4 py-2 rounded-lg bg-gray-900/70 border border-white/10 text-sm min-w-[280px]"
+              class="admin-input px-4 py-2 rounded-lg text-sm min-w-[280px]"
               @keyup.enter="searchUsers"
             />
             <button
-              class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10"
+              class="admin-button-soft px-4 py-2 rounded-lg text-sm"
               :disabled="loading"
               @click="searchUsers"
             >
@@ -1788,7 +1758,7 @@
             </button>
             <select
               v-model.number="usersPage.size"
-              class="px-4 py-2 rounded-lg bg-gray-900/70 border border-white/10 text-sm"
+              class="admin-input px-4 py-2 rounded-lg text-sm"
               @change="handleUsersPageSizeChange"
             >
               <option :value="4">每页 4 个</option>
@@ -1811,7 +1781,7 @@
           <template #toolbar-left>
             <button
               type="button"
-              class="rounded-xl bg-purple-600 px-4 py-2 text-sm text-white hover:bg-purple-500 disabled:opacity-60"
+              class="admin-button-primary rounded-xl px-4 py-2 text-sm disabled:opacity-60"
               :disabled="savingAllUsers || !modifiedUserCount"
               @click="saveModifiedUsers"
             >
@@ -1821,28 +1791,28 @@
           <template #cell-username="{ row: user }">
             <div class="space-y-2">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-sm text-white">{{ user.username }}</span>
+                <span class="text-sm admin-super-admin-modal-title">{{ user.username }}</span>
                 <span class="chip text-[11px] text-sky-200">ID {{ user.id }}</span>
                 <span v-if="userHasUnsavedChanges(user)" class="chip text-[11px] text-amber-200">未保存</span>
               </div>
-              <div class="text-xs text-gray-500 break-all">slug：{{ user.slug }}</div>
+              <div class="text-xs admin-table-faint break-all">slug：{{ user.slug }}</div>
             </div>
           </template>
           <template #cell-nickname="{ row: user }">
             <label class="block">
-              <input v-model="user.nickname" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <input v-model="user.nickname" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
             </label>
           </template>
           <template #cell-projectName="{ row: user }">
             <div class="grid grid-cols-1 gap-2">
-              <input v-model="user.projectNameZh" type="text" placeholder="中文站点名" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              <input v-model="user.projectNameEn" type="text" placeholder="English Site Name" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <input v-model="user.projectNameZh" type="text" placeholder="中文站点名" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <input v-model="user.projectNameEn" type="text" placeholder="English Site Name" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
             </div>
           </template>
           <template #cell-phone="{ row: user }">
             <div class="space-y-2">
-              <input v-model="user.phone" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              <label class="flex items-center gap-2 text-xs text-gray-300">
+              <input v-model="user.phone" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
+              <label class="flex items-center gap-2 text-xs admin-table-muted">
                 <input v-model="user.phoneVerified" type="checkbox" class="w-4 h-4 rounded" />
                 手机已验证
               </label>
@@ -1850,8 +1820,8 @@
           </template>
           <template #cell-email="{ row: user }">
             <div class="space-y-2">
-              <input v-model="user.email" type="email" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              <label class="flex items-center gap-2 text-xs text-gray-300">
+              <input v-model="user.email" type="email" class="admin-input w-full px-3 py-2 rounded-lg" />
+              <label class="flex items-center gap-2 text-xs admin-table-muted">
                 <input v-model="user.emailVerified" type="checkbox" class="w-4 h-4 rounded" />
                 邮箱已验证
               </label>
@@ -1859,7 +1829,7 @@
           </template>
           <template #cell-role="{ row: user }">
             <div>
-              <select v-model="user.role" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+              <select v-model="user.role" class="admin-input w-full px-3 py-2 rounded-lg">
                 <option value="SUPER_ADMIN">超级管理员</option>
                 <option value="USER_ADMIN">普通管理员</option>
               </select>
@@ -1867,7 +1837,7 @@
           </template>
           <template #cell-status="{ row: user }">
             <div>
-              <select v-model="user.status" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+              <select v-model="user.status" class="admin-input w-full px-3 py-2 rounded-lg">
                 <option value="ACTIVE">正常</option>
                 <option value="PENDING">待激活</option>
                 <option value="DISABLED">已禁用</option>
@@ -1878,28 +1848,28 @@
           <template #cell-quota="{ row: user }">
             <div class="space-y-2">
               <label class="block">
-                <input v-model.number="user.storageQuotaGb" type="number" min="0" step="0.5" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <input v-model.number="user.storageQuotaGb" type="number" min="0" step="0.5" class="admin-input w-full px-3 py-2 rounded-lg" />
               </label>
-              <div class="text-xs text-gray-400">当前：{{ formatQuotaGb(user.storageQuotaBytes) }}</div>
+              <div class="text-xs admin-table-faint">当前：{{ formatQuotaGb(user.storageQuotaBytes) }}</div>
             </div>
           </template>
           <template #cell-vipPlan="{ row: user }">
             <div class="space-y-2">
-              <select v-model="user.currentVipPlanId" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+              <select v-model="user.currentVipPlanId" class="admin-input w-full px-3 py-2 rounded-lg">
                 <option :value="null">未开通套餐</option>
                 <option v-for="plan in vipPlans" :key="plan.id" :value="plan.id" :disabled="!plan.enabled">
                   {{ plan.name }} · +{{ formatQuotaGb(plan.extraQuotaBytes) }}
                 </option>
               </select>
               <div class="grid grid-cols-[minmax(0,112px),1fr] gap-2">
-                <input v-model.number="user.vipExtraQuotaGb" type="number" min="0" step="0.5" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-                <input v-model="user.vipExpireAt" type="datetime-local" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <input v-model.number="user.vipExtraQuotaGb" type="number" min="0" step="0.5" class="admin-input w-full px-3 py-2 rounded-lg" />
+                <input v-model="user.vipExpireAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg" />
               </div>
             </div>
           </template>
           <template #cell-storage="{ row: user }">
             <div class="space-y-2">
-              <select v-model="user.preferredStorageProviderId" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+              <select v-model="user.preferredStorageProviderId" class="admin-input w-full px-3 py-2 rounded-lg">
                 <option :value="null">跟随系统默认上传存储</option>
                 <option
                   v-for="provider in storageProviders"
@@ -1910,11 +1880,11 @@
                   {{ provider.name }}{{ provider.uploadSupported ? '' : '（暂不可用）' }}
                 </option>
               </select>
-              <div class="text-xs text-gray-400">{{ describeAssignedStorage(user) }}</div>
+              <div class="text-xs admin-table-faint">{{ describeAssignedStorage(user) }}</div>
             </div>
           </template>
           <template #cell-usage="{ row: user }">
-            <div class="space-y-1 text-xs text-gray-300">
+            <div class="space-y-1 text-xs admin-table-muted">
               <div>已用 {{ formatBytes(user.storageUsedBytes) }}</div>
               <div>剩余 {{ formatRemainingStorage(user.remainingStorageBytes, user.effectiveStorageQuotaBytes) }}</div>
               <div>总配额 {{ formatQuotaGb(user.effectiveStorageQuotaBytes) }}</div>
@@ -1922,22 +1892,22 @@
             </div>
           </template>
           <template #cell-visible="{ row: user }">
-            <label class="flex items-center gap-2 text-sm text-gray-300">
+            <label class="flex items-center gap-2 text-sm admin-table-muted">
               <input v-model="user.multiUserVisible" type="checkbox" class="w-4 h-4 rounded" />
               公开
             </label>
           </template>
           <template #cell-lastLoginAt="{ row: user }">
-            <div class="space-y-1 text-xs text-gray-300">
+            <div class="space-y-1 text-xs admin-table-muted">
               <div>{{ formatDate(user.lastLoginAt) }}</div>
-              <div class="text-gray-500">创建于 {{ formatDate(user.createdAt) }}</div>
+              <div class="admin-table-faint">创建于 {{ formatDate(user.createdAt) }}</div>
             </div>
           </template>
           <template #cell-actions="{ row: user }">
             <div class="relative">
               <button
                 type="button"
-                class="rounded-lg border border-white/10 bg-gray-900/70 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800"
+                class="admin-button-soft rounded-lg px-3 py-2 text-sm"
                 @click="toggleUserActionMenu(user.id)"
               >
                 更多
@@ -1948,7 +1918,7 @@
               >
                 <button
                   type="button"
-                  class="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5"
+                  class="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm admin-super-admin-menu-item"
                   @click="promptResetUserPassword(user)"
                 >
                   重置密码
@@ -1957,25 +1927,24 @@
             </div>
           </template>
         </ConfigurableTable>
-        <div class="flex items-center justify-between pt-2 text-sm text-gray-300">
+        <div class="flex items-center justify-between pt-2 text-sm admin-table-muted">
           <span>第 {{ usersPage.page + 1 }} / {{ Math.max(usersPage.totalPages, 1) }} 页，共 {{ usersPage.totalElements }} 个用户</span>
           <div class="flex items-center gap-2">
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="usersPage.first" @click="changeUsersPage(usersPage.page - 1)">上一页</button>
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="usersPage.last" @click="changeUsersPage(usersPage.page + 1)">下一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="usersPage.first" @click="changeUsersPage(usersPage.page - 1)">上一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="usersPage.last" @click="changeUsersPage(usersPage.page + 1)">下一页</button>
           </div>
         </div>
       </section>
 
-      <section v-if="activeTab === 'logins'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
+      <section v-if="activeTab === 'logins'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-log-table-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">登录记录</h2>
-            <p class="text-xs text-gray-400">用于查看最近登录成功/失败情况，便于定位账号异常、撞库或验证码登录问题。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <select
               v-model="selectedLoginRecordUserId"
-              class="px-4 py-2 bg-gray-900/70 border border-white/10 rounded-xl text-sm"
+              class="admin-input px-4 py-2 rounded-xl text-sm"
               @change="handleLoginRecordUserChange"
             >
               <option :value="null">全部用户</option>
@@ -1984,7 +1953,7 @@
               </option>
             </select>
             <button
-              class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10"
+              class="admin-button-soft px-4 py-2 rounded-lg text-sm"
               :disabled="loading"
               @click="loadLoginRecords"
             >
@@ -1992,7 +1961,7 @@
             </button>
             <select
               v-model.number="loginRecordsPage.size"
-              class="px-4 py-2 bg-gray-900/70 border border-white/10 rounded-xl text-sm"
+              class="admin-input px-4 py-2 rounded-xl text-sm"
               @change="handleLoginRecordsPageSizeChange"
             >
               <option :value="10">每页 10 条</option>
@@ -2003,7 +1972,6 @@
           </div>
         </div>
 
-        <div class="text-[11px] text-gray-500">筛选用户来自当前已加载用户页；如需精确筛选，可先在“用户管理”中搜索到目标用户。</div>
         <ConfigurableTable
           :columns="loginTableColumns"
           :rows="loginRecords"
@@ -2014,17 +1982,17 @@
           @update:preferences="updateTablePreference('logins', $event)"
         >
           <template #cell-createdAt="{ row: record }">
-            <div class="text-xs text-gray-300">{{ formatDate(record.createdAt) }}</div>
+            <div class="text-xs admin-table-muted">{{ formatDate(record.createdAt) }}</div>
           </template>
           <template #cell-account="{ row: record }">
             <div>{{ record.nickname || record.usernameSnapshot || '未知账号' }}</div>
-            <div class="text-xs text-gray-500">
+            <div class="text-xs admin-table-faint">
               {{ record.userSlug ? `slug: ${record.userSlug}` : '未绑定用户' }}
               <span v-if="record.phoneSnapshot"> · {{ record.phoneSnapshot }}</span>
             </div>
           </template>
           <template #cell-loginMethod="{ row: record }">
-            <div class="text-xs text-gray-300">{{ loginMethodLabel(record.loginMethod) }}</div>
+            <div class="text-xs admin-table-muted">{{ loginMethodLabel(record.loginMethod) }}</div>
           </template>
           <template #cell-success="{ row: record }">
             <span
@@ -2037,34 +2005,33 @@
             </span>
           </template>
           <template #cell-source="{ row: record }">
-            <div class="text-xs text-gray-400">
+            <div class="text-xs admin-table-faint">
               <div>{{ record.ipAddress || '未知 IP' }}</div>
-              <div class="mt-1 break-all text-gray-500">{{ record.userAgent || '未知 UA' }}</div>
+              <div class="mt-1 break-all admin-table-faint">{{ record.userAgent || '未知 UA' }}</div>
             </div>
           </template>
           <template #cell-failureReason="{ row: record }">
-            <div class="text-xs text-gray-400">{{ record.failureReason || '—' }}</div>
+            <div class="text-xs admin-table-faint">{{ record.failureReason || '—' }}</div>
           </template>
         </ConfigurableTable>
-        <div class="flex items-center justify-between pt-2 text-sm text-gray-300">
+        <div class="flex items-center justify-between pt-2 text-sm admin-table-muted">
           <span>第 {{ loginRecordsPage.page + 1 }} / {{ Math.max(loginRecordsPage.totalPages, 1) }} 页，共 {{ loginRecordsPage.totalElements }} 条记录</span>
           <div class="flex items-center gap-2">
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="loginRecordsPage.first" @click="changeLoginRecordsPage(loginRecordsPage.page - 1)">上一页</button>
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="loginRecordsPage.last" @click="changeLoginRecordsPage(loginRecordsPage.page + 1)">下一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="loginRecordsPage.first" @click="changeLoginRecordsPage(loginRecordsPage.page - 1)">上一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="loginRecordsPage.last" @click="changeLoginRecordsPage(loginRecordsPage.page + 1)">下一页</button>
           </div>
         </div>
       </section>
 
-      <section v-if="activeTab === 'operations'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
+      <section v-if="activeTab === 'operations'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-log-table-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">操作记录</h2>
-            <p class="text-xs text-gray-400">记录上传、删除、移动、重命名、扫描控制等后台操作，便于追溯谁改了什么。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <select
               v-model="selectedOperationLogUserId"
-              class="px-4 py-2 bg-gray-900/70 border border-white/10 rounded-xl text-sm"
+              class="admin-input px-4 py-2 rounded-xl text-sm"
               @change="handleOperationLogUserChange"
             >
               <option :value="null">全部用户</option>
@@ -2073,7 +2040,7 @@
               </option>
             </select>
             <button
-              class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10"
+              class="admin-button-soft px-4 py-2 rounded-lg text-sm"
               :disabled="loading"
               @click="loadOperationLogs"
             >
@@ -2081,7 +2048,7 @@
             </button>
             <select
               v-model.number="operationLogsPage.size"
-              class="px-4 py-2 bg-gray-900/70 border border-white/10 rounded-xl text-sm"
+              class="admin-input px-4 py-2 rounded-xl text-sm"
               @change="handleOperationLogsPageSizeChange"
             >
               <option :value="10">每页 10 条</option>
@@ -2092,7 +2059,7 @@
           </div>
         </div>
 
-        <div class="text-[11px] text-gray-500">筛选用户来自当前已加载用户页；操作详情保留原始 JSON，便于后续继续扩展更多审计字段。</div>
+        <div class="text-[11px] admin-table-faint">筛选用户来自当前已加载用户页；操作详情保留原始 JSON，便于后续继续扩展更多审计字段。</div>
         <ConfigurableTable
           :columns="operationTableColumns"
           :rows="operationLogs"
@@ -2103,76 +2070,76 @@
           @update:preferences="updateTablePreference('operations', $event)"
         >
           <template #cell-createdAt="{ row: log }">
-            <div class="text-xs text-gray-300">{{ formatDate(log.createdAt) }}</div>
+            <div class="text-xs admin-table-muted">{{ formatDate(log.createdAt) }}</div>
           </template>
           <template #cell-account="{ row: log }">
             <div>{{ log.nickname || log.username || log.operatorUsername || '未知账号' }}</div>
-            <div class="text-xs text-gray-500">
+            <div class="text-xs admin-table-faint">
               {{ log.userSlug ? `slug: ${log.userSlug}` : '未绑定 slug' }}
               <span v-if="log.ipAddress"> · {{ log.ipAddress }}</span>
             </div>
           </template>
           <template #cell-operationType="{ row: log }">
-            <div class="text-xs text-gray-300">{{ operationTypeLabel(log.operationType) }}</div>
+            <div class="text-xs admin-table-muted">{{ operationTypeLabel(log.operationType) }}</div>
           </template>
           <template #cell-target="{ row: log }">
-            <div class="text-xs text-gray-400">
+            <div class="text-xs admin-table-faint">
               <div>{{ log.targetType || '—' }}</div>
-              <div v-if="log.targetId != null" class="mt-1 text-gray-500">ID: {{ log.targetId }}</div>
+              <div v-if="log.targetId != null" class="mt-1 admin-table-faint">ID: {{ log.targetId }}</div>
             </div>
           </template>
           <template #cell-targetPath="{ row: log }">
-            <div class="text-xs text-gray-400 break-all">{{ log.targetPath || '—' }}</div>
+            <div class="text-xs admin-table-faint break-all">{{ log.targetPath || '—' }}</div>
           </template>
           <template #cell-detailJson="{ row: log }">
-            <div class="text-xs text-gray-400 break-all">{{ log.detailJson || '—' }}</div>
+            <div class="text-xs admin-table-faint break-all">{{ log.detailJson || '—' }}</div>
           </template>
         </ConfigurableTable>
-        <div class="flex items-center justify-between pt-2 text-sm text-gray-300">
+        <div class="flex items-center justify-between pt-2 text-sm admin-table-muted">
           <span>第 {{ operationLogsPage.page + 1 }} / {{ Math.max(operationLogsPage.totalPages, 1) }} 页，共 {{ operationLogsPage.totalElements }} 条记录</span>
           <div class="flex items-center gap-2">
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="operationLogsPage.first" @click="changeOperationLogsPage(operationLogsPage.page - 1)">上一页</button>
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="operationLogsPage.last" @click="changeOperationLogsPage(operationLogsPage.page + 1)">下一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="operationLogsPage.first" @click="changeOperationLogsPage(operationLogsPage.page - 1)">上一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="operationLogsPage.last" @click="changeOperationLogsPage(operationLogsPage.page + 1)">下一页</button>
           </div>
         </div>
       </section>
 
-      <section v-if="activeTab === 'vip'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
+      <section v-if="activeTab === 'vip'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-vip-panel">
         <div>
           <h2 class="text-lg font-light">VIP 套餐</h2>
-          <p class="text-xs text-gray-400">用于预置后续付费套餐；当前支持管理套餐名称、扩容空间、时长与价格，并可分配给用户。</p>
+          <p class="text-xs admin-table-faint">用于预置后续付费套餐；当前支持管理套餐名称、扩容空间、时长与价格，并可分配给用户。</p>
         </div>
 
-        <div class="rounded-2xl border border-dashed border-white/15 p-5 space-y-4">
-          <div class="text-sm text-gray-200">新增套餐</div>
-          <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-100 space-y-1">
+        <div class="rounded-2xl p-5 space-y-4 admin-super-admin-dashed-panel">
+          <div class="text-sm admin-super-admin-modal-title">新增套餐</div>
+          <div class="rounded-xl px-4 py-3 text-xs space-y-1 admin-super-admin-warning-box">
             <div>当前线上可用规则建议保持：`STANDARD + FIXED_TERM + REPLACE_OR_EXTEND`。</div>
             <div>活动赠送、永久容量、可叠加套餐仅先做架构预留；实际产品流程和页面后续再补。</div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">套餐编码</span>
-              <input v-model="newVipPlan.code" type="text" placeholder="例如 vip-30g-annual" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">套餐编码</span>
+              <input v-model="newVipPlan.code" type="text" placeholder="例如 vip-30g-annual" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">套餐名称</span>
-              <input v-model="newVipPlan.name" type="text" placeholder="例如 年费 30GB" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">套餐名称</span>
+              <input v-model="newVipPlan.name" type="text" placeholder="例如 年费 30GB" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">额外空间（GB）</span>
-              <input v-model.number="newVipPlan.extraQuotaGb" type="number" min="0" step="0.5" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">额外空间（GB）</span>
+              <input v-model.number="newVipPlan.extraQuotaGb" type="number" min="0" step="0.5" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">时长（天）</span>
-              <input v-model.number="newVipPlan.durationDays" type="number" min="1" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">时长（天）</span>
+              <input v-model.number="newVipPlan.durationDays" type="number" min="1" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">价格（元）</span>
-              <input v-model.number="newVipPlan.priceYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">价格（元）</span>
+              <input v-model.number="newVipPlan.priceYuan" type="number" min="0" step="0.01" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">套餐分类</span>
-              <select v-model="newVipPlan.planCategory" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">套餐分类</span>
+              <select v-model="newVipPlan.planCategory" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option value="STANDARD">标准套餐</option>
                 <option value="PROMOTIONAL">活动套餐</option>
                 <option value="REWARD">赠送套餐</option>
@@ -2180,36 +2147,36 @@
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">容量发放模式</span>
-              <select v-model="newVipPlan.quotaGrantMode" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">容量发放模式</span>
+              <select v-model="newVipPlan.quotaGrantMode" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option value="FIXED_TERM">固定时长</option>
                 <option value="RECURRING_TERM">可续期时长</option>
                 <option value="PERMANENT">永久生效</option>
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">叠加模式</span>
-              <select v-model="newVipPlan.stackingMode" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">叠加模式</span>
+              <select v-model="newVipPlan.stackingMode" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option value="REPLACE_OR_EXTEND">替换或续期</option>
                 <option value="STACKABLE">允许叠加</option>
                 <option value="INDEPENDENT">独立生效</option>
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">排序</span>
-              <input v-model.number="newVipPlan.sortOrder" type="number" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">排序</span>
+              <input v-model.number="newVipPlan.sortOrder" type="number" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
-            <label class="flex items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-sm">
+            <label class="admin-super-admin-toggle-card flex items-center gap-2 px-3 py-2 rounded-lg text-sm">
               <input v-model="newVipPlan.enabled" type="checkbox" class="w-4 h-4 rounded" />
               启用
             </label>
           </div>
           <label class="block space-y-1">
-            <span class="text-[11px] text-gray-400">套餐说明</span>
-            <textarea v-model="newVipPlan.description" rows="3" placeholder="描述套餐权益、适用时长、说明等" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+            <span class="text-[11px] admin-table-faint">套餐说明</span>
+            <textarea v-model="newVipPlan.description" rows="3" placeholder="描述套餐权益、适用时长、说明等" class="admin-input w-full px-3 py-2 rounded-lg" />
           </label>
           <div class="flex justify-end">
-            <button class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm" :disabled="savingVipPlanId === 0" @click="createVipPlan">
+            <button class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingVipPlanId === 0" @click="createVipPlan">
               {{ savingVipPlanId === 0 ? '创建中...' : '新增 VIP 套餐' }}
             </button>
           </div>
@@ -2226,20 +2193,20 @@
         >
           <template #cell-code="{ row: plan }">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">套餐编码</span>
-              <input v-model="plan.code" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <span class="text-[11px] admin-table-faint">套餐编码</span>
+              <input v-model="plan.code" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
             </label>
           </template>
           <template #cell-name="{ row: plan }">
             <div class="space-y-2">
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">套餐名称</span>
-                <input v-model="plan.name" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] admin-table-faint">套餐名称</span>
+                <input v-model="plan.name" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
               </label>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                 <label class="block space-y-1">
-                  <span class="text-[11px] text-gray-400">套餐分类</span>
-                  <select v-model="plan.planCategory" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                  <span class="text-[11px] admin-table-faint">套餐分类</span>
+                  <select v-model="plan.planCategory" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
                     <option value="STANDARD">标准套餐</option>
                     <option value="PROMOTIONAL">活动套餐</option>
                     <option value="REWARD">赠送套餐</option>
@@ -2247,95 +2214,95 @@
                   </select>
                 </label>
                 <label class="block space-y-1">
-                  <span class="text-[11px] text-gray-400">容量发放模式</span>
-                  <select v-model="plan.quotaGrantMode" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                  <span class="text-[11px] admin-table-faint">容量发放模式</span>
+                  <select v-model="plan.quotaGrantMode" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
                     <option value="FIXED_TERM">固定时长</option>
                     <option value="RECURRING_TERM">可续期时长</option>
                     <option value="PERMANENT">永久生效</option>
                   </select>
                 </label>
                 <label class="block space-y-1">
-                  <span class="text-[11px] text-gray-400">叠加模式</span>
-                  <select v-model="plan.stackingMode" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+                  <span class="text-[11px] admin-table-faint">叠加模式</span>
+                  <select v-model="plan.stackingMode" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
                     <option value="REPLACE_OR_EXTEND">替换或续期</option>
                     <option value="STACKABLE">允许叠加</option>
                     <option value="INDEPENDENT">独立生效</option>
                   </select>
                 </label>
               </div>
-              <div class="text-xs text-gray-500">创建于 {{ formatDate(plan.createdAt) }}</div>
+              <div class="text-xs admin-table-faint">创建于 {{ formatDate(plan.createdAt) }}</div>
             </div>
           </template>
           <template #cell-extraQuotaGb="{ row: plan }">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">额外空间（GB）</span>
-              <input v-model.number="plan.extraQuotaGb" type="number" min="0" step="0.5" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <span class="text-[11px] admin-table-faint">额外空间（GB）</span>
+              <input v-model.number="plan.extraQuotaGb" type="number" min="0" step="0.5" class="admin-input w-full px-3 py-2 rounded-lg" />
             </label>
           </template>
           <template #cell-durationDays="{ row: plan }">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">时长（天）</span>
-              <input v-model.number="plan.durationDays" type="number" min="1" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <span class="text-[11px] admin-table-faint">时长（天）</span>
+              <input v-model.number="plan.durationDays" type="number" min="1" class="admin-input w-full px-3 py-2 rounded-lg" />
             </label>
           </template>
           <template #cell-priceYuan="{ row: plan }">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">价格（元）</span>
-              <input v-model.number="plan.priceYuan" type="number" min="0" step="0.01" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <span class="text-[11px] admin-table-faint">价格（元）</span>
+              <input v-model.number="plan.priceYuan" type="number" min="0" step="0.01" class="admin-input w-full px-3 py-2 rounded-lg" />
             </label>
           </template>
           <template #cell-sortOrder="{ row: plan }">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">排序</span>
-              <input v-model.number="plan.sortOrder" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+              <span class="text-[11px] admin-table-faint">排序</span>
+              <input v-model.number="plan.sortOrder" type="number" class="admin-input w-full px-3 py-2 rounded-lg" />
             </label>
           </template>
           <template #cell-enabled="{ row: plan }">
-            <label class="flex items-center gap-2 text-sm text-gray-300">
+            <label class="flex items-center gap-2 text-sm admin-table-muted">
               <input v-model="plan.enabled" type="checkbox" class="w-4 h-4 rounded" />
               启用
             </label>
           </template>
           <template #cell-description="{ row: plan }">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">套餐说明</span>
-              <textarea v-model="plan.description" rows="3" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <span class="text-[11px] admin-table-faint">套餐说明</span>
+              <textarea v-model="plan.description" rows="3" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
             </label>
           </template>
           <template #cell-actions="{ row: plan }">
-            <button class="w-full px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm" :disabled="savingVipPlanId === plan.id" @click="saveVipPlan(plan)">
+            <button class="admin-button-primary w-full px-3 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingVipPlanId === plan.id" @click="saveVipPlan(plan)">
               {{ savingVipPlanId === plan.id ? '保存中...' : '保存' }}
             </button>
           </template>
         </ConfigurableTable>
       </section>
 
-      <section v-if="activeTab === 'vipOrders'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel">
+      <section v-if="activeTab === 'vipOrders'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-vip-orders-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">VIP 订单</h2>
-            <p class="text-xs text-gray-400">当前先提供后台手工建单、状态维护和套餐生效联动，后续再接支付回调。</p>
+            <p class="text-xs admin-table-faint">当前先提供后台手工建单、状态维护和套餐生效联动，后续再接支付回调。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
-            <select v-model="selectedVipOrderUserId" class="px-4 py-2 bg-gray-900/70 border border-white/10 rounded-xl text-sm" @change="handleVipOrderUserChange">
+            <select v-model="selectedVipOrderUserId" class="admin-input px-4 py-2 rounded-xl text-sm" @change="handleVipOrderUserChange">
               <option :value="null">全部用户</option>
               <option v-for="user in users" :key="user.id" :value="user.id">{{ user.nickname || user.username }}</option>
             </select>
-            <label class="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-gray-900/50 text-sm">
+            <label class="admin-super-admin-toggle-card flex items-center gap-2 px-3 py-2 rounded-xl text-sm">
               <input v-model="vipOrderAutoRenewOnly" type="checkbox" class="w-4 h-4 rounded" @change="handleVipOrderFilterChange" />
               仅自动续费
             </label>
-            <label class="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-gray-900/50 text-sm">
+            <label class="admin-super-admin-toggle-card flex items-center gap-2 px-3 py-2 rounded-xl text-sm">
               <input v-model="vipOrderDueOnly" type="checkbox" class="w-4 h-4 rounded" @change="handleVipOrderFilterChange" />
               仅看待续费
             </label>
-            <button class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10" :disabled="loading" @click="loadVipOrders">
+            <button class="admin-button-soft px-4 py-2 rounded-lg text-sm" :disabled="loading" @click="loadVipOrders">
               刷新订单
             </button>
-            <button class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10" :disabled="loadingVipRenewalPreview" @click="loadVipRenewalPreview">
+            <button class="admin-button-soft px-4 py-2 rounded-lg text-sm" :disabled="loadingVipRenewalPreview" @click="loadVipRenewalPreview">
               {{ loadingVipRenewalPreview ? '预演中...' : '刷新续费预演' }}
             </button>
-            <button class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm disabled:opacity-60" :disabled="executingVipRenewals" @click="executeVipRenewals">
+            <button class="admin-button-warning px-4 py-2 rounded-lg text-sm disabled:opacity-60" :disabled="executingVipRenewals" @click="executeVipRenewals">
               {{ executingVipRenewals ? '执行中...' : '执行续费建单' }}
             </button>
           </div>
@@ -2343,17 +2310,17 @@
 
         <div
           v-if="focusedVipOrder"
-          class="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 text-sm text-gray-200 space-y-3"
+          class="rounded-2xl p-4 text-sm space-y-3 admin-super-admin-info-box"
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="space-y-1">
-              <div class="text-base font-medium">当前定位订单：{{ focusedVipOrder.orderNo }}</div>
-              <div class="text-xs text-gray-300">
+              <div class="text-base font-medium">{{ focusedVipOrder.orderNo }}</div>
+              <div class="text-xs admin-table-muted">
                 {{ focusedVipOrder.nickname || focusedVipOrder.username || `用户 #${focusedVipOrder.userId}` }}
                 · {{ focusedVipOrder.vipPlanName || focusedVipOrder.vipPlanCode || '未知套餐' }}
                 · {{ focusedVipOrder.orderStageLabel || focusedVipOrder.status }}
               </div>
-              <div class="text-xs text-gray-400">
+              <div class="text-xs admin-table-faint">
                 {{ focusedVipOrder.renewalChainType === 'RENEWAL_CHILD' ? '续费子单' : '主订单' }}
                 · 支付渠道：{{ paymentProviderLabel(focusedVipOrder.paymentProviderType) }}
                 · 下次续费：{{ formatDate(focusedVipOrder.nextRenewalAt) }}
@@ -2362,57 +2329,57 @@
             <div class="flex flex-wrap gap-2">
               <router-link
                 :to="buildPaymentResultRoute(focusedVipOrder)"
-                class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs"
+                class="admin-button-primary px-3 py-2 rounded-lg text-xs"
               >
                 打开结果页
               </router-link>
               <button
-                class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
+                class="admin-button-soft px-3 py-2 rounded-lg text-xs"
                 @click="clearFocusedVipOrder"
               >
                 清除定位
               </button>
             </div>
           </div>
-          <div class="text-xs text-gray-400">
+          <div class="text-xs admin-table-faint">
             已自动切换到该订单所属用户并刷新订单列表，便于继续在本页编辑、发起、Mock、取消或退款。
           </div>
         </div>
 
-        <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-4">
+        <div class="rounded-2xl p-5 space-y-4 admin-super-admin-warning-box">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <div class="text-sm text-amber-100">自动续费预演</div>
-              <div class="text-xs text-gray-400">{{ vipRenewalPreview?.message || '当前仅做干跑预演，不会真实扣款，但会评估子单支付是否可继续发起。' }}</div>
+              <div class="text-sm">自动续费预演</div>
+              <div class="text-xs">{{ vipRenewalPreview?.message || '当前仅做干跑预演，不会真实扣款，但会评估子单支付是否可继续发起。' }}</div>
             </div>
-            <div class="text-xs text-gray-400">
+            <div class="text-xs">
               {{ vipRenewalPreview?.generatedAt ? `生成时间：${formatDate(vipRenewalPreview.generatedAt)}` : '尚未生成' }}
             </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div class="text-gray-400 text-xs">开启自动续费订单</div>
+            <div class="rounded-xl p-4 admin-super-admin-stat-card">
+              <div class="admin-table-faint text-xs">开启自动续费订单</div>
               <div class="mt-2 text-xl">{{ vipRenewalPreview?.activeAutoRenewOrderCount ?? 0 }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div class="text-gray-400 text-xs">待续费候选</div>
+            <div class="rounded-xl p-4 admin-super-admin-stat-card">
+              <div class="admin-table-faint text-xs">待续费候选</div>
               <div class="mt-2 text-xl">{{ vipRenewalPreview?.dueCount ?? 0 }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div class="text-gray-400 text-xs">本次返回</div>
+            <div class="rounded-xl p-4 admin-super-admin-stat-card">
+              <div class="admin-table-faint text-xs">本次返回</div>
               <div class="mt-2 text-xl">{{ vipRenewalPreview?.returnedCount ?? 0 }}</div>
             </div>
           </div>
           <div v-if="vipRenewalPreview?.content?.length" class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <article v-for="candidate in vipRenewalPreview.content" :key="candidate.orderId" class="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2 text-sm">
+            <article v-for="candidate in vipRenewalPreview.content" :key="candidate.orderId" class="rounded-xl p-4 space-y-2 text-sm admin-super-admin-preview-item">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div>{{ candidate.orderNo }}</div>
-                  <div class="text-xs text-gray-400">{{ candidate.nickname || candidate.username || `用户 ${candidate.userId}` }} · {{ candidate.vipPlanName || candidate.vipPlanCode || `套餐 ${candidate.vipPlanId}` }}</div>
+                  <div class="text-xs admin-table-faint">{{ candidate.nickname || candidate.username || `用户 ${candidate.userId}` }} · {{ candidate.vipPlanName || candidate.vipPlanCode || `套餐 ${candidate.vipPlanId}` }}</div>
                 </div>
                 <span class="text-xs px-2 py-1 rounded-full border border-amber-400/30 text-amber-100">{{ candidate.hoursOverdue }}h</span>
               </div>
-              <div class="grid grid-cols-2 gap-2 text-xs text-gray-400">
+              <div class="grid grid-cols-2 gap-2 text-xs admin-table-faint">
                 <div>状态：{{ candidate.status }}</div>
                 <div>金额：¥{{ Number(candidate.amountYuan || 0).toFixed(2) }}</div>
                 <div>下次续费：{{ formatDate(candidate.nextRenewalAt) }}</div>
@@ -2429,69 +2396,69 @@
               <div v-if="candidate.paymentMissingFields?.length" class="text-xs text-amber-200">
                 缺失字段：{{ candidate.paymentMissingFields.join('、') }}
               </div>
-              <div v-if="candidate.paymentReadinessWarnings?.length" class="text-xs text-gray-400">
+              <div v-if="candidate.paymentReadinessWarnings?.length" class="text-xs admin-table-faint">
                 告警：{{ candidate.paymentReadinessWarnings.join('；') }}
               </div>
-              <div v-if="candidate.existingRenewalOrderNo" class="text-xs text-gray-400">
+              <div v-if="candidate.existingRenewalOrderNo" class="text-xs admin-table-faint">
                 已有关联续费单：{{ candidate.existingRenewalOrderNo }}
                 <span v-if="candidate.existingRenewalOrderStatus"> · {{ candidate.existingRenewalOrderStatus }}</span>
                 <span v-if="candidate.existingRenewalOrderCreatedAt"> · {{ formatDate(candidate.existingRenewalOrderCreatedAt) }}</span>
               </div>
             </article>
           </div>
-          <div v-else class="text-sm text-gray-400">当前没有待续费订单候选。</div>
+          <div v-else class="text-sm admin-table-faint">当前没有待续费订单候选。</div>
         </div>
 
-        <div v-if="vipRenewalExecution" class="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-4">
+        <div v-if="vipRenewalExecution" class="rounded-2xl p-5 space-y-4 admin-super-admin-success-box">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <div class="text-sm text-emerald-100">最近一次续费建单结果</div>
-              <div class="text-xs text-gray-400">{{ vipRenewalExecution.message }}</div>
+              <div class="text-sm">最近一次续费建单结果</div>
+              <div class="text-xs">{{ vipRenewalExecution.message }}</div>
             </div>
-            <div class="text-xs text-gray-400">{{ formatDate(vipRenewalExecution.executedAt) }}</div>
+            <div class="text-xs">{{ formatDate(vipRenewalExecution.executedAt) }}</div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div class="text-gray-400 text-xs">候选数</div>
+            <div class="rounded-xl p-4 admin-super-admin-stat-card">
+              <div class="admin-table-faint text-xs">候选数</div>
               <div class="mt-2 text-xl">{{ vipRenewalExecution.candidateCount }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div class="text-gray-400 text-xs">新建续费订单</div>
+            <div class="rounded-xl p-4 admin-super-admin-stat-card">
+              <div class="admin-table-faint text-xs">新建续费订单</div>
               <div class="mt-2 text-xl">{{ vipRenewalExecution.createdCount }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div class="text-gray-400 text-xs">跳过</div>
+            <div class="rounded-xl p-4 admin-super-admin-stat-card">
+              <div class="admin-table-faint text-xs">跳过</div>
               <div class="mt-2 text-xl">{{ vipRenewalExecution.skippedCount }}</div>
             </div>
           </div>
           <div v-if="vipRenewalExecution.createdOrders.length" class="space-y-2">
-            <div class="text-sm text-gray-300">新建订单</div>
+            <div class="text-sm admin-table-muted">新建订单</div>
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              <article v-for="item in vipRenewalExecution.createdOrders" :key="`${item.sourceOrderId}-${item.createdOrderId}`" class="rounded-xl border border-white/10 bg-black/20 p-4 text-sm space-y-1">
+              <article v-for="item in vipRenewalExecution.createdOrders" :key="`${item.sourceOrderId}-${item.createdOrderId}`" class="rounded-xl p-4 text-sm space-y-1 admin-super-admin-preview-item">
                 <div>{{ item.sourceOrderNo }} → {{ item.createdOrderNo }}</div>
-                <div class="text-xs text-gray-400">{{ item.nickname || item.username || `用户 ${item.userId}` }} · {{ item.vipPlanName || `套餐 ${item.vipPlanId}` }}</div>
+                <div class="text-xs admin-table-faint">{{ item.nickname || item.username || `用户 ${item.userId}` }} · {{ item.vipPlanName || `套餐 ${item.vipPlanId}` }}</div>
                 <div class="text-xs text-emerald-200">{{ item.reason }}</div>
-                <div class="text-xs text-gray-400">
+                <div class="text-xs admin-table-faint">
                   支付平台：{{ item.paymentProviderLabel || '-' }}
                   <span v-if="item.initiationAttempted"> · 发起结果：{{ item.initiationSuccess ? '成功' : '失败' }}</span>
                   <span v-else> · 发起结果：未尝试</span>
                 </div>
-                <div v-if="item.initiationMessage" class="text-xs text-gray-400">{{ item.initiationMessage }}</div>
+                <div v-if="item.initiationMessage" class="text-xs admin-table-faint">{{ item.initiationMessage }}</div>
                 <div v-if="item.paymentMissingFields?.length" class="text-xs text-amber-200">
                   缺失字段：{{ item.paymentMissingFields.join('、') }}
                 </div>
-                <div v-if="item.paymentReadinessWarnings?.length" class="text-xs text-gray-400">
+                <div v-if="item.paymentReadinessWarnings?.length" class="text-xs admin-table-faint">
                   告警：{{ item.paymentReadinessWarnings.join('；') }}
                 </div>
               </article>
             </div>
           </div>
           <div v-if="vipRenewalExecution.skippedOrders.length" class="space-y-2">
-            <div class="text-sm text-gray-300">跳过订单</div>
+            <div class="text-sm admin-table-muted">跳过订单</div>
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              <article v-for="item in vipRenewalExecution.skippedOrders" :key="`${item.sourceOrderId}-${item.existingRenewalOrderId || 'skip'}`" class="rounded-xl border border-white/10 bg-black/20 p-4 text-sm space-y-1">
+              <article v-for="item in vipRenewalExecution.skippedOrders" :key="`${item.sourceOrderId}-${item.existingRenewalOrderId || 'skip'}`" class="rounded-xl p-4 text-sm space-y-1 admin-super-admin-preview-item">
                 <div>{{ item.sourceOrderNo }}</div>
-                <div v-if="item.existingRenewalOrderNo" class="text-xs text-gray-400">
+                <div v-if="item.existingRenewalOrderNo" class="text-xs admin-table-faint">
                   已有关联续费单：{{ item.existingRenewalOrderNo }}
                   <span v-if="item.existingRenewalOrderStatus"> · {{ item.existingRenewalOrderStatus }}</span>
                 </div>
@@ -2501,38 +2468,38 @@
           </div>
         </div>
 
-        <div class="rounded-2xl border border-dashed border-white/15 p-5 space-y-4">
-          <div class="text-sm text-gray-200">新增手工订单</div>
+        <div class="rounded-2xl p-5 space-y-4 admin-super-admin-dashed-panel">
+          <div class="text-sm admin-super-admin-modal-title">新增手工订单</div>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">用户</span>
-              <select v-model="newVipOrder.userId" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">用户</span>
+              <select v-model="newVipOrder.userId" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option :value="undefined">选择用户</option>
                 <option v-for="user in users" :key="user.id" :value="user.id">{{ user.nickname || user.username }}</option>
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">套餐</span>
-              <select v-model="newVipOrder.vipPlanId" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">套餐</span>
+              <select v-model="newVipOrder.vipPlanId" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option :value="undefined">选择套餐</option>
                 <option v-for="plan in vipPlans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">金额（元）</span>
-              <input v-model.number="newVipOrder.amountYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">金额（元）</span>
+              <input v-model.number="newVipOrder.amountYuan" type="number" min="0" step="0.01" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">变更类型</span>
-              <select v-model="newVipOrder.changeType" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">变更类型</span>
+              <select v-model="newVipOrder.changeType" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option value="PURCHASE">PURCHASE / 新购</option>
                 <option value="RENEWAL">RENEWAL / 续费</option>
                 <option value="UPGRADE">UPGRADE / 升配</option>
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">订单状态</span>
-              <select v-model="newVipOrder.status" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full">
+              <span class="text-[11px] admin-table-faint">订单状态</span>
+              <select v-model="newVipOrder.status" class="admin-input px-3 py-2 rounded-lg w-full">
                 <option value="CREATED">CREATED</option>
                 <option value="PAID">PAID</option>
                 <option value="ACTIVE">ACTIVE</option>
@@ -2540,48 +2507,48 @@
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">支付时间</span>
-              <input v-model="newVipOrder.paidAt" type="datetime-local" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">支付时间</span>
+              <input v-model="newVipOrder.paidAt" type="datetime-local" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">下次续费时间</span>
-              <input v-model="newVipOrder.nextRenewalAt" type="datetime-local" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">下次续费时间</span>
+              <input v-model="newVipOrder.nextRenewalAt" type="datetime-local" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">到期时间</span>
-              <input v-model="newVipOrder.expireAt" type="datetime-local" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">到期时间</span>
+              <input v-model="newVipOrder.expireAt" type="datetime-local" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">订单来源</span>
-              <input v-model="newVipOrder.source" type="text" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">订单来源</span>
+              <input v-model="newVipOrder.source" type="text" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">来源套餐 ID</span>
-              <input v-model.number="newVipOrder.sourceVipPlanId" type="number" min="1" step="1" placeholder="升配时填写原套餐 ID" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">来源套餐 ID</span>
+              <input v-model.number="newVipOrder.sourceVipPlanId" type="number" min="1" step="1" placeholder="升配时填写原套餐 ID" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">原价（元）</span>
-              <input v-model="newVipOrder.originalAmountYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">原价（元）</span>
+              <input v-model="newVipOrder.originalAmountYuan" type="number" min="0" step="0.01" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">抵扣（元）</span>
-              <input v-model="newVipOrder.creditedAmountYuan" type="number" min="0" step="0.01" class="px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg w-full" />
+              <span class="text-[11px] admin-table-faint">抵扣（元）</span>
+              <input v-model="newVipOrder.creditedAmountYuan" type="number" min="0" step="0.01" class="admin-input px-3 py-2 rounded-lg w-full" />
             </label>
-            <label class="flex items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-sm">
+            <label class="admin-super-admin-toggle-card flex items-center gap-2 px-3 py-2 rounded-lg text-sm">
               <input v-model="newVipOrder.autoRenewEnabled" type="checkbox" class="w-4 h-4 rounded" />
               自动续费
             </label>
           </div>
-          <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100 space-y-1">
+          <div class="rounded-xl px-3 py-2 text-xs space-y-1 admin-super-admin-warning-box">
             <div>规则提示：新购 / 续费通常为原价=实付、抵扣=0；升配建议填写来源套餐 ID 与抵扣金额。</div>
             <div>建议关系：原价 ≥ 实付，且抵扣 ≤ 原价；不同容量不同期限的复杂换购暂不建议手工混用。</div>
           </div>
           <label class="block space-y-1">
-            <span class="text-[11px] text-gray-400">备注</span>
-            <textarea v-model="newVipOrder.remark" rows="2" placeholder="补充人工建单说明、来源、测试信息等" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+            <span class="text-[11px] admin-table-faint">备注</span>
+            <textarea v-model="newVipOrder.remark" rows="2" placeholder="补充人工建单说明、来源、测试信息等" class="admin-input w-full px-3 py-2 rounded-lg" />
           </label>
           <div class="flex justify-end">
-            <button class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm" :disabled="savingVipOrderId === 0" @click="createVipOrder">
+            <button class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingVipOrderId === 0" @click="createVipOrder">
               {{ savingVipOrderId === 0 ? '创建中...' : '新增订单' }}
             </button>
           </div>
@@ -2599,33 +2566,33 @@
           <template #cell-order="{ row: order }">
             <div class="space-y-1">
               <div class="font-medium">{{ order.orderNo }}</div>
-              <div class="text-xs text-gray-400">{{ order.nickname || order.username || '未知用户' }}</div>
-              <div class="text-xs text-gray-500">{{ order.vipPlanName || order.vipPlanCode || '未知套餐' }}</div>
+              <div class="text-xs admin-table-faint">{{ order.nickname || order.username || '未知用户' }}</div>
+              <div class="text-xs admin-table-faint">{{ order.vipPlanName || order.vipPlanCode || '未知套餐' }}</div>
               <div class="text-xs text-indigo-300">
                 类型：{{ vipOrderChangeTypeLabel(order.changeType) }}
                 <span v-if="order.sourceVipPlanId"> · 来源套餐 ID {{ order.sourceVipPlanId }}</span>
               </div>
-              <select v-model="order.changeType" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs">
+              <select v-model="order.changeType" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
                 <option value="PURCHASE">PURCHASE / 新购</option>
                 <option value="RENEWAL">RENEWAL / 续费</option>
                 <option value="UPGRADE">UPGRADE / 升配</option>
               </select>
-              <input v-model.number="order.sourceVipPlanId" type="number" min="1" step="1" placeholder="来源套餐 ID（升配用）" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <input v-model.number="order.sourceVipPlanId" type="number" min="1" step="1" placeholder="来源套餐 ID（升配用）" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
             </div>
           </template>
           <template #cell-amountYuan="{ row: order }">
             <div class="space-y-2">
-              <input v-model.number="order.amountYuan" type="number" min="0" step="0.01" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
-              <input v-model="order.originalAmountYuan" type="number" min="0" step="0.01" placeholder="原价（元）" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              <input v-model="order.creditedAmountYuan" type="number" min="0" step="0.01" placeholder="抵扣（元）" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              <div class="text-xs text-gray-400">
+              <input v-model.number="order.amountYuan" type="number" min="0" step="0.01" class="admin-input w-full px-3 py-2 rounded-lg" />
+              <input v-model="order.originalAmountYuan" type="number" min="0" step="0.01" placeholder="原价（元）" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <input v-model="order.creditedAmountYuan" type="number" min="0" step="0.01" placeholder="抵扣（元）" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <div class="text-xs admin-table-faint">
                 原价：¥{{ Number(order.originalAmountYuan || order.amountYuan || 0).toFixed(2) }}
                 <span class="block">抵扣：¥{{ Number(order.creditedAmountYuan || 0).toFixed(2) }}</span>
               </div>
             </div>
           </template>
           <template #cell-status="{ row: order }">
-            <select v-model="order.status" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg">
+            <select v-model="order.status" class="admin-input w-full px-3 py-2 rounded-lg">
               <option value="CREATED">CREATED</option>
               <option value="PAID">PAID</option>
               <option value="ACTIVE">ACTIVE</option>
@@ -2633,23 +2600,23 @@
             </select>
           </template>
           <template #cell-source="{ row: order }">
-            <input v-model="order.source" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+            <input v-model="order.source" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
           </template>
           <template #cell-autoRenewEnabled="{ row: order }">
-            <label class="flex items-center gap-2 text-sm text-gray-300">
+            <label class="flex items-center gap-2 text-sm admin-table-muted">
               <input v-model="order.autoRenewEnabled" type="checkbox" class="w-4 h-4 rounded" />
               自动续费
             </label>
           </template>
           <template #cell-timeline="{ row: order }">
             <div class="space-y-2">
-              <input v-model="order.paidAt" type="datetime-local" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              <input v-model="order.nextRenewalAt" type="datetime-local" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              <input v-model="order.expireAt" type="datetime-local" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
+              <input v-model="order.paidAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <input v-model="order.nextRenewalAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <input v-model="order.expireAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
             </div>
           </template>
           <template #cell-payment="{ row: order }">
-            <div class="space-y-1 text-xs text-gray-400">
+            <div class="space-y-1 text-xs admin-table-faint">
               <div>渠道：{{ paymentProviderLabel(order.paymentProviderType) }}</div>
               <div>网关：{{ order.gatewayStatus || order.status || '-' }}</div>
               <div>外部单号：{{ order.externalTradeNo || '-' }}</div>
@@ -2657,7 +2624,7 @@
             </div>
           </template>
           <template #cell-renewal="{ row: order }">
-            <div class="space-y-1 text-xs text-gray-400">
+            <div class="space-y-1 text-xs admin-table-faint">
               <div>下次续费：{{ formatDate(order.nextRenewalAt) }}</div>
               <div>
                 来源单：
@@ -2687,66 +2654,66 @@
           </template>
           <template #cell-remark="{ row: order }">
             <div class="space-y-2">
-              <textarea v-model="order.remark" rows="3" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-xs" />
-              <textarea v-model="order.pricingDetailJson" rows="3" placeholder="定价明细 JSON（可选，用于记录升配折算细节）" class="w-full px-3 py-2 bg-gray-900/50 border border-white/10 rounded-lg text-xs font-mono" />
+              <textarea v-model="order.remark" rows="3" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <textarea v-model="order.pricingDetailJson" rows="3" placeholder="定价明细 JSON（可选，用于记录升配折算细节）" class="admin-input w-full px-3 py-2 rounded-lg text-xs font-mono" />
             </div>
           </template>
           <template #cell-actions="{ row: order }">
-            <div class="grid grid-cols-2 gap-2">
-              <button class="px-2 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-xs border border-white/10" :disabled="previewingVipOrderId === order.id" @click="previewVipOrderPayment(order)">
+            <div class="grid grid-cols-2 gap-2 admin-super-admin-action-grid">
+              <button class="admin-button-soft px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="previewingVipOrderId === order.id" @click="previewVipOrderPayment(order)">
                 {{ previewingVipOrderId === order.id ? '生成中' : '预览' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-xs" :disabled="initiatingVipOrderId === order.id" @click="initiateVipOrderPayment(order)">
+              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="initiatingVipOrderId === order.id" @click="initiateVipOrderPayment(order)">
                 {{ initiatingVipOrderId === order.id ? '发起中' : '发起' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-xs" :disabled="mockingVipOrderId === order.id" @click="mockPayVipOrder(order)">
+              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="mockingVipOrderId === order.id" @click="mockPayVipOrder(order)">
                 {{ mockingVipOrderId === order.id ? '处理中' : 'Mock' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-xs" :disabled="cancellingVipOrderId === order.id" @click="cancelVipOrder(order)">
+              <button class="admin-button-warning px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="cancellingVipOrderId === order.id" @click="cancelVipOrder(order)">
                 {{ cancellingVipOrderId === order.id ? '处理中' : '取消' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-xs border border-white/10" @click="previewVipOrderRefund(order)">
+              <button class="admin-button-soft px-2 py-2 rounded-lg text-xs" @click="previewVipOrderRefund(order)">
                 退款预览
               </button>
-              <button class="px-2 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-60 text-xs" :disabled="refundingVipOrderId === order.id" @click="refundVipOrder(order)">
+              <button class="admin-button-danger px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="refundingVipOrderId === order.id" @click="refundVipOrder(order)">
                 {{ refundingVipOrderId === order.id ? '处理中' : '退款' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-xs" :disabled="confirmingVipOrderRefundId === order.id || order.refundStatus !== 'REQUESTED'" @click="confirmVipOrderRefund(order)">
+              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="confirmingVipOrderRefundId === order.id || order.refundStatus !== 'REQUESTED'" @click="confirmVipOrderRefund(order)">
                 {{ confirmingVipOrderRefundId === order.id ? '处理中' : '确认退款' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-60 text-xs" :disabled="failingVipOrderRefundId === order.id || order.refundStatus !== 'REQUESTED'" @click="markVipOrderRefundFailed(order)">
+              <button class="admin-button-warning px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="failingVipOrderRefundId === order.id || order.refundStatus !== 'REQUESTED'" @click="markVipOrderRefundFailed(order)">
                 {{ failingVipOrderRefundId === order.id ? '处理中' : '退款失败' }}
               </button>
-              <button class="px-2 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-xs" :disabled="savingVipOrderId === order.id" @click="saveVipOrder(order)">
+              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="savingVipOrderId === order.id" @click="saveVipOrder(order)">
                 {{ savingVipOrderId === order.id ? '保存中' : '保存' }}
               </button>
               <router-link
                 :to="buildSuperAdminVipOrderRoute(order.orderNo)"
-                class="px-2 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs text-center border border-white/10"
+                class="admin-button-soft px-2 py-2 rounded-lg text-xs text-center"
               >
                 定位
               </router-link>
               <router-link
                 :to="buildPaymentResultRoute(order)"
-                class="px-2 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs text-center"
+                class="admin-button-primary px-2 py-2 rounded-lg text-xs text-center"
               >
                 结果页
               </router-link>
             </div>
           </template>
         </ConfigurableTable>
-        <div v-if="paymentPreview" class="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
+        <div v-if="paymentPreview" class="rounded-2xl p-5 space-y-4 admin-super-admin-preview-card">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="text-lg">支付预览 · {{ paymentPreview.orderNo }}</div>
-              <div class="text-xs text-gray-400">{{ paymentPreview.providerLabel }} · {{ paymentPreview.liveModeReady ? '真实支付配置完整' : '仍需补配置' }}</div>
+              <div class="text-xs admin-table-faint">{{ paymentPreview.providerLabel }} · {{ paymentPreview.liveModeReady ? '真实支付配置完整' : '仍需补配置' }}</div>
             </div>
-            <button class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10" @click="paymentPreview = null">
+            <button class="admin-button-soft px-3 py-2 rounded-lg text-sm" @click="paymentPreview = null">
               关闭
             </button>
           </div>
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 text-sm">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
+            <div class="rounded-xl p-4 space-y-2 admin-super-admin-preview-item">
               <div>支付平台：{{ paymentPreview.providerLabel }}</div>
               <div>接口地址：{{ paymentPreview.apiBaseUrl }}</div>
               <div>币种：{{ paymentPreview.currency }}</div>
@@ -2761,7 +2728,7 @@
               <div v-if="paymentPreview.readinessWarnings?.length" class="text-amber-300">接入告警：{{ paymentPreview.readinessWarnings.join('；') }}</div>
               <div v-if="paymentPreview.capabilityTags?.length">能力：{{ paymentPreview.capabilityTags.join('、') }}</div>
             </div>
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
+            <div class="rounded-xl p-4 space-y-2 admin-super-admin-preview-item">
               <div>订单：{{ paymentPreview.orderNo }}</div>
               <div>用户：{{ paymentPreview.username || paymentPreview.userId }}</div>
               <div>套餐：{{ paymentPreview.vipPlanName || paymentPreview.vipPlanId }}</div>
@@ -2772,42 +2739,42 @@
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div class="space-y-2">
               <div class="text-sm text-gray-300">请求载荷</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentPreview.requestPayload, null, 2) }}</pre>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentPreview.requestPayload, null, 2) }}</pre>
             </div>
             <div class="space-y-2">
               <div class="text-sm text-gray-300">回调样例</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentPreview.callbackPayload, null, 2) }}</pre>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentPreview.callbackPayload, null, 2) }}</pre>
             </div>
           </div>
-          <div v-if="paymentPreview.integrationSteps?.length" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2 text-xs text-gray-300">
-            <div class="text-sm text-white">真实接入步骤</div>
+          <div v-if="paymentPreview.integrationSteps?.length" class="rounded-xl p-4 space-y-2 text-xs admin-table-muted admin-super-admin-preview-item">
+            <div class="text-sm admin-super-admin-modal-title">真实接入步骤</div>
             <div v-for="(step, index) in paymentPreview.integrationSteps" :key="`${paymentPreview.providerType}-step-${index}`">
               {{ index + 1 }}. {{ step }}
             </div>
           </div>
           <div v-if="paymentPreview.recommendedConfigFields?.length || paymentPreview.nextActionHints?.length" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div v-if="paymentPreview.recommendedConfigFields?.length" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2 text-xs text-gray-300">
-              <div class="text-sm text-white">建议重点配置</div>
+            <div v-if="paymentPreview.recommendedConfigFields?.length" class="rounded-xl p-4 space-y-2 text-xs admin-table-muted admin-super-admin-preview-item">
+              <div class="text-sm admin-super-admin-modal-title">建议重点配置</div>
               <div v-for="field in paymentPreview.recommendedConfigFields" :key="field">
                 {{ field }}
               </div>
             </div>
-            <div v-if="paymentPreview.nextActionHints?.length" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2 text-xs text-gray-300">
-              <div class="text-sm text-white">建议下一步</div>
+            <div v-if="paymentPreview.nextActionHints?.length" class="rounded-xl p-4 space-y-2 text-xs admin-table-muted admin-super-admin-preview-item">
+              <div class="text-sm admin-super-admin-modal-title">建议下一步</div>
               <div v-for="(hint, index) in paymentPreview.nextActionHints" :key="`${paymentPreview.providerType}-hint-${index}`">
                 {{ index + 1 }}. {{ hint }}
               </div>
             </div>
           </div>
-          <div v-if="paymentPreview.stageReadiness?.length" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-xs text-gray-300">
-            <div class="text-sm text-white">阶段检查</div>
+          <div v-if="paymentPreview.stageReadiness?.length" class="rounded-xl p-4 space-y-3 text-xs admin-table-muted admin-super-admin-preview-item">
+            <div class="text-sm admin-super-admin-modal-title">阶段检查</div>
             <div
               v-for="stage in paymentPreview.stageReadiness"
               :key="`${paymentPreview.providerType}-${stage.stageKey}`"
-              class="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2"
+              class="rounded-lg p-3 space-y-2 admin-super-admin-preview-item"
             >
               <div class="flex items-center justify-between gap-3">
-                <div class="text-sm text-white">{{ stage.stageLabel }}</div>
+                <div class="text-sm admin-super-admin-modal-title">{{ stage.stageLabel }}</div>
                 <span :class="stage.ready ? 'text-emerald-300' : 'text-amber-300'">
                   {{ stage.ready ? '已就绪' : '待补齐' }}
                 </span>
@@ -2821,18 +2788,18 @@
             </div>
           </div>
         </div>
-        <div v-if="paymentInitiation" class="rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-5 space-y-4">
+        <div v-if="paymentInitiation" class="rounded-2xl p-5 space-y-4 admin-super-admin-info-box">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="text-lg">支付发起骨架 · {{ paymentInitiation.orderNo }}</div>
-              <div class="text-xs text-gray-400">{{ paymentInitiation.providerLabel }} · {{ paymentInitiation.liveModeReady ? '可进入真实对接' : '仍需补配置' }}</div>
+              <div class="text-xs admin-table-faint">{{ paymentInitiation.providerLabel }} · {{ paymentInitiation.liveModeReady ? '可进入真实对接' : '仍需补配置' }}</div>
             </div>
-            <button class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10" @click="paymentInitiation = null">
+            <button class="admin-button-soft px-3 py-2 rounded-lg text-sm" @click="paymentInitiation = null">
               关闭
             </button>
           </div>
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 text-sm">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
+            <div class="rounded-xl p-4 space-y-2 admin-super-admin-preview-item">
               <div>发起地址：{{ paymentInitiation.launchUrl }}</div>
               <div>请求方式：{{ paymentInitiation.httpMethod }}</div>
               <div>拉起类型：{{ paymentInitiation.actionType || 'API_REQUEST' }}</div>
@@ -2840,49 +2807,49 @@
               <div>状态说明：{{ paymentInitiation.message }}</div>
               <button
                 v-if="canDirectLaunchPayment(paymentInitiation)"
-                class="mt-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white"
+                class="admin-button-primary mt-3 px-4 py-2 rounded-lg text-sm"
                 @click="launchSuperAdminPayment"
               >
                 新窗口拉起
               </button>
             </div>
-            <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.payload, null, 2) }}</pre>
+            <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentInitiation.payload, null, 2) }}</pre>
           </div>
           <div v-if="paymentInitiation.formFields || paymentInitiation.headers || paymentInitiation.qrCodeText || paymentInitiation.payload?.requestBodyJson || paymentInitiation.payload?.requestBodyEncoded" class="grid grid-cols-1 xl:grid-cols-4 gap-4">
             <div v-if="paymentInitiation.formFields" class="space-y-2">
-              <div class="text-sm text-gray-300">表单字段</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.formFields, null, 2) }}</pre>
+              <div class="text-sm admin-table-muted">表单字段</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentInitiation.formFields, null, 2) }}</pre>
             </div>
             <div v-if="paymentInitiation.headers" class="space-y-2">
-              <div class="text-sm text-gray-300">请求头</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentInitiation.headers, null, 2) }}</pre>
+              <div class="text-sm admin-table-muted">请求头</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentInitiation.headers, null, 2) }}</pre>
             </div>
             <div v-if="paymentInitiation.qrCodeText" class="space-y-2">
-              <div class="text-sm text-gray-300">二维码 / 拉起串</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ paymentInitiation.qrCodeText }}</pre>
+              <div class="text-sm admin-table-muted">二维码 / 拉起串</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ paymentInitiation.qrCodeText }}</pre>
             </div>
             <div v-if="paymentInitiation.payload?.requestBodyJson" class="space-y-2">
-              <div class="text-sm text-gray-300">请求体 JSON</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ paymentInitiation.payload.requestBodyJson }}</pre>
+              <div class="text-sm admin-table-muted">请求体 JSON</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ paymentInitiation.payload.requestBodyJson }}</pre>
             </div>
             <div v-if="paymentInitiation.payload?.requestBodyEncoded" class="space-y-2">
-              <div class="text-sm text-gray-300">请求体表单编码</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto whitespace-pre-wrap break-all">{{ paymentInitiation.payload.requestBodyEncoded }}</pre>
+              <div class="text-sm admin-table-muted">请求体表单编码</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto whitespace-pre-wrap break-all admin-super-admin-log-box">{{ paymentInitiation.payload.requestBodyEncoded }}</pre>
             </div>
           </div>
         </div>
-        <div v-if="paymentRefundPreview" class="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-5 space-y-4">
+        <div v-if="paymentRefundPreview" class="rounded-2xl p-5 space-y-4 admin-super-admin-danger-box">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="text-lg">退款骨架预览 · {{ paymentRefundPreview.orderNo }}</div>
-              <div class="text-xs text-gray-400">{{ paymentRefundPreview.providerLabel }} · {{ paymentRefundPreview.liveModeReady ? '可进入真实退款联调' : '仍需补配置' }}</div>
+              <div class="text-xs admin-table-faint">{{ paymentRefundPreview.providerLabel }} · {{ paymentRefundPreview.liveModeReady ? '可进入真实退款联调' : '仍需补配置' }}</div>
             </div>
-            <button class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm border border-white/10" @click="paymentRefundPreview = null">
+            <button class="admin-button-soft px-3 py-2 rounded-lg text-sm" @click="paymentRefundPreview = null">
               关闭
             </button>
           </div>
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 text-sm">
-            <div class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
+            <div class="rounded-xl p-4 space-y-2 admin-super-admin-preview-item">
               <div>退款地址：{{ paymentRefundPreview.launchUrl }}</div>
               <div>请求方式：{{ paymentRefundPreview.httpMethod }}</div>
               <div>退款模式：{{ paymentRefundPreview.refundMode || '—' }}</div>
@@ -2893,25 +2860,25 @@
               <div v-if="paymentRefundPreview.supportMessage">接入提示：{{ paymentRefundPreview.supportMessage }}</div>
               <div v-if="paymentRefundPreview.capabilityTags?.length">平台能力：{{ paymentRefundPreview.capabilityTags.join('、') }}</div>
             </div>
-            <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentRefundPreview.payload, null, 2) }}</pre>
+            <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentRefundPreview.payload, null, 2) }}</pre>
           </div>
           <div v-if="paymentRefundPreview.missingFields?.length || paymentRefundPreview.readinessWarnings?.length || paymentRefundPreview.nextActionHints?.length" class="grid grid-cols-1 xl:grid-cols-3 gap-4 text-xs">
-            <div v-if="paymentRefundPreview.missingFields?.length" class="rounded-xl border border-amber-400/20 bg-amber-500/5 p-4 space-y-2 text-amber-100">
-              <div class="text-sm text-white">缺失字段</div>
+            <div v-if="paymentRefundPreview.missingFields?.length" class="rounded-xl p-4 space-y-2 admin-super-admin-warning-box">
+              <div class="text-sm admin-super-admin-modal-title">缺失字段</div>
               <div>{{ paymentRefundPreview.missingFields.join('、') }}</div>
             </div>
-            <div v-if="paymentRefundPreview.readinessWarnings?.length" class="rounded-xl border border-rose-400/20 bg-rose-500/5 p-4 space-y-2 text-rose-100">
-              <div class="text-sm text-white">接入风险</div>
+            <div v-if="paymentRefundPreview.readinessWarnings?.length" class="rounded-xl p-4 space-y-2 admin-super-admin-danger-box">
+              <div class="text-sm admin-super-admin-modal-title">接入风险</div>
               <div v-for="(item, index) in paymentRefundPreview.readinessWarnings" :key="`refund-warning-${index}`">{{ item }}</div>
             </div>
-            <div v-if="paymentRefundPreview.nextActionHints?.length" class="rounded-xl border border-sky-400/20 bg-sky-500/5 p-4 space-y-2 text-sky-100">
-              <div class="text-sm text-white">下一步建议</div>
+            <div v-if="paymentRefundPreview.nextActionHints?.length" class="rounded-xl p-4 space-y-2 admin-super-admin-info-box">
+              <div class="text-sm admin-super-admin-modal-title">下一步建议</div>
               <div v-for="(item, index) in paymentRefundPreview.nextActionHints" :key="`refund-next-${index}`">{{ index + 1 }}. {{ item }}</div>
             </div>
           </div>
-          <div v-if="paymentRefundPreview.stageReadiness?.length" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-xs text-gray-300">
-            <div class="text-sm text-white">退款阶段检查</div>
-            <div v-for="stage in paymentRefundPreview.stageReadiness" :key="`refund-stage-${stage.stageKey}`" class="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2">
+          <div v-if="paymentRefundPreview.stageReadiness?.length" class="rounded-xl p-4 space-y-3 text-xs admin-table-muted admin-super-admin-preview-item">
+            <div class="text-sm admin-super-admin-modal-title">退款阶段检查</div>
+            <div v-for="stage in paymentRefundPreview.stageReadiness" :key="`refund-stage-${stage.stageKey}`" class="rounded-lg p-3 space-y-2 admin-super-admin-preview-item">
               <div class="flex items-center justify-between gap-2">
                 <span>{{ stage.stageLabel }}</span>
                 <span :class="stage.ready ? 'text-emerald-300' : 'text-amber-300'">{{ stage.ready ? '已就绪' : '未就绪' }}</span>
@@ -2923,21 +2890,21 @@
             </div>
           </div>
           <div v-if="paymentRefundPreview.headers" class="space-y-2">
-            <div class="text-sm text-gray-300">请求头</div>
-            <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ JSON.stringify(paymentRefundPreview.headers, null, 2) }}</pre>
+              <div class="text-sm admin-table-muted">请求头</div>
+            <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ JSON.stringify(paymentRefundPreview.headers, null, 2) }}</pre>
           </div>
           <div v-if="paymentRefundPreview.payload?.requestBodyJson || paymentRefundPreview.payload?.requestBodyEncoded" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div v-if="paymentRefundPreview.payload?.requestBodyJson" class="space-y-2">
-              <div class="text-sm text-gray-300">JSON 请求体</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto">{{ paymentRefundPreview.payload.requestBodyJson }}</pre>
+              <div class="text-sm admin-table-muted">JSON 请求体</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto admin-super-admin-log-box">{{ paymentRefundPreview.payload.requestBodyJson }}</pre>
             </div>
             <div v-if="paymentRefundPreview.payload?.requestBodyEncoded" class="space-y-2">
-              <div class="text-sm text-gray-300">Form 请求体</div>
-              <pre class="rounded-xl border border-white/10 bg-gray-950/70 p-4 text-xs text-gray-200 overflow-auto whitespace-pre-wrap break-all">{{ paymentRefundPreview.payload.requestBodyEncoded }}</pre>
+              <div class="text-sm admin-table-muted">Form 请求体</div>
+              <pre class="rounded-xl p-4 text-xs overflow-auto whitespace-pre-wrap break-all admin-super-admin-log-box">{{ paymentRefundPreview.payload.requestBodyEncoded }}</pre>
             </div>
           </div>
-          <div v-if="paymentRefundPreview.integrationSteps?.length" class="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2 text-xs text-gray-300">
-            <div class="text-sm text-white">真实退款接入步骤</div>
+          <div v-if="paymentRefundPreview.integrationSteps?.length" class="rounded-xl p-4 space-y-2 text-xs admin-table-muted admin-super-admin-preview-item">
+            <div class="text-sm admin-super-admin-modal-title">真实退款接入步骤</div>
             <div v-for="(step, index) in paymentRefundPreview.integrationSteps" :key="`${paymentRefundPreview.providerType}-refund-step-${index}`">
               {{ index + 1 }}. {{ step }}
             </div>
@@ -2946,8 +2913,8 @@
         <div class="flex items-center justify-between pt-2 text-sm text-gray-300">
           <span>第 {{ vipOrdersPage.page + 1 }} / {{ Math.max(vipOrdersPage.totalPages, 1) }} 页，共 {{ vipOrdersPage.totalElements }} 条订单</span>
           <div class="flex items-center gap-2">
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="vipOrdersPage.first" @click="changeVipOrdersPage(vipOrdersPage.page - 1)">上一页</button>
-            <button class="px-3 py-1 rounded bg-gray-800 border border-white/10 disabled:opacity-40" :disabled="vipOrdersPage.last" @click="changeVipOrdersPage(vipOrdersPage.page + 1)">下一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="vipOrdersPage.first" @click="changeVipOrdersPage(vipOrdersPage.page - 1)">上一页</button>
+            <button class="admin-button-soft px-3 py-1 rounded disabled:opacity-40" :disabled="vipOrdersPage.last" @click="changeVipOrdersPage(vipOrdersPage.page + 1)">下一页</button>
           </div>
         </div>
       </section>
@@ -2956,32 +2923,32 @@
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-light">存储提供者</h2>
-            <p class="text-xs text-gray-400">LOCAL / FTP / WebDAV / COS 以及 S3 兼容家族已可作为上传存储；当前文件浏览器仅展示已接通浏览能力的存储。</p>
+            <p class="text-xs admin-table-faint">LOCAL / FTP / WebDAV / COS 以及 S3 兼容家族已可作为上传存储；当前文件浏览器仅展示已接通浏览能力的存储。</p>
           </div>
           <button
             type="button"
-            class="shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-sm"
+            class="admin-button-primary shrink-0 px-4 py-2 rounded-xl text-sm"
             @click="showCreateStorageModal = true"
           >
             新建存储
           </button>
         </div>
 
-        <div class="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+        <div class="rounded-2xl px-5 py-4 admin-super-admin-preview-card">
           <div class="grid grid-cols-1 xl:grid-cols-[240px,1fr] gap-4 items-start">
             <div class="space-y-1">
-              <div class="text-sm text-white">系统默认上传存储</div>
-              <div class="text-xs text-gray-400">这是全局设置，决定未单独指定时默认使用哪个存储。</div>
+              <div class="text-sm admin-super-admin-modal-title">系统默认上传存储</div>
+              <div class="text-xs admin-table-faint">这是全局设置，决定未单独指定时默认使用哪个存储。</div>
             </div>
-            <div class="space-y-3 border-t border-white/10 pt-3 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0">
-              <div class="text-sm text-gray-200">
+            <div class="space-y-3 border-t pt-3 xl:border-t-0 xl:border-l xl:pl-4 xl:pt-0 admin-super-admin-storage-divider">
+              <div class="text-sm admin-table-muted">
                 当前默认：
-                <span class="text-white">{{ storageProviders.find(item => item.isDefault)?.name || '未设置' }}</span>
+                <span class="admin-super-admin-modal-title">{{ storageProviders.find(item => item.isDefault)?.name || '未设置' }}</span>
               </div>
-              <div class="text-xs text-gray-400">下方列表用于维护“存储提供者资源”本身；修改默认归属时，只会保留一个默认项。</div>
+              <div class="text-xs admin-table-faint">下方列表用于维护“存储提供者资源”本身；修改默认归属时，只会保留一个默认项。</div>
               <button
                 type="button"
-                class="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
+                class="admin-button-soft px-3 py-2 rounded-lg text-xs"
                 @click="changeActiveTab('global')"
               >
                 前往全局设置查看默认上传存储
@@ -2990,27 +2957,27 @@
           </div>
         </div>
 
-        <div v-if="loading" class="text-sm text-gray-400">正在加载存储配置...</div>
+        <div v-if="loading" class="text-sm admin-table-faint">正在加载存储配置...</div>
         <div v-else class="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
           <article
             v-for="provider in storageProviders"
             :key="provider.id"
-            class="rounded-3xl border border-white/10 bg-black/20 p-5 space-y-5 shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
+            class="rounded-3xl p-5 space-y-5 shadow-[0_20px_60px_rgba(0,0,0,0.22)] admin-super-admin-storage-card"
           >
             <div class="flex items-start justify-between gap-4">
               <div class="space-y-2 min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="text-lg text-white truncate">{{ provider.name }}</span>
+                  <span class="text-lg admin-super-admin-modal-title truncate">{{ provider.name }}</span>
                   <span class="chip text-xs text-sky-200">{{ storageTypeLabel(provider.type) }}</span>
                   <span v-if="provider.isDefault" class="chip text-xs text-emerald-200">默认</span>
                   <span v-if="isProviderDirty(provider)" class="chip text-xs text-amber-200">未保存</span>
                 </div>
-                <div class="text-xs text-gray-500">创建于 {{ formatDate(provider.createdAt) }} · 最近更新 {{ formatDate(provider.updatedAt) }}</div>
+                <div class="text-xs admin-table-faint">创建于 {{ formatDate(provider.createdAt) }} · 最近更新 {{ formatDate(provider.updatedAt) }}</div>
               </div>
               <button
                 v-if="isProviderDirty(provider) || savingProviderId === provider.id"
                 type="button"
-                class="shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+                class="admin-button-primary shrink-0 px-4 py-2 rounded-xl disabled:opacity-60 text-sm"
                 :disabled="savingProviderId === provider.id"
                 @click="saveProvider(provider)"
               >
@@ -3019,31 +2986,31 @@
             </div>
 
             <div class="grid grid-cols-4 gap-2 text-[10px]">
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">浏览器</div>
-                <div :class="provider.browserSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.browserSupported) }}</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">浏览器</div>
+                <div :class="provider.browserSupported ? 'text-emerald-300' : 'text-amber-300'">{{ capabilityLabel(provider.browserSupported) }}</div>
               </div>
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">上传</div>
-                <div :class="provider.uploadSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.uploadSupported) }}</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">上传</div>
+                <div :class="provider.uploadSupported ? 'text-emerald-300' : 'text-amber-300'">{{ capabilityLabel(provider.uploadSupported) }}</div>
               </div>
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">扫描</div>
-                <div :class="provider.scanSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.scanSupported) }}</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">扫描</div>
+                <div :class="provider.scanSupported ? 'text-emerald-300' : 'text-amber-300'">{{ capabilityLabel(provider.scanSupported) }}</div>
               </div>
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">预览</div>
-                <div :class="provider.previewSupported ? 'text-emerald-200' : 'text-amber-200'">{{ capabilityLabel(provider.previewSupported) }}</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">预览</div>
+                <div :class="provider.previewSupported ? 'text-emerald-300' : 'text-amber-300'">{{ capabilityLabel(provider.previewSupported) }}</div>
               </div>
             </div>
 
-            <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 space-y-2 text-xs">
+            <div class="rounded-2xl px-4 py-4 space-y-2 text-xs admin-super-admin-preview-card">
                 <div class="flex items-center justify-between gap-3">
-                  <div class="text-sm text-white">状态说明</div>
+                  <div class="text-sm admin-super-admin-modal-title">状态说明</div>
                   <div class="flex items-center gap-2">
                     <button
                       type="button"
-                      class="px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-xs border border-white/10 disabled:opacity-60"
+                      class="admin-button-soft px-3 py-1.5 rounded-lg text-xs disabled:opacity-60"
                       :disabled="testingProviderId === provider.id"
                       @click="testStorageProvider(provider)"
                     >
@@ -3051,12 +3018,12 @@
                     </button>
                   </div>
               </div>
-              <div class="text-gray-300">解析根目录：{{ provider.resolvedBaseDirectory || '—' }}</div>
-              <div class="text-gray-300">{{ providerStatusSummary(provider) }}</div>
-              <div v-if="getProviderAssessment(provider).missingLabels.length" class="text-amber-200">
+              <div class="admin-table-muted">解析根目录：{{ provider.resolvedBaseDirectory || '—' }}</div>
+              <div class="admin-table-muted">{{ providerStatusSummary(provider) }}</div>
+              <div v-if="getProviderAssessment(provider).missingLabels.length" class="text-amber-300">
                 缺失字段：{{ getProviderAssessment(provider).missingLabels.join('、') }}
               </div>
-              <div v-if="getProviderAssessment(provider).configMissingLabels.length" class="text-amber-200">
+              <div v-if="getProviderAssessment(provider).configMissingLabels.length" class="text-amber-300">
                 配置缺失：{{ getProviderAssessment(provider).configMissingLabels.join('、') }}
               </div>
               <div v-if="getProviderAssessment(provider).configError" class="text-rose-300">
@@ -3064,16 +3031,16 @@
               </div>
               <div
                 v-if="storageProviderTestResults[provider.id]"
-                class="rounded-xl border p-3 space-y-2"
+                class="rounded-xl p-3 space-y-2"
                 :class="storageProviderTestResults[provider.id]?.success
-                  ? 'border-emerald-400/20 bg-emerald-500/10'
-                  : 'border-amber-400/20 bg-amber-500/10'"
+                  ? 'admin-super-admin-success-box'
+                  : 'admin-super-admin-warning-box'"
               >
                 <div class="flex items-center justify-between gap-3">
-                  <div :class="storageProviderTestResults[provider.id]?.success ? 'text-emerald-100' : 'text-amber-100'">
+                  <div>
                     {{ storageProviderTestResults[provider.id]?.message }}
                   </div>
-                  <div class="text-[11px] text-gray-400">
+                  <div class="text-[11px] admin-table-faint">
                     {{ storageProviderTestedAt[provider.id] || '' }}
                   </div>
                 </div>
@@ -3081,38 +3048,38 @@
                   v-for="check in storageProviderTestResults[provider.id]?.checks || []"
                   :key="`${provider.id}-${check.key}`"
                   class="text-[11px] flex items-start justify-between gap-3"
-                  :class="check.success ? 'text-gray-200' : 'text-rose-200'"
+                  :class="check.success ? 'admin-table-muted' : 'text-rose-300'"
                 >
                   <span>{{ check.label }}</span>
                   <span class="text-right">{{ check.message || (check.success ? '通过' : '失败') }}</span>
                 </div>
               </div>
-              <div class="text-gray-500">{{ getStoragePreset(provider.type).hint }}</div>
+              <div class="admin-table-faint">{{ getStoragePreset(provider.type).hint }}</div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">存储名称</span>
-                <input v-model="provider.name" type="text" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] admin-table-faint">存储名称</span>
+                <input v-model="provider.name" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
               </label>
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">存储类型</span>
-                <select v-model="provider.type" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" @change="handleProviderTypeChange(provider)">
+                <span class="text-[11px] admin-table-faint">存储类型</span>
+                <select v-model="provider.type" class="admin-input w-full px-3 py-2 rounded-lg" @change="handleProviderTypeChange(provider)">
                   <option v-for="option in storageTypeOptions" :key="option.value" :value="option.value">
                     {{ option.value }}{{ option.label ? ` · ${option.label}` : '' }}
                   </option>
                 </select>
               </label>
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">优先级</span>
-                <input v-model.number="provider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] admin-table-faint">优先级</span>
+                <input v-model.number="provider.priority" type="number" class="admin-input w-full px-3 py-2 rounded-lg" />
               </label>
               <div class="flex flex-col gap-2 self-start">
-                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                <label class="admin-super-admin-toggle-card flex h-[42px] items-center gap-2 px-3 py-2 rounded-xl text-sm">
                   <input v-model="provider.enabled" type="checkbox" class="w-4 h-4 rounded" />
                   启用
                 </label>
-                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                <label class="admin-super-admin-toggle-card flex h-[42px] items-center gap-2 px-3 py-2 rounded-xl text-sm">
                   <input v-model="provider.isDefault" type="checkbox" class="w-4 h-4 rounded" @change="handleProviderDefaultChange(provider)" />
                   默认
                 </label>
@@ -3123,11 +3090,11 @@
               <label
                 v-for="field in getVisibleStorageFormFields(provider.type)"
                 :key="`${provider.id}-${field.key}`"
-                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
+                class="block space-y-1 rounded-2xl p-4 admin-super-admin-preview-item"
               >
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                    <span class="text-[11px] admin-table-muted">{{ field.label }}</span>
                     <a
                       v-if="field.docUrl"
                       :href="field.docUrl"
@@ -3144,15 +3111,15 @@
                   v-model="(provider as any)[field.modelKey]"
                   :type="field.secret ? 'password' : 'text'"
                   :placeholder="getStorageFormFieldPlaceholder(provider, field)"
-                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                  class="admin-input w-full px-3 py-2 rounded-lg text-sm"
                   @input="handleStorageFormFieldInput(provider, field)"
                 />
               </label>
             </div>
 
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">扩展配置 JSON</span>
-              <textarea v-model="provider.configJson" rows="8" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-2xl text-xs font-mono" />
+              <span class="text-[11px] admin-table-faint">扩展配置 JSON</span>
+              <textarea v-model="provider.configJson" rows="8" class="admin-input w-full px-3 py-2 rounded-2xl text-xs font-mono" />
             </label>
           </article>
         </div>
@@ -3164,15 +3131,15 @@
         @click.self="closeSmsTestModal"
       >
         <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-lg overflow-hidden">
-          <div class="border-b border-white/10 px-6 py-5">
+          <div class="admin-super-admin-modal-head px-6 py-5">
             <div class="flex items-start justify-between gap-4">
               <div class="space-y-2">
-                <div class="text-lg text-white">发送测试验证码</div>
-                <div class="text-xs text-gray-400">请输入要接收测试验证码的手机号码。</div>
+                <div class="text-lg admin-super-admin-modal-title">发送测试验证码</div>
+                <div class="text-xs admin-table-faint">请输入要接收测试验证码的手机号码。</div>
               </div>
               <button
                 type="button"
-                class="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/5"
+                class="admin-button-soft rounded-lg px-3 py-1.5 text-xs"
                 @click="closeSmsTestModal"
               >
                 关闭
@@ -3182,29 +3149,29 @@
 
           <div class="space-y-4 px-6 py-6">
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">测试手机号</span>
+              <span class="text-sm admin-super-admin-modal-label">测试手机号</span>
               <input
                 v-model.trim="smsTestPhone"
                 type="text"
                 inputmode="numeric"
                 placeholder="13800138000"
-                class="w-full rounded-xl border border-white/10 bg-gray-900/70 px-4 py-3"
+                class="admin-input w-full rounded-xl px-4 py-3"
                 @keydown.enter.prevent="sendTestSms"
               />
             </label>
           </div>
 
-          <div class="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+          <div class="admin-super-admin-modal-foot flex items-center justify-end gap-3 px-6 py-4">
             <button
               type="button"
-              class="rounded-xl border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5"
+              class="admin-button-soft rounded-xl px-4 py-2 text-sm"
               @click="closeSmsTestModal"
             >
               取消
             </button>
             <button
               type="button"
-              class="rounded-xl bg-sky-600 px-4 py-2 text-sm text-white hover:bg-sky-500 disabled:opacity-60"
+              class="admin-button-primary rounded-xl px-4 py-2 text-sm disabled:opacity-60"
               :disabled="sendingTestSms"
               @click="sendTestSms"
             >
@@ -3220,11 +3187,11 @@
         @click.self="closeResetPasswordModal"
       >
         <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-xl overflow-hidden">
-          <div class="border-b border-white/10 px-6 py-5">
+          <div class="admin-super-admin-modal-head px-6 py-5">
             <div class="flex items-start justify-between gap-4">
               <div class="space-y-2">
-                <div class="text-lg text-white">重置用户密码</div>
-                <div class="text-xs text-gray-400">
+                <div class="text-lg admin-super-admin-modal-title">重置用户密码</div>
+                <div class="text-xs admin-table-faint">
                   将为
                   <span class="text-sky-300">{{ resetPasswordTargetUser?.nickname || resetPasswordTargetUser?.username || '目标用户' }}</span>
                   设置新的登录密码。此操作会立即生效。
@@ -3232,7 +3199,7 @@
               </div>
               <button
                 type="button"
-                class="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/5"
+                class="admin-button-soft rounded-lg px-3 py-1.5 text-xs"
                 @click="closeResetPasswordModal"
               >
                 关闭
@@ -3242,41 +3209,41 @@
 
           <div class="space-y-4 px-6 py-6">
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">新密码</span>
+              <span class="text-sm admin-super-admin-modal-label">新密码</span>
               <input
                 v-model="resetPasswordDraft.password"
                 type="password"
                 autocomplete="new-password"
-                class="w-full rounded-xl border border-white/10 bg-gray-900/70 px-4 py-3"
+                class="admin-input w-full rounded-xl px-4 py-3"
                 placeholder="至少 6 位"
               />
             </label>
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">确认新密码</span>
+              <span class="text-sm admin-super-admin-modal-label">确认新密码</span>
               <input
                 v-model="resetPasswordDraft.confirmPassword"
                 type="password"
                 autocomplete="new-password"
-                class="w-full rounded-xl border border-white/10 bg-gray-900/70 px-4 py-3"
+                class="admin-input w-full rounded-xl px-4 py-3"
                 placeholder="再次输入密码"
               />
             </label>
-            <div class="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs leading-6 text-amber-100">
+            <div class="admin-super-admin-warning-box rounded-2xl px-4 py-3 text-xs leading-6">
               建议只在人工确认身份后重置密码。保存用户资料与重置密码已拆成两个动作，避免误操作时把敏感修改一起提交。
             </div>
           </div>
 
-          <div class="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+          <div class="admin-super-admin-modal-foot flex items-center justify-end gap-3 px-6 py-4">
             <button
               type="button"
-              class="rounded-xl border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5"
+              class="admin-button-soft rounded-xl px-4 py-2 text-sm"
               @click="closeResetPasswordModal"
             >
               取消
             </button>
             <button
               type="button"
-              class="rounded-xl bg-purple-600 px-4 py-2 text-sm text-white hover:bg-purple-500 disabled:opacity-60"
+              class="admin-button-primary rounded-xl px-4 py-2 text-sm disabled:opacity-60"
               :disabled="resettingUserPassword"
               @click="submitResetUserPassword"
             >
@@ -3291,25 +3258,25 @@
         class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="showCreateStorageModal = false"
       >
-        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[88vh] overflow-auto rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
-          <div class="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/10 bg-slate-950/95 px-6 py-5 backdrop-blur">
+        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[88vh] overflow-auto rounded-3xl">
+          <div class="admin-super-admin-modal-head sticky top-0 z-10 flex items-start justify-between gap-4 px-6 py-5 backdrop-blur">
             <div class="space-y-2 min-w-0">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="text-lg text-white">新建存储</span>
+                <span class="text-lg admin-super-admin-modal-title">新建存储</span>
                 <span class="chip text-xs text-sky-200">{{ storageTypeLabel(newProvider.type) }}</span>
               </div>
-              <div class="text-xs text-gray-400">常用必填项直接在表单中填写；`configJson` 仅保留给高级扩展参数。</div>
+              <div class="text-xs admin-table-faint">常用必填项直接在表单中填写；`configJson` 仅保留给高级扩展参数。</div>
             </div>
             <div class="flex items-center gap-3">
               <button
                 type="button"
-                class="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm border border-white/10"
+                class="admin-button-soft px-4 py-2 rounded-xl text-sm"
                 @click="showCreateStorageModal = false"
               >
                 取消
               </button>
               <button
-                class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-sm"
+                class="admin-button-primary px-4 py-2 rounded-xl disabled:opacity-60 text-sm"
                 :disabled="savingProviderId === 0"
                 @click="createProvider"
               >
@@ -3320,42 +3287,35 @@
 
           <div class="p-6 space-y-5">
             <div class="grid grid-cols-4 gap-2 text-[10px]">
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">浏览器</div>
-                <div class="text-amber-200">创建后检测</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">浏览器</div>
+                <div class="text-amber-300">创建后检测</div>
               </div>
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">上传</div>
-                <div class="text-amber-200">创建后检测</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">上传</div>
+                <div class="text-amber-300">创建后检测</div>
               </div>
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">扫描</div>
-                <div class="text-amber-200">创建后检测</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">扫描</div>
+                <div class="text-amber-300">创建后检测</div>
               </div>
-              <div class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-                <div class="text-gray-500">预览</div>
-                <div class="text-amber-200">创建后检测</div>
+              <div class="rounded-xl px-2.5 py-2 admin-super-admin-preview-item">
+                <div class="admin-table-faint">预览</div>
+                <div class="text-amber-300">创建后检测</div>
               </div>
             </div>
 
-            <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 space-y-2 text-xs">
+            <div class="rounded-2xl px-4 py-4 space-y-2 text-xs admin-super-admin-preview-card">
               <div class="flex items-center justify-between gap-3">
-                <div class="text-sm text-white">状态说明</div>
-                <button
-                  type="button"
-                  class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs border border-white/10"
-                  @click="applyStoragePreset"
-                >
-                  套用推荐
-                </button>
+                <div class="text-sm admin-super-admin-modal-title">状态说明</div>
               </div>
-              <div class="text-gray-300">当前类型：{{ storageTypeLabel(newProvider.type) }}</div>
-              <div class="text-gray-300">{{ newProviderStatusSummary }}</div>
-              <div class="text-gray-500">{{ storagePreset.hint }}</div>
-              <div v-if="newProviderAssessment.missingLabels.length" class="text-amber-200">
+              <div class="admin-table-muted">当前类型：{{ storageTypeLabel(newProvider.type) }}</div>
+              <div class="admin-table-muted">{{ newProviderStatusSummary }}</div>
+              <div class="admin-table-faint">{{ storagePreset.hint }}</div>
+              <div v-if="newProviderAssessment.missingLabels.length" class="text-amber-300">
                 缺失字段：{{ newProviderAssessment.missingLabels.join('、') }}
               </div>
-              <div v-if="newProviderAssessment.configMissingLabels.length" class="text-amber-200">
+              <div v-if="newProviderAssessment.configMissingLabels.length" class="text-amber-300">
                 配置缺失：{{ newProviderAssessment.configMissingLabels.join('、') }}
               </div>
               <div v-if="newProviderAssessment.configError" class="text-rose-300">
@@ -3365,27 +3325,27 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">存储名称</span>
-                <input v-model="newProvider.name" type="text" placeholder="例如 cos-main" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] admin-table-faint">存储名称</span>
+                <input v-model="newProvider.name" type="text" placeholder="例如 cos-main" class="admin-input w-full px-3 py-2 rounded-lg" />
               </label>
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">存储类型</span>
-                <select v-model="newProvider.type" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" @change="handleNewProviderTypeChange">
+                <span class="text-[11px] admin-table-faint">存储类型</span>
+                <select v-model="newProvider.type" class="admin-input w-full px-3 py-2 rounded-lg" @change="handleNewProviderTypeChange">
                   <option v-for="option in storageTypeOptions" :key="option.value" :value="option.value">
                     {{ option.value }}{{ option.label ? ` · ${option.label}` : '' }}
                   </option>
                 </select>
               </label>
               <label class="block space-y-1">
-                <span class="text-[11px] text-gray-400">优先级</span>
-                <input v-model.number="newProvider.priority" type="number" class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg" />
+                <span class="text-[11px] admin-table-faint">优先级</span>
+                <input v-model.number="newProvider.priority" type="number" class="admin-input w-full px-3 py-2 rounded-lg" />
               </label>
               <div class="flex flex-col gap-2 self-start">
-                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                <label class="admin-super-admin-toggle-card flex h-[42px] items-center gap-2 px-3 py-2 rounded-xl text-sm">
                   <input v-model="newProvider.enabled" type="checkbox" class="w-4 h-4 rounded" />
                   启用
                 </label>
-                <label class="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-900/50 border border-white/10 rounded-xl text-sm">
+                <label class="admin-super-admin-toggle-card flex h-[42px] items-center gap-2 px-3 py-2 rounded-xl text-sm">
                   <input v-model="newProvider.isDefault" type="checkbox" class="w-4 h-4 rounded" @change="handleNewProviderDefaultChange" />
                   默认
                 </label>
@@ -3396,11 +3356,11 @@
               <label
                 v-for="field in getVisibleStorageFormFields(newProvider.type)"
                 :key="`new-${field.key}`"
-                class="block space-y-1 rounded-2xl border border-white/10 bg-gray-950/30 p-4"
+                class="block space-y-1 rounded-2xl p-4 admin-super-admin-preview-item"
               >
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-[11px] text-gray-300">{{ field.label }}</span>
+                    <span class="text-[11px] admin-table-muted">{{ field.label }}</span>
                     <a
                       v-if="field.docUrl"
                       :href="field.docUrl"
@@ -3417,19 +3377,19 @@
                   v-model="(newProvider as any)[field.modelKey]"
                   :type="field.secret ? 'password' : 'text'"
                   :placeholder="getStorageFormFieldPlaceholder(newProvider, field)"
-                  class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-sm"
+                  class="admin-input w-full px-3 py-2 rounded-lg text-sm"
                   @input="handleStorageFormFieldInput(newProvider, field)"
                 />
               </label>
             </div>
 
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">扩展配置 JSON</span>
+              <span class="text-[11px] admin-table-faint">扩展配置 JSON</span>
               <textarea
                 v-model="newProvider.configJson"
                 rows="8"
                 placeholder="例如 CDN 域名、兼容参数、附加认证项等"
-                class="w-full px-3 py-2 bg-gray-900/70 border border-white/10 rounded-2xl text-xs font-mono"
+                class="admin-input w-full px-3 py-2 rounded-2xl text-xs font-mono"
               />
             </label>
           </div>
@@ -3441,64 +3401,64 @@
         class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeSuperScanTaskDetailModal"
       >
-        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+        <div class="admin-modal-card admin-super-admin-modal admin-super-admin-scan-modal relative w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
+          <div class="admin-super-admin-modal-head flex items-center justify-between px-5 py-4 shrink-0">
             <div>
-              <h3 class="text-base font-medium text-white">
+              <h3 class="text-base font-medium admin-super-admin-modal-title">
                 扫描任务详情
                 <span v-if="superSelectedTaskDetail" class="text-sky-300 ml-2">#{{ superSelectedTaskDetail.id }}</span>
               </h3>
-              <p class="text-xs text-slate-400 mt-0.5">查看恢复游标、检查点与任务执行结果。</p>
+              <p class="text-xs admin-table-faint mt-0.5">查看恢复游标、检查点与任务执行结果。</p>
             </div>
             <div class="flex items-center gap-2">
               <button
                 @click="refreshSuperScanTaskDetail"
                 :disabled="loadingSuperScanTaskDetail || !superSelectedTaskDetail"
-                class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10 disabled:opacity-60"
+                class="admin-button-soft px-3 py-1.5 text-xs rounded-lg disabled:opacity-60"
               >
                 {{ loadingSuperScanTaskDetail ? '刷新中…' : '刷新详情' }}
               </button>
-              <button @click="closeSuperScanTaskDetailModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">✕</button>
+              <button @click="closeSuperScanTaskDetailModal" class="admin-button-soft p-1.5 rounded-lg transition-colors">✕</button>
             </div>
           </div>
 
           <div class="overflow-auto flex-1 p-5" v-if="superSelectedTaskDetail">
             <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 text-sm">
-              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
-                <div class="text-slate-400 text-xs">基础信息</div>
-                <div class="text-white">{{ scanTaskTypeLabel(superSelectedTaskDetail.taskType) }} · {{ scanTaskStatusLabel(superSelectedTaskDetail.status) }}</div>
-                <div class="text-slate-300 break-all">根路径：{{ superSelectedTaskDetail.rootPathDisplay || superSelectedTaskDetail.rootPath || '—' }}</div>
-                <div class="text-slate-300">优先级：{{ superSelectedTaskDetail.priority ?? '—' }}</div>
-                <div class="text-slate-300">归属：{{ superSelectedTaskDetail.ownerLabel || '系统任务' }}</div>
-                <div class="text-slate-300">用户 ID：{{ superSelectedTaskDetail.userId ?? '全局' }}</div>
-                <div class="text-slate-300">请求者：{{ superSelectedTaskDetail.requestedByUserNickname || superSelectedTaskDetail.requestedByUsername || superSelectedTaskDetail.requestedByUserId || '系统' }}</div>
-                <div class="text-slate-300">存储：{{ superSelectedTaskDetail.storageProviderName || superSelectedTaskDetail.storageProviderId || '默认' }}<span v-if="superSelectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(superSelectedTaskDetail.storageProviderType) }}</span></div>
+              <div class="rounded-xl p-4 space-y-2 admin-super-admin-scan-detail-card">
+                <div class="admin-table-faint text-xs">基础信息</div>
+                <div class="admin-super-admin-modal-title">{{ scanTaskTypeLabel(superSelectedTaskDetail.taskType) }} · {{ scanTaskStatusLabel(superSelectedTaskDetail.status) }}</div>
+                <div class="admin-table-muted break-all">根路径：{{ superSelectedTaskDetail.rootPathDisplay || superSelectedTaskDetail.rootPath || '—' }}</div>
+                <div class="admin-table-muted">优先级：{{ superSelectedTaskDetail.priority ?? '—' }}</div>
+                <div class="admin-table-muted">归属：{{ superSelectedTaskDetail.ownerLabel || '系统任务' }}</div>
+                <div class="admin-table-muted">用户 ID：{{ superSelectedTaskDetail.userId ?? '全局' }}</div>
+                <div class="admin-table-muted">请求者：{{ superSelectedTaskDetail.requestedByUserNickname || superSelectedTaskDetail.requestedByUsername || superSelectedTaskDetail.requestedByUserId || '系统' }}</div>
+                <div class="admin-table-muted">存储：{{ superSelectedTaskDetail.storageProviderName || superSelectedTaskDetail.storageProviderId || '默认' }}<span v-if="superSelectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(superSelectedTaskDetail.storageProviderType) }}</span></div>
               </div>
-              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
-                <div class="text-slate-400 text-xs">恢复状态</div>
-                <div class="text-slate-300 break-all">恢复游标：{{ superSelectedTaskDetail.resumeFromPathDisplay || superSelectedTaskDetail.resumeFromPath || '—' }}</div>
-                <div class="text-slate-300 break-all">最近断点：{{ superSelectedTaskDetail.lastProcessedPathDisplay || superSelectedTaskDetail.lastProcessedPath || '—' }}</div>
-                <div class="text-slate-300 break-all">检查点根路径：{{ superSelectedTaskDetail.checkpoint?.rootPathDisplay || superSelectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
-                <div class="text-slate-300">检查点更新时间：{{ formatDateTime(superSelectedTaskDetail.checkpointUpdatedAt || superSelectedTaskDetail.checkpoint?.updatedAt) }}</div>
+              <div class="rounded-xl p-4 space-y-2 admin-super-admin-scan-detail-card">
+                <div class="admin-table-faint text-xs">恢复状态</div>
+                <div class="admin-table-muted break-all">恢复游标：{{ superSelectedTaskDetail.resumeFromPathDisplay || superSelectedTaskDetail.resumeFromPath || '—' }}</div>
+                <div class="admin-table-muted break-all">最近断点：{{ superSelectedTaskDetail.lastProcessedPathDisplay || superSelectedTaskDetail.lastProcessedPath || '—' }}</div>
+                <div class="admin-table-muted break-all">检查点根路径：{{ superSelectedTaskDetail.checkpoint?.rootPathDisplay || superSelectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
+                <div class="admin-table-muted">检查点更新时间：{{ formatDateTime(superSelectedTaskDetail.checkpointUpdatedAt || superSelectedTaskDetail.checkpoint?.updatedAt) }}</div>
                 <div v-if="superSelectedTaskDetail.errorMessage" class="text-rose-300 break-all">错误：{{ superSelectedTaskDetail.errorMessage }}</div>
               </div>
-              <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
-                <div class="text-slate-400 text-xs">进度统计</div>
-                <div class="text-white text-lg">{{ superSelectedTaskDetail.progressPercent || 0 }}%</div>
-                <div class="text-slate-300">已处理：{{ superSelectedTaskDetail.processedItems || 0 }} / {{ superSelectedTaskDetail.totalItems || 0 }}</div>
-                <div class="text-slate-300">跳过：{{ superSelectedTaskDetail.skippedItems || 0 }}</div>
-                <div class="text-slate-300">失败：{{ superSelectedTaskDetail.failedItems || 0 }}</div>
-                <div class="text-slate-500 text-xs">创建：{{ formatDateTime(superSelectedTaskDetail.createdAt) }}</div>
-                <div class="text-slate-500 text-xs">开始：{{ formatDateTime(superSelectedTaskDetail.startedAt) }}</div>
-                <div class="text-slate-500 text-xs">完成：{{ formatDateTime(superSelectedTaskDetail.finishedAt) }}</div>
+              <div class="rounded-xl p-4 space-y-2 admin-super-admin-scan-detail-card">
+                <div class="admin-table-faint text-xs">进度统计</div>
+                <div class="admin-super-admin-modal-title text-lg">{{ superSelectedTaskDetail.progressPercent || 0 }}%</div>
+                <div class="admin-table-muted">已处理：{{ superSelectedTaskDetail.processedItems || 0 }} / {{ superSelectedTaskDetail.totalItems || 0 }}</div>
+                <div class="admin-table-muted">跳过：{{ superSelectedTaskDetail.skippedItems || 0 }}</div>
+                <div class="admin-table-muted">失败：{{ superSelectedTaskDetail.failedItems || 0 }}</div>
+                <div class="admin-table-faint text-xs">创建：{{ formatDateTime(superSelectedTaskDetail.createdAt) }}</div>
+                <div class="admin-table-faint text-xs">开始：{{ formatDateTime(superSelectedTaskDetail.startedAt) }}</div>
+                <div class="admin-table-faint text-xs">完成：{{ formatDateTime(superSelectedTaskDetail.finishedAt) }}</div>
               </div>
             </div>
-            <div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-              <div class="text-slate-400 text-xs mb-3">检查点快照</div>
-              <pre class="text-xs text-slate-200 whitespace-pre-wrap break-words">{{ JSON.stringify(superSelectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
+            <div class="mt-4 rounded-xl p-4 admin-super-admin-scan-detail-card">
+              <div class="admin-table-faint text-xs mb-3">检查点快照</div>
+              <pre class="admin-super-admin-scan-detail-pre text-xs whitespace-pre-wrap break-words">{{ JSON.stringify(superSelectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
             </div>
           </div>
-          <div v-else class="flex-1 flex items-center justify-center text-slate-400 text-sm">
+          <div v-else class="flex-1 flex items-center justify-center admin-table-faint text-sm">
             {{ loadingSuperScanTaskDetail ? '加载任务详情…' : '暂无任务详情' }}
           </div>
         </div>
@@ -3509,17 +3469,17 @@
         class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="closeSuperAdminSkippedModal"
       >
-        <div class="admin-modal-card admin-super-admin-modal relative w-full max-w-5xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+        <div class="admin-modal-card admin-super-admin-modal admin-super-admin-scan-modal relative w-full max-w-5xl max-h-[80vh] flex flex-col overflow-hidden">
+          <div class="admin-super-admin-modal-head flex items-center justify-between px-5 py-4 shrink-0">
             <div>
-              <h3 class="text-base font-medium text-white">扫描失败原因（全用户）</h3>
-              <p class="text-xs text-slate-400 mt-0.5">仅超级管理员可查看全部用户的扫描异常与失败原因。</p>
+              <h3 class="text-base font-medium admin-super-admin-modal-title">扫描失败原因（全用户）</h3>
+              <p class="text-xs admin-table-faint mt-0.5">仅超级管理员可查看全部用户的扫描异常与失败原因。</p>
             </div>
-            <button @click="closeSuperAdminSkippedModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">✕</button>
+            <button @click="closeSuperAdminSkippedModal" class="admin-button-soft p-1.5 rounded-lg transition-colors">✕</button>
           </div>
           <div class="overflow-auto flex-1">
-            <div v-if="loadingSuperAdminSkipped" class="flex items-center justify-center py-16 text-slate-400 text-sm">加载中…</div>
-            <div v-else-if="!superAdminSkippedFiles.length" class="flex items-center justify-center py-16 text-slate-400 text-sm">暂无扫描异常记录</div>
+            <div v-if="loadingSuperAdminSkipped" class="flex items-center justify-center py-16 admin-table-faint text-sm">加载中…</div>
+            <div v-else-if="!superAdminSkippedFiles.length" class="flex items-center justify-center py-16 admin-table-faint text-sm">暂无扫描异常记录</div>
             <table v-else class="admin-data-table w-full text-xs border-collapse">
               <thead class="sticky top-0 uppercase tracking-wide">
                 <tr>
@@ -3564,7 +3524,6 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiTestToolPanel from '@/components/admin/ApiTestToolPanel.vue'
 import ConfigurableTable, { type ConfigurableColumn } from '@/components/admin/ConfigurableTable.vue'
-import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
 import {
   type ConfigurableTablePreference,
   type EmailTemplatePreview,

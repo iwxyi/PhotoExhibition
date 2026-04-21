@@ -1,15 +1,15 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
+  <div class="min-h-screen admin-shell admin-faces-page">
     <AdminStyleChrome />
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="admin-faces-hero flex items-center justify-between gap-4 mb-6">
         <div>
-          <h1 class="text-2xl font-light">人脸管理</h1>
+          <h1 class="text-2xl font-light admin-page-title">人脸管理</h1>
         </div>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
+        <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
       </div>
 
-      <div class="glass-panel p-4 mb-6">
+      <div class="glass-panel admin-faces-panel admin-faces-toolbar p-4 mb-6">
         <div class="flex flex-wrap gap-4 items-center">
           <label class="space-y-2">
             <span class="text-sm text-gray-300">搜索人脸</span>
@@ -27,9 +27,9 @@
         </div>
       </div>
 
-      <div class="glass-panel p-4">
+      <div class="glass-panel admin-faces-panel p-4">
         <div class="overflow-auto">
-          <table class="min-w-full text-sm">
+          <table class="min-w-full text-sm admin-data-table">
             <thead class="text-left text-gray-400">
               <tr>
                 <th class="py-2 pr-4">ID</th>
@@ -44,11 +44,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="face in faces" :key="face.id" class="border-t border-gray-700">
+              <tr v-for="face in faces" :key="face.id" class="admin-faces-row border-t border-gray-700">
                 <td class="py-3 pr-4">{{ face.id }}</td>
                 <td class="py-3 pr-4">
                   <div
-                    class="w-20 h-20 bg-gray-700 rounded overflow-hidden relative cursor-pointer group"
+                    class="admin-faces-thumb w-20 h-20 bg-gray-700 rounded overflow-hidden relative cursor-pointer group"
                     @click="face.photoId && openPhoto(face.photoId)"
                     @mouseenter="showPreview(face)"
                     @mousemove="movePreview"
@@ -88,7 +88,7 @@
           </table>
         </div>
 
-        <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
+        <div class="admin-faces-pagination flex items-center justify-between mt-4 text-sm text-gray-300">
           <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
           <div class="flex items-center gap-2">
             <button @click="prev" :disabled="page === 0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50">上一页</button>
@@ -113,7 +113,7 @@
   <transition name="fade">
     <div
       v-if="previewVisible"
-      class="preview-float bg-gray-900"
+      class="preview-float admin-faces-preview bg-gray-900"
       :style="previewStyle"
       ref="previewContainer"
     >

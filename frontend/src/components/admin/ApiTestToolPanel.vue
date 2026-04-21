@@ -1,5 +1,5 @@
 <template>
-  <section class="glass-panel p-6 space-y-5">
+  <section class="glass-panel p-6 space-y-5 admin-api-tool-panel">
     <div>
       <h2 class="text-lg font-light">API测试工具</h2>
       <p class="text-xs text-gray-400">仅超级管理员可用，用于触发高权限维护接口、诊断接口和异步任务。</p>

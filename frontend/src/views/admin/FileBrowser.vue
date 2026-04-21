@@ -1,29 +1,8 @@
 <template>
   <div class="min-h-screen admin-shell admin-file-browser-page">
     <AdminStyleChrome />
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 admin-file-browser-shell">
-      <section class="admin-page-hero admin-file-browser-hero">
-        <div class="admin-file-browser-hero-inline">
-          <h1 class="admin-page-title admin-file-browser-title">文件浏览器</h1>
-          <div class="flex items-center justify-end gap-2 admin-file-browser-hero-actions">
-          <div v-if="canSelectStorageProvider" class="admin-file-browser-provider-select w-[200px] max-w-[200px] shrink-0" @click.stop>
-            <button
-              ref="providerTriggerRef"
-              type="button"
-              class="admin-file-browser-select-trigger admin-file-browser-provider-field flex w-[200px] max-w-[200px] items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm"
-              :title="providerSummaryLabel"
-              @click="toggleProviderMenu"
-            >
-              <span class="truncate">{{ providerSummaryLabel }}</span>
-              <span class="admin-file-browser-select-arrow">▾</span>
-            </button>
-          </div>
-          <router-link to="/admin" class="admin-button-soft admin-page-back-link shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors">返回</router-link>
-          </div>
-        </div>
-      </section>
-
-      <div class="glass-panel p-3 admin-file-browser-breadcrumbs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 admin-file-browser-shell">
+      <div class="glass-panel p-2.5 admin-file-browser-breadcrumbs">
         <div class="flex items-center gap-2 flex-wrap">
           <div class="min-w-0 flex-1 overflow-x-auto">
             <div class="flex items-center gap-2 min-w-max">
@@ -40,7 +19,7 @@
               <template v-for="(crumb, index) in breadcrumbSegments" :key="crumb.path">
                 <button
                   @click.stop="toggleBreadcrumbMenu($event, index === 0 ? basePath : breadcrumbSegments[index - 1].path)"
-                  class="rounded-full px-1 py-0.5 text-[color:var(--pe-admin-text-faint)] transition hover:bg-white/8 hover:text-[color:var(--pe-admin-text-primary)]"
+                  class="admin-file-browser-breadcrumb-separator rounded-full px-1 py-0.5 transition"
                   title="查看此层级内容"
                 >
                   /
@@ -61,8 +40,8 @@
           <button
             @click="goToParent"
             :disabled="isAtRoot"
-            class="px-2.5 py-1 rounded text-sm transition-colors shrink-0"
-            :class="isAtRoot ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
+            class="admin-file-browser-breadcrumb-action px-2.5 py-1 rounded text-sm transition-colors shrink-0"
+            :class="isAtRoot ? 'admin-file-browser-breadcrumb-action--disabled cursor-not-allowed' : 'admin-file-browser-breadcrumb-action--primary'"
           >
             返回上级
           </button>
@@ -72,6 +51,22 @@
           >
             目录设置
           </button>
+          <div
+            v-if="canSelectStorageProvider"
+            class="admin-file-browser-provider-select w-[200px] max-w-[200px] shrink-0"
+            @click.stop
+          >
+            <button
+              ref="providerTriggerRef"
+              type="button"
+              class="admin-file-browser-select-trigger admin-file-browser-provider-field flex w-[200px] max-w-[200px] items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm"
+              :title="providerSummaryLabel"
+              @click="toggleProviderMenu"
+            >
+              <span class="truncate">{{ providerSummaryLabel }}</span>
+              <span class="admin-file-browser-select-arrow">▾</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -149,7 +144,7 @@
       </div>
       <div
         v-if="!supportsDirectoryCreation || !supportsItemManagement || !activeProviderSupported"
-        class="glass-panel p-4 mb-4 text-xs text-gray-300 border border-white/10 space-y-1 admin-file-browser-warning"
+        class="glass-panel p-3 text-xs space-y-1 admin-file-browser-warning"
       >
         <div v-if="!activeProviderSupported">上传受限：{{ uploadDisabledReason }}</div>
         <div v-if="!supportsDirectoryCreation">建目录受限：{{ directoryCreationDisabledReason }}</div>
@@ -157,10 +152,10 @@
       </div>
 
       <!-- 上传进度 -->
-      <div v-if="uploading" class="glass-panel p-4 mb-4 admin-file-browser-uploading">
+      <div v-if="uploading" class="glass-panel p-3 admin-file-browser-uploading">
         <div class="flex items-center gap-3">
-          <div class="animate-spin w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full"></div>
-          <span class="text-blue-300">{{ uploadStatus }}</span>
+          <div class="animate-spin w-5 h-5 rounded-full border-2 border-[color:var(--pe-theme-primary)] border-t-transparent"></div>
+          <span class="admin-file-browser-feedback admin-file-browser-feedback--accent">{{ uploadStatus }}</span>
         </div>
       </div>
 
@@ -174,11 +169,11 @@
         <!-- 拖拽覆盖层 -->
         <div
           v-if="isDragOver"
-          class="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg z-10 flex items-center justify-center pointer-events-none"
+          class="admin-file-browser-drag-overlay absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed pointer-events-none"
         >
           <div class="text-center">
             <div class="text-4xl mb-2">{{ dragMode === 'move' ? '🧭' : '📂' }}</div>
-            <div class="text-blue-300 text-lg">{{ dragMode === 'move' ? '拖放到目标文件夹即可移动' : '拖放文件或文件夹到此处上传' }}</div>
+            <div class="text-lg admin-file-browser-feedback admin-file-browser-feedback--accent">{{ dragMode === 'move' ? '拖放到目标文件夹即可移动' : '拖放文件或文件夹到此处上传' }}</div>
           </div>
         </div>
         <div v-if="loading" class="py-12">
@@ -190,18 +185,17 @@
             </div>
             <div class="text-left">
               <div class="text-sm text-[color:var(--pe-admin-text-primary)]">正在整理当前目录</div>
-              <div class="mt-1 text-xs text-[color:var(--pe-admin-text-muted)]">读取文件、封面缩略图和目录信息...</div>
             </div>
           </div>
         </div>
-        <div v-else-if="error" class="text-center py-8 text-red-400">
+        <div v-else-if="error" class="text-center py-8 admin-file-browser-feedback admin-file-browser-feedback--danger">
           {{ error }}
         </div>
-        <div v-else-if="!items.length" class="text-center py-8 text-gray-400">
+        <div v-else-if="!items.length" class="text-center py-8 admin-file-browser-empty-text">
           当前目录为空
         </div>
         <div v-else>
-          <div class="mb-4 text-xs text-gray-400">
+          <div class="mb-3 text-xs admin-file-browser-list-meta">
             共 {{ items.length }} 项，当前第 {{ currentPage }} / {{ totalPages }} 页
           </div>
           <div :class="[gridClass, 'admin-file-browser-grid']">
@@ -217,7 +211,7 @@
             @dragleave.prevent="handleFolderDragLeave(dir)"
             @drop.prevent="handleFolderDrop($event, dir)"
             :draggable="supportsItemManagement"
-            class="group admin-file-browser-card admin-file-browser-card--directory rounded-2xl p-3 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+            class="group admin-file-browser-card admin-file-browser-card--directory rounded-2xl p-3 cursor-pointer transition-all duration-200 relative"
             :class="{
               'ring-2 ring-blue-500': selectedItem?.path === dir.path,
               'ring-2 ring-cyan-400 bg-cyan-500/10': dragMoveTargetPath === dir.path,
@@ -229,7 +223,7 @@
             </label>
             <button
               @click.stop="showItemMenu($event, dir)"
-              class="absolute right-3 top-3 z-[2] flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/80 transition hover:bg-black/45 hover:text-white"
+              class="admin-file-browser-item-menu absolute right-3 top-3 z-[2] flex h-8 w-8 items-center justify-center rounded-full transition"
               title="更多操作"
             >
               ⋯
@@ -258,7 +252,7 @@
                     class="w-full h-full object-cover"
                     loading="lazy"
                   />
-                  <div v-else class="w-full h-full bg-gray-600"></div>
+                  <div v-else class="w-full h-full admin-file-browser-cover-fallback"></div>
                 </div>
                 <div class="overflow-hidden">
                   <img
@@ -268,7 +262,7 @@
                     class="w-full h-full object-cover"
                     loading="lazy"
                   />
-                  <div v-else class="w-full h-full bg-gray-600"></div>
+                  <div v-else class="w-full h-full admin-file-browser-cover-fallback"></div>
                 </div>
                 <div class="overflow-hidden relative">
                   <img
@@ -278,10 +272,10 @@
                     class="w-full h-full object-cover"
                     loading="lazy"
                   />
-                  <div v-else class="w-full h-full bg-gray-600"></div>
+                  <div v-else class="w-full h-full admin-file-browser-cover-fallback"></div>
                   <div
                     v-if="dir.photoCount && dir.photoCount > 0"
-                    class="absolute inset-0 bg-black/40 text-white flex items-center justify-center text-xs font-semibold"
+                    class="admin-file-browser-cover-count absolute inset-0 flex items-center justify-center text-xs font-semibold"
                   >
                     共 {{ dir.photoCount }} 张
                   </div>
@@ -292,8 +286,8 @@
             <div
               v-else
               :class="viewMode === 'list'
-                ? 'mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5'
-                : 'mb-2 flex h-32 items-center justify-center rounded-xl border border-white/5 bg-white/5'"
+                ? 'admin-file-browser-card-icon-shell mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg'
+                : 'admin-file-browser-card-icon-shell mb-2 flex h-32 items-center justify-center rounded-xl'"
             >
               <div class="transition-transform duration-200 group-hover:scale-110" :class="viewMode === 'list' ? 'text-xl' : 'text-4xl'">📁</div>
             </div>
@@ -310,19 +304,19 @@
               <div class="mt-0.5 flex flex-wrap gap-1" :class="viewMode === 'list' ? 'hidden xl:flex' : ''">
                 <span
                   v-if="dir.albumHasCustomCover"
-                  class="rounded-full px-2 py-0.5 text-[10px] border border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-100"
+                  class="admin-file-browser-status-chip admin-file-browser-status-chip--fuchsia rounded-full px-2 py-0.5 text-[10px]"
                 >
                   自定义封面
                 </span>
                 <span
                   v-if="dir.albumAggregateSubAlbums"
-                  class="rounded-full px-2 py-0.5 text-[10px] border border-amber-400/30 bg-amber-500/10 text-amber-100"
+                  class="admin-file-browser-status-chip admin-file-browser-status-chip--amber rounded-full px-2 py-0.5 text-[10px]"
                 >
                   聚合子相册
                 </span>
                 <span
                   v-if="dir.albumHidden"
-                  class="rounded-full px-2 py-0.5 text-[10px] border border-rose-400/30 bg-rose-500/10 text-rose-100"
+                  class="admin-file-browser-status-chip admin-file-browser-status-chip--rose rounded-full px-2 py-0.5 text-[10px]"
                 >
                   已隐藏
                 </span>
@@ -342,7 +336,7 @@
             @dragstart="handleItemDragStart($event, file)"
             @dragend="handleItemDragEnd"
             :draggable="supportsItemManagement"
-            class="group admin-file-browser-card admin-file-browser-card--file rounded-2xl p-3 cursor-pointer transition-all duration-200 relative border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+            class="group admin-file-browser-card admin-file-browser-card--file rounded-2xl p-3 cursor-pointer transition-all duration-200 relative"
             :class="{ 'ring-2 ring-blue-500': selectedItem?.path === file.path, 'flex items-center gap-2 px-3 py-1.5 rounded-xl hover:translate-y-0': viewMode === 'list' }"
           >
             <label v-if="multiSelect" class="absolute top-2 right-12 z-[2]">
@@ -350,7 +344,7 @@
             </label>
             <button
               @click.stop="showItemMenu($event, file)"
-              class="absolute right-3 top-3 z-[2] flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/80 transition hover:bg-black/45 hover:text-white"
+              class="admin-file-browser-item-menu absolute right-3 top-3 z-[2] flex h-8 w-8 items-center justify-center rounded-full transition"
               title="更多操作"
             >
               ⋯
@@ -359,8 +353,8 @@
             <div
               v-if="file.thumbnail"
               :class="viewMode === 'list'
-                ? 'mb-0 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/8 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_48%),rgba(255,255,255,0.04)]'
-                : 'mb-2 aspect-square flex items-center justify-center overflow-hidden rounded-xl border border-white/8 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_48%),rgba(255,255,255,0.04)]'"
+                ? 'admin-file-browser-thumb-shell mb-0 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg'
+                : 'admin-file-browser-thumb-shell mb-2 aspect-square flex items-center justify-center overflow-hidden rounded-xl'"
             >
               <img
                 :src="getImageUrl(file.thumbnail)"
@@ -373,8 +367,8 @@
             <div
               v-else
               :class="viewMode === 'list'
-                ? 'mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5'
-                : 'mb-2 flex h-32 items-center justify-center rounded-xl border border-white/5 bg-white/5'"
+                ? 'admin-file-browser-card-icon-shell mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg'
+                : 'admin-file-browser-card-icon-shell mb-2 flex h-32 items-center justify-center rounded-xl'"
             >
               <div class="transition-transform duration-200 group-hover:scale-110" :class="viewMode === 'list' ? 'text-xl' : 'text-4xl'">📄</div>
             </div>
@@ -390,7 +384,7 @@
                 </div>
               </div>
               <div v-if="file.photoHidden" class="mt-1">
-                <span class="rounded-full border border-rose-400/30 bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-100">
+                <span class="admin-file-browser-status-chip admin-file-browser-status-chip--rose rounded-full px-2 py-0.5 text-[10px]">
                   已隐藏
                 </span>
               </div>
@@ -406,28 +400,28 @@
       class="breadcrumb-menu glass-popover admin-floating-popover admin-file-browser-popover fixed z-[80] w-[320px] overflow-hidden rounded-2xl"
       :style="{ left: `${breadcrumbMenu.x}px`, top: `${breadcrumbMenu.y}px` }"
     >
-      <div class="px-4 py-3 border-b border-white/10 text-xs text-gray-400">
+      <div class="admin-file-browser-popover-head px-4 py-3 text-xs">
         {{ breadcrumbMenu.pathLabel }}
       </div>
-      <div v-if="breadcrumbMenu.loading" class="px-4 py-6 text-sm text-gray-400">加载中...</div>
-      <div v-else-if="!breadcrumbMenu.items.length" class="px-4 py-6 text-sm text-gray-400">此层级下暂无内容</div>
+      <div v-if="breadcrumbMenu.loading" class="px-4 py-6 text-sm admin-file-browser-popover-empty">加载中...</div>
+      <div v-else-if="!breadcrumbMenu.items.length" class="px-4 py-6 text-sm admin-file-browser-popover-empty">此层级下暂无内容</div>
       <div v-else class="max-h-[360px] overflow-auto py-2">
         <button
           v-for="entry in breadcrumbMenu.items"
           :key="entry.path"
           @click="openBreadcrumbMenuItem(entry)"
-          class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition hover:bg-white/8"
+          class="admin-file-browser-popover-option flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition"
         >
           <div class="min-w-0">
             <div class="truncate text-[color:var(--pe-admin-text-primary)]">{{ entry.name }}</div>
             <div class="mt-1 text-xs text-[color:var(--pe-admin-text-faint)]">{{ entry.isDirectory ? '文件夹' : formatFileSize(entry.size) }}</div>
           </div>
-          <span class="shrink-0 text-gray-500">{{ entry.isDirectory ? '📁' : '📄' }}</span>
+          <span class="shrink-0 admin-file-browser-popover-icon">{{ entry.isDirectory ? '📁' : '📄' }}</span>
         </button>
       </div>
     </div>
 
-    <div class="fixed right-4 bottom-0 z-[70] max-w-[calc(100vw-2rem)] rounded-t-2xl border border-white/10 border-b-0 bg-slate-950/88 px-3 py-2 shadow-[0_-10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl admin-file-browser-floating-dock">
+    <div class="fixed right-4 bottom-0 z-[70] max-w-[calc(100vw-2rem)] px-3 py-2 admin-file-browser-floating-dock">
       <div class="flex items-center gap-2 overflow-x-auto overflow-y-visible whitespace-nowrap">
         <div class="relative" @click.stop>
           <button
@@ -444,7 +438,7 @@
           <button
             ref="sortTriggerRef"
             @click="toggleSortMenu"
-            class="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-gray-900/70 text-sm"
+            class="admin-file-browser-dock-icon flex h-9 w-9 items-center justify-center rounded-full text-sm"
             :title="sortSummaryLabel"
           >
             <span class="text-base leading-none text-[color:var(--pe-admin-text-primary)]">{{ sortMenu.show ? '↕' : '↕' }}</span>
@@ -464,15 +458,15 @@
         <button
           @click="prevPage"
           :disabled="currentPage <= 1"
-          class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm transition hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+          class="admin-file-browser-dock-button rounded-full px-3 py-1.5 text-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
         >
           上一页
         </button>
-        <span class="text-xs text-gray-400">{{ currentPage }}/{{ totalPages }}</span>
+        <span class="admin-file-browser-dock-meta text-xs">{{ currentPage }}/{{ totalPages }}</span>
         <button
           @click="nextPage"
           :disabled="currentPage >= totalPages"
-          class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm transition hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+          class="admin-file-browser-dock-button rounded-full px-3 py-1.5 text-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
         >
           下一页
         </button>
@@ -485,14 +479,14 @@
       :style="{ left: `${providerMenu.x}px`, top: `${providerMenu.y}px` }"
       @click.stop
     >
-      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">存储提供者</div>
+      <div class="admin-file-browser-popover-title px-3 pb-1 pt-3 text-[11px]">存储提供者</div>
       <button
         v-for="provider in availableStorageProviders"
         :key="provider.id"
         type="button"
         @click="selectStorageProvider(provider.id)"
-        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
-        :class="selectedProviderId === provider.id ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        class="admin-file-browser-popover-option mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition"
+        :class="{ 'ring-1 admin-file-browser-popover-option--active': selectedProviderId === provider.id }"
         :disabled="!provider.enabled || !provider.browserSupported"
       >
         <div class="min-w-0">
@@ -502,8 +496,8 @@
           </div>
         </div>
         <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
-          :class="selectedProviderId === provider.id ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+          class="admin-file-browser-popover-check flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="{ 'admin-file-browser-popover-check--active': selectedProviderId === provider.id }"
         >{{ selectedProviderId === provider.id ? '●' : '○' }}</span>
       </button>
       <div class="h-1.5 shrink-0"></div>
@@ -515,35 +509,35 @@
       :style="{ left: `${viewMenu.x}px`, top: `${viewMenu.y}px` }"
       @click.stop
     >
-      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">视图</div>
+      <div class="admin-file-browser-popover-title px-3 pb-1 pt-3 text-[11px]">视图</div>
       <button
         v-for="option in viewModeOptions"
         :key="option.value"
         type="button"
         @click="selectViewMode(option.value)"
-        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
-        :class="viewMode === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        class="admin-file-browser-popover-option mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition"
+        :class="{ 'ring-1 admin-file-browser-popover-option--active': viewMode === option.value }"
       >
         <span>{{ option.label }}</span>
         <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
-          :class="viewMode === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+          class="admin-file-browser-popover-check flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="{ 'admin-file-browser-popover-check--active': viewMode === option.value }"
         >{{ viewMode === option.value ? '●' : '○' }}</span>
       </button>
-      <div class="mx-3 border-t border-white/10"></div>
-      <div class="px-3 pb-1 pt-2.5 text-[11px] text-gray-400">尺寸</div>
+      <div class="admin-file-browser-popover-divider mx-3"></div>
+      <div class="admin-file-browser-popover-title px-3 pb-1 pt-2.5 text-[11px]">尺寸</div>
       <button
         v-for="option in gridPresetOptions"
         :key="option.value"
         type="button"
         @click="selectGridPreset(option.value)"
-        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
-        :class="viewMode === 'grid' && gridPreset === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        class="admin-file-browser-popover-option mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition"
+        :class="{ 'ring-1 admin-file-browser-popover-option--active': viewMode === 'grid' && gridPreset === option.value }"
       >
         <span>{{ option.label }}</span>
         <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
-          :class="viewMode === 'grid' && gridPreset === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+          class="admin-file-browser-popover-check flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="{ 'admin-file-browser-popover-check--active': viewMode === 'grid' && gridPreset === option.value }"
         >{{ viewMode === 'grid' && gridPreset === option.value ? '●' : '○' }}</span>
       </button>
       <div class="h-1.5 shrink-0"></div>
@@ -555,19 +549,19 @@
       :style="{ left: `${pageSizeMenu.x}px`, top: `${pageSizeMenu.y}px` }"
       @click.stop
     >
-      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">每页数量</div>
+      <div class="admin-file-browser-popover-title px-3 pb-1 pt-3 text-[11px]">每页数量</div>
       <button
         v-for="option in pageSizeOptions"
         :key="option"
         type="button"
         @click="selectPageSize(option)"
-        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
-        :class="pageSize === option ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        class="admin-file-browser-popover-option mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition"
+        :class="{ 'ring-1 admin-file-browser-popover-option--active': pageSize === option }"
       >
         <span>{{ option }} / 页</span>
         <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
-          :class="pageSize === option ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+          class="admin-file-browser-popover-check flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="{ 'admin-file-browser-popover-check--active': pageSize === option }"
         >{{ pageSize === option ? '●' : '○' }}</span>
       </button>
       <div class="h-1.5 shrink-0"></div>
@@ -579,33 +573,33 @@
       :style="{ left: `${sortMenu.x}px`, top: `${sortMenu.y}px` }"
       @click.stop
     >
-      <div class="px-3 pb-1 pt-3 text-[11px] text-gray-400">排序方式</div>
+      <div class="admin-file-browser-popover-title px-3 pb-1 pt-3 text-[11px]">排序方式</div>
       <button
         v-for="option in sortModeOptions"
         :key="option.value"
         @click="selectSortMode(option.value)"
-        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
-        :class="sortMode === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        class="admin-file-browser-popover-option mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition"
+        :class="{ 'ring-1 admin-file-browser-popover-option--active': sortMode === option.value }"
       >
         <span>{{ option.label }}</span>
         <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
-          :class="sortMode === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+          class="admin-file-browser-popover-check flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="{ 'admin-file-browser-popover-check--active': sortMode === option.value }"
         >{{ sortMode === option.value ? '●' : '○' }}</span>
       </button>
-      <div class="mx-3 border-t border-white/10"></div>
-      <div class="px-3 pb-1 pt-2.5 text-[11px] text-gray-400">类型策略</div>
+      <div class="admin-file-browser-popover-divider mx-3"></div>
+      <div class="admin-file-browser-popover-title px-3 pb-1 pt-2.5 text-[11px]">类型策略</div>
       <button
         v-for="option in typeOrderOptions"
         :key="option.value"
         @click="selectTypeOrderMode(option.value)"
-        class="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition hover:bg-white/8"
-        :class="typeOrderMode === option.value ? 'bg-cyan-400/12 ring-1 ring-cyan-300/35 text-white' : ''"
+        class="admin-file-browser-popover-option mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm leading-none transition"
+        :class="{ 'ring-1 admin-file-browser-popover-option--active': typeOrderMode === option.value }"
       >
         <span>{{ option.label }}</span>
         <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
-          :class="typeOrderMode === option.value ? 'bg-cyan-300/20 text-cyan-200' : 'text-gray-500'"
+          class="admin-file-browser-popover-check flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px]"
+          :class="{ 'admin-file-browser-popover-check--active': typeOrderMode === option.value }"
         >{{ typeOrderMode === option.value ? '●' : '○' }}</span>
       </button>
       <div class="h-1.5 shrink-0"></div>
@@ -620,70 +614,70 @@
       <button
         v-if="contextMenu.item?.isDirectory"
         @click="goToPath(contextMenu.item.path)"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         打开
       </button>
       <button
         v-if="contextMenu.item?.isDirectory && !contextMenu.item?.albumBound"
         @click="bindContextDirectory"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         绑定为相册
       </button>
       <button
         v-if="contextMenu.item?.isDirectory && contextMenu.item?.albumBound"
         @click="openContextAlbumSettings"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         相册设置
       </button>
       <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory && isImageFile(contextMenu.item)"
         @click="openContextViewer"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         查看图片
       </button>
       <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory"
         @click="downloadContextFile"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         下载
       </button>
       <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory && contextMenu.item.thumbnail?.id"
         @click="toggleContextPhotoHidden"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         {{ contextMenu.item.photoHidden ? '恢复公开显示' : '隐藏图片' }}
       </button>
       <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory && contextMenu.item.thumbnail?.id"
         @click="openContextPhotoTagDialog"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         标签管理
       </button>
       <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory && contextMenu.item.thumbnail?.id"
         @click="rescanContextPhotoFaces"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         重建人脸
       </button>
       <button
         v-if="contextMenu.item && !contextMenu.item.isDirectory && currentDirectoryAlbum.albumBound && contextMenu.item.thumbnail?.id"
         @click="setContextPhotoAsCover"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
       >
         设为当前相册封面
       </button>
       <button
         @click="startRename"
         :disabled="!supportsItemManagement"
-        class="w-full text-left px-4 py-3 text-sm transition hover:bg-white/8"
+        class="admin-file-browser-context-action w-full text-left px-4 py-3 text-sm transition"
         :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
       >
         重命名
@@ -691,7 +685,7 @@
       <button
         @click="confirmDelete"
         :disabled="!supportsItemManagement"
-        class="w-full text-left px-4 py-3 text-sm text-rose-200 transition hover:bg-rose-500/20"
+        class="admin-file-browser-context-action admin-file-browser-context-action--danger w-full text-left px-4 py-3 text-sm transition"
         :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
       >
         删除
@@ -706,32 +700,28 @@
     >
       <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-md p-6">
         <h2 class="text-xl font-light mb-4">新建文件夹</h2>
-        <div class="mb-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
-          <div>当前目录：{{ rootPathSummary }}</div>
-          <div>仅会在当前目录下创建一层新文件夹。</div>
-        </div>
         <label class="block space-y-2 mb-4">
-          <span class="text-sm text-gray-300">文件夹名称</span>
+          <span class="text-sm admin-file-browser-dialog-label">文件夹名称</span>
           <input
             v-model="newFolderName"
             @keyup.enter="createFolder"
-            placeholder="请输入新文件夹名称"
+            placeholder="文件夹名称"
             ref="newFolderInput"
-            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            class="admin-file-browser-dialog-input w-full px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <span class="block text-xs text-gray-400">只填写名称，不要包含 `/` 或完整路径。</span>
+          <span class="block text-xs admin-file-browser-dialog-help">只填写名称，不要包含 `/` 或完整路径。</span>
         </label>
         <div class="flex gap-2 justify-end">
           <button
             @click="showCreateDialog = false"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+            class="admin-button-soft px-4 py-2 rounded-lg"
           >
             取消
           </button>
           <button
             @click="createFolder"
             :disabled="!newFolderName.trim() || creating"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+            class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-50"
           >
             {{ creating ? '创建中...' : '创建' }}
           </button>
@@ -747,32 +737,28 @@
     >
       <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-md p-6">
         <h2 class="text-xl font-light mb-4">重命名</h2>
-        <div class="mb-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300 space-y-1">
-          <div>当前对象：{{ itemToRename?.name || '—' }}</div>
-          <div>所在目录：{{ rootPathSummary }}</div>
-        </div>
         <label class="block space-y-2 mb-4">
-          <span class="text-sm text-gray-300">新名称</span>
+          <span class="text-sm admin-file-browser-dialog-label">新名称</span>
           <input
             v-model="renameValue"
             @keyup.enter="renameItem"
-            placeholder="请输入新的文件或文件夹名称"
-            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="输入新名称"
+            class="admin-file-browser-dialog-input w-full px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             autofocus
           />
-          <span class="block text-xs text-gray-400">只修改名称，不要输入目录路径。</span>
+          <span class="block text-xs admin-file-browser-dialog-help">只修改名称，不要输入目录路径。</span>
         </label>
         <div class="flex gap-2 justify-end">
           <button
             @click="showRenameDialog = false"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+            class="admin-button-soft px-4 py-2 rounded-lg"
           >
             取消
           </button>
           <button
             @click="renameItem"
             :disabled="!renameValue.trim() || renaming"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+            class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-50"
           >
             {{ renaming ? '重命名中...' : '确定' }}
           </button>
@@ -786,46 +772,43 @@
       @click.self="closeMoveDialog"
     >
       <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-lg overflow-hidden rounded-[28px]">
-        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+        <div class="admin-file-browser-dialog-head flex items-center justify-between gap-4 px-6 py-4">
           <div>
             <h2 class="text-xl font-light">移动项目</h2>
-            <div class="text-xs text-gray-400 mt-1">已选择 {{ movePendingPaths.length }} 项</div>
+            <div class="admin-file-browser-dialog-help mt-1 text-xs">已选择 {{ movePendingPaths.length }} 项</div>
           </div>
-          <button @click="closeMoveDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+          <button @click="closeMoveDialog" class="admin-button-soft px-3 py-2 rounded-xl text-sm">关闭</button>
         </div>
         <div class="px-6 py-5 space-y-4">
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
-            <div class="text-xs text-gray-400">目标目录</div>
+          <div class="admin-file-browser-dialog-block rounded-2xl p-4 space-y-2">
+            <div class="admin-file-browser-dialog-help text-xs">目标目录</div>
             <input
               v-model="moveTargetInput"
               ref="moveTargetInputRef"
               @keyup.enter="submitMoveDialog"
-              placeholder="留空表示移动到当前存储根目录"
-              class="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-sky-400/40"
+              placeholder="目标目录，留空为根目录"
+              class="admin-file-browser-dialog-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition focus:border-sky-400/40"
             />
-            <div class="text-xs text-gray-500">
-              输入相对当前存储根目录的路径，例如 `2026/人像`。
-            </div>
           </div>
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div class="text-xs text-gray-400">待移动项目</div>
+          <div class="admin-file-browser-dialog-block rounded-2xl p-4">
+            <div class="admin-file-browser-dialog-help text-xs">待移动项目</div>
             <div class="mt-3 flex flex-wrap gap-2 max-h-32 overflow-auto">
               <span
                 v-for="path in movePendingPaths"
                 :key="`move-${path}`"
-                class="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-gray-300"
+                class="admin-file-browser-dialog-chip rounded-full px-2.5 py-1 text-[11px]"
               >
                 {{ path.split('/').filter(Boolean).slice(-1)[0] || path }}
               </span>
             </div>
           </div>
         </div>
-        <div class="flex justify-end gap-2 px-6 py-4 border-t border-white/10 bg-black/20">
-          <button @click="closeMoveDialog" class="px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10">取消</button>
+        <div class="admin-file-browser-dialog-foot flex justify-end gap-2 px-6 py-4">
+          <button @click="closeMoveDialog" class="admin-button-soft px-4 py-2 rounded-xl">取消</button>
           <button
             @click="submitMoveDialog"
             :disabled="movingItems"
-            class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50"
+            class="admin-button-primary px-4 py-2 rounded-xl disabled:opacity-50"
           >
             {{ movingItems ? '移动中...' : '确认移动' }}
           </button>
@@ -839,29 +822,29 @@
       @click.self="closeDeleteDialog"
     >
       <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-4xl overflow-hidden rounded-[28px]">
-        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+        <div class="admin-file-browser-dialog-head flex items-center justify-between gap-4 px-6 py-4">
           <div>
             <h2 class="text-xl font-light">确认删除</h2>
-            <div class="text-xs text-gray-400 mt-1">将删除 {{ deletePreviewSummary }}</div>
+            <div class="admin-file-browser-dialog-help mt-1 text-xs">将删除 {{ deletePreviewSummary }}</div>
           </div>
-          <button @click="closeDeleteDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+          <button @click="closeDeleteDialog" class="admin-button-soft px-3 py-2 rounded-xl text-sm">关闭</button>
         </div>
         <div class="max-h-[70vh] overflow-auto px-6 py-5 space-y-4">
-          <div v-if="loadingDeletePreview" class="text-sm text-gray-300">正在生成删除清单...</div>
+          <div v-if="loadingDeletePreview" class="text-sm admin-file-browser-dialog-label">正在生成删除清单...</div>
           <div v-else-if="deletePreviewError" class="text-sm text-red-300">{{ deletePreviewError }}</div>
-          <div v-else-if="!deletePreviewEntries.length" class="text-sm text-gray-400">没有可删除内容。</div>
+          <div v-else-if="!deletePreviewEntries.length" class="text-sm admin-file-browser-dialog-help">没有可删除内容。</div>
           <div v-else class="space-y-4">
             <div
               v-for="(entry, index) in deletePreviewEntries"
               :key="`${entry.path}-${index}`"
-              class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
+              class="admin-file-browser-dialog-block rounded-2xl p-4 space-y-3"
             >
               <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
-                  <div class="text-sm text-white truncate">{{ entry.name }}</div>
-                  <div class="text-xs text-gray-400 mt-1 break-all">{{ entry.path }}</div>
+                  <div class="text-sm text-[color:var(--pe-admin-text-primary)] truncate">{{ entry.name }}</div>
+                  <div class="admin-file-browser-dialog-help mt-1 break-all text-xs">{{ entry.path }}</div>
                 </div>
-                <div class="text-xs text-gray-400 whitespace-nowrap">
+                <div class="admin-file-browser-dialog-help whitespace-nowrap text-xs">
                   {{ entry.isDirectory ? `目录 · ${entry.photoCount} 张图片` : '文件' }}
                 </div>
               </div>
@@ -869,14 +852,14 @@
                 <div
                   v-for="photo in entry.photos"
                   :key="photo.photoId || photo.path"
-                  class="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+                  class="admin-file-browser-dialog-subblock rounded-xl px-3 py-2"
                 >
-                  <div class="text-sm text-gray-100">{{ photo.filename }}</div>
+                  <div class="text-sm admin-file-browser-dialog-label">{{ photo.filename }}</div>
                   <div class="flex flex-wrap gap-2 mt-2">
                     <span
                       v-for="tag in photo.tags"
                       :key="`${photo.photoId}-${tag}`"
-                      class="px-2 py-1 rounded-full bg-white/8 border border-white/10 text-[11px] text-gray-200"
+                      class="admin-file-browser-dialog-chip px-2 py-1 rounded-full text-[11px]"
                     >
                       {{ tag }}
                     </span>
@@ -886,12 +869,12 @@
             </div>
           </div>
         </div>
-        <div class="flex justify-end gap-2 px-6 py-4 border-t border-white/10 bg-black/20">
-          <button @click="closeDeleteDialog" class="px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10">取消</button>
+        <div class="admin-file-browser-dialog-foot flex justify-end gap-2 px-6 py-4">
+          <button @click="closeDeleteDialog" class="admin-button-soft px-4 py-2 rounded-xl">取消</button>
           <button
             @click="submitDeleteConfirmed"
             :disabled="loadingDeletePreview || deletingItems"
-            class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50"
+            class="admin-button-danger px-4 py-2 rounded-xl disabled:opacity-50"
           >
             {{ deletingItems ? '删除中...' : '确认删除' }}
           </button>
@@ -906,50 +889,50 @@
     >
       <div class="glass-modal admin-modal-card admin-file-browser-drawer absolute right-0 top-0 h-full w-full max-w-xl border-l">
         <div class="flex h-full flex-col">
-          <div class="flex items-center justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div class="admin-file-browser-dialog-head flex items-center justify-between gap-4 px-6 py-5">
             <div class="min-w-0">
-              <h2 class="truncate text-xl font-light text-white">{{ albumSettingsTarget?.name || '相册设置' }}</h2>
-              <div class="mt-1 truncate text-xs text-gray-400">{{ albumSettingsTarget?.path }}</div>
+              <h2 class="truncate text-xl font-light admin-file-browser-dialog-title">{{ albumSettingsTarget?.name || '相册设置' }}</h2>
+              <div class="admin-file-browser-dialog-help mt-1 truncate text-xs">{{ albumSettingsTarget?.path }}</div>
             </div>
             <button
               @click="closeAlbumSettingsDrawer"
-              class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+              class="admin-button-soft rounded-xl px-3 py-2 text-sm"
             >
               关闭
             </button>
           </div>
           <div class="flex-1 overflow-auto px-6 py-5 space-y-5">
-            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div class="text-sm text-gray-200">基础状态</div>
+            <div class="admin-file-browser-dialog-block rounded-2xl p-4">
+              <div class="text-sm admin-file-browser-dialog-label">基础状态</div>
               <div class="mt-3 flex flex-wrap gap-2">
-                <span class="rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-100">已绑定相册</span>
-                <span v-if="albumSettingsForm.aggregateSubAlbums" class="rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-100">聚合子相册</span>
-                <span v-if="albumSettingsForm.isHidden" class="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-[11px] text-rose-100">已隐藏</span>
-                <span v-if="albumSettingsTarget?.albumHasCustomCover" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-2.5 py-1 text-[11px] text-fuchsia-100">自定义封面</span>
+                <span class="admin-file-browser-status-chip admin-file-browser-status-chip--sky rounded-full px-2.5 py-1 text-[11px]">已绑定相册</span>
+                <span v-if="albumSettingsForm.aggregateSubAlbums" class="admin-file-browser-status-chip admin-file-browser-status-chip--amber rounded-full px-2.5 py-1 text-[11px]">聚合子相册</span>
+                <span v-if="albumSettingsForm.isHidden" class="admin-file-browser-status-chip admin-file-browser-status-chip--rose rounded-full px-2.5 py-1 text-[11px]">已隐藏</span>
+                <span v-if="albumSettingsTarget?.albumHasCustomCover" class="admin-file-browser-status-chip admin-file-browser-status-chip--fuchsia rounded-full px-2.5 py-1 text-[11px]">自定义封面</span>
               </div>
             </div>
 
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">相册说明</span>
+              <span class="text-sm admin-file-browser-dialog-label">相册说明</span>
               <textarea
                 v-model="albumSettingsForm.description"
                 rows="6"
-                placeholder="给这个相册补充一句说明，首页和后续管理都会直接复用。"
-                class="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-sky-400/40 focus:bg-white/8"
+                placeholder="相册说明"
+                class="admin-file-browser-dialog-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition"
               />
             </label>
 
             <button
               @click="albumSettingsForm.isHidden = !albumSettingsForm.isHidden"
-              class="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left transition hover:bg-white/8"
+              class="admin-file-browser-dialog-block flex w-full items-center justify-between rounded-2xl px-4 py-4 text-left transition"
             >
               <div>
-                <div class="text-sm text-white">公开展示</div>
-                <div class="mt-1 text-xs text-gray-400">关闭后，这个相册不会在前台对外展示。</div>
+                <div class="text-sm admin-file-browser-dialog-title">公开展示</div>
+                <div class="admin-file-browser-dialog-help mt-1 text-xs">关闭后，这个相册不会在前台对外展示。</div>
               </div>
               <div
-                class="rounded-full px-3 py-1 text-xs"
-                :class="albumSettingsForm.isHidden ? 'bg-rose-500/15 text-rose-200' : 'bg-emerald-500/15 text-emerald-200'"
+                class="admin-file-browser-status-chip rounded-full px-3 py-1 text-xs"
+                :class="albumSettingsForm.isHidden ? 'admin-file-browser-status-chip--rose' : 'admin-file-browser-status-chip--emerald'"
               >
                 {{ albumSettingsForm.isHidden ? '已隐藏' : '公开中' }}
               </div>
@@ -957,25 +940,25 @@
 
             <button
               @click="albumSettingsForm.aggregateSubAlbums = !albumSettingsForm.aggregateSubAlbums"
-              class="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left transition hover:bg-white/8"
+              class="admin-file-browser-dialog-block flex w-full items-center justify-between rounded-2xl px-4 py-4 text-left transition"
             >
               <div>
-                <div class="text-sm text-white">聚合子相册</div>
-                <div class="mt-1 text-xs text-gray-400">开启后，这个目录会把下级相册一起作为展示集合。</div>
+                <div class="text-sm admin-file-browser-dialog-title">聚合子相册</div>
+                <div class="admin-file-browser-dialog-help mt-1 text-xs">开启后，这个目录会把下级相册一起作为展示集合。</div>
               </div>
               <div
-                class="rounded-full px-3 py-1 text-xs"
-                :class="albumSettingsForm.aggregateSubAlbums ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-gray-300'"
+                class="admin-file-browser-status-chip rounded-full px-3 py-1 text-xs"
+                :class="albumSettingsForm.aggregateSubAlbums ? 'admin-file-browser-status-chip--amber' : 'admin-file-browser-status-chip--muted'"
               >
                 {{ albumSettingsForm.aggregateSubAlbums ? '已开启' : '未开启' }}
               </div>
             </button>
 
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">图片排序方式</span>
+              <span class="text-sm admin-file-browser-dialog-label">图片排序方式</span>
               <select
                 v-model="albumSettingsForm.photoSortOrder"
-                class="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/40 focus:bg-white/8"
+                class="admin-file-browser-dialog-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition"
               >
                 <option value="">跟随全局设置</option>
                 <option value="takenAtDesc">拍摄时间从新到旧</option>
@@ -989,10 +972,10 @@
             </label>
 
             <label class="block space-y-2">
-              <span class="text-sm text-gray-300">下载权限</span>
+              <span class="text-sm admin-file-browser-dialog-label">下载权限</span>
               <select
                 v-model="albumSettingsForm.downloadAllowed"
-                class="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400/40 focus:bg-white/8"
+                class="admin-file-browser-dialog-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition"
               >
                 <option value="">跟随全局设置</option>
                 <option value="true">允许下载</option>
@@ -1000,15 +983,15 @@
               </select>
             </label>
 
-            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="admin-file-browser-dialog-block rounded-2xl p-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-sm text-white">自定义封面</div>
-                  <div class="mt-1 text-xs text-gray-400">从当前目录图片中选择最多 4 张，优先用于三合一封面和相册展示。</div>
+                  <div class="text-sm admin-file-browser-dialog-title">自定义封面</div>
+                  <div class="admin-file-browser-dialog-help mt-1 text-xs">最多选择 4 张。</div>
                 </div>
                 <button
                   @click="openAlbumCoverDialog"
-                  class="rounded-xl border border-fuchsia-400/25 bg-fuchsia-500/10 px-4 py-2 text-sm text-fuchsia-100 transition hover:bg-fuchsia-500/20"
+                  class="admin-file-browser-status-chip admin-file-browser-status-chip--fuchsia rounded-xl px-4 py-2 text-sm transition"
                 >
                   设置封面
                 </button>
@@ -1016,17 +999,17 @@
             </div>
 
           </div>
-          <div class="flex items-center justify-end gap-3 border-t border-white/10 bg-black/20 px-6 py-4">
+          <div class="admin-file-browser-dialog-foot flex items-center justify-end gap-3 px-6 py-4">
             <button
               @click="closeAlbumSettingsDrawer"
-              class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 hover:bg-white/10"
+              class="admin-button-soft rounded-xl px-4 py-2"
             >
               取消
             </button>
             <button
               @click="saveAlbumSettings"
               :disabled="savingAlbumSettings || !albumSettingsDirty"
-              class="rounded-xl bg-sky-600 px-4 py-2 text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+              class="admin-button-primary rounded-xl px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ savingAlbumSettings ? '保存中...' : '保存设置' }}
             </button>
@@ -1041,15 +1024,15 @@
       @click.self="closeAlbumCoverDialog"
     >
       <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-5xl overflow-hidden rounded-[28px]">
-        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+        <div class="admin-file-browser-dialog-head flex items-center justify-between gap-4 px-6 py-4">
           <div>
             <h2 class="text-xl font-light">设置相册封面</h2>
-            <div class="text-xs text-gray-400 mt-1">最多选择 4 张图片。首图优先用于主封面。</div>
+            <div class="admin-file-browser-dialog-help mt-1 text-xs">最多选择 4 张，首图优先。</div>
           </div>
-          <button @click="closeAlbumCoverDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+          <button @click="closeAlbumCoverDialog" class="admin-button-soft px-3 py-2 rounded-xl text-sm">关闭</button>
         </div>
         <div class="px-6 py-5">
-          <div v-if="!browserViewerPhotos.length" class="py-10 text-center text-sm text-gray-400">
+          <div v-if="!browserViewerPhotos.length" class="py-10 text-center text-sm admin-file-browser-dialog-help">
             当前目录还没有可用图片，暂时无法设置自定义封面。
           </div>
           <div v-else class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[70vh] overflow-auto">
@@ -1057,31 +1040,31 @@
               v-for="photo in browserViewerPhotos"
               :key="`cover-${photo.browserPath}`"
               @click="toggleCoverSelection(photo)"
-              class="group relative rounded-2xl border overflow-hidden text-left transition"
-              :class="selectedCoverIds.includes(photo.id) ? 'border-fuchsia-400/60 ring-2 ring-fuchsia-400/30' : 'border-white/10 hover:border-white/20'"
+              class="admin-file-browser-cover-card group relative rounded-2xl overflow-hidden text-left transition"
+              :class="selectedCoverIds.includes(photo.id) ? 'admin-file-browser-cover-card--active' : 'admin-file-browser-cover-card--idle'"
             >
-              <div class="aspect-square bg-white/5">
+              <div class="admin-file-browser-cover-frame aspect-square">
                 <img
                   :src="buildPhotoAssetUrl(photo, 'small') || buildPhotoAssetUrl(photo, 'thumbnail') || buildPhotoAssetUrl(photo, 'large') || ''"
                   :alt="photo.filename"
                   class="w-full h-full object-cover transition duration-300 group-hover:scale-[1.03]"
                 />
               </div>
-              <div class="absolute top-3 left-3 rounded-full bg-black/65 px-2.5 py-1 text-[11px] text-white">
+              <div class="admin-file-browser-cover-order absolute top-3 left-3 rounded-full px-2.5 py-1 text-[11px]">
                 {{ coverIndexLabel(photo.id) }}
               </div>
               <div class="p-3">
-                <div class="truncate text-sm text-white">{{ photo.filename }}</div>
+                <div class="truncate text-sm admin-file-browser-dialog-title">{{ photo.filename }}</div>
               </div>
             </button>
           </div>
         </div>
-        <div class="flex items-center justify-end gap-3 border-t border-white/10 bg-black/20 px-6 py-4">
-          <button @click="closeAlbumCoverDialog" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 hover:bg-white/10">取消</button>
+        <div class="admin-file-browser-dialog-foot flex items-center justify-end gap-3 px-6 py-4">
+          <button @click="closeAlbumCoverDialog" class="admin-button-soft rounded-xl px-4 py-2">取消</button>
           <button
             @click="saveAlbumCoverSelection"
             :disabled="savingAlbumSettings"
-            class="rounded-xl bg-fuchsia-600 px-4 py-2 text-white transition hover:bg-fuchsia-500 disabled:opacity-50"
+            class="admin-button-primary rounded-xl px-4 py-2 disabled:opacity-50"
           >
             {{ savingAlbumSettings ? '保存中...' : '保存封面' }}
           </button>
@@ -1106,39 +1089,39 @@
       @click.self="closePhotoTagDialog"
     >
       <div class="glass-modal admin-modal-card admin-file-browser-dialog w-full max-w-2xl overflow-hidden rounded-[28px]">
-        <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-white/10">
+        <div class="admin-file-browser-dialog-head flex items-center justify-between gap-4 px-6 py-4">
           <div>
             <h2 class="text-xl font-light">图片标签管理</h2>
-            <div class="text-xs text-gray-400 mt-1">{{ currentViewerPhoto?.filename }}</div>
+            <div class="admin-file-browser-dialog-help mt-1 text-xs">{{ currentViewerPhoto?.filename }}</div>
           </div>
-          <button @click="closePhotoTagDialog" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm hover:bg-white/10">关闭</button>
+          <button @click="closePhotoTagDialog" class="admin-button-soft px-3 py-2 rounded-xl text-sm">关闭</button>
         </div>
         <div class="px-6 py-5 space-y-5">
           <div>
-            <div class="text-sm text-gray-300">当前标签</div>
+            <div class="text-sm admin-file-browser-dialog-label">当前标签</div>
             <div class="mt-3 flex flex-wrap gap-2">
               <button
                 v-for="tag in (currentViewerPhoto?.tags || [])"
                 :key="`photo-tag-${tag.id}`"
                 @click="removeCurrentPhotoTag(tag.id)"
                 :disabled="savingPhotoTag"
-                class="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-60"
+                class="admin-file-browser-status-chip admin-file-browser-status-chip--rose rounded-full px-3 py-1.5 text-xs transition disabled:opacity-60"
               >
                 {{ tag.name }} ×
               </button>
-              <div v-if="!(currentViewerPhoto?.tags || []).length" class="text-xs text-gray-500">
+              <div v-if="!(currentViewerPhoto?.tags || []).length" class="admin-file-browser-dialog-subhelp text-xs">
                 这张图片还没有标签。
               </div>
             </div>
           </div>
 
           <div>
-            <div class="text-sm text-gray-300">添加标签</div>
+            <div class="text-sm admin-file-browser-dialog-label">添加标签</div>
             <input
               v-model="photoTagKeyword"
               @keyup.enter="addPhotoTagByName(photoTagKeyword)"
               placeholder="输入标签名称，回车添加"
-              class="mt-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-sky-400/40 focus:bg-white/8"
+              class="admin-file-browser-dialog-input mt-3 w-full rounded-2xl px-4 py-3 text-sm outline-none transition"
             />
             <div class="mt-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
               <button
@@ -1146,7 +1129,7 @@
                 :key="`candidate-tag-${tag.id}`"
                 @click="addPhotoTagByName(tag.name)"
                 :disabled="savingPhotoTag"
-                class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10 disabled:opacity-60"
+                class="admin-file-browser-dialog-chip rounded-full px-3 py-1.5 text-xs transition disabled:opacity-60"
               >
                 {{ tag.name }}
               </button>
@@ -1680,7 +1663,7 @@ const directoryStateClass = (dir: FileItem) => {
   if (label === '空相册') {
     return 'border-slate-400/20 bg-slate-500/10 text-slate-200'
   }
-  return 'border-white/10 bg-white/5 text-gray-300'
+  return 'admin-file-browser-state-chip--default'
 }
 
 const directoryStateMutedClass = (dir: FileItem) => {
@@ -1694,7 +1677,7 @@ const directoryStateMutedClass = (dir: FileItem) => {
   if (label === '空相册') {
     return 'text-slate-300'
   }
-  return 'text-gray-500'
+  return 'admin-file-browser-state-muted'
 }
 
 function downloadAllowedFormValue(value: boolean | null | undefined) {
@@ -1934,15 +1917,15 @@ const buildPathFromParts = (parts: string[]) => {
 
 const breadcrumbClass = (index: number, isGhost = false) => {
   if (dragMoveTargetPath.value && dragMoveTargetPath.value === (index < 0 ? basePath.value : breadcrumbSegments.value[index]?.path)) {
-    return 'border-cyan-400/60 bg-cyan-500/15 text-cyan-100'
+    return 'admin-file-browser-breadcrumb-chip admin-file-browser-breadcrumb-chip--drop'
   }
   if (isGhost) {
-    return 'border-white/10 bg-white/5 text-gray-500 hover:bg-white/8'
+    return 'admin-file-browser-breadcrumb-chip admin-file-browser-breadcrumb-chip--ghost'
   }
   if ((index < 0 && !pathParts.value.length) || (!isGhost && index === pathParts.value.length - 1)) {
-    return 'border-white/20 bg-white/12 text-white'
+    return 'admin-file-browser-breadcrumb-chip admin-file-browser-breadcrumb-chip--current'
   }
-  return 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'
+  return 'admin-file-browser-breadcrumb-chip'
 }
 
 const toggleBreadcrumbMenu = async (event: MouseEvent, targetPath: string) => {

@@ -1,8 +1,8 @@
 <template>
   <div class="min-h-screen admin-shell admin-tags-page">
     <AdminStyleChrome />
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+      <div class="flex items-center justify-between mb-4">
         <h1 class="text-2xl font-light admin-tags-title">标签管理</h1>
         <div class="space-x-3">
           <button @click="load" :disabled="loading" class="admin-button-primary disabled:opacity-50 px-4 py-2 rounded-lg">刷新</button>
@@ -10,9 +10,9 @@
         </div>
       </div>
 
-      <div class="glass-panel p-4 flex flex-col max-h-[calc(100vh-140px)] admin-tags-panel">
+      <div class="glass-panel p-3 flex flex-col max-h-[calc(100vh-120px)] admin-tags-panel">
         <!-- 顶部操作栏 -->
-        <div class="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0 admin-tags-toolbar">
+        <div class="flex flex-wrap items-center gap-3 mb-3 flex-shrink-0 admin-tags-toolbar">
           <div class="flex flex-wrap items-center gap-3">
             <label class="space-y-2">
               <span class="text-sm admin-tags-label">搜索标签</span>
@@ -48,7 +48,7 @@
             <button
               @click="deleteSelected"
               :disabled="selectedIds.length === 0 || loading"
-              class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm text-white disabled:opacity-50"
+              class="admin-button-danger px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               删除 ({{ selectedIds.length }})
             </button>

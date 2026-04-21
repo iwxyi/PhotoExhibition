@@ -11,7 +11,6 @@
             </div>
           </div>
           <div class="flex items-center gap-3 flex-wrap justify-end admin-dashboard-toolbar-actions">
-            <AdminSectionTabs />
             <button
               @click="themeStore.toggleTheme"
               class="admin-button-soft rounded-full p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80"
@@ -33,7 +32,7 @@
             </button>
             <router-link
               to="/"
-              class="admin-button-primary rounded-lg px-3 py-1.5 text-xs transition-colors"
+              class="admin-button-soft rounded-lg px-3 py-1.5 text-xs transition-colors"
             >
               返回首页
             </router-link>
@@ -42,7 +41,7 @@
       </div>
     </nav>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 admin-dashboard-shell">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 space-y-3 admin-dashboard-shell">
       <!-- Hero 区域 -->
       <section class="admin-hero admin-dashboard-hero">
         <div class="admin-hero-gradient"></div>
@@ -59,7 +58,7 @@
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-1 admin-dashboard-stat-grid">
         <router-link
           to="/admin/albums"
-                class="admin-hero-stat admin-dashboard-stat-card hover:bg-slate-900/70 transition-colors cursor-pointer"
+                class="admin-hero-stat admin-dashboard-stat-card transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">相册</div>
@@ -67,7 +66,7 @@
         </router-link>
         <router-link
           to="/admin/photos"
-                class="admin-hero-stat admin-dashboard-stat-card hover:bg-slate-900/70 transition-colors cursor-pointer"
+                class="admin-hero-stat admin-dashboard-stat-card transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">照片</div>
@@ -75,7 +74,7 @@
         </router-link>
         <router-link
           to="/admin/persons"
-                class="admin-hero-stat admin-dashboard-stat-card hover:bg-slate-900/70 transition-colors cursor-pointer"
+                class="admin-hero-stat admin-dashboard-stat-card transition-colors cursor-pointer"
                 style="padding: 14px 16px;"
         >
                 <div class="admin-hero-stat-label">人物</div>
@@ -102,7 +101,6 @@
                 <p v-if="(currentUserQueueSummary?.queuedTaskCount || 0) > 0">
                   我的待扫：<span class="text-sky-300">{{ currentUserQueueSummary?.pendingImageCount || 0 }}</span> 张图片
                 </p>
-                <p class="text-[color:var(--pe-admin-text-muted)]">{{ currentUserQueueSummary?.message || '上传后的照片会进入后台队列自动处理。' }}</p>
               </div>
             </div>
           </div>
@@ -111,18 +109,40 @@
 
       <router-link
         to="/admin/file-browser"
-        class="glass-panel block p-5 md:p-6 space-y-3 admin-card-animate admin-card-4 admin-dashboard-feature-card rounded-[28px] border border-cyan-300/20 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--pe-theme-primary)_16%,transparent),color-mix(in_srgb,var(--pe-theme-base)_30%,rgba(255,255,255,0.22)))] transition hover:border-cyan-300/35 hover:bg-[linear-gradient(135deg,color-mix(in_srgb,var(--pe-theme-primary)_22%,transparent),color-mix(in_srgb,var(--pe-theme-base)_38%,rgba(255,255,255,0.26)))]"
+        class="glass-panel block p-5 md:p-6 admin-card-animate admin-card-4 admin-dashboard-feature-card admin-dashboard-feature-card--browser"
       >
-        <div class="text-xl font-light text-[color:var(--pe-admin-text-primary)]">文件管理</div>
-        <div class="text-sm text-[color:var(--pe-admin-text-secondary)]">目录、相册、图片的统一操作入口。</div>
+        <div class="admin-dashboard-feature-shell">
+          <div class="admin-dashboard-feature-copy">
+            <div class="admin-dashboard-feature-kicker">核心入口</div>
+            <div class="admin-dashboard-feature-title">文件管理</div>
+          </div>
+          <div class="admin-dashboard-feature-preview" aria-hidden="true">
+            <div class="admin-dashboard-feature-preview-window">
+              <div class="admin-dashboard-feature-preview-bar">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <div class="admin-dashboard-feature-preview-grid">
+                <div class="admin-dashboard-feature-preview-sidebar"></div>
+                <div class="admin-dashboard-feature-preview-content">
+                  <div></div>
+                  <div></div>
+                  <div></div>
+                  <div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </router-link>
 
       <div class="glass-panel p-5 md:p-6 space-y-5 admin-card-animate admin-card-4 admin-dashboard-data-panel">
-        <div class="flex items-center justify-between gap-4 flex-wrap">
-          <div>
+        <div class="flex items-center justify-between gap-4 flex-wrap admin-dashboard-panel-head">
+          <div class="admin-dashboard-panel-copy">
             <h2 class="text-lg font-light">数据管理</h2>
           </div>
-          <div class="flex flex-wrap gap-2 text-xs text-slate-400 admin-dashboard-chip-row">
+          <div class="flex flex-wrap gap-2 text-xs admin-dashboard-chip-row">
             <span class="chip">照片 {{ stats.photos }}</span>
             <span class="chip">相册 {{ stats.albums }}</span>
             <span class="chip">人物 {{ stats.persons }}</span>
@@ -131,30 +151,33 @@
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 admin-dashboard-entry-grid">
-            <router-link
-              to="/admin/tags"
-              class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
-            >
-              <div class="text-[color:var(--pe-admin-text-primary)]">标签管理</div>
-              <div class="mt-2 text-xs text-[color:var(--pe-admin-text-muted)]">{{ stats.tags }} 个标签</div>
-            </router-link>
-            <router-link
-              to="/admin/theme"
-              class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
-            >
-              <div class="text-[color:var(--pe-admin-text-primary)]">主题与风格</div>
-            </router-link>
-            <router-link
-              to="/admin/settings"
-              class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
-            >
-              <div class="text-[color:var(--pe-admin-text-primary)]">系统设置</div>
-            </router-link>
+          <router-link
+            to="/admin/tags"
+            class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
+          >
+            <div class="admin-dashboard-entry-kicker">内容</div>
+            <div class="admin-dashboard-entry-title">标签管理</div>
+            <div class="admin-dashboard-entry-meta">{{ stats.tags }} 个标签</div>
+          </router-link>
+          <router-link
+            to="/admin/theme"
+            class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
+          >
+            <div class="admin-dashboard-entry-kicker">外观</div>
+            <div class="admin-dashboard-entry-title">主题与风格</div>
+          </router-link>
+          <router-link
+            to="/admin/settings"
+            class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-sm"
+          >
+            <div class="admin-dashboard-entry-kicker">系统</div>
+            <div class="admin-dashboard-entry-title">系统设置</div>
+          </router-link>
           </div>
       </div>
 
       <div class="glass-panel p-5 md:p-6 space-y-5 admin-card-animate admin-card-4 admin-dashboard-clean-panel">
-        <div>
+        <div class="admin-dashboard-panel-head admin-dashboard-panel-copy">
           <h2 class="text-lg font-light">清理</h2>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -163,14 +186,16 @@
             :disabled="isCleaningFailedFiles"
             class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <div class="text-[color:var(--pe-admin-text-primary)]">{{ isCleaningFailedFiles ? '清理中...' : '清理失败文件' }}</div>
+            <div class="admin-dashboard-entry-kicker">维护</div>
+            <div class="admin-dashboard-entry-title">{{ isCleaningFailedFiles ? '清理中...' : '清理失败文件' }}</div>
           </button>
           <button
             @click="cleanupOrphaned"
             :disabled="isCleaningUp"
             class="admin-entry-card admin-dashboard-entry-item rounded-2xl px-4 py-4 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <div class="text-[color:var(--pe-admin-text-primary)]">{{ isCleaningUp ? '清理中...' : '清理删除残留' }}</div>
+            <div class="admin-dashboard-entry-kicker">维护</div>
+            <div class="admin-dashboard-entry-title">{{ isCleaningUp ? '清理中...' : '清理删除残留' }}</div>
           </button>
         </div>
       </div>
@@ -189,16 +214,16 @@
     <!-- 跳过文件详情弹窗 -->
     <div
       v-if="showSkippedModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      class="admin-dashboard-modal fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="closeSkippedModal"
     >
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-      <div class="relative w-full max-w-4xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+      <div class="admin-modal-backdrop absolute inset-0"></div>
+      <div class="admin-modal-card admin-dashboard-modal-card relative w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
         <!-- 弹窗头部 -->
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+        <div class="admin-dashboard-modal-head flex items-center justify-between px-5 py-4 shrink-0">
           <div>
-            <h3 class="text-base font-medium text-white">扫描异常文件详情</h3>
-            <p class="text-xs text-slate-400 mt-0.5">
+            <h3 class="text-base font-medium">扫描异常文件详情</h3>
+            <p class="text-xs mt-0.5 admin-table-muted">
               <template v-if="scanning">
                 <span class="text-cyan-400 animate-pulse">扫描进行中，数据实时更新…</span>
               </template>
@@ -215,7 +240,7 @@
               </template>
             </p>
           </div>
-          <button @click="closeSkippedModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+          <button @click="closeSkippedModal" class="admin-dashboard-modal-close p-1.5 rounded-lg transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -223,14 +248,14 @@
         </div>
         <!-- 表格内容 -->
         <div class="overflow-auto flex-1">
-          <div v-if="loadingSkipped" class="flex items-center justify-center py-16 text-slate-400 text-sm">
+          <div v-if="loadingSkipped" class="flex items-center justify-center py-16 admin-table-muted text-sm">
             加载中…
           </div>
-          <div v-else-if="skippedFiles.length === 0" class="flex items-center justify-center py-16 text-slate-400 text-sm">
+          <div v-else-if="skippedFiles.length === 0" class="flex items-center justify-center py-16 admin-table-muted text-sm">
             无跳过文件，进度数据完全一致
           </div>
-          <table v-else class="w-full text-xs text-slate-200 border-collapse">
-            <thead class="sticky top-0 bg-slate-800 text-slate-400 uppercase tracking-wide">
+          <table v-else class="w-full text-xs admin-data-table border-collapse">
+            <thead class="sticky top-0 uppercase tracking-wide">
               <tr>
                 <th class="px-4 py-2.5 text-left w-12">#</th>
                 <th class="px-4 py-2.5 text-left">相对路径</th>
@@ -243,23 +268,23 @@
               <tr
                 v-for="f in skippedFiles"
                 :key="f.index"
-                class="border-t border-slate-800 hover:bg-slate-800/50 transition-colors"
+                class="admin-dashboard-modal-row transition-colors"
               >
-                <td class="px-4 py-2 text-slate-500">{{ f.index }}</td>
-                <td class="px-4 py-2 font-mono text-slate-300 break-all">{{ f.relativePath }}</td>
-                <td v-if="authStore.isSuperAdmin" class="px-4 py-2 text-slate-300">{{ f.userId != null ? `用户#${f.userId}` : '—' }}</td>
+                <td class="px-4 py-2 admin-table-faint">{{ f.index }}</td>
+                <td class="px-4 py-2 font-mono admin-table-muted break-all">{{ f.relativePath }}</td>
+                <td v-if="authStore.isSuperAdmin" class="px-4 py-2 admin-table-muted">{{ f.userId != null ? `用户#${f.userId}` : '—' }}</td>
                 <td class="px-4 py-2">
                   <span
-                    class="cursor-help border-b border-dashed"
+                    class="cursor-help border-b border-dashed admin-dashboard-skip-reason"
                     :class="{
-                      'text-blue-400 border-blue-400/50': f.reason === '内容重复',
-                      'text-slate-400 border-slate-400/50': f.reason === '文件为空',
-                      'text-amber-400 border-amber-400/50': f.reason !== '内容重复' && f.reason !== '文件为空'
+                      'admin-dashboard-skip-reason--duplicate': f.reason === '内容重复',
+                      'admin-dashboard-skip-reason--empty': f.reason === '文件为空',
+                      'admin-dashboard-skip-reason--other': f.reason !== '内容重复' && f.reason !== '文件为空'
                     }"
                     :title="f.detail"
                   >{{ f.reason }}</span>
                 </td>
-                <td class="px-4 py-2 text-right text-slate-400 tabular-nums">{{ formatFileSize(f.fileSizeBytes) }}</td>
+                <td class="px-4 py-2 text-right admin-table-muted tabular-nums">{{ formatFileSize(f.fileSizeBytes) }}</td>
               </tr>
             </tbody>
           </table>
@@ -269,18 +294,18 @@
 
     <div
       v-if="authStore.isSuperAdmin && showTaskDetailModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      class="admin-dashboard-modal fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="closeTaskDetailModal"
     >
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-      <div class="relative w-full max-w-5xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+      <div class="admin-modal-backdrop absolute inset-0"></div>
+      <div class="admin-modal-card admin-dashboard-modal-card relative w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
+        <div class="admin-dashboard-modal-head flex items-center justify-between px-5 py-4 shrink-0">
           <div>
-            <h3 class="text-base font-medium text-white">
+            <h3 class="text-base font-medium">
               扫描任务详情
               <span v-if="selectedTaskDetail" class="text-sky-300 ml-2">#{{ selectedTaskDetail.id }}</span>
             </h3>
-            <p class="text-xs text-slate-400 mt-0.5">
+            <p class="text-xs admin-table-muted mt-0.5">
               单任务视角查看恢复游标、检查点与实时状态。
             </p>
           </div>
@@ -288,11 +313,11 @@
             <button
               @click="refreshSelectedTaskDetail"
               :disabled="loadingTaskDetail || !selectedTaskDetail"
-              class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-white/10 disabled:opacity-60"
+              class="admin-button-soft px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-60"
             >
               {{ loadingTaskDetail ? '刷新中…' : '刷新详情' }}
             </button>
-            <button @click="closeTaskDetailModal" class="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+            <button @click="closeTaskDetailModal" class="admin-dashboard-modal-close p-1.5 rounded-lg transition-colors">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
               </svg>
@@ -302,57 +327,57 @@
 
         <div class="overflow-auto flex-1 p-5" v-if="selectedTaskDetail">
           <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 text-sm">
-            <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
-              <div class="text-slate-400 text-xs">基础信息</div>
-              <div class="text-white">{{ taskTypeLabel(selectedTaskDetail.taskType) }} · {{ taskStatusLabel(selectedTaskDetail.status) }}</div>
-              <div class="text-slate-300 break-all">根路径：{{ selectedTaskDetail.rootPathDisplay || selectedTaskDetail.rootPath || '—' }}</div>
-              <div class="text-slate-300">优先级：{{ selectedTaskDetail.priority ?? '—' }}</div>
-              <div class="text-slate-300">归属：{{ selectedTaskDetail.ownerLabel || '系统任务' }}</div>
-              <div class="text-slate-300">用户 ID：{{ selectedTaskDetail.userId ?? '全局' }}</div>
-              <div class="text-slate-300">请求者：{{ selectedTaskDetail.requestedByUserNickname || selectedTaskDetail.requestedByUsername || selectedTaskDetail.requestedByUserId || '系统' }}</div>
-              <div class="text-slate-300">存储：{{ selectedTaskDetail.storageProviderName || selectedTaskDetail.storageProviderId || '默认' }}<span v-if="selectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(selectedTaskDetail.storageProviderType) }}</span></div>
+            <div class="admin-dashboard-detail-card rounded-xl p-4 space-y-2">
+              <div class="admin-table-faint text-xs">基础信息</div>
+              <div>{{ taskTypeLabel(selectedTaskDetail.taskType) }} · {{ taskStatusLabel(selectedTaskDetail.status) }}</div>
+              <div class="admin-table-muted break-all">根路径：{{ selectedTaskDetail.rootPathDisplay || selectedTaskDetail.rootPath || '—' }}</div>
+              <div class="admin-table-muted">优先级：{{ selectedTaskDetail.priority ?? '—' }}</div>
+              <div class="admin-table-muted">归属：{{ selectedTaskDetail.ownerLabel || '系统任务' }}</div>
+              <div class="admin-table-muted">用户 ID：{{ selectedTaskDetail.userId ?? '全局' }}</div>
+              <div class="admin-table-muted">请求者：{{ selectedTaskDetail.requestedByUserNickname || selectedTaskDetail.requestedByUsername || selectedTaskDetail.requestedByUserId || '系统' }}</div>
+              <div class="admin-table-muted">存储：{{ selectedTaskDetail.storageProviderName || selectedTaskDetail.storageProviderId || '默认' }}<span v-if="selectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(selectedTaskDetail.storageProviderType) }}</span></div>
             </div>
 
-            <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
-              <div class="text-slate-400 text-xs">恢复状态</div>
-              <div class="text-slate-300 break-all">
+            <div class="admin-dashboard-detail-card rounded-xl p-4 space-y-2">
+              <div class="admin-table-faint text-xs">恢复状态</div>
+              <div class="admin-table-muted break-all">
                 恢复游标：{{ selectedTaskDetail.resumeFromPathDisplay || selectedTaskDetail.resumeFromPath || '—' }}
                 <span v-if="selectedTaskDetail.resumeFromType" class="ml-2 text-[11px] px-2 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300">
                   {{ pathTypeLabel(selectedTaskDetail.resumeFromType) }}
                 </span>
               </div>
-              <div class="text-slate-300 break-all">
+              <div class="admin-table-muted break-all">
                 最近断点：{{ selectedTaskDetail.lastProcessedPathDisplay || selectedTaskDetail.lastProcessedPath || '—' }}
                 <span v-if="selectedTaskDetail.lastProcessedType" class="ml-2 text-[11px] px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-300">
                   {{ pathTypeLabel(selectedTaskDetail.lastProcessedType) }}
                 </span>
               </div>
-              <div class="text-slate-300 break-all">检查点根路径：{{ selectedTaskDetail.checkpoint?.rootPathDisplay || selectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
-              <div class="text-slate-300">检查点更新时间：{{ formatDateTime(selectedTaskDetail.checkpointUpdatedAt || selectedTaskDetail.checkpoint?.updatedAt) }}</div>
+              <div class="admin-table-muted break-all">检查点根路径：{{ selectedTaskDetail.checkpoint?.rootPathDisplay || selectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
+              <div class="admin-table-muted">检查点更新时间：{{ formatDateTime(selectedTaskDetail.checkpointUpdatedAt || selectedTaskDetail.checkpoint?.updatedAt) }}</div>
               <div v-if="selectedTaskDetail.errorMessage" class="text-rose-300 break-all">
                 错误：{{ selectedTaskDetail.errorMessage }}
               </div>
             </div>
 
-            <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
-              <div class="text-slate-400 text-xs">进度统计</div>
-              <div class="text-white text-lg">{{ selectedTaskDetail.progressPercent || 0 }}%</div>
-              <div class="text-slate-300">已处理：{{ selectedTaskDetail.processedItems || 0 }} / {{ selectedTaskDetail.totalItems || 0 }}</div>
-              <div class="text-slate-300">跳过：{{ selectedTaskDetail.skippedItems || 0 }}</div>
-              <div class="text-slate-300">失败：{{ selectedTaskDetail.failedItems || 0 }}</div>
-              <div class="text-slate-500 text-xs">创建：{{ formatDateTime(selectedTaskDetail.createdAt) }}</div>
-              <div class="text-slate-500 text-xs">开始：{{ formatDateTime(selectedTaskDetail.startedAt) }}</div>
-              <div class="text-slate-500 text-xs">完成：{{ formatDateTime(selectedTaskDetail.finishedAt) }}</div>
+            <div class="admin-dashboard-detail-card rounded-xl p-4 space-y-2">
+              <div class="admin-table-faint text-xs">进度统计</div>
+              <div class="text-lg">{{ selectedTaskDetail.progressPercent || 0 }}%</div>
+              <div class="admin-table-muted">已处理：{{ selectedTaskDetail.processedItems || 0 }} / {{ selectedTaskDetail.totalItems || 0 }}</div>
+              <div class="admin-table-muted">跳过：{{ selectedTaskDetail.skippedItems || 0 }}</div>
+              <div class="admin-table-muted">失败：{{ selectedTaskDetail.failedItems || 0 }}</div>
+              <div class="admin-table-faint text-xs">创建：{{ formatDateTime(selectedTaskDetail.createdAt) }}</div>
+              <div class="admin-table-faint text-xs">开始：{{ formatDateTime(selectedTaskDetail.startedAt) }}</div>
+              <div class="admin-table-faint text-xs">完成：{{ formatDateTime(selectedTaskDetail.finishedAt) }}</div>
             </div>
           </div>
 
-          <div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-            <div class="text-slate-400 text-xs mb-3">检查点快照</div>
-            <pre class="text-xs text-slate-200 whitespace-pre-wrap break-words">{{ JSON.stringify(selectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
+          <div class="admin-dashboard-detail-card mt-4 rounded-xl p-4">
+            <div class="admin-table-faint text-xs mb-3">检查点快照</div>
+            <pre class="text-xs whitespace-pre-wrap break-words">{{ JSON.stringify(selectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
           </div>
         </div>
 
-        <div v-else class="flex-1 flex items-center justify-center text-slate-400 text-sm">
+        <div v-else class="flex-1 flex items-center justify-center admin-table-muted text-sm">
           {{ loadingTaskDetail ? '加载任务详情…' : '暂无任务详情' }}
         </div>
       </div>
@@ -369,7 +394,6 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { api } from '@/api'
-import AdminSectionTabs from '@/components/AdminSectionTabs.vue'
 import { storageTypeLabel } from '@/utils/providerLabels'
 
 const router = useRouter()
@@ -538,8 +562,8 @@ const taskStatusClass = (status?: string): string => {
   if (status === 'PAUSED') return 'text-purple-300 border-purple-500/40 bg-purple-500/10'
   if (status === 'FAILED') return 'text-rose-300 border-rose-500/40 bg-rose-500/10'
   if (status === 'COMPLETED') return 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
-  if (status === 'CANCELED') return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
-  return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
+  if (status === 'CANCELED') return 'text-zinc-300 border-zinc-500/40 bg-zinc-500/10'
+  return 'text-zinc-300 border-zinc-500/40 bg-zinc-500/10'
 }
 
 const operationTypeLabel = (operationType?: string): string => {

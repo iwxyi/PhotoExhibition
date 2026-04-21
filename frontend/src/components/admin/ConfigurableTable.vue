@@ -16,11 +16,11 @@
           v-if="columnPanelOpen"
           class="glass-popover absolute right-0 z-20 mt-2 w-72 rounded-2xl p-3 admin-table-column-panel"
         >
-          <div class="mb-3 flex items-center justify-between gap-3 admin-table-column-panel-head">
+          <div class="mb-2.5 flex items-center justify-between gap-3 admin-table-column-panel-head">
             <div class="text-sm text-[color:var(--pe-admin-text-primary)]">列显示</div>
             <button
               type="button"
-              class="text-xs text-sky-300 transition-colors hover:text-sky-200"
+              class="admin-table-column-reset"
               @click="resetPreferences"
             >
               恢复默认
@@ -30,7 +30,7 @@
             <label
               v-for="column in orderedColumns"
               :key="column.key"
-              class="flex items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-white/5 admin-table-column-item"
+              class="flex items-center justify-between gap-3 rounded-xl px-3 py-2 admin-table-column-item"
             >
               <span class="text-sm text-[color:var(--pe-admin-text-secondary)]">{{ column.label }}</span>
               <input
@@ -55,7 +55,7 @@
               v-for="column in visibleColumns"
               :key="column.key"
               draggable="true"
-              class="px-4 py-3 text-left whitespace-nowrap select-none admin-table-header-cell"
+              class="px-4 py-2.5 text-left whitespace-nowrap select-none admin-table-header-cell"
               :class="[column.headerClass, draggingColumnKey === column.key ? 'opacity-60' : '']"
               @dragstart="startDrag(column.key)"
               @dragover.prevent
@@ -83,7 +83,7 @@
             <td
               v-for="column in visibleColumns"
               :key="column.key"
-              class="px-4 py-4 admin-table-cell"
+              class="px-4 py-3 admin-table-cell"
               :class="column.cellClass"
             >
               <slot

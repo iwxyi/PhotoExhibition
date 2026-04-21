@@ -1,35 +1,38 @@
 <template>
-  <div class="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
-    <div class="flex-shrink-0 px-4 sm:px-6 lg:px-8 py-4 border-b border-gray-700">
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-xl font-light">人物管理</h1>
+  <div class="min-h-screen admin-shell admin-persons-page">
+    <AdminStyleChrome />
+    <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="admin-persons-workspace flex flex-col gap-4 min-h-[calc(100vh-10rem)]">
+        <div class="admin-persons-hero flex-shrink-0 px-4 sm:px-5 py-4">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <h1 class="text-2xl font-light admin-page-title">人物管理</h1>
+            </div>
+            <div class="flex items-center gap-2">
+              <router-link to="/admin/persons/batch-assign" class="btn-primary px-3 py-1.5 rounded text-sm">批量分配</router-link>
+              <router-link to="/admin" class="admin-button-soft admin-page-back-link px-3 py-1.5 rounded text-sm">返回</router-link>
+            </div>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <router-link to="/admin/persons/batch-assign" class="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 rounded text-sm">批量分配</router-link>
-          <router-link to="/admin" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">返回</router-link>
-        </div>
-      </div>
-    </div>
 
-    <div class="flex-1 flex gap-2 overflow-hidden px-4 sm:px-6 lg:px-8 py-4">
+        <div class="flex-1 flex gap-3 overflow-hidden min-h-0">
       <!-- 左侧人物头像列表 -->
       <div 
-        class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0 min-h-0"
+        class="admin-persons-panel admin-persons-sidebar bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0 min-h-0"
         :class="{ 'pointer-events-none opacity-60': loadingPersons }"
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
         <div class="mb-3 space-y-2">
           <label class="block space-y-1">
-            <span class="text-[11px] text-gray-400">搜索人物</span>
+            <span class="admin-persons-field-label text-[11px] text-gray-400">搜索人物</span>
             <input
               v-model="personKeyword"
               @input="loadPersons"
               placeholder="按人物姓名关键词搜索"
-              class="w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              class="admin-field admin-persons-field w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </label>
-          <div class="flex items-center gap-2 text-[11px] text-gray-300">
+          <div class="admin-persons-threshold-row flex items-center gap-2 text-[11px] text-gray-300">
             <span
               class="whitespace-nowrap"
               :title="'调高更保守，调低更易合并同人。默认 0.70'"
@@ -62,23 +65,23 @@
               v-model.number="clusterThreshold"
               @change="applyThresholdFromInput"
               @keyup.enter="applyThresholdFromInput"
-              class="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              class="admin-field admin-persons-field admin-persons-field--compact w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
         </div>
         <!-- 人物/聚类 tab 切换 -->
-        <div class="flex gap-1 mb-2">
+        <div class="admin-persons-tabbar flex gap-1 mb-2">
           <button
             @click="leftPanelTab = 'confirmed'; nextTick(() => updateContainerWidth())"
             class="flex-1 px-2 py-1 rounded text-xs transition-colors"
-            :class="leftPanelTab === 'confirmed' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+            :class="leftPanelTab === 'confirmed' ? 'admin-persons-sidebar-tab--active bg-blue-600 text-white' : 'admin-persons-sidebar-tab--idle bg-gray-700 text-gray-400 hover:bg-gray-600'"
           >
             人物 ({{ confirmedPersons.length }})
           </button>
           <button
             @click="leftPanelTab = 'cluster'; nextTick(() => updateContainerWidth())"
             class="flex-1 px-2 py-1 rounded text-xs transition-colors"
-            :class="leftPanelTab === 'cluster' ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+            :class="leftPanelTab === 'cluster' ? 'admin-persons-sidebar-tab--warning bg-yellow-600 text-white' : 'admin-persons-sidebar-tab--idle bg-gray-700 text-gray-400 hover:bg-gray-600'"
           >
             聚类 ({{ visibleClusterPersons.length }})
           </button>
@@ -94,7 +97,7 @@
             v-for="p in visibleConfirmedPersons"
             :key="`confirmed-${p.id}`"
             :data-person-key="`confirmed-${p.id}`"
-            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/70 hover:bg-gray-700/80"
+            class="admin-persons-list-card flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/70 hover:bg-gray-700/80"
             :class="[
               isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : '',
               p.hidden ? 'opacity-40' : ''
@@ -103,7 +106,7 @@
             @contextmenu.prevent="openPersonContextMenu($event, p)"
           >
             <div 
-              class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
+              class="admin-persons-list-avatar w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
               @click.stop="selectPerson(p)"
             >
               <img v-if="getPersonThumb(p)" :src="getPersonThumb(p)" class="w-full h-full object-cover" />
@@ -115,11 +118,11 @@
               >
                 {{ p.name || '未命名' }}
               </div>
-              <div class="text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
+              <div class="admin-persons-meta text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
             </div>
           </div>
-          <div v-if="!visibleConfirmedPersons.length && !loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">暂无人物</div>
-          <div v-if="loadingPersons" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
+          <div v-if="!visibleConfirmedPersons.length && !loadingPersons" class="admin-persons-empty-state col-span-full text-gray-500 text-xs text-center py-4">暂无人物</div>
+          <div v-if="loadingPersons" class="admin-persons-loading-hint col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
         </div>
         <!-- 聚类列表 -->
         <div
@@ -132,12 +135,12 @@
             v-for="p in visibleClusterPersons"
             :key="`cluster-${p.id}`"
             :data-person-key="`cluster-${p.id}`"
-            class="flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/60 hover:bg-gray-700/70"
+            class="admin-persons-list-card flex flex-col items-center p-1.5 rounded cursor-pointer transition-all border-2 border-transparent bg-gray-800/60 hover:bg-gray-700/70"
             :class="isSelected(p) ? 'border-yellow-500 bg-gray-700/80' : ''"
             @click="selectPerson(p)"
           >
             <div 
-              class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
+              class="admin-persons-list-avatar w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 cursor-pointer"
               @click.stop="selectPerson(p)"
             >
               <img v-if="getPersonThumb(p)" :src="getPersonThumb(p)" class="w-full h-full object-cover" />
@@ -152,15 +155,15 @@
                 {{ p.name }}
                 <span v-if="(p as any).convertedFromClusterId" class="text-[9px] text-blue-400 ml-0.5">✓</span>
               </div>
-              <div class="text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
+              <div class="admin-persons-meta text-[10px] text-gray-400">({{ p.faceCount || 0 }})</div>
             </div>
           </div>
-          <div v-if="!visibleClusterPersons.length && !loadingPersons && !loadingClusters" class="col-span-full text-gray-500 text-xs text-center py-4">暂无聚类</div>
-          <div v-if="loadingPersons || loadingClusters" class="col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
+          <div v-if="!visibleClusterPersons.length && !loadingPersons && !loadingClusters" class="admin-persons-empty-state col-span-full text-gray-500 text-xs text-center py-4">暂无聚类</div>
+          <div v-if="loadingPersons || loadingClusters" class="admin-persons-loading-hint col-span-full text-gray-500 text-xs text-center py-4">加载中...</div>
         </div>
 
         <!-- 选中人物的姓名 / 备注 / 删除按钮 -->
-        <div v-if="selectedItem" class="mt-3 pt-3 border-t border-gray-700 space-y-2">
+        <div v-if="selectedItem" class="admin-persons-editor mt-3 pt-3 border-t border-gray-700 space-y-2">
           <!-- 相似人物推荐（仅聚类显示，转换后的人物不显示） -->
           <div v-if="selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId && similarPersons.length > 0" class="mb-3">
             <div class="flex gap-2 overflow-x-auto pb-2">
@@ -168,10 +171,10 @@
                 v-for="person in similarPersons"
                 :key="person.id"
                 @click="mergeToExistingPerson(person)"
-                class="flex-shrink-0 px-2 py-1 rounded text-[10px] transition-colors"
+                class="admin-persons-suggestion-pill flex-shrink-0 px-2 py-1 rounded text-[10px] transition-colors"
                 :class="person.similarity >= 0.6
-                  ? 'bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-300 hover:text-blue-200'
-                  : 'bg-gray-600/20 hover:bg-gray-600/40 border border-gray-500/30 text-gray-400 hover:text-gray-300'"
+                  ? 'admin-persons-suggestion-pill--strong bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-300 hover:text-blue-200'
+                  : 'admin-persons-suggestion-pill--muted bg-gray-600/20 hover:bg-gray-600/40 border border-gray-500/30 text-gray-400 hover:text-gray-300'"
               >
                 {{ person.name || '未命名' }} ({{ (person.similarity * 100).toFixed(0) }}%)
               </button>
@@ -180,20 +183,20 @@
           <div>
             <div class="flex gap-2">
               <label class="flex-1 space-y-1">
-                <span class="text-[11px] text-gray-400">人物姓名</span>
+                <span class="admin-persons-field-label text-[11px] text-gray-400">人物姓名</span>
                 <input
                   v-model="selectedPersonName"
                   @blur="handleSelectedPersonNameBlur"
                   @keyup.enter="handleSelectedPersonNameEnter"
                   @keyup.esc="resetSelectedPersonName"
-                  class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  class="admin-field admin-persons-field w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                   :placeholder="(selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId) ? '输入新人物姓名' : '修改当前人物姓名'"
                 />
               </label>
               <button
                 v-if="selectedItem.type === 'cluster' && !(selectedItem as any).convertedFromClusterId"
                 @click="createPersonFromSelectedCluster"
-                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs whitespace-nowrap"
+                class="admin-button-primary px-2 py-1 rounded text-xs whitespace-nowrap"
                 :disabled="!selectedPersonName.trim() || savingPerson"
               >
                 {{ getButtonTextForSelectedCluster() }}
@@ -201,7 +204,7 @@
               <button
                 v-if="selectedItem.type === 'confirmed' || (selectedItem as any).convertedFromClusterId"
                 @click="showDeleteDialog"
-                class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                class="admin-button-soft p-1.5 rounded transition-colors"
                 title="删除人物"
               >
                 <svg class="w-4 h-4" fill="none" stroke="rgb(239 68 68)" viewBox="0 0 24 24">
@@ -212,13 +215,13 @@
           </div>
           <div v-if="selectedItem.type === 'confirmed' || (selectedItem as any).convertedFromClusterId">
             <label class="block space-y-1">
-              <span class="text-[11px] text-gray-400">人物备注</span>
+              <span class="admin-persons-field-label text-[11px] text-gray-400">人物备注</span>
               <textarea
                 v-model="editingDescription"
                 @blur="savePersonDescription"
                 @keyup.esc="cancelDescriptionEdit"
                 rows="2"
-                class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                class="admin-field admin-persons-field w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
                 placeholder="添加人物说明、关系、备注等"
               ></textarea>
             </label>
@@ -228,14 +231,14 @@
 
       <!-- 可拖拽分割线 -->
       <div
-        class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 active:bg-gray-500 transition-colors flex-shrink-0"
+        class="admin-persons-divider w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 active:bg-gray-500 transition-colors flex-shrink-0"
         style="touch-action: none; padding: 0 4px; margin: 0 -4px;"
         @mousedown="startResize"
         @touchstart.prevent="startResize"
       ></div>
 
       <!-- 右侧内容区域 -->
-      <div class="flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col min-w-0 relative">
+      <div class="admin-persons-panel admin-persons-main-panel flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col min-w-0 relative">
         <!-- 打开大图时的loading：只展示，不阻塞tab切换/按钮 -->
         <div
           v-if="showViewerLoadingOverlay"
@@ -243,7 +246,7 @@
         >
           <div class="h-8 w-8 rounded-full border-2 border-gray-400 border-t-transparent animate-spin opacity-50"></div>
         </div>
-        <div v-if="!selectedItem" class="text-gray-400 text-xs text-center py-8 flex-1 flex items-center justify-center">
+        <div v-if="!selectedItem" class="admin-persons-empty-state text-gray-400 text-xs text-center py-8 flex-1 flex items-center justify-center">
           请从左侧选择一个人物
         </div>
         <div
@@ -252,12 +255,12 @@
           tabindex="0"
           @keydown="handleFaceListKeydown"
         >
-          <div class="flex gap-1 mb-3 border-b border-gray-700 flex-shrink-0 items-center">
+          <div class="admin-persons-detail-tabs flex gap-1 mb-3 border-b border-gray-700 flex-shrink-0 items-center">
             <div class="flex gap-1 flex-1 overflow-x-auto">
               <button
                 v-if="selectedItem.type === 'confirmed' || selectedItem.type === 'cluster'"
-                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-                :class="tab === 'confirmed' ? 'bg-gray-700 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'"
+                class="admin-persons-detail-tab px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'confirmed' ? 'admin-persons-detail-tab--active admin-persons-detail-tab--primary bg-gray-700 text-blue-400 border-b-2 border-blue-400' : 'admin-persons-detail-tab--idle text-gray-400 hover:text-gray-200'"
                 @click="tab = 'confirmed'"
               >
                 <template v-if="selectedItem.type === 'confirmed'">
@@ -284,7 +287,7 @@
               <!-- 自动分配tab已隐藏，保留代码以备将来使用
               <button
                 v-if="selectedItem.type === 'confirmed'"
-                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                class="admin-persons-detail-tab px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
                 :class="tab === 'auto' ? 'bg-gray-700 text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-gray-200'"
                 @click="tab = 'auto'"
               >
@@ -293,8 +296,8 @@
               -->
               <button
                 v-if="selectedItem.type === 'confirmed'"
-                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-                :class="tab === 'similar' ? 'bg-gray-700 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:text-gray-200'"
+                class="admin-persons-detail-tab px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'similar' ? 'admin-persons-detail-tab--active admin-persons-detail-tab--success bg-gray-700 text-green-400 border-b-2 border-green-400' : 'admin-persons-detail-tab--idle text-gray-400 hover:text-gray-200'"
                 @click="tab = 'similar'"
               >
                 相似推荐
@@ -308,8 +311,8 @@
               </button>
               <button
                 v-if="selectedItem.type === 'confirmed'"
-                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-                :class="tab === 'albums' ? 'bg-gray-700 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                class="admin-persons-detail-tab px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'albums' ? 'admin-persons-detail-tab--active admin-persons-detail-tab--secondary bg-gray-700 text-purple-400 border-b-2 border-purple-400' : 'admin-persons-detail-tab--idle text-gray-400 hover:text-gray-200'"
                 @click="tab = 'albums'"
               >
                 套图推荐
@@ -322,8 +325,8 @@
                 </span>
               </button>
               <button
-                class="px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
-                :class="tab === 'unassigned' ? 'bg-gray-700 text-gray-300 border-b-2 border-gray-300' : 'text-gray-400 hover:text-gray-200'"
+                class="admin-persons-detail-tab px-3 py-1.5 rounded-t text-xs transition-colors whitespace-nowrap"
+                :class="tab === 'unassigned' ? 'admin-persons-detail-tab--active admin-persons-detail-tab--muted bg-gray-700 text-gray-300 border-b-2 border-gray-300' : 'admin-persons-detail-tab--idle text-gray-400 hover:text-gray-200'"
                 @click="tab = 'unassigned'"
               >
                 未分配
@@ -337,18 +340,18 @@
               </button>
             </div>
             <!-- 操作按钮区域 -->
-            <div class="flex gap-2 flex-shrink-0">
+            <div class="admin-persons-actionbar flex gap-2 flex-shrink-0">
                   <button
                     @click="selectAllCurrentTab"
                 :disabled="getCurrentTabFaceCount() === 0"
-                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                    class="admin-button-soft px-2 py-1 rounded text-[10px] disabled:opacity-50"
                   >
                     全选
                   </button>
                   <button
                 @click="invertSelection(getCurrentTabType())"
                 :disabled="getCurrentTabFaceCount() === 0"
-                    class="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-[10px] disabled:opacity-50"
+                    class="admin-button-soft px-2 py-1 rounded text-[10px] disabled:opacity-50"
                   >
                     反选
                   </button>
@@ -359,8 +362,8 @@
                 :class="[
                   'px-2 py-1 rounded text-[10px] focus:outline-none',
                   getClaimButtonState.isRemove
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : (getClaimButtonState.claimType === 'photo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'),
+                    ? 'admin-button-danger'
+                    : (getClaimButtonState.claimType === 'photo' ? 'admin-button-primary' : 'admin-persons-success-button'),
                   getClaimButtonState.disabled ? 'opacity-50' : ''
                 ]"
               >
@@ -374,7 +377,7 @@
                 v-if="tab === 'confirmed' && selectedItem?.type === 'cluster'"
                     @click="openClaimDialog('cluster')"
                     :disabled="selectedClusterFaces.size === 0"
-                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                    class="admin-button-primary px-2 py-1 rounded text-[10px] disabled:opacity-50"
                   >
                     认领为<template v-if="selectedClusterFaces.size > 0"> ({{ selectedClusterFaces.size }})</template>
                   </button>
@@ -382,7 +385,7 @@
                 v-if="tab === 'unassigned'"
                     @click="openClaimDialog('unassigned')"
                     :disabled="selectedUnassigned.size === 0"
-                    class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[10px] disabled:opacity-50"
+                    class="admin-button-primary px-2 py-1 rounded text-[10px] disabled:opacity-50"
                   >
                     认领为<template v-if="selectedUnassigned.size > 0"> ({{ selectedUnassigned.size }})</template>
                   </button>
@@ -391,7 +394,7 @@
                 v-if="tab === 'unassigned' && authStore.isAuthenticated"
                 @click="showCreatePersonPanel = !showCreatePersonPanel"
                 :disabled="selectedUnassigned.size === 0"
-                class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-[10px] disabled:opacity-50"
+                class="admin-persons-success-button px-2 py-1 rounded text-[10px] disabled:opacity-50"
               >
                 新建人物<template v-if="selectedUnassigned.size > 0"> ({{ selectedUnassigned.size }})</template>
               </button>
@@ -399,7 +402,7 @@
                 v-if="tab === 'confirmed'"
                     @click="removeSelectedConfirmed"
                     :disabled="selectedConfirmed.size === 0"
-                    class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-[10px] disabled:opacity-50"
+                    class="admin-button-danger px-2 py-1 rounded text-[10px] disabled:opacity-50"
                   >
                     移除<template v-if="selectedConfirmed.size > 0"> ({{ selectedConfirmed.size }})</template>
                   </button>
@@ -418,8 +421,8 @@
             <!-- 已认领照片 -->
             <div v-if="tab === 'confirmed' && selectedItem.type === 'confirmed'">
               <div class="mb-2">
-                <span class="text-xs text-gray-400">已认领的人脸</span>
-                <span v-if="loadingConfirmedFaces" class="ml-2 text-xs text-blue-400">加载中...</span>
+                <span class="admin-persons-section-note text-xs text-gray-400">已认领的人脸</span>
+                <span v-if="loadingConfirmedFaces" class="admin-persons-loading-hint ml-2 text-xs text-blue-400">加载中...</span>
               </div>
               <div 
                 ref="confirmedContainer"
@@ -434,8 +437,8 @@
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
-                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
-                  :class="selectedConfirmed.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
+                  class="admin-persons-face-card bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedConfirmed.has(f.id) ? 'admin-persons-face-card--selected border-2 border-blue-500' : 'admin-persons-face-card--idle border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'confirmed')"
                 >
                   <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="handleFaceDblClick(f)">
@@ -452,7 +455,7 @@
                     <button
                       v-if="!f.isRemoved"
                       @click.stop="setAsPersonAvatar(f)"
-                      class="absolute bottom-1 left-1 bg-purple-600 hover:bg-purple-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--secondary absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                       title="设为头像"
                     >
                       头像
@@ -461,7 +464,7 @@
                     <button
                       v-if="!f.isRemoved"
                       @click.stop="unassignFace(f.id)"
-                      class="absolute bottom-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--danger absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       移除
                     </button>
@@ -469,14 +472,14 @@
                     <button
                       v-if="f.isRemoved"
                       @click.stop="restoreFace(f.id)"
-                      class="absolute bottom-1 right-1 bg-green-600 hover:bg-green-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--success absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       恢复
                     </button>
                   </div>
                   <div class="p-1.5">
                     <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      class="admin-persons-photo-link text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                         @click.stop="openPhoto(f.photoId)"
                           @dblclick.stop="handleFaceDblClick(f)"
@@ -488,7 +491,7 @@
                 <div
                   v-for="n in facePlaceholderCounts.confirmed"
                   :key="`confirmed-ph-${n}`"
-                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                  class="admin-persons-skeleton h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
                 >
                   <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
                   <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
@@ -496,7 +499,7 @@
                 <!-- 框选遮罩 -->
                 <div
                   v-if="isSelecting && currentTab === 'confirmed'"
-                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  class="admin-persons-selection-box absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
                   :style="selectionBoxStyle"
                 ></div>
             </div>
@@ -505,13 +508,13 @@
               <!-- 直接指派的照片 -->
               <div v-if="assignedPhotos.length > 0" class="mt-6">
                 <div class="mb-2">
-                  <span class="text-xs text-gray-400">直接指派的照片 ({{ assignedPhotos.length }}张)</span>
+                  <span class="admin-persons-section-note text-xs text-gray-400">直接指派的照片 ({{ assignedPhotos.length }}张)</span>
                 </div>
                 <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 pb-4">
                 <div
                     v-for="(photo, index) in assignedPhotos"
                     :key="`assigned-${photo.id}`"
-                    class="bg-gray-700 rounded overflow-hidden border border-gray-600 relative group select-none"
+                    class="admin-persons-face-card admin-persons-face-card--idle bg-gray-700 rounded overflow-hidden border border-gray-600 relative group select-none"
                 >
                     <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewerForPhoto(photo.id)">
                     <img
@@ -522,14 +525,14 @@
                     />
                     <button
                         @click.stop="handleRemoveClick(photo.id)"
-                        class="absolute bottom-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px]"
+                        class="admin-persons-overlay-action admin-persons-overlay-action--danger absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px]"
                     >
                         移除
                     </button>
                   </div>
                   <div class="p-1.5">
                     <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      class="admin-persons-photo-link text-[10px] text-blue-300 truncate cursor-pointer"
                           :title="photo.filename"
                           @click.stop="openPhoto(photo.id)"
                           @dblclick.stop="openViewerForPhoto(photo.id)"
@@ -541,7 +544,7 @@
                 </div>
               </div>
 
-              <div v-if="confirmedFaces.length === 0 && assignedPhotos.length === 0" class="text-gray-400 text-xs text-center py-8">暂无已确认照片</div>
+              <div v-if="confirmedFaces.length === 0 && assignedPhotos.length === 0" class="admin-persons-empty-state text-gray-400 text-xs text-center py-8">暂无已确认照片</div>
             </div>
 
 <!-- 自动分配照片tab已隐藏，保留代码以备将来使用 -->
@@ -549,7 +552,7 @@
             <!-- 套图推荐 -->
             <div v-if="tab === 'albums' && selectedItem.type === 'confirmed'" class="h-full flex">
               <!-- 左列：相册列表 -->
-              <div :style="{ width: albumsPanelWidth + 'px', minWidth: '150px', maxWidth: '400px' }" class="bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0">
+              <div :style="{ width: albumsPanelWidth + 'px', minWidth: '150px', maxWidth: '400px' }" class="admin-persons-panel bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0">
                 <div class="mb-3">
                 </div>
                 <div class="flex-1 overflow-y-auto space-y-2">
@@ -557,7 +560,7 @@
                     v-for="album in albumRecommendations"
                     :key="album.albumId"
                     class="cursor-pointer rounded p-2 transition-colors"
-                    :class="selectedAlbum?.albumId === album.albumId ? 'bg-purple-600 text-white' : 'hover:bg-gray-700 text-gray-300'"
+                    :class="selectedAlbum?.albumId === album.albumId ? 'admin-persons-album-item admin-persons-album-item--active' : 'admin-persons-album-item text-gray-300'"
                     @click="selectAlbum(album)"
                   >
                     <div class="font-medium text-sm truncate flex items-center justify-between">
@@ -568,7 +571,7 @@
                 </div>
                     <div class="text-xs opacity-75 truncate">{{ album.albumPath }}</div>
               </div>
-                  <div v-if="albumRecommendations.length === 0" class="text-gray-400 text-xs text-center py-4">
+                  <div v-if="albumRecommendations.length === 0" class="admin-persons-empty-state text-gray-400 text-xs text-center py-4">
                     暂无相册推荐
               </div>
                 </div>
@@ -576,18 +579,18 @@
 
               <!-- 可拖拽分割线 -->
               <div
-                class="w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 active:bg-gray-500 transition-colors flex-shrink-0 mx-2"
+                class="admin-persons-divider w-1 bg-gray-700 cursor-col-resize hover:bg-gray-600 active:bg-gray-500 transition-colors flex-shrink-0 mx-2"
                 style="touch-action: none; padding: 0 4px; margin-left: 4px; margin-right: 4px;"
                 @mousedown="startResizeAlbums"
                 @touchstart.prevent="startResizeAlbums"
               ></div>
 
               <!-- 右列：选中相册的人脸图片 -->
-              <div class="flex-1 bg-gray-800 rounded-lg p-3 flex flex-col min-h-0">
+              <div class="admin-persons-panel flex-1 bg-gray-800 rounded-lg p-3 flex flex-col min-h-0">
 
                 <!-- right scroll wrapper: ensures vertical scrolling independent of outer layout -->
                 <div ref="albumContainer" class="flex-1 min-h-0 overflow-auto relative">
-                  <div v-if="loadingAlbums" class="absolute inset-0 z-40 bg-black/20 flex items-center justify-center">
+                    <div v-if="loadingAlbums" class="admin-persons-loading-overlay absolute inset-0 z-40 bg-black/20 flex items-center justify-center">
                     <div class="h-10 w-10 rounded-full border-4 border-gray-300 border-t-transparent animate-spin"></div>
                   </div>
               <div 
@@ -598,7 +601,7 @@
                     @mouseup="handleMouseUp($event, 'albums')"
                     @mouseleave="handleMouseUp($event, 'albums')"
                   >
-                    <div v-if="!selectedAlbum" class="col-span-full text-gray-400 text-sm text-center py-8">
+                    <div v-if="!selectedAlbum" class="admin-persons-empty-state col-span-full text-gray-400 text-sm text-center py-8">
                       请选择左侧的相册
                     </div>
                 <div
@@ -606,11 +609,11 @@
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
-                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
-                      :class="[selectedAlbumFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-purple-600/50', f.isHidden ? 'opacity-50' : '']"
+                  class="admin-persons-face-card bg-gray-700 rounded overflow-hidden border relative group select-none"
+                      :class="[selectedAlbumFaces.has(f.id) ? 'admin-persons-face-card--selected border-2 border-blue-500' : 'admin-persons-face-card--secondary border-purple-600/50', f.isHidden ? 'opacity-50' : '']"
                       @click="handleFaceClick($event, f.id, 'albums')"
                 >
-                      <div v-if="(f.similarity || 0) > 0" class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10 bg-purple-600/80">
+                  <div v-if="(f.similarity || 0) > 0" class="admin-persons-state-chip admin-persons-state-chip--secondary absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                     {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                   </div>
                     <div style="position:relative;width:100%;padding-top:100%;background:#111;" @dblclick.stop="openViewer(f, f.bestFace?.id ? { preferredFaceId: f.bestFace.id } : {})">
@@ -623,21 +626,21 @@
                     />
                     <!-- 已认领标签：人脸认领为绿色，图片认领为蓝色 -->
                     <div v-if="f.faces && f.faces.some((face: any) => face.personId === selectedPersonId)"
-                         class="absolute top-1 right-1 bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                         class="admin-persons-state-chip admin-persons-state-chip--success absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                       已认领
                     </div>
                     <div v-else-if="f.photoId && f.assignedPersonId === selectedPersonId"
-                         class="absolute top-1 right-1 bg-blue-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                         class="admin-persons-state-chip admin-persons-state-chip--primary absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                       已认领
                     </div>
                     <!-- 被他人认领（相似人脸全部被其他人认领，且图片未被当前人物认领） -->
                     <div v-else-if="f.faces && f.faces.length > 0 && f.faces.every((face: any) => face.personId && face.personId !== selectedPersonId) && f.assignedPersonId !== selectedPersonId"
-                         class="absolute top-1 right-1 bg-yellow-500 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                         class="admin-persons-state-chip admin-persons-state-chip--warning absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                       已认领
                     </div>
                     <!-- 已移除状态 -->
                     <div v-else-if="f.isRemoved"
-                         class="absolute top-1 right-1 bg-gray-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                         class="admin-persons-state-chip admin-persons-state-chip--muted absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                       已移除
                     </div>
                     <!-- 人脸认领按钮（绿色） -->
@@ -645,7 +648,7 @@
                         v-if="f.faces && f.faces.some((face: any) => face.personId !== selectedPersonId) && f.assignedPersonId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId)"
                         @click.stop="assignAlbumFace(f)"
                         :disabled="isAssigningFaceIds.has(f.bestFace?.id)"
-                        class="absolute bottom-1 right-1 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                        class="admin-persons-overlay-action admin-persons-overlay-action--success absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
                     >
                         <span v-if="isAssigningFaceIds.has(f.bestFace?.id)" class="inline-flex items-center">
                           <span class="animate-spin border-2 border-white border-t-transparent rounded-full w-3 h-3 mr-2"></span>
@@ -657,7 +660,7 @@
                     <button
                         v-if="f.bestFace?.id && selectedItem.type === 'confirmed'"
                         @click.stop="openClaimDialogForSingleFace(f.bestFace.id)"
-                        class="absolute bottom-1 right-[calc(100%+2px)] bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="admin-persons-overlay-action admin-persons-overlay-action--primary absolute bottom-1 right-[calc(100%+2px)] px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         认领为
                     </button>
@@ -666,7 +669,7 @@
                         v-if="f.photoId && f.assignedPersonId !== selectedPersonId && !(f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
                         @click.stop="assignPhoto(f.photoId)"
                         :disabled="isAssigningPhotoIds.has(f.photoId)"
-                        class="absolute bottom-1 left-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                        class="admin-persons-overlay-action admin-persons-overlay-action--primary absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
                         :class="{ 'left-12': f.bestFace && f.bestFace.personId !== selectedPersonId && !f.faces.some((face: any) => face.personId === selectedPersonId) }"
                     >
                         <span v-if="isAssigningPhotoIds.has(f.photoId)" class="inline-flex items-center">
@@ -679,14 +682,14 @@
                     <button
                         v-if="(f.photoId && f.assignedPersonId === selectedPersonId) || (f.faces && f.faces.some((face: any) => face.personId === selectedPersonId))"
                         @click.stop="unassignPhotoOrFace(f)"
-                        class="absolute bottom-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="admin-persons-overlay-action admin-persons-overlay-action--danger absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         移除
                     </button>
                   </div>
                   <div class="p-1.5">
                     <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      class="admin-persons-photo-link text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
                       @dblclick.stop="handleFaceDblClick(f)"
@@ -699,7 +702,7 @@
                 </div>
                 <div
                     v-if="isSelecting && currentTab === 'albums'"
-                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  class="admin-persons-selection-box absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
                   :style="selectionBoxStyle"
                 ></div>
               </div>
@@ -709,8 +712,8 @@
             <!-- 相似推荐 -->
             <div v-if="tab === 'similar' && selectedItem.type === 'confirmed'">
               <div class="mb-2">
-                <span class="text-xs text-gray-400">相似推荐（相似度≥50% + 同文件夹≥40%）</span>
-                <span v-if="loadingSimilarFaces" class="ml-2 text-xs text-green-400">加载中...</span>
+                <span class="admin-persons-section-note text-xs text-gray-400">相似推荐（相似度≥50% + 同文件夹≥40%）</span>
+                <span v-if="loadingSimilarFaces" class="admin-persons-loading-hint ml-2 text-xs text-green-400">加载中...</span>
               </div>
               <div 
                 ref="similarContainer"
@@ -725,12 +728,12 @@
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
-                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
-                  :class="selectedSimilar.has(f.id) ? 'border-2 border-blue-500' : (f._isSameFolder ? 'border-purple-600/50' : 'border-green-600/50')"
+                  class="admin-persons-face-card bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedSimilar.has(f.id) ? 'admin-persons-face-card--selected border-2 border-blue-500' : (f._isSameFolder ? 'admin-persons-face-card--secondary border-purple-600/50' : 'admin-persons-face-card--success border-green-600/50')"
                   @click="handleFaceClick($event, f.id, 'similar')"
                 >
-                  <div class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10"
-                       :class="f._isSameFolder ? 'bg-purple-600/80' : 'bg-green-600/80'">
+                  <div class="admin-persons-state-chip absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10"
+                       :class="f._isSameFolder ? 'admin-persons-state-chip--secondary' : 'admin-persons-state-chip--success'">
                     <template v-if="f._isSameFolder">
                       📁 {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                     </template>
@@ -748,7 +751,7 @@
                     />
                     <button
                       @click.stop="handleAssignClick(f.id, true)"
-                      class="absolute bottom-1 right-1 bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--primary absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
                     </button>
@@ -756,14 +759,14 @@
                     <button
                       v-if="selectedItem.type === 'confirmed'"
                       @click.stop="openClaimDialogForSingleFace(f.id)"
-                      class="absolute bottom-1 right-[calc(100%+2px)] bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--primary absolute bottom-1 right-[calc(100%+2px)] px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领为
                     </button>
                   </div>
                   <div class="p-1.5">
                     <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      class="admin-persons-photo-link text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
                       @dblclick.stop="handleFaceDblClick(f)"
@@ -775,7 +778,7 @@
                 <div
                   v-for="n in facePlaceholderCounts.similar"
                   :key="`similar-ph-${n}`"
-                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                  class="admin-persons-skeleton h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
                 >
                   <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
                   <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
@@ -783,56 +786,56 @@
                 <!-- 框选遮罩 -->
                 <div
                   v-if="isSelecting && currentTab === 'similar'"
-                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  class="admin-persons-selection-box absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
                   :style="selectionBoxStyle"
                 ></div>
               </div>
-              <div v-if="similarFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无相似推荐</div>
+              <div v-if="similarFaces.length === 0" class="admin-persons-empty-state text-gray-400 text-xs text-center py-8">暂无相似推荐</div>
             </div>
 
 
             <!-- 未分配照片 -->
             <div v-if="tab === 'unassigned'">
               <!-- 新建人物面板（仅管理员可见） -->
-              <div v-if="showCreatePersonPanel && authStore.isAuthenticated" class="mb-3 p-3 bg-gray-800 rounded-lg border border-green-600/50">
+              <div v-if="showCreatePersonPanel && authStore.isAuthenticated" class="admin-persons-create-panel mb-3 p-3 bg-gray-800 rounded-lg border border-green-600/50">
                 <div class="flex items-center gap-2 mb-2">
-                  <span class="text-sm text-green-400 font-medium">新建人物</span>
-                  <span class="text-xs text-gray-400">(将选中的人脸合并为新人物)</span>
+                  <span class="admin-persons-create-title text-sm text-green-400 font-medium">新建人物</span>
+                  <span class="admin-persons-note text-xs text-gray-400">(将选中的人脸合并为新人物)</span>
                 </div>
                 <div class="flex items-center gap-2">
                   <label class="flex-1 space-y-1">
-                    <span class="text-[11px] text-gray-400">人物名称</span>
+                    <span class="admin-persons-field-label text-[11px] text-gray-400">人物名称</span>
                     <input
                       v-model="newPersonName"
                       type="text"
                       placeholder="输入要创建的人物名称"
-                      class="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                      class="admin-field admin-persons-field w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
                       @keyup.enter="createPersonFromSelectedUnassigned"
                     />
                   </label>
                   <button
                     @click="createPersonFromSelectedUnassigned"
                     :disabled="createPersonLoading || !newPersonName.trim() || selectedUnassigned.size === 0"
-                    class="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="admin-persons-success-button px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {{ createPersonLoading ? '创建中...' : (existingPersonForNewName ? '加入人物' : '新建人物') }}
                   </button>
                   <button
                     @click="showCreatePersonPanel = false"
-                    class="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 rounded text-sm"
+                    class="admin-button-soft px-3 py-1.5 rounded text-sm"
                   >
                     取消
                   </button>
                 </div>
-                <div v-if="selectedUnassigned.size > 0" class="mt-2 text-xs text-gray-400">
+                <div v-if="selectedUnassigned.size > 0" class="admin-persons-note mt-2 text-xs text-gray-400">
                   已选择 {{ selectedUnassigned.size }} 张人脸
                 </div>
               </div>
               <div class="mb-2">
-                <span class="text-xs text-gray-400">所有未分配的照片</span>
-                <span v-if="loadingUnassignedFaces" class="ml-2 text-xs text-gray-400">加载中...</span>
+                <span class="admin-persons-section-note text-xs text-gray-400">所有未分配的照片</span>
+                <span v-if="loadingUnassignedFaces" class="admin-persons-loading-hint ml-2 text-xs text-gray-400">加载中...</span>
               </div>
-              <div v-if="unassignedLoadedOnce && !loadingUnassignedFaces && unassignedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">
+              <div v-if="unassignedLoadedOnce && !loadingUnassignedFaces && unassignedFaces.length === 0" class="admin-persons-empty-state text-gray-400 text-xs text-center py-8">
                 暂无未分配照片
               </div>
               <div 
@@ -849,11 +852,11 @@
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
-                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
-                  :class="selectedUnassigned.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
+                  class="admin-persons-face-card bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedUnassigned.has(f.id) ? 'admin-persons-face-card--selected border-2 border-blue-500' : 'admin-persons-face-card--idle border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'unassigned')"
                 >
-                  <div class="absolute top-1 right-1 bg-gray-600/80 px-1.5 py-0.5 rounded text-[10px] z-10">
+                  <div class="admin-persons-state-chip admin-persons-state-chip--muted absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                     <template v-if="f.similarity !== undefined && f.similarity !== null">
                       {{ ((f.similarity || 0) * 100).toFixed(0) }}%
                     </template>
@@ -872,21 +875,21 @@
                     <button
                       v-if="selectedItem.type === 'confirmed'"
                       @click.stop="handleAssignClick(f.id, true)"
-                      class="absolute bottom-1 right-1 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--success absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领
                     </button>
                     <button
                       v-if="selectedItem.type === 'confirmed'"
                       @click.stop="openClaimDialogForSingleFace(f.id)"
-                      class="absolute bottom-1 right-[calc(100%+2px)] bg-blue-600 hover:bg-blue-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="admin-persons-overlay-action admin-persons-overlay-action--primary absolute bottom-1 right-[calc(100%+2px)] px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       认领为
                     </button>
                   </div>
                   <div class="p-1.5">
                     <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      class="admin-persons-photo-link text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
                       @dblclick.stop="handleFaceDblClick(f)"
@@ -898,7 +901,7 @@
                 <div
                   v-for="n in facePlaceholderCounts.unassigned"
                   :key="`unassigned-ph-${n}`"
-                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                  class="admin-persons-skeleton h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
                 >
                   <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
                   <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
@@ -906,17 +909,17 @@
                 <!-- 框选遮罩 -->
                 <div
                   v-if="isSelecting && currentTab === 'unassigned'"
-                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  class="admin-persons-selection-box absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
                   :style="selectionBoxStyle"
                 ></div>
               </div>
-              <div v-if="unassignedFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无未分配照片</div>
+              <div v-if="unassignedFaces.length === 0" class="admin-persons-empty-state text-gray-400 text-xs text-center py-8">暂无未分配照片</div>
             </div>
 
             <!-- 聚类照片（未确认聚类） -->
             <div v-if="tab === 'confirmed' && selectedItem.type === 'cluster'">
               <div class="mb-2">
-                <span class="text-xs text-gray-400">聚类中的人脸</span>
+                <span class="admin-persons-section-note text-xs text-gray-400">聚类中的人脸</span>
               </div>
               <div 
                 ref="clusterContainer"
@@ -931,8 +934,8 @@
                   :key="f.id"
                   :data-face-id="f.id"
                   :data-face-index="index"
-                  class="bg-gray-700 rounded overflow-hidden border relative group select-none"
-                  :class="selectedClusterFaces.has(f.id) ? 'border-2 border-blue-500' : 'border-gray-600'"
+                  class="admin-persons-face-card bg-gray-700 rounded overflow-hidden border relative group select-none"
+                  :class="selectedClusterFaces.has(f.id) ? 'admin-persons-face-card--selected border-2 border-blue-500' : 'admin-persons-face-card--idle border-gray-600'"
                   @click="handleFaceClick($event, f.id, 'cluster')"
                 >
                   <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="handleFaceDblClick(f)">
@@ -945,25 +948,25 @@
                     />
                     <!-- 已认领标识：人脸级别认领（绿色）或图片级别认领（琥珀色） -->
                     <div v-if="f.personId && f.personId !== selectedPersonId"
-                         class="absolute top-1 right-1 bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                         class="admin-persons-state-chip admin-persons-state-chip--success absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                       已认领
                     </div>
                     <div v-else-if="f.assignedPersonId && f.assignedPersonId !== selectedPersonId"
-                         class="absolute top-1 right-1 bg-amber-600 text-white px-1.5 py-0.5 rounded text-[10px] z-10">
+                         class="admin-persons-state-chip admin-persons-state-chip--warning absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] z-10">
                       已认领
                     </div>
                     <!-- 移除按钮：对于已被其他人认领的照片，显示移除按钮 -->
                     <button
                         v-if="(f.personId && f.personId !== selectedPersonId) || (f.assignedPersonId && f.assignedPersonId !== selectedPersonId)"
                         @click.stop="unassignPhotoOrFace(f)"
-                        class="absolute bottom-1 right-1 bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="admin-persons-overlay-action admin-persons-overlay-action--danger absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       移除
                     </button>
                   </div>
                   <div class="p-1.5">
                     <div
-                      class="text-[10px] text-blue-300 truncate cursor-pointer"
+                      class="admin-persons-photo-link text-[10px] text-blue-300 truncate cursor-pointer"
                       :title="f.photoFilename"
                       @click.stop="openPhoto(f.photoId)"
                       @dblclick.stop="handleFaceDblClick(f)"
@@ -975,7 +978,7 @@
                 <div
                   v-for="n in facePlaceholderCounts.cluster"
                   :key="`cluster-ph-${n}`"
-                  class="h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
+                  class="admin-persons-skeleton h-40 rounded bg-gray-700/40 border border-gray-700/60 animate-pulse overflow-hidden relative"
                 >
                   <div class="absolute top-0 left-0 right-0 h-32 bg-gray-600/50"></div>
                   <div class="absolute bottom-3 left-2 right-2 h-3 bg-gray-600/60 rounded"></div>
@@ -983,11 +986,11 @@
                 <!-- 框选遮罩 -->
                 <div
                   v-if="isSelecting && currentTab === 'cluster'"
-                  class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                  class="admin-persons-selection-box absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none z-50"
                   :style="selectionBoxStyle"
                 ></div>
               </div>
-              <div v-if="personFaces.length === 0" class="text-gray-400 text-xs text-center py-8">暂无照片</div>
+              <div v-if="personFaces.length === 0" class="admin-persons-empty-state text-gray-400 text-xs text-center py-8">暂无照片</div>
             </div>
           </div>
         </div>
@@ -1004,41 +1007,41 @@
   />
 
   <!-- 删除人物确认对话框 -->
-  <div v-if="deleteDialogVisible" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" @click.self="deleteDialogVisible = false">
-    <div class="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
-      <h3 class="text-lg font-semibold text-white mb-4">删除人物</h3>
-      <p class="text-gray-300 mb-6">
-        确定要删除人物 <span class="font-semibold text-white">"{{ selectedItem?.name || '未命名' }}"</span> 吗？
+  <div v-if="deleteDialogVisible" class="fixed inset-0 admin-modal-backdrop flex items-center justify-center z-50" @click.self="deleteDialogVisible = false">
+    <div class="admin-modal-card admin-persons-modal p-6 max-w-md w-full mx-4">
+      <h3 class="text-lg font-semibold mb-4">删除人物</h3>
+      <p class="admin-persons-note mb-6">
+        确定要删除人物 <span class="font-semibold text-[color:var(--pe-admin-text-primary)]">"{{ selectedItem?.name || '未命名' }}"</span> 吗？
       </p>
 
       <div class="space-y-3 mb-6">
-        <div class="p-3 bg-amber-900/20 border border-amber-600/30 rounded">
+        <div class="admin-persons-warning-card p-3 rounded">
           <div class="font-medium text-amber-400 mb-1">解散人物</div>
-          <div class="text-sm text-gray-300">将所有关联人脸重新设为未分配状态，然后删除人物记录。</div>
+          <div class="text-sm admin-persons-note">将所有关联人脸重新设为未分配状态，然后删除人物记录。</div>
         </div>
 
-        <div class="p-3 bg-red-900/20 border border-red-600/30 rounded">
+        <div class="admin-persons-danger-card p-3 rounded">
           <div class="font-medium text-red-400 mb-1">删除人物</div>
-          <div class="text-sm text-gray-300">直接删除人物记录，人脸仍保持已分配状态但指向不存在的人物。</div>
+          <div class="text-sm admin-persons-note">直接删除人物记录，人脸仍保持已分配状态但指向不存在的人物。</div>
         </div>
       </div>
 
       <div class="flex gap-3 justify-end">
         <button
           @click="deleteDialogVisible = false"
-          class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-gray-200 rounded transition-colors"
+          class="admin-button-soft px-4 py-2 rounded transition-colors"
         >
           取消
         </button>
         <button
           @click="confirmDissolvePerson"
-          class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors"
+          class="admin-button-warning px-4 py-2 rounded transition-colors"
         >
           解散人物
         </button>
         <button
           @click="confirmDeletePerson"
-          class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+          class="admin-button-danger px-4 py-2 rounded transition-colors"
         >
           删除人物
         </button>
@@ -1054,16 +1057,16 @@
     @click.self="closeClaimDialog"
   >
     <!-- 背景蒙版：只稍微暗一点，不模糊 -->
-    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="absolute inset-0 admin-persons-claim-backdrop"></div>
     
     <!-- 弹窗内容：毛玻璃效果 -->
-    <div class="relative bg-gray-800/80 backdrop-blur-xl rounded-lg shadow-xl w-[90vw] max-w-4xl h-[80vh] max-h-[800px] flex flex-col border border-gray-700/50">
+    <div class="admin-modal-card admin-persons-claim-dialog relative w-[90vw] max-w-4xl h-[80vh] max-h-[800px] flex flex-col">
       <!-- 标题栏 -->
-      <div class="flex items-center justify-between p-4 border-b border-gray-700/50">
-        <h2 class="text-lg font-medium text-gray-100">认领为</h2>
+      <div class="flex items-center justify-between p-4 admin-persons-claim-head">
+        <h2 class="text-lg font-medium">认领为</h2>
         <button
           @click="closeClaimDialog"
-          class="text-gray-300 hover:text-white transition-colors"
+          class="admin-persons-claim-close transition-colors"
         >
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -1072,22 +1075,22 @@
       </div>
 
       <!-- 搜索框和操作按钮 -->
-      <div class="p-4 border-b border-gray-700/50 flex items-center gap-2">
+      <div class="p-4 admin-persons-claim-head flex items-center gap-2">
         <label class="flex-1 space-y-1">
-          <span class="text-[11px] text-gray-400">搜索人物</span>
+          <span class="text-[11px] admin-persons-note">搜索人物</span>
           <input
             ref="claimDialogSearchInput"
             v-model="claimDialogSearchKeyword"
             @input="filterClaimDialogPersons"
             @keyup.enter="handleClaimDialogEnter"
             placeholder="输入人物姓名关键词"
-            class="w-full px-3 py-2 bg-gray-700/50 border border-gray-600/50 rounded text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 backdrop-blur-sm"
+            class="w-full px-3 py-2 admin-persons-claim-input rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </label>
         <button
           @click="handleClaimDialogAction"
           :disabled="!canCreatePersonFromClaimDialog && selectedClaimPersonId === null"
-          class="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          class="admin-persons-success-button px-3 py-2 rounded text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {{ canCreatePersonFromClaimDialog ? '新建人物' : '加入人物' }}
         </button>
@@ -1097,10 +1100,10 @@
       <div 
         class="flex-1 overflow-y-auto p-2"
       >
-        <div v-if="loadingClaimDialogPersons" class="flex items-center justify-center h-full">
+        <div v-if="loadingClaimDialogPersons" class="admin-persons-claim-loading flex items-center justify-center h-full">
           <div class="h-8 w-8 rounded-full border-2 border-gray-300 border-t-transparent animate-spin"></div>
         </div>
-        <div v-else-if="filteredClaimDialogPersons.length === 0" class="text-gray-300 text-center py-8">
+        <div v-else-if="filteredClaimDialogPersons.length === 0" class="admin-persons-note text-center py-8">
           暂无人物
         </div>
         <div
@@ -1111,12 +1114,12 @@
             v-for="person in filteredClaimDialogPersons"
             :key="person.id"
             @click.stop="selectClaimPerson(person)"
-            class="flex flex-col items-center p-1.5 rounded bg-gray-700/30 hover:bg-gray-700/50 cursor-pointer transition-colors border-2 backdrop-blur-sm"
+            class="admin-persons-claim-card flex flex-col items-center p-1.5 rounded cursor-pointer transition-colors border-2"
             :class="selectedClaimPersonId === person.id
-              ? 'border-white bg-white/20' 
-              : 'border-gray-600/50 hover:border-gray-500/50'"
+              ? 'admin-persons-claim-card--active'
+              : 'admin-persons-claim-card--idle'"
           >
-            <div class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden mb-1 relative">
+            <div class="w-12 h-12 rounded-full admin-persons-claim-avatar overflow-hidden mb-1 relative">
               <img
                 v-if="getPersonThumb(person)"
                 :src="getPersonThumb(person)"
@@ -1133,12 +1136,12 @@
             <div class="text-center w-full">
               <div 
                 class="text-xs truncate leading-tight"
-                :class="selectedClaimPersonId === person.id ? 'text-white font-medium' : 'text-gray-200'"
+                :class="selectedClaimPersonId === person.id ? 'text-[color:var(--pe-admin-text-primary)] font-medium' : 'admin-persons-note'"
                 :title="person.name || '未命名'"
               >
-                {{ person.name || '未命名' }} <span :class="selectedClaimPersonId === person.id ? 'text-gray-200' : 'text-gray-400'">({{ person.faceCount || 0 }})</span>
+                {{ person.name || '未命名' }} <span :class="selectedClaimPersonId === person.id ? 'text-[color:var(--pe-admin-text-secondary)]' : 'admin-persons-note'">({{ person.faceCount || 0 }})</span>
               </div>
-              <div v-if="person.similarity !== undefined" class="text-[10px] text-blue-300 mt-0.5">
+              <div v-if="person.similarity !== undefined" class="admin-persons-photo-link text-[10px] text-blue-300 mt-0.5">
                 {{ (person.similarity * 100).toFixed(0) }}%
               </div>
             </div>
@@ -1147,9 +1150,11 @@
       </div>
 
       <!-- 底部操作栏 -->
-      <div class="p-4 border-t border-gray-700/50">
-        <div class="text-sm text-gray-300 text-center">
+      <div class="p-4 admin-persons-claim-head">
+        <div class="text-sm admin-persons-note text-center">
           点击人物卡片即可直接认领人脸 | 按回车键确认选择
+        </div>
+      </div>
         </div>
       </div>
     </div>
@@ -1164,14 +1169,14 @@
       @contextmenu.prevent="closePersonContextMenu"
     >
       <div
-        class="absolute person-glass-menu rounded-lg shadow-2xl z-10 w-44"
+        class="absolute person-glass-menu admin-persons-context-menu rounded-lg shadow-2xl z-10 w-44"
         :style="{ left: personContextMenu.x + 'px', top: personContextMenu.y + 'px' }"
         @click.stop
       >
         <div class="py-1">
           <button
             @click="togglePersonHidden(personContextMenu.person!)"
-            class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-white/10 flex items-center gap-2 transition-colors"
+            class="admin-persons-context-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-white/10 flex items-center gap-2 transition-colors"
           >
             <svg v-if="personContextMenu.person?.hidden" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
             <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
@@ -1179,7 +1184,7 @@
           </button>
           <button
             @click="() => { selectPerson(personContextMenu.person!); closePersonContextMenu(); showDeleteDialog() }"
-            class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-white/10 flex items-center gap-2 transition-colors"
+            class="admin-persons-context-menu__button admin-persons-context-menu__button--danger w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-white/10 flex items-center gap-2 transition-colors"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             删除
@@ -1191,6 +1196,7 @@
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api, personApi, configApi } from '@/api'

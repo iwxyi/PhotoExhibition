@@ -1,30 +1,33 @@
 <template>
-  <div class="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
+  <div class="min-h-screen admin-shell admin-face-batch-page">
+    <AdminStyleChrome />
+    <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="admin-face-batch-workspace flex flex-col gap-4 min-h-[calc(100vh-10rem)]">
     <!-- 头部 -->
-    <div class="flex-shrink-0 px-4 sm:px-6 lg:px-8 py-4 border-b border-gray-700 flex items-center justify-between">
-      <h1 class="text-xl font-light">批量分配人脸</h1>
-      <router-link to="/admin/persons" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">返回</router-link>
+    <div class="admin-face-batch-hero flex-shrink-0 px-4 sm:px-5 py-4 flex items-center justify-between gap-4">
+      <h1 class="text-2xl font-light admin-page-title">批量分配人脸</h1>
+      <router-link to="/admin/persons" class="admin-button-soft admin-page-back-link px-3 py-1.5 rounded text-sm">返回</router-link>
     </div>
 
     <!-- 主内容区 -->
-    <div class="flex-1 flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 py-4">
+    <div class="admin-face-batch-panel flex-1 flex flex-col overflow-hidden px-4 sm:px-5 py-4">
       <!-- 推荐人物列表 + 搜索新建 -->
       <div class="flex-shrink-0 mb-4">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-medium">是TA吗？(推荐人物)</h2>
           <!-- 快捷键提示 -->
           <div class="relative group">
-            <button class="text-gray-400 hover:text-gray-300 cursor-help">
+            <button class="admin-face-batch-help-trigger cursor-help">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </button>
-            <div class="absolute right-0 top-full mt-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-10">
+            <div class="admin-face-batch-shortcuts absolute right-0 top-full mt-2 px-3 py-2 rounded-lg text-sm opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-10">
               <div class="space-y-1">
-                <div><kbd class="px-1.5 py-0.5 bg-gray-700 rounded text-xs">1-9</kbd> 选择推荐人物</div>
-                <div><kbd class="px-1.5 py-0.5 bg-gray-700 rounded text-xs">Enter</kbd> 分配/创建</div>
-                <div><kbd class="px-1.5 py-0.5 bg-gray-700 rounded text-xs">Space</kbd> 跳过</div>
-                <div><kbd class="px-1.5 py-0.5 bg-gray-700 rounded text-xs">←→</kbd> 翻页</div>
+                <div><kbd class="admin-face-batch-kbd px-1.5 py-0.5 rounded text-xs">1-9</kbd> 选择推荐人物</div>
+                <div><kbd class="admin-face-batch-kbd px-1.5 py-0.5 rounded text-xs">Enter</kbd> 分配/创建</div>
+                <div><kbd class="admin-face-batch-kbd px-1.5 py-0.5 rounded text-xs">Space</kbd> 跳过</div>
+                <div><kbd class="admin-face-batch-kbd px-1.5 py-0.5 rounded text-xs">←→</kbd> 翻页</div>
               </div>
             </div>
           </div>
@@ -35,7 +38,7 @@
             v-for="(person, index) in recommendedPersons"
             :key="'rec-' + person.personId"
             @click="assignToRecommendedPerson(person)"
-            class="flex-shrink-0 flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors bg-gray-800 hover:bg-gray-700"
+            class="admin-face-batch-person-card flex-shrink-0 flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors bg-gray-800 hover:bg-gray-700"
           >
             <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-600 flex-shrink-0">
               <img
@@ -51,11 +54,11 @@
             </div>
             <div class="min-w-0">
               <p class="font-medium truncate">{{ person.personName }}</p>
-              <p class="text-xs text-gray-400">相似度 {{ Math.round(person.similarity * 100) }}%</p>
+              <p class="admin-face-batch-meta text-xs">相似度 {{ Math.round(person.similarity * 100) }}%</p>
             </div>
             <span
               v-if="index < 9"
-              class="px-2 py-0.5 bg-gray-900 rounded text-xs font-mono text-gray-400"
+              class="admin-face-batch-index px-2 py-0.5 rounded text-xs font-mono"
             >
               {{ index + 1 }}
             </span>
@@ -65,7 +68,7 @@
             v-for="person in searchResults"
             :key="'search-' + person.id"
             @click="assignToSearchResult(person)"
-            class="flex-shrink-0 flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors bg-gray-800 hover:bg-gray-700 border"
+            class="admin-face-batch-person-card flex-shrink-0 flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors bg-gray-800 hover:bg-gray-700 border"
             :class="selectedPersonId === person.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-transparent'"
           >
             <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-600 flex-shrink-0">
@@ -82,14 +85,14 @@
             </div>
             <div class="min-w-0">
               <p class="font-medium truncate">{{ person.name }}</p>
-              <p v-if="person.similarity !== undefined" class="text-xs text-gray-400">相似度 {{ Math.round(person.similarity * 100) }}%</p>
+              <p v-if="person.similarity !== undefined" class="admin-face-batch-meta text-xs">相似度 {{ Math.round(person.similarity * 100) }}%</p>
             </div>
           </div>
           <!-- 新建人物按钮 -->
           <div
             v-if="searchQuery && !isExactMatch"
             @click="createAndAssignPerson"
-            class="flex-shrink-0 flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors bg-green-900/50 hover:bg-green-800/50 border"
+            class="admin-face-batch-person-card flex-shrink-0 flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors bg-green-900/50 hover:bg-green-800/50 border"
             :class="selectedPersonId === null ? 'border-green-500 ring-1 ring-green-500' : 'border-green-700'"
           >
             <div class="w-12 h-12 rounded-full overflow-hidden bg-green-700 flex-shrink-0 flex items-center justify-center">
@@ -105,7 +108,7 @@
         <!-- 搜索框 + 跳过按钮 -->
         <div class="mt-2 flex items-center justify-between gap-2">
           <label class="flex-1 max-w-xs space-y-1">
-            <span class="text-[11px] text-gray-400">搜索或新建人物</span>
+            <span class="admin-face-batch-meta text-[11px]">搜索或新建人物</span>
             <input
               ref="assignSearchInput"
               v-model="searchQuery"
@@ -113,18 +116,18 @@
               @keydown.enter="onEnterKey"
               type="text"
               placeholder="输入人物姓名关键词"
-              class="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full"
+              class="admin-face-batch-input px-3 py-1.5 rounded text-sm w-full"
             />
           </label>
           <button
             @click="skipCluster"
-            class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+            class="admin-button-soft px-3 py-1.5 rounded text-sm"
             title="空格键跳过"
           >
             跳过
           </button>
         </div>
-        <div v-if="!recommendedPersons.length && !searchQuery" class="text-gray-500 text-sm py-2">
+        <div v-if="!recommendedPersons.length && !searchQuery" class="admin-face-batch-empty text-sm py-2">
           没有找到相似度超过10%的推荐人物
         </div>
       </div>
@@ -134,7 +137,7 @@
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-lg font-medium">
             当前聚类
-            <span v-if="currentCluster" class="text-gray-400 text-sm ml-2">
+            <span v-if="currentCluster" class="admin-face-batch-meta text-sm ml-2">
               (共 {{ currentCluster.count }} 张人脸)
             </span>
           </h2>
@@ -146,7 +149,7 @@
             <div
               v-for="(face, index) in currentClusterFaces"
               :key="face.id"
-              class="aspect-square bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 relative group"
+              class="admin-face-batch-face-card aspect-square bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 relative group"
               @click="openPhotoViewer(index)"
               @click.right.prevent="openPhotoViewer(index)"
             >
@@ -166,7 +169,7 @@
         <div v-else-if="loadingCluster" class="flex-1 flex items-center justify-center">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
-        <div v-else class="flex-1 flex items-center justify-center text-gray-500">
+        <div v-else class="flex-1 flex items-center justify-center admin-face-batch-empty">
           <div class="text-center">
             <p>没有更多未分配的人脸聚类了</p>
             <p class="text-sm mt-2">已完成所有聚类的分配</p>
@@ -178,7 +181,7 @@
           <button
             @click="goToPage(currentPage - 1)"
             :disabled="currentPage === 0"
-            class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            class="admin-button-soft px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             ← 上一个
           </button>
@@ -189,7 +192,7 @@
                 v-else
                 @click="goToPage(page as number)"
                 class="w-8 h-8 rounded text-sm"
-                :class="currentPage === page ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600'"
+                :class="currentPage === page ? 'admin-face-batch-page-btn admin-face-batch-page-btn--active' : 'admin-face-batch-page-btn admin-face-batch-page-btn--idle'"
               >
                 {{ page }}
               </button>
@@ -198,13 +201,13 @@
           <button
             @click="goToPage(currentPage + 1)"
             :disabled="!hasMore"
-            class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            class="admin-button-soft px-3 py-1.5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             下一个 →
           </button>
           <div class="flex items-center gap-1 ml-2">
             <label class="space-y-1">
-              <span class="text-[11px] text-gray-400">页码</span>
+              <span class="admin-face-batch-meta text-[11px]">页码</span>
               <input
                 v-model.number="pageInput"
                 @keyup.enter="goToPage(pageInput - 1)"
@@ -212,10 +215,10 @@
                 min="1"
                 :max="totalClusters"
                 placeholder="输入页码"
-                class="w-14 px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+                class="admin-face-batch-input w-14 px-2 py-1.5 rounded text-sm"
               />
             </label>
-            <span class="text-sm text-gray-400">/ {{ totalClusters }}</span>
+            <span class="admin-face-batch-meta text-sm">/ {{ totalClusters }}</span>
           </div>
         </div>
       </div>
@@ -231,10 +234,13 @@
       :open-options="viewerOpenOptions"
       @update:visible="viewerVisible = $event"
     />
+    </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, aiApi, configApi } from '@/api'
 import PhotoViewer from '@/components/PhotoViewer.vue'

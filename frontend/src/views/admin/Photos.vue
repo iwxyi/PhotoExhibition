@@ -28,7 +28,7 @@
             </select>
           </label>
           <button @click="load" :disabled="loading" class="admin-button-soft px-4 py-2 rounded-lg text-sm disabled:opacity-50">查询</button>
-          <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50">删除</button>
+          <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="admin-button-danger px-4 py-2 rounded-lg text-sm disabled:opacity-50">删除</button>
         </div>
 
         <div class="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
@@ -132,8 +132,8 @@
                 :key="pnum"
                 @click="jumpTo(pnum)"
                 :disabled="loading"
-                class="px-3 py-1 rounded border border-gray-700"
-                :class="pnum === page ? 'bg-blue-600 border-blue-500 text-white' : 'admin-photos-page-btn'"
+                class="admin-photos-page-btn px-3 py-1 rounded border border-gray-700"
+                :class="pnum === page ? 'admin-photos-page-btn--active' : 'admin-photos-page-btn--idle'"
               >
                 {{ pnum + 1 }}
               </button>
@@ -154,10 +154,10 @@
         <button @click="closeFaceDialog" class="admin-button-soft px-3 py-1 rounded text-sm">关闭</button>
       </div>
 
-      <div v-if="faceLoading" class="text-gray-400">加载中...</div>
-      <div v-else-if="!faces.length" class="text-gray-400">未检测到人脸</div>
+        <div v-if="faceLoading" class="admin-photos-note">加载中...</div>
+      <div v-else-if="!faces.length" class="admin-photos-note">未检测到人脸</div>
       <div v-else class="space-y-4">
-        <div v-for="face in faces" :key="face.id" class="border border-gray-700 rounded-lg p-4">
+        <div v-for="face in faces" :key="face.id" class="admin-photos-face-card rounded-lg p-4">
           <div class="flex items-start gap-4">
             <!-- 圆形人脸照片 - 更大尺寸，针对人脸居中放大裁切 -->
             <div class="flex-shrink-0">
@@ -169,7 +169,7 @@
               </div>
               <div
                 v-else
-                class="w-28 h-28 rounded-full admin-photos-avatar flex items-center justify-center text-gray-500 text-xs"
+                class="w-28 h-28 rounded-full admin-photos-avatar flex items-center justify-center admin-photos-note text-xs"
               >
                 无图
               </div>
@@ -177,7 +177,7 @@
             <!-- 名字和说明输入框 -->
             <div class="flex-1 min-w-0 flex flex-col gap-3">
               <label class="block space-y-1">
-                <span class="text-xs text-gray-400">关联人物姓名</span>
+                <span class="text-xs admin-photos-note">关联人物姓名</span>
                 <input
                   v-model="face.personName"
                   placeholder="留空则移除当前人物关联"
@@ -185,7 +185,7 @@
                 />
               </label>
               <label class="block space-y-1">
-                <span class="text-xs text-gray-400">备注</span>
+                <span class="text-xs admin-photos-note">备注</span>
                 <textarea
                   v-model="face.personDescription"
                   rows="2"
@@ -194,12 +194,12 @@
                 ></textarea>
               </label>
               <!-- 位置、置信度信息 -->
-              <div class="text-xs text-gray-500">
+              <div class="text-xs admin-photos-note">
                 位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
                 <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
               </div>
               <div class="text-right">
-                <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
+                <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="admin-button-primary px-3 py-1 rounded text-sm disabled:opacity-50">
                   {{ savingFaceId===face.id ? '保存中...' : '保存' }}
                 </button>
               </div>
@@ -209,13 +209,13 @@
       </div>
       <div class="mt-4 flex items-center justify-between">
         <button
-          class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm disabled:opacity-50"
+          class="admin-button-warning px-3 py-1 rounded text-sm disabled:opacity-50"
           :disabled="rescanLoading"
           @click="rescanFaces"
         >
           {{ rescanLoading ? '重建中...' : '重建人脸' }}
         </button>
-        <span class="text-xs text-gray-400" v-if="rescanMessage">{{ rescanMessage }}</span>
+        <span class="text-xs admin-photos-note" v-if="rescanMessage">{{ rescanMessage }}</span>
       </div>
     </div>
   </div>

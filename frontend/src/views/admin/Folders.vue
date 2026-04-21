@@ -1,14 +1,14 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
+  <div class="min-h-screen admin-shell admin-folders-page">
     <AdminStyleChrome />
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-light">数据迁移</h1>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
+      <div class="admin-folders-hero flex items-center justify-between gap-4">
+        <h1 class="text-2xl font-light admin-page-title">数据迁移</h1>
+        <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
       </div>
 
       <!-- 移动/重命名 -->
-      <div class="glass-panel p-6 space-y-4">
+      <div class="glass-panel admin-folders-panel p-6 space-y-4">
         <h2 class="text-xl font-light">移动 / 重命名目录</h2>
         <p class="text-sm text-gray-300">请输入相对当前根目录的路径，例如 `分类/相册名`。无需也不建议输入绝对路径。</p>
         <div class="space-y-3">
@@ -43,7 +43,7 @@
       </div>
 
       <!-- 删除目录 -->
-      <div class="glass-panel p-6 space-y-4">
+      <div class="glass-panel admin-folders-panel admin-folders-danger p-6 space-y-4">
         <h2 class="text-xl font-light text-red-300">删除目录（谨慎）</h2>
         <p class="text-sm text-gray-300">删除范围同样基于当前根目录，只输入相对路径即可。</p>
         <div class="space-y-3">
@@ -74,7 +74,7 @@
       </div>
 
       <!-- 结果提示 -->
-      <div v-if="message" class="glass-panel p-4 text-sm" :class="error ? 'text-red-300' : 'text-green-300'">
+      <div v-if="message" class="glass-panel admin-folders-panel p-4 text-sm" :class="error ? 'text-red-300' : 'text-green-300'">
         {{ message }}
       </div>
     </div>
