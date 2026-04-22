@@ -1,7 +1,7 @@
 <template>
   <div
     class="photo-card cursor-pointer group w-full mx-auto transform-gpu rounded-2xl overflow-hidden"
-    :class="[cardSizeClass, !cardBgColor ? 'bg-white dark:bg-gray-800' : '']"
+    :class="[cardSizeClass, !cardBgColor ? 'bg-[rgba(255,255,255,0.82)] dark:bg-[rgba(22,22,22,0.82)]' : '']"
     :style="cardBgColor ? { backgroundColor: cardBgColor } : {}"
     :data-album-id="album.id"
     role="button"
@@ -23,11 +23,13 @@
     </div>
 
     <!-- 信息块（显示在封面下方） -->
-    <div class="px-4 py-2.5 sm:px-5 text-gray-900 dark:text-gray-100">
+    <div class="px-4 pt-3 pb-3.5 sm:px-5 text-gray-900 dark:text-gray-100">
       <div class="flex items-center">
-        <h3 class="text-[13px] font-normal tracking-[0.01em] truncate">{{ album.displayTitle || album.name }}</h3>
+        <h3 class="text-[13px] sm:text-[13.5px] font-light tracking-[0.035em] leading-[1.35] truncate text-stone-900 dark:text-stone-100">
+          {{ album.displayTitle || album.name }}
+        </h3>
       </div>
-      <div v-if="takenDateText" class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+      <div v-if="takenDateText" class="mt-1 text-[10px] sm:text-[10.5px] tracking-[0.12em] uppercase text-stone-500 dark:text-stone-400">
         {{ takenDateText }}
       </div>
     </div>
@@ -191,14 +193,16 @@ const handleClick = () => {
 <style scoped>
 /* 默认状态：微妙边框，无阴影 */
 .photo-card {
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(120, 113, 108, 0.18);
+  backdrop-filter: saturate(118%) blur(10px);
+  -webkit-backdrop-filter: saturate(118%) blur(10px);
   transition: transform 0.28s ease, border-color 0.28s ease, background-color 0.28s ease;
 }
 
 /* 悬浮状态：仅轻微上浮和边框加深，避免控件感过重 */
 .photo-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(15, 23, 42, 0.16);
+  border-color: rgba(68, 64, 60, 0.28);
 }
 
 /* 封面图片悬浮放大 */
@@ -207,10 +211,10 @@ const handleClick = () => {
 }
 
 :global(.dark) .photo-card {
-  border-color: rgba(148, 163, 184, 0.14);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 :global(.dark) .photo-card:hover {
-  border-color: rgba(226, 232, 240, 0.22);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 </style>

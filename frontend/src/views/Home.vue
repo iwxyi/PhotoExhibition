@@ -1,13 +1,13 @@
 <template>
-  <div class="min-h-screen bg-white dark:bg-gray-900">
+  <div class="min-h-screen bg-stone-50 dark:bg-[#111111]">
     <!-- 导航栏 -->
     <nav
-      class="sticky top-0 z-50 bg-white/72 dark:bg-gray-900/68 backdrop-blur-xl border-b border-gray-200/70 dark:border-gray-800/80 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
+      class="sticky top-0 z-50 bg-stone-50/78 dark:bg-[#111111]/74 backdrop-blur-xl border-b border-stone-200/70 dark:border-white/10 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
       :class="{ '-translate-y-full': isMobile && navHidden }"
       style="padding-top: env(safe-area-inset-top);"
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-11">
+        <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-3">
             <SearchSpotlight />
@@ -19,7 +19,7 @@
 
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-10" style="contain: layout style paint; will-change: transform;">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 pb-14 md:pt-8 md:pb-16" style="contain: layout style paint; will-change: transform;">
       <template v-if="showPublicPortal">
         <section class="py-10 md:py-14">
           <div class="max-w-4xl">
@@ -80,8 +80,8 @@
           <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
         </div>
 
+        <section v-if="albums.length > 0" class="pt-1 md:pt-2">
         <div
-          v-if="albums.length > 0"
           :class="coverGridClass"
           style="contain: layout style; will-change: auto;"
         >
@@ -93,6 +93,7 @@
             @click="goToAlbum(album.id)"
           />
         </div>
+        </section>
 
         <!-- 加载状态 -->
         <div v-if="isLoadingMore && albums.length > 0" class="mt-12 text-center">

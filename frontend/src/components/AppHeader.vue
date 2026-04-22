@@ -1,16 +1,25 @@
 <template>
   <div class="flex items-center space-x-3 flex-1 min-w-0">
-    <!-- 拍摄图标 - 可交互线条动画 -->
     <div
-      class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden cursor-pointer"
-      @click="goToHome"
-      @mouseenter="handleCameraHover"
-      @mouseleave="handleCameraLeave"
-      @mousedown="handleCameraClick"
-      @mouseup="handleCameraClickEnd"
+      class="group/brand relative flex items-center gap-2.5 cursor-pointer select-none"
+      @mouseenter="handleMouseEnter"
+      @mouseleave="handleMouseLeave"
+      @click.stop="goToHome"
     >
+      <div class="pointer-events-none absolute left-7 right-0 top-1/2 h-8 -translate-y-1/2 rounded-full bg-white/0 opacity-0 blur-xl transition-all duration-500 ease-out group-hover/brand:translate-x-[6px] group-hover/brand:bg-white/70 group-hover/brand:opacity-100 dark:group-hover/brand:bg-white/[0.06]"></div>
+
+      <!-- 拍摄图标 - 可交互线条动画 -->
+      <div
+        class="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl transition-all duration-300 transform-gpu group-hover/brand:-translate-y-[1px]"
+        @mouseenter="handleCameraHover"
+        @mouseleave="handleCameraLeave"
+        @mousedown="handleCameraClick"
+        @mouseup="handleCameraClickEnd"
+      >
+        <div class="absolute inset-[3px] rounded-[18px] bg-white/0 transition-all duration-300 ease-out group-hover/brand:bg-white/55 group-hover/brand:translate-x-[3px] dark:group-hover/brand:bg-white/[0.06]"></div>
+        <div class="absolute inset-0 rounded-2xl ring-1 ring-transparent transition-colors duration-300 group-hover/brand:ring-stone-300/35 dark:group-hover/brand:ring-white/10"></div>
       <svg
-        class="camera-svg transition-all duration-300 group-hover:rotate-12 group-hover:scale-110"
+        class="camera-svg relative z-10 transition-all duration-300 group-hover/brand:rotate-[10deg] group-hover/brand:scale-[1.06]"
         :class="{ 'is-hovering': cameraHover, 'is-clicking': cameraClicking }"
         width="24"
         height="24"
@@ -75,35 +84,30 @@
           fill="currentColor"
         />
       </svg>
-      <!-- 渐变遮罩层 -->
-      <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg pointer-events-none"></div>
-    </div>
+      </div>
 
-    <!-- 标题文字区域 -->
-    <div
-      class="relative flex items-center h-12 cursor-pointer"
-      @mouseenter="handleMouseEnter"
-      @mouseleave="handleMouseLeave"
-      @click.stop="goToHome"
-    >
-      <!-- 默认显示：紧凑的中文 -->
-      <span
-        ref="shortTextRef"
-        class="text-xl font-light tracking-wider text-gray-900 dark:text-white whitespace-nowrap transition-all duration-300 max-w-[240px] truncate"
-        :class="{
-          'text-2xl': isDetailPage,
-          'opacity-0': enableAnimatedBrand && isExpanded,
-          'opacity-100': !enableAnimatedBrand || !isExpanded
-        }"
-      >
-        {{ shortTitle }}
-      </span>
+      <!-- 标题文字区域 -->
+      <div class="relative flex h-10 items-center overflow-hidden px-1.5">
+        <div class="brand-title-wash absolute inset-y-1 left-0 right-0 rounded-full"></div>
+        <div class="brand-title-line absolute bottom-[6px] left-1.5 h-px w-0 rounded-full"></div>
+        <!-- 默认显示：紧凑的中文 -->
+        <span
+          ref="shortTextRef"
+          class="relative z-10 max-w-[240px] truncate whitespace-nowrap text-xl font-light tracking-[0.14em] text-gray-900 transition-all duration-300 group-hover/brand:translate-x-[1px] dark:text-white"
+          :class="{
+            'text-2xl': isDetailPage,
+            'opacity-0': enableAnimatedBrand && isExpanded,
+            'opacity-100': !enableAnimatedBrand || !isExpanded
+          }"
+        >
+          {{ shortTitle }}
+        </span>
 
       <!-- 悬浮显示：两行英文 - 带逐字母弹入动画 -->
       <div
         :key="animationKey"
         v-show="enableAnimatedBrand && isExpanded"
-        class="absolute left-0 top-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden"
+        class="absolute left-1.5 top-1/2 z-10 -translate-y-1/2 overflow-hidden whitespace-nowrap"
         :style="{ width: expandedWidth + 'px' }"
       >
         <!-- Aurellic - 从上方弹入 -->
@@ -124,6 +128,7 @@
             :style="{ animationDelay: (0.4 + index * 0.05) + 's' }"
           >{{ char }}</span>
         </span>
+      </div>
       </div>
     </div>
 
@@ -262,7 +267,41 @@ onUnmounted(() => {
 
 .camera-svg.is-hovering,
 .camera-svg.is-clicking {
-  @apply text-yellow-500;
+  @apply text-amber-500;
+}
+
+.brand-title-wash {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.14));
+  opacity: 0;
+  transform: translateX(-6px) scaleX(0.96);
+  transition: opacity 0.32s ease, transform 0.38s ease;
+}
+
+.brand-title-line {
+  background: linear-gradient(90deg, rgba(120, 113, 108, 0), rgba(120, 113, 108, 0.42), rgba(120, 113, 108, 0));
+  transition: width 0.34s ease, transform 0.34s ease, opacity 0.3s ease;
+  opacity: 0;
+}
+
+.group\/brand:hover .brand-title-wash {
+  opacity: 1;
+  transform: translateX(4px) scaleX(1);
+}
+
+.group\/brand:hover .brand-title-line {
+  width: calc(100% - 0.75rem);
+  opacity: 1;
+  transform: translateX(3px);
+}
+
+:deep(.dark) .brand-title-wash {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+:deep(.dark) .brand-title-line {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
 }
 
 /* 相机主体 */

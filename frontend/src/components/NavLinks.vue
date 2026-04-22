@@ -1,36 +1,36 @@
 <template>
-  <div class="flex items-center space-x-2 transition-opacity duration-300" :style="{ opacity: navOpacity }">
+  <div class="flex items-center space-x-2.5 transition-opacity duration-300" :style="{ opacity: navOpacity }">
     <router-link
       :to="buildPublicPath('/', route.path)"
-      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/')"
     >
-      <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">相册</span>
-      <div class="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
+      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/')"></div>
+      <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">相册</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/wall', route.path)"
-      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/wall')"
     >
-      <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">图墙</span>
-      <div class="absolute inset-0 bg-gradient-to-r from-green-500/10 to-teal-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
+      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/wall')"></div>
+      <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">图墙</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/random', route.path)"
-      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/random')"
     >
-      <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">随机</span>
-      <div class="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
+      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/random')"></div>
+      <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">随机</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/persons', route.path)"
-      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/persons')"
     >
-      <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">人物</span>
-      <div class="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded"></div>
+      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/persons')"></div>
+      <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">人物</span>
     </router-link>
   </div>
 </template>
@@ -48,8 +48,15 @@ let ticking = false
 const linkClass = (path: string) => {
   const active = stripPublicSlug(route.path) === path
   return active
-    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-    : 'text-gray-700 dark:text-gray-300 bg-gray-50/70 dark:bg-gray-800/55 hover:bg-gray-100/90 dark:hover:bg-gray-800/80'
+    ? 'border-stone-300/80 text-stone-50 dark:border-white/14 dark:text-stone-950'
+    : 'border-stone-300/70 text-stone-700 dark:border-white/10 dark:text-stone-300'
+}
+
+const panelClass = (path: string) => {
+  const active = stripPublicSlug(route.path) === path
+  return active
+    ? 'bg-stone-900 dark:bg-stone-100 group-hover:translate-x-[4px]'
+    : 'bg-white/72 dark:bg-white/[0.05] group-hover:bg-stone-100/92 dark:group-hover:bg-white/[0.08]'
 }
 
 const updateNavOpacity = () => {

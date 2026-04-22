@@ -2,7 +2,7 @@
   <!-- 分类 Tabs -->
   <div class="mb-6 relative">
     <div
-      class="flex gap-2 sm:gap-2.5 overflow-x-auto pb-3 px-1 py-1 scroll-smooth category-tabs-container"
+      class="flex gap-2.5 sm:gap-3 overflow-x-auto pb-2.5 px-0.5 py-0.5 scroll-smooth category-tabs-container"
       style="scrollbar-width: none; -ms-overflow-style: none;"
     >
       <button
@@ -12,22 +12,20 @@
         @mouseenter="handleMouseEnter($event, c)"
         @mouseleave="handleMouseLeave($event, c)"
         @mousemove="handleMouseMove($event, c)"
-        class="category-tab flex-shrink-0 px-4 py-2 rounded-full border transition-all duration-500 font-medium text-sm whitespace-nowrap relative overflow-hidden"
+        class="category-tab flex-shrink-0 min-h-[34px] px-[18px] py-[6px] rounded-full border transition-all duration-500 font-medium text-[13px] tracking-[0.08em] whitespace-nowrap relative overflow-hidden"
         :class="[
           c === selectedCategory
-            ? 'bg-transparent text-white dark:text-gray-900 border-gray-300/70 dark:border-gray-700/80'
-            : 'bg-gray-50/70 dark:bg-gray-800/55 text-gray-700 dark:text-gray-300 border-gray-300/70 dark:border-gray-700/80 hover:bg-gray-100/90 dark:hover:bg-gray-800/80'
+            ? 'bg-transparent text-stone-50 dark:text-stone-950 border-stone-300/80 dark:border-white/14'
+            : 'bg-white/72 dark:bg-white/[0.05] text-stone-700 dark:text-stone-300 border-stone-300/70 dark:border-white/10 hover:bg-stone-100/92 dark:hover:bg-white/[0.08]'
         ]"
         :style="getTabStyle(c)"
       >
-        <!-- 液态背景层 -->
         <div 
           class="liquid-bg absolute transition-all duration-500 ease-out"
           :class="c === selectedCategory ? 'opacity-100' : 'opacity-0'"
           :style="getLiquidStyle(c)"
         ></div>
         
-        <!-- 内部内容 - 带视差效果 -->
         <span 
           class="tab-text relative z-10 block"
         >
@@ -89,7 +87,8 @@ const getMouseState = (category: string): MouseState => {
 
 // 处理鼠标进入
 const handleMouseEnter = (event: MouseEvent, category: string) => {
-  const rect = (event.target as HTMLElement).getBoundingClientRect()
+  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect()
+  if (!rect) return
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
   
@@ -149,18 +148,13 @@ const getLiquidStyle = (category: string) => {
   const isSelected = category === props.selectedCategory
   const state = getMouseState(category)
   
-  const offset = isSelected && state.entering ? (state.percentX - 0.5) * 14 : 0
+  const offset = isSelected && state.entering ? (state.percentX - 0.5) * 18 : 0
   
   return {
     inset: '0',
     background: isSelected
-      ? (isDark.value ? 'rgb(255 255 255)' : 'rgb(17 24 39)')
+      ? (isDark.value ? 'rgb(245 245 244)' : 'rgb(28 25 23)')
       : 'transparent',
-    boxShadow: isSelected
-      ? (isDark.value
-        ? 'inset 0 1px 0 rgba(255,255,255,0.12)'
-        : 'inset 0 1px 0 rgba(255,255,255,0.06)')
-      : 'none',
     transform: `translateX(${offset}px)`,
   }
 }
@@ -180,6 +174,7 @@ const handleCategoryClick = (category: string) => {
 .category-tab {
   will-change: transform;
   backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* 液态背景 */
@@ -197,7 +192,7 @@ const handleCategoryClick = (category: string) => {
 /* 移动端适配 */
 @media (max-width: 640px) {
   .category-tab {
-    padding: 0.5rem 0.875rem;
+    padding: 0.375rem 0.875rem;
     font-size: 0.8125rem;
   }
 }
