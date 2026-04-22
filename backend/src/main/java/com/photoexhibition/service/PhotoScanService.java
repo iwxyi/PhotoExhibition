@@ -27,9 +27,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -236,6 +240,7 @@ public class PhotoScanService {
     private final UserPathService userPathService;
     private final StorageProviderRepository storageProviderRepository;
     private final StorageUploadService storageUploadService;
+    private final PlatformTransactionManager transactionManager;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -275,6 +280,7 @@ public class PhotoScanService {
                            UserPathService userPathService,
                            StorageProviderRepository storageProviderRepository,
                            StorageUploadService storageUploadService,
+                           PlatformTransactionManager transactionManager,
                            ObjectMapper objectMapper) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
@@ -293,6 +299,7 @@ public class PhotoScanService {
         this.userPathService = userPathService;
         this.storageProviderRepository = storageProviderRepository;
         this.storageUploadService = storageUploadService;
+        this.transactionManager = transactionManager;
         this.objectMapper = objectMapper;
     }
     
@@ -2053,7 +2060,12 @@ public class PhotoScanService {
                 continue;
             }
             photoCount++;
-            processRemotePhoto(provider, remoteDirectory.resolve(name).normalize(), album, file, force);
+            try {
+                processRemotePhotoInNewTransaction(provider, remoteDirectory.resolve(name).normalize(), album, file, force);
+            } catch (Exception e) {
+                String detail = sanitizeVisibleMessage(e.getMessage());
+                log.warn("远端照片处理失败，跳过当前文件: {} - {}", remoteDirectory.resolve(name).normalize(), detail);
+            }
         }
         album.setPhotoCount(photoCount);
         albumRepository.save(album);
@@ -2065,6 +2077,20 @@ public class PhotoScanService {
                 continue;
             }
             processRemoteDirectory(provider, remoteDirectory.resolve(name).normalize(), force);
+        }
+    }
+
+    private void processRemotePhotoInNewTransaction(StorageProvider provider,
+                                                    Path remoteFilePath,
+                                                    Album album,
+                                                    Map<String, Object> remoteFile,
+                                                    boolean force) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        try {
+            template.executeWithoutResult(status -> processRemotePhoto(provider, remoteFilePath, album, remoteFile, force));
+        } catch (UnexpectedRollbackException e) {
+            throw new RuntimeException("远端照片事务回滚: " + sanitizeVisibleMessage(e.getMessage()), e);
         }
     }
 
@@ -2118,13 +2144,21 @@ public class PhotoScanService {
             toProviderRelativeRemotePath(provider, remoteFilePath).toString()
         );
         String pathHash = calculateSha256(storedPath);
-        Photo photo = photoRepository.findByPathHash(pathHash).orElseGet(Photo::new);
-        if (!force && photo.getId() != null && !photo.needsContinuation(false)) {
-            return;
-        }
+        Photo photo = new Photo();
         try {
             File cachedFile = prepareRemoteLocalCacheFile(provider, remoteFilePath, remoteFile, album.getUserId());
-            processRemotePhotoWithLocalCache(photo, album, remoteFile, cachedFile, storedPath, pathHash, force);
+            String contentHash = calculateSha256(cachedFile);
+
+            Optional<Photo> photoByHash = contentHash == null ? Optional.empty() : photoRepository.findByContentHash(contentHash);
+            Optional<Photo> photoByPathHash = photoRepository.findByPathHash(pathHash);
+            Optional<Photo> photoByPath = findPhotoByOriginalPath(storedPath);
+            photo = resolvePhotoRecordForScan(photoByHash, photoByPathHash, photoByPath);
+
+            if (!force && photo.getId() != null && !photo.needsContinuation(false)) {
+                return;
+            }
+
+            processRemotePhotoWithLocalCache(photo, album, remoteFile, cachedFile, storedPath, pathHash, contentHash, force);
         } catch (Exception e) {
             String detail = sanitizeVisibleMessage(e.getMessage());
             photo.setAlbumId(album.getId());
@@ -2146,8 +2180,8 @@ public class PhotoScanService {
                                                   File cachedFile,
                                                   String storedPath,
                                                   String pathHash,
+                                                  String contentHash,
                                                   boolean force) throws IOException {
-        String contentHash = calculateSha256(cachedFile);
         ProcessingStatus currentStatus = photo.getProcessingStatus();
         boolean needsReprocessing = photo.getId() == null || force || currentStatus == null
             || currentStatus == ProcessingStatus.PENDING

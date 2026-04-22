@@ -115,9 +115,10 @@ public class AlbumService {
 
         Page<Album> albums;
         if (category != null && !category.isEmpty()) {
-            String prefix = buildCategoryPrefix(category, userId);
-            // 使用标准化路径查询
-            albums = albumRepository.findByPathStartingWithAndPhotoCountGreaterThanNormalized(prefix, 0, fetchPageable);
+            List<Album> categoryAlbums = loadCategoryAlbums(category, userId).stream()
+                .filter(this::isAlbumVisibleInListing)
+                .collect(Collectors.toList());
+            albums = new org.springframework.data.domain.PageImpl<>(categoryAlbums, fetchPageable, categoryAlbums.size());
         } else {
             // 查询有照片的相册或开启了聚合功能的相册
             albums = albumRepository.findAlbumsWithPhotosOrAggregation(fetchPageable);
@@ -1088,20 +1089,6 @@ public class AlbumService {
             }
         } catch (Exception ignored) {}
         return "";
-    }
-
-    /**
-     * 构造分类前缀绝对路径
-     */
-    private String buildCategoryPrefix(String category) {
-        return buildCategoryPrefix(category, null);
-    }
-
-    private String buildCategoryPrefix(String category, Long userId) {
-        Path base = userId == null
-            ? resolveBasePath()
-            : userPathService.getOwnedPhotoRoot(userId);
-        return base.resolve(category).toAbsolutePath().normalize().toString();
     }
 
     /**
@@ -2170,20 +2157,36 @@ public class AlbumService {
 
     private List<Album> loadAlbumsForListing(String category, Long userId) {
         List<Album> albums = new ArrayList<>();
+        if (category != null && !category.isEmpty()) {
+            albums.addAll(loadCategoryAlbums(category, userId).stream()
+                .filter(this::isAlbumVisibleInListing)
+                .collect(Collectors.toList()));
+            return albums;
+        }
+
         int pageNumber = 0;
         Page<Album> page;
         do {
             Pageable pageable = PageRequest.of(pageNumber, 200);
-            if (category != null && !category.isEmpty()) {
-                String prefix = buildCategoryPrefix(category, userId);
-                page = albumRepository.findByPathStartingWithAndPhotoCountGreaterThanNormalized(prefix, 0, pageable);
-            } else {
-                page = albumRepository.findAlbumsWithPhotosOrAggregation(pageable);
-            }
+            page = albumRepository.findAlbumsWithPhotosOrAggregation(pageable);
             albums.addAll(page.getContent());
             pageNumber++;
         } while (page.hasNext());
         return albums;
+    }
+
+    private List<Album> loadCategoryAlbums(String category, Long userId) {
+        String normalizedCategory = category == null ? "" : category.trim();
+        if (normalizedCategory.isEmpty()) {
+            return List.of();
+        }
+        return userId != null
+            ? albumRepository.findByUserIdAndTopLevelCategory(userId, normalizedCategory)
+            : albumRepository.findByTopLevelCategory(normalizedCategory);
+    }
+
+    private boolean isAlbumVisibleInListing(Album album) {
+        return album != null && (album.getPhotoCount() != null && album.getPhotoCount() > 0 || Boolean.TRUE.equals(album.getAggregateSubAlbums()));
     }
 
     private List<Photo> loadAllPhotosByAlbumId(Long albumId) {

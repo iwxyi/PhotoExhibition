@@ -2,7 +2,7 @@
   <div class="flex items-center space-x-2 transition-opacity duration-300" :style="{ opacity: navOpacity }">
     <router-link
       :to="buildPublicPath('/', route.path)"
-      class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/')"
     >
       <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">相册</span>
@@ -10,7 +10,7 @@
     </router-link>
     <router-link
       :to="buildPublicPath('/wall', route.path)"
-      class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/wall')"
     >
       <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">图墙</span>
@@ -18,7 +18,7 @@
     </router-link>
     <router-link
       :to="buildPublicPath('/random', route.path)"
-      class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/random')"
     >
       <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">随机</span>
@@ -26,7 +26,7 @@
     </router-link>
     <router-link
       :to="buildPublicPath('/persons', route.path)"
-      class="inline-flex items-center justify-center w-[86px] text-sm font-medium px-3 py-2 rounded border border-gray-400/50 dark:border-gray-600 transition-all duration-200 hover:scale-105 hover:shadow-sm transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      class="inline-flex items-center justify-center w-[82px] text-sm font-medium px-3 py-1.5 rounded-full border border-gray-300/70 dark:border-gray-700/80 transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
       :class="linkClass('/persons')"
     >
       <span class="relative z-10 transition-transform duration-200 group-hover:scale-105">人物</span>
@@ -49,7 +49,7 @@ const linkClass = (path: string) => {
   const active = stripPublicSlug(route.path) === path
   return active
     ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-    : 'text-gray-700 dark:text-gray-300 bg-gray-100/60 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-700'
+    : 'text-gray-700 dark:text-gray-300 bg-gray-50/70 dark:bg-gray-800/55 hover:bg-gray-100/90 dark:hover:bg-gray-800/80'
 }
 
 const updateNavOpacity = () => {

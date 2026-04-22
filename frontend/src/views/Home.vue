@@ -2,14 +2,14 @@
   <div class="min-h-screen bg-white dark:bg-gray-900">
     <!-- 导航栏 -->
     <nav
-      class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
+      class="sticky top-0 z-50 bg-white/72 dark:bg-gray-900/68 backdrop-blur-xl border-b border-gray-200/70 dark:border-gray-800/80 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
       :class="{ '-translate-y-full': isMobile && navHidden }"
       style="padding-top: env(safe-area-inset-top);"
     >
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-12">
+        <div class="flex justify-between items-center h-11">
           <AppHeader :show-nav-links="!isMobile" />
-          <div class="flex items-center space-x-4">
+          <div class="flex items-center space-x-3">
             <SearchSpotlight />
             <PublicAccountMenu />
           </div>
@@ -19,7 +19,7 @@
 
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint; will-change: transform;">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-10" style="contain: layout style paint; will-change: transform;">
       <template v-if="showPublicPortal">
         <section class="py-10 md:py-14">
           <div class="max-w-4xl">
@@ -188,7 +188,7 @@ const coverGridClass = computed(() => {
   }
   if (coverSize.value === 'lg') {
     // 大尺寸：较少列数（适合大封面）
-    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6'
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5'
   }
   return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
 })

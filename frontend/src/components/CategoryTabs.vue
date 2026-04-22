@@ -2,7 +2,7 @@
   <!-- 分类 Tabs -->
   <div class="mb-6 relative">
     <div
-      class="flex gap-2 sm:gap-3 overflow-x-auto pb-3 px-1 py-1.5 scroll-smooth category-tabs-container"
+      class="flex gap-2 sm:gap-2.5 overflow-x-auto pb-3 px-1 py-1 scroll-smooth category-tabs-container"
       style="scrollbar-width: none; -ms-overflow-style: none;"
     >
       <button
@@ -12,11 +12,11 @@
         @mouseenter="handleMouseEnter($event, c)"
         @mouseleave="handleMouseLeave($event, c)"
         @mousemove="handleMouseMove($event, c)"
-        class="category-tab flex-shrink-0 px-5 py-2.5 rounded-full border transition-all duration-300 font-medium text-sm whitespace-nowrap relative overflow-hidden"
+        class="category-tab flex-shrink-0 px-4 py-2 rounded-full border transition-all duration-500 font-medium text-sm whitespace-nowrap relative overflow-hidden"
         :class="[
           c === selectedCategory
-            ? 'bg-transparent text-white dark:text-gray-900 border-gray-400/50 dark:border-gray-600'
-            : 'bg-gray-100/60 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border-gray-400/50 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'
+            ? 'bg-transparent text-white dark:text-gray-900 border-gray-300/70 dark:border-gray-700/80'
+            : 'bg-gray-50/70 dark:bg-gray-800/55 text-gray-700 dark:text-gray-300 border-gray-300/70 dark:border-gray-700/80 hover:bg-gray-100/90 dark:hover:bg-gray-800/80'
         ]"
         :style="getTabStyle(c)"
       >
@@ -140,7 +140,7 @@ const getTabStyle = (category: string) => {
   const isSelected = category === props.selectedCategory
 
   return {
-    transform: isSelected ? 'scale(1.03)' : 'none'
+    transform: isSelected ? 'scale(1.015)' : 'none'
   }
 }
 
@@ -149,7 +149,7 @@ const getLiquidStyle = (category: string) => {
   const isSelected = category === props.selectedCategory
   const state = getMouseState(category)
   
-  const offset = isSelected && state.entering ? (state.percentX - 0.5) * 18 : 0
+  const offset = isSelected && state.entering ? (state.percentX - 0.5) * 14 : 0
   
   return {
     inset: '0',
@@ -158,8 +158,8 @@ const getLiquidStyle = (category: string) => {
       : 'transparent',
     boxShadow: isSelected
       ? (isDark.value
-        ? 'inset 0 1px 0 rgba(255,255,255,0.14)'
-        : 'inset 0 1px 0 rgba(255,255,255,0.08)')
+        ? 'inset 0 1px 0 rgba(255,255,255,0.12)'
+        : 'inset 0 1px 0 rgba(255,255,255,0.06)')
       : 'none',
     transform: `translateX(${offset}px)`,
   }
@@ -197,7 +197,7 @@ const handleCategoryClick = (category: string) => {
 /* 移动端适配 */
 @media (max-width: 640px) {
   .category-tab {
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 0.875rem;
     font-size: 0.8125rem;
   }
 }
