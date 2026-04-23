@@ -1,5 +1,7 @@
 # AI 搜索设计文档
 
+> 说明：本文档主要记录当前已上线/已兼容实现的 V1 设计与历史演进。新的长期维护架构见 [docs/ai-search-architecture-v2.md](/root/projects/PhotoExhibition/docs/ai-search-architecture-v2.md)。
+
 ## 1. 产品定位
 
 AI 搜索当前的定位不是多轮聊天，而是“单轮自然语言检索 + 必要时一句检索结论”。

@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { albumApi, aiApi, personApi, configApi, aiSearchApi } from '@/api'
-import type { AiSearchResponse, AiSearchSuggestionAction } from '@/api'
+import type { AiSearchCondition, AiSearchResponse, AiSearchSuggestionAction } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePhotoStore } from '@/stores/photo'
 import { useLanguageStore } from '@/stores/language'
@@ -275,6 +275,14 @@ const aiHasMore = ref(false)
 const aiLoadingMore = ref(false)
 
 type DisplaySuggestion = AiSearchSuggestionAction | string
+
+interface AiConditionSummaryChip {
+  key: string
+  label: string
+  className: string
+  clickable: boolean
+  onClick?: () => Promise<void>
+}
 
 // 标签搜索相关
 const tagPhotos = ref<PhotoDTO[]>([])
@@ -603,18 +611,185 @@ const displaySuggestions = computed<DisplaySuggestion[]>(() => {
 })
 
 const hasAiConditionSummary = computed(() => {
+  return aiConditionSummaryChips.value.length > 0
+})
+
+const getConditionTextValues = (condition?: AiSearchCondition) => {
+  if (!condition) {
+    return [] as string[]
+  }
+  if (condition.values?.length) {
+    return condition.values.filter(Boolean)
+  }
+  if (condition.value) {
+    return [condition.value]
+  }
+  return []
+}
+
+const getConditionChipClass = (type: string, clickable = false) => {
+  const interactiveClass = clickable
+    ? 'cursor-pointer transition-colors hover:border-sky-300 hover:text-sky-700 dark:hover:border-sky-700 dark:hover:text-sky-200'
+    : ''
+
+  switch (type) {
+    case 'person':
+      return `px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium ${interactiveClass}`.trim()
+    case 'tag':
+      return `px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium ${interactiveClass}`.trim()
+    case 'date_range':
+      return `px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium ${interactiveClass}`.trim()
+    case 'color':
+      return `px-3 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 rounded-full text-xs font-medium ${interactiveClass}`.trim()
+    case 'filename_keyword':
+      return `px-3 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full text-xs font-medium ${interactiveClass}`.trim()
+    case 'should_hint':
+      return 'px-3 py-1 bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 rounded-full text-xs font-medium'
+    case 'must_not':
+      return 'px-3 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded-full text-xs font-medium'
+    default:
+      return `px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium ${interactiveClass}`.trim()
+  }
+}
+
+const executeIntentDirectly = async (nextIntent: AiSearchResponse['parsedIntent']) => {
+  if (!nextIntent) {
+    return
+  }
+
+  loading.value = true
+  hasSearched.value = true
+  aiPage.value = 0
+  aiPhotos.value = []
+
+  try {
+    const decodedKeyword = decodeURIComponent(keyword.value)
+    const res = await aiSearchApi.execute(decodedKeyword, nextIntent, undefined, 0, 30)
+    applyAiSearchResponse(res.data)
+  } catch (e) {
+    console.error('执行条件筛选失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+const narrowToShouldCondition = async (conditionIndex: number) => {
   const parsedIntent = aiSearchResult.value?.parsedIntent
-  return Boolean(
-    aiSearchResult.value?.matchedPersonName ||
-    aiSearchResult.value?.matchedTagNames?.length ||
-    parsedIntent?.startDate ||
-    parsedIntent?.colorCategory ||
-    parsedIntent?.cameraModel ||
-    parsedIntent?.lensModel ||
-    parsedIntent?.filenameKeywords?.length ||
-    parsedIntent?.should?.length ||
-    parsedIntent?.mustNot?.length
-  )
+  if (!parsedIntent?.should?.[conditionIndex]) {
+    return
+  }
+
+  const nextIntent = JSON.parse(JSON.stringify(parsedIntent)) as NonNullable<AiSearchResponse['parsedIntent']>
+  nextIntent.should = [JSON.parse(JSON.stringify(parsedIntent.should[conditionIndex]))]
+  await executeIntentDirectly(nextIntent)
+}
+
+const aiConditionSummaryChips = computed<AiConditionSummaryChip[]>(() => {
+  const result = aiSearchResult.value
+  const parsedIntent = result?.parsedIntent
+  if (!result || !parsedIntent) {
+    return []
+  }
+
+  const chips: AiConditionSummaryChip[] = []
+  const shouldTypes = new Set((parsedIntent.should || []).map(condition => condition.type).filter(Boolean))
+
+  if (result.matchedPersonName) {
+    chips.push({
+      key: `person:${result.matchedPersonName}`,
+      label: `人物: ${result.matchedPersonName}`,
+      className: getConditionChipClass('person'),
+      clickable: false
+    })
+  }
+
+  for (const tag of result.matchedTagNames || []) {
+    chips.push({
+      key: `tag:${tag}`,
+      label: tag,
+      className: getConditionChipClass('tag'),
+      clickable: false
+    })
+  }
+
+  if (parsedIntent.startDate) {
+    chips.push({
+      key: `date:${parsedIntent.startDate}:${parsedIntent.endDate || ''}`,
+      label: formatDateRangeLabel(parsedIntent.startDate, parsedIntent.endDate),
+      className: getConditionChipClass('date_range'),
+      clickable: false
+    })
+  }
+
+  if (parsedIntent.colorCategory) {
+    chips.push({
+      key: `color:${parsedIntent.colorCategory}`,
+      label: `色彩: ${parsedIntent.colorCategory}`,
+      className: getConditionChipClass('color'),
+      clickable: false
+    })
+  }
+
+  if (parsedIntent.cameraModel && !shouldTypes.has('camera_model')) {
+    chips.push({
+      key: `camera:${parsedIntent.cameraModel}`,
+      label: parsedIntent.cameraModel,
+      className: getConditionChipClass('camera_model'),
+      clickable: false
+    })
+  }
+
+  if (parsedIntent.lensModel && !shouldTypes.has('lens_model')) {
+    chips.push({
+      key: `lens:${parsedIntent.lensModel}`,
+      label: parsedIntent.lensModel,
+      className: getConditionChipClass('lens_model'),
+      clickable: false
+    })
+  }
+
+  if (parsedIntent.filenameKeywords?.length) {
+    chips.push({
+      key: `filename:${parsedIntent.filenameKeywords.join('|')}`,
+      label: `文件名: ${parsedIntent.filenameKeywords.join(', ')}`,
+      className: getConditionChipClass('filename_keyword'),
+      clickable: false
+    })
+  }
+
+  if ((parsedIntent.should?.length || 0) > 1) {
+    chips.push({
+      key: 'should-hint',
+      label: '满足其一',
+      className: getConditionChipClass('should_hint'),
+      clickable: false
+    })
+  }
+
+  parsedIntent.should?.forEach((condition, index) => {
+    const type = condition.type || ''
+    const labels = getConditionTextValues(condition)
+    labels.forEach((label, valueIndex) => {
+      chips.push({
+        key: `should:${index}:${valueIndex}:${type}:${label}`,
+        label,
+        className: getConditionChipClass(type, true),
+        clickable: true,
+        onClick: () => narrowToShouldCondition(index)
+      })
+    })
+  })
+
+  if (parsedIntent.mustNot?.length) {
+    chips.push({
+      key: 'must-not',
+      label: '已排除部分条件',
+      className: getConditionChipClass('must_not'),
+      clickable: false
+    })
+  }
+
+  return chips
 })
 
 const showKeywordPhotoEmptyHint = computed(() => {
@@ -654,12 +829,105 @@ const getSuggestionButtonClass = (suggestion: DisplaySuggestion) => {
   return 'border-gray-200 text-gray-700 hover:border-blue-400 hover:text-blue-600 dark:border-gray-700 dark:text-gray-200 dark:hover:text-blue-300'
 }
 
+const hasExecutionPlan = computed(() => {
+  return Boolean(aiSearchResult.value?.executionPlan)
+})
+
+const executionPlanSummaryItems = computed(() => {
+  const plan = aiSearchResult.value?.executionPlan
+  if (!plan) {
+    return [] as Array<{ key: string; label: string; value: string }>
+  }
+
+  const items: Array<{ key: string; label: string; value: string }> = []
+  if (plan.planType) {
+    items.push({ key: 'planType', label: '计划类型', value: plan.planType })
+  }
+  if (typeof plan.stepCount === 'number') {
+    items.push({ key: 'stepCount', label: '执行步数', value: String(plan.stepCount) })
+  }
+  if (plan.evidenceStatus) {
+    items.push({ key: 'evidenceStatus', label: '证据状态', value: plan.evidenceStatus })
+  }
+  if (typeof plan.resolverUsed === 'boolean') {
+    items.push({ key: 'resolverUsed', label: '调用解析器', value: plan.resolverUsed ? '是' : '否' })
+  }
+  return items
+})
+
+const executionPlanOperators = computed(() => {
+  return aiSearchResult.value?.executionPlan?.operators?.filter(Boolean) || []
+})
+
+const executionPlanFinalOutputKeys = computed(() => {
+  return aiSearchResult.value?.executionPlan?.finalOutputKeys?.filter(Boolean) || []
+})
+
+const formatExecutionPlanMetadataValue = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value.filter(item => item !== null && item !== undefined && item !== '').join('、')
+  }
+  if (typeof value === 'boolean') {
+    return value ? '是' : '否'
+  }
+  if (value === null || value === undefined || value === '') {
+    return ''
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return ''
+    }
+  }
+  return String(value)
+}
+
+const executionPlanMetadataEntries = computed(() => {
+  const metadata = aiSearchResult.value?.executionPlan?.metadata
+  if (!metadata) {
+    return [] as Array<{ key: string; value: string }>
+  }
+
+  return Object.entries(metadata)
+    .map(([key, value]) => ({
+      key,
+      value: formatExecutionPlanMetadataValue(value)
+    }))
+    .filter(entry => entry.value)
+})
+
 const displayAnswerText = computed(() => {
   const answer = aiSearchResult.value?.answer?.trim()
   if (!answer) {
     return ''
   }
   return answer.replace(/^检索结论[:：]\s*/, '')
+})
+
+const relationAnalysisData = computed(() => {
+  const analysisData = aiSearchResult.value?.analysisData
+  if (!analysisData) {
+    return null
+  }
+  if (analysisData.analysisType === 'person_overview' || analysisData.analysisType === 'person_cooccurrence' || analysisData.analysisType === 'person_pair_cooccurrence') {
+    return analysisData
+  }
+  return null
+})
+
+const relationAnalysisTitle = computed(() => {
+  const analysisData = relationAnalysisData.value
+  if (!analysisData) {
+    return ''
+  }
+  if (analysisData.analysisType === 'person_cooccurrence') {
+    return `${analysisData.anchorPersonName || '该人物'} 的共同出现人物`
+  }
+  if (analysisData.analysisType === 'person_pair_cooccurrence') {
+    return '高频同框人物组合'
+  }
+  return '人物概览'
 })
 
 const formatDateRangeLabel = (startDate?: string, endDate?: string) => {
@@ -1021,7 +1289,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
         <!-- AI搜索结果 -->
         <div v-if="aiSearchEnabled && aiSearchResult && searchMode === 'keyword'" class="mb-10">
           <!-- 体型变化分析结果 -->
-          <div v-if="aiSearchResult.analysisData" class="mb-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-200 dark:border-blue-800">
+          <div v-if="aiSearchResult.analysisData?.analysisType !== 'person_overview' && aiSearchResult.analysisData?.analysisType !== 'person_cooccurrence' && aiSearchResult.analysisData?.analysisType !== 'person_pair_cooccurrence' && aiSearchResult.analysisData" class="mb-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-200 dark:border-blue-800">
             <div class="flex items-center gap-2 mb-3">
               <span class="text-xl">📊</span>
               <h3 class="text-lg font-semibold text-gray-800 dark:text-white">
@@ -1089,6 +1357,69 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             </div>
           </div>
 
+          <div v-if="relationAnalysisData" class="mb-4 rounded-2xl border border-sky-200/80 bg-gradient-to-r from-sky-50 to-cyan-50 p-4 dark:border-sky-800/80 dark:from-sky-900/20 dark:to-cyan-900/20">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div class="text-lg font-semibold text-gray-800 dark:text-white">
+                  {{ relationAnalysisTitle }}
+                </div>
+                <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ relationAnalysisData.periodLabel || '当前条件范围' }}
+                </div>
+              </div>
+              <div class="rounded-xl bg-white/80 px-3 py-2 text-right dark:bg-gray-800/80">
+                <div class="text-lg font-semibold text-sky-600 dark:text-sky-300">
+                  {{ relationAnalysisData.totalEntities || 0 }}
+                </div>
+                <div class="text-[11px] text-gray-500 dark:text-gray-400">
+                  {{ relationAnalysisData.analysisType === 'person_pair_cooccurrence' ? '人物组合' : '人物结果' }}
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3 rounded-xl bg-white/70 p-3 dark:bg-gray-800/70">
+              <div class="text-sm font-medium text-gray-700 dark:text-gray-300">分析结论</div>
+              <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-200">
+                {{ relationAnalysisData.conclusion || displayAnswerText || '暂无可展示的关系分析结论。' }}
+              </p>
+            </div>
+
+            <div
+              v-if="relationAnalysisData.topPersons?.length || relationAnalysisData.topPairs?.length"
+              class="grid gap-2"
+            >
+              <div
+                v-for="(person, index) in relationAnalysisData.topPersons || []"
+                :key="`${person.personId || index}`"
+                class="flex items-center justify-between rounded-xl border border-white/70 bg-white/70 px-3 py-2 dark:border-gray-700/70 dark:bg-gray-800/70"
+              >
+                <div class="min-w-0">
+                  <div class="truncate text-sm font-medium text-gray-800 dark:text-white">
+                    {{ person.personName || '未命名人物' }}
+                  </div>
+                </div>
+                <div class="ml-3 text-xs text-sky-700 dark:text-sky-300">
+                  {{ person.matchedPhotoCount || 0 }} 张
+                </div>
+              </div>
+
+              <div
+                v-for="(pair, index) in relationAnalysisData.topPairs || []"
+                :key="`${pair.personAId || 'a'}:${pair.personBId || 'b'}:${index}`"
+                class="flex items-center justify-between rounded-xl border border-white/70 bg-white/70 px-3 py-2 dark:border-gray-700/70 dark:bg-gray-800/70"
+              >
+                <div class="min-w-0">
+                  <div class="truncate text-sm font-medium text-gray-800 dark:text-white">
+                    {{ pair.personAName || '人物A' }} / {{ pair.personBName || '人物B' }}
+                  </div>
+                </div>
+                <div class="ml-3 text-xs text-sky-700 dark:text-sky-300">
+                  {{ pair.matchedPhotoCount || 0 }} 张
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-if="aiSearchResult.answer" class="mb-3 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-900/20">
             <div class="flex items-start gap-2.5">
               <div class="mt-0.5 h-8 w-1 rounded-full bg-amber-400/80 dark:bg-amber-500/70"></div>
@@ -1112,33 +1443,16 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
           </div>
 
           <div v-if="hasAiConditionSummary" class="flex flex-wrap gap-2 mb-4">
-            <span v-if="aiSearchResult.matchedPersonName" class="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
-              人物: {{ aiSearchResult.matchedPersonName }}
-            </span>
-            <span v-for="tag in (aiSearchResult.matchedTagNames || [])" :key="tag" class="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium">
-              {{ tag }}
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.startDate" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
-              {{ formatDateRangeLabel(aiSearchResult.parsedIntent.startDate, aiSearchResult.parsedIntent.endDate) }}
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.colorCategory" class="px-3 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 rounded-full text-xs font-medium">
-              色彩: {{ aiSearchResult.parsedIntent.colorCategory }}
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.cameraModel" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
-              {{ aiSearchResult.parsedIntent.cameraModel }}
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.lensModel" class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
-              {{ aiSearchResult.parsedIntent.lensModel }}
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.filenameKeywords?.length" class="px-3 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full text-xs font-medium">
-              文件名: {{ aiSearchResult.parsedIntent.filenameKeywords.join(', ') }}
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.should?.length" class="px-3 py-1 bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 rounded-full text-xs font-medium">
-              满足其一
-            </span>
-            <span v-if="aiSearchResult.parsedIntent?.mustNot?.length" class="px-3 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded-full text-xs font-medium">
-              已排除部分条件
-            </span>
+            <component
+              v-for="chip in aiConditionSummaryChips"
+              :key="chip.key"
+              :is="chip.clickable ? 'button' : 'span'"
+              :type="chip.clickable ? 'button' : undefined"
+              :class="chip.className"
+              @click="chip.onClick ? chip.onClick() : undefined"
+            >
+              {{ chip.label }}
+            </component>
           </div>
 
           <div v-if="displaySuggestions.length" class="mb-4 flex flex-wrap gap-2">
@@ -1161,6 +1475,92 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
               {{ getSuggestionLabel(suggestion) }}
             </button>
           </div>
+
+          <details
+            v-if="hasExecutionPlan"
+            class="group mb-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 dark:border-slate-700/80 dark:bg-slate-900/70"
+          >
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 marker:hidden dark:text-slate-200">
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="inline-flex h-6 items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  Execution Plan
+                </span>
+                <span class="truncate text-xs text-slate-500 dark:text-slate-400">
+                  当前检索是如何被规划和收敛的
+                </span>
+              </div>
+              <svg class="h-4 w-4 flex-shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+
+            <div class="border-t border-slate-200/80 px-4 py-3 dark:border-slate-700/80">
+              <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <div
+                  v-for="item in executionPlanSummaryItems"
+                  :key="item.key"
+                  class="rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 dark:border-slate-700/80 dark:bg-slate-800/80"
+                >
+                  <div class="text-[11px] uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500">
+                    {{ item.label }}
+                  </div>
+                  <div class="mt-1 text-sm font-medium text-slate-700 dark:text-slate-100">
+                    {{ item.value }}
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="executionPlanOperators.length" class="mt-3">
+                <div class="mb-2 text-[11px] uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500">
+                  Operators
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    v-for="operator in executionPlanOperators"
+                    :key="operator"
+                    class="rounded-full border border-sky-200/80 bg-sky-50 px-2.5 py-1 text-xs text-sky-700 dark:border-sky-800/80 dark:bg-sky-900/20 dark:text-sky-300"
+                  >
+                    {{ operator }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="executionPlanFinalOutputKeys.length" class="mt-3">
+                <div class="mb-2 text-[11px] uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500">
+                  Final Outputs
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    v-for="outputKey in executionPlanFinalOutputKeys"
+                    :key="outputKey"
+                    class="rounded-full border border-emerald-200/80 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-800/80 dark:bg-emerald-900/20 dark:text-emerald-300"
+                  >
+                    {{ outputKey }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="executionPlanMetadataEntries.length" class="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-700/80 dark:bg-slate-800/70">
+                <div class="mb-2 text-[11px] uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500">
+                  Metadata
+                </div>
+                <div class="grid gap-2 sm:grid-cols-2">
+                  <div
+                    v-for="entry in executionPlanMetadataEntries"
+                    :key="entry.key"
+                    class="min-w-0"
+                  >
+                    <div class="text-xs text-slate-500 dark:text-slate-400">
+                      {{ entry.key }}
+                    </div>
+                    <div class="truncate text-sm text-slate-700 dark:text-slate-200" :title="entry.value">
+                      {{ entry.value }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
 
         <!-- 包含该人脸的照片 -->

@@ -166,8 +166,8 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     List<Long> findAllIds();
 
     @Query("SELECT p FROM Photo p WHERE " +
-           "(:cameraModel IS NULL OR p.cameraModel = :cameraModel) AND " +
-           "(:lensModel IS NULL OR p.lensModel = :lensModel) AND " +
+           "(:cameraModel IS NULL OR LOWER(p.cameraModel) LIKE LOWER(CONCAT('%', :cameraModel, '%'))) AND " +
+           "(:lensModel IS NULL OR LOWER(p.lensModel) LIKE LOWER(CONCAT('%', :lensModel, '%'))) AND " +
            "(:minAperture IS NULL OR p.apertureValue >= :minAperture) AND " +
            "(:maxAperture IS NULL OR p.apertureValue <= :maxAperture) AND " +
            "(:minFocalLength IS NULL OR p.focalLengthMm >= :minFocalLength) AND " +
@@ -199,8 +199,8 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                                   Pageable pageable);
 
     @Query("SELECT p FROM Photo p WHERE p.userId = :userId AND (p.isHidden IS NULL OR p.isHidden = false) AND " +
-           "(:cameraModel IS NULL OR p.cameraModel = :cameraModel) AND " +
-           "(:lensModel IS NULL OR p.lensModel = :lensModel) AND " +
+           "(:cameraModel IS NULL OR LOWER(p.cameraModel) LIKE LOWER(CONCAT('%', :cameraModel, '%'))) AND " +
+           "(:lensModel IS NULL OR LOWER(p.lensModel) LIKE LOWER(CONCAT('%', :lensModel, '%'))) AND " +
            "(:minAperture IS NULL OR p.apertureValue >= :minAperture) AND " +
            "(:maxAperture IS NULL OR p.apertureValue <= :maxAperture) AND " +
            "(:minFocalLength IS NULL OR p.focalLengthMm >= :minFocalLength) AND " +
@@ -577,4 +577,24 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     boolean existsVisiblePhotoInAlbumDuringRange(@Param("albumId") Long albumId,
                                                  @Param("startDate") java.time.LocalDateTime startDate,
                                                  @Param("endDate") java.time.LocalDateTime endDate);
+
+    @Query("SELECT p.id FROM Photo p " +
+           "WHERE (p.isHidden IS NULL OR p.isHidden = false) " +
+           "AND (:startDate IS NULL OR COALESCE(p.takenAt, p.createdAt) >= :startDate) " +
+           "AND (:endDate IS NULL OR COALESCE(p.takenAt, p.createdAt) <= :endDate) " +
+           "ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
+    List<Long> findVisibleIdsByCapturedAtRange(@Param("startDate") java.time.LocalDateTime startDate,
+                                               @Param("endDate") java.time.LocalDateTime endDate);
+
+    @Query("SELECT p.id FROM Photo p " +
+           "WHERE (p.isHidden IS NULL OR p.isHidden = false) " +
+           "AND LOWER(COALESCE(p.cameraModel, '')) LIKE LOWER(CONCAT('%', :cameraModel, '%')) " +
+           "ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
+    List<Long> findVisibleIdsByCameraModelContaining(@Param("cameraModel") String cameraModel);
+
+    @Query("SELECT p.id FROM Photo p " +
+           "WHERE (p.isHidden IS NULL OR p.isHidden = false) " +
+           "AND LOWER(COALESCE(p.lensModel, '')) LIKE LOWER(CONCAT('%', :lensModel, '%')) " +
+           "ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
+    List<Long> findVisibleIdsByLensModelContaining(@Param("lensModel") String lensModel);
 }

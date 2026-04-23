@@ -139,4 +139,74 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
            "WHERE f.isConfirmed = true AND f.photo.albumId = :albumId " +
            "GROUP BY p.id ORDER BY cnt DESC")
     List<Object[]> findPersonIdsWithFaceCountByAlbumId(@Param("albumId") Long albumId);
+
+    @Query(value = "SELECT pf.person_id AS person_id, " +
+           "COUNT(DISTINCT pf.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face pf " +
+           "INNER JOIN photo p ON p.id = pf.photo_id " +
+           "INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "WHERE pf.person_id IS NOT NULL " +
+           "AND pf.photo_id IN (:photoIds) " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "GROUP BY pf.person_id " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonAppearancesByPhotoIds(@Param("photoIds") List<Long> photoIds);
+
+    @Query(value = "SELECT pf.person_id AS person_id, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS global_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS global_last_seen " +
+           "FROM photo_face pf " +
+           "INNER JOIN photo p ON p.id = pf.photo_id " +
+           "INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "WHERE pf.person_id IN (:personIds) " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "GROUP BY pf.person_id",
+           nativeQuery = true)
+    List<Object[]> summarizeGlobalPersonAppearances(@Param("personIds") List<Long> personIds);
+
+    @Query(value = "SELECT other_face.person_id AS person_id, " +
+           "COUNT(DISTINCT anchor_face.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face anchor_face " +
+           "INNER JOIN photo_face other_face ON other_face.photo_id = anchor_face.photo_id " +
+           "INNER JOIN photo p ON p.id = anchor_face.photo_id " +
+           "INNER JOIN person_profile other_person ON other_person.id = other_face.person_id " +
+           "WHERE anchor_face.person_id = :anchorPersonId " +
+           "AND other_face.person_id IS NOT NULL " +
+           "AND other_face.person_id <> :anchorPersonId " +
+           "AND anchor_face.photo_id IN (:photoIds) " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (other_person.hidden = 0 OR other_person.hidden IS NULL) " +
+           "GROUP BY other_face.person_id " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonCooccurrencesByPhotoIds(@Param("anchorPersonId") Long anchorPersonId,
+                                                          @Param("photoIds") List<Long> photoIds);
+
+    @Query(value = "SELECT LEAST(pf1.person_id, pf2.person_id) AS person_a_id, " +
+           "GREATEST(pf1.person_id, pf2.person_id) AS person_b_id, " +
+           "COUNT(DISTINCT pf1.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face pf1 " +
+           "INNER JOIN photo_face pf2 ON pf2.photo_id = pf1.photo_id AND pf2.person_id > pf1.person_id " +
+           "INNER JOIN photo p ON p.id = pf1.photo_id " +
+           "INNER JOIN person_profile pp1 ON pp1.id = pf1.person_id " +
+           "INNER JOIN person_profile pp2 ON pp2.id = pf2.person_id " +
+           "WHERE pf1.person_id IS NOT NULL " +
+           "AND pf2.person_id IS NOT NULL " +
+           "AND pf1.photo_id IN (:photoIds) " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (pp1.hidden = 0 OR pp1.hidden IS NULL) " +
+           "AND (pp2.hidden = 0 OR pp2.hidden IS NULL) " +
+           "GROUP BY LEAST(pf1.person_id, pf2.person_id), GREATEST(pf1.person_id, pf2.person_id) " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonPairCooccurrencesByPhotoIds(@Param("photoIds") List<Long> photoIds);
 }

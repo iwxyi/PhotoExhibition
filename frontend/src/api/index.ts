@@ -1490,8 +1490,26 @@ export interface AiSearchResponse {
   matchedAlbumNames?: string[]
   aiSearchEnabled: boolean
   analysisData?: {
+    analysisType?: 'body_change' | 'person_overview' | 'person_cooccurrence' | 'person_pair_cooccurrence'
     personId?: number
     personName?: string
+    periodLabel?: string
+    totalEntities?: number
+    photoMatched?: number
+    anchorPersonName?: string
+    topPersons?: Array<{
+      personId?: number
+      personName?: string
+      matchedPhotoCount?: number
+    }>
+    topPairs?: Array<{
+      personAId?: number
+      personAName?: string
+      personBId?: number
+      personBName?: string
+      matchedPhotoCount?: number
+    }>
+    summaryItems?: string[]
     startYear?: number
     endYear?: number
     totalPhotos?: number
@@ -1505,6 +1523,17 @@ export interface AiSearchResponse {
     changePercent?: number
     firstPeriod?: string
     lastPeriod?: string
+  }
+  executionPlan?: {
+    version?: string
+    planType?: string
+    stepCount?: number
+    operators?: string[]
+    resultTypes?: string[]
+    evidenceStatus?: string
+    resolverUsed?: boolean
+    metadata?: Record<string, unknown>
+    finalOutputKeys?: string[]
   }
 }
 
@@ -1525,7 +1554,7 @@ export const aiSearchApi = {
   execute: (
     query: string,
     intent: AiSearchResponse['parsedIntent'],
-    suggestionAction: AiSearchSuggestionAction,
+    suggestionAction?: AiSearchSuggestionAction,
     page = 0,
     size = 30
   ) => api.post<AiSearchResponse>('/photos/ai-search/execute', { query, intent, suggestionAction, page, size })
