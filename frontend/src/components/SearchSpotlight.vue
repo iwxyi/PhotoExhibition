@@ -62,17 +62,17 @@
     >
       <div
         v-if="showSpotlight"
-        class="fixed z-[2100] top-[20%] left-1/2 -translate-x-1/2 w-[560px] max-w-[90vw]"
+        class="fixed z-[2100] top-[72px] left-1/2 -translate-x-1/2 w-[720px] max-w-[94vw] sm:top-[76px]"
         @click.stop
       >
         <div
-          class="relative overflow-hidden rounded-[16px] border border-slate-400/35 shadow-[0_18px_45px_rgba(15,23,42,0.18)] backdrop-blur-[20px] dark:border-slate-600/50 dark:shadow-[0_25px_60px_rgba(0,0,0,0.8)]"
+          class="relative overflow-hidden rounded-[20px] border border-stone-300/45 bg-[rgba(248,250,252,0.88)] shadow-[0_18px_42px_rgba(15,23,42,0.10)] backdrop-blur-[20px] dark:border-white/10 dark:bg-[rgba(15,23,42,0.86)] dark:shadow-[0_22px_48px_rgba(0,0,0,0.44)]"
           style="-webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);"
         >
-          <div class="pointer-events-none absolute inset-0 bg-[rgba(248,250,252,0.8)] dark:bg-[rgba(15,23,42,0.8)]"></div>
-          <div class="relative flex items-center px-5 py-4">
+          <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/90 dark:bg-white/8"></div>
+          <div class="relative flex items-center gap-3 rounded-[14px] p-4 sm:gap-3.5 sm:p-4.5">
             <!-- 左侧放大镜图标 -->
-            <svg class="mr-3 h-5 w-5 flex-shrink-0 text-stone-400 dark:text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="h-4 w-4 flex-shrink-0 translate-y-[0.5px] text-stone-400 dark:text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="7" stroke-width="1.5" />
               <path stroke-linecap="round" stroke-width="1.5" d="M16.5 16.5L21 21" />
             </svg>
@@ -81,24 +81,11 @@
               ref="searchInputRef"
               v-model="searchKeyword"
               type="text"
-              placeholder="输入相册、人物或照片关键词"
-              class="flex-1 bg-transparent text-lg text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 outline-none"
+              placeholder="关键词"
+              class="search-input min-w-0 flex-1 rounded-[10px] bg-transparent text-[15px] leading-none sm:text-[17px] font-light tracking-[0.035em] text-stone-900 dark:text-stone-100 placeholder-stone-400/90 dark:placeholder-stone-500 outline-none"
               @keyup.enter="doSearch"
               @keyup.escape="closeSpotlight"
             />
-            <!-- 右侧搜索按钮 -->
-            <button
-              v-if="searchKeyword.trim()"
-              @click="doSearch"
-              class="ml-3 flex-shrink-0 rounded-lg border border-stone-900 bg-stone-900 px-3 py-1.5 text-xs font-medium text-stone-50 transition-colors duration-150 hover:bg-stone-800 dark:border-stone-100 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-200"
-            >
-              搜索
-            </button>
-            <!-- ESC 提示 -->
-            <kbd
-              v-else
-              class="ml-3 flex-shrink-0 rounded border border-black/[0.05] bg-white/45 px-2 py-1 text-[10px] font-medium text-stone-400 dark:border-white/[0.06] dark:bg-white/[0.04] dark:text-stone-500"
-            >ESC</kbd>
           </div>
         </div>
       </div>
@@ -196,6 +183,20 @@ onUnmounted(() => {
 
 .search-handle {
   transition: all 0.3s ease;
+}
+
+.search-input {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-results-button,
+.search-input::-webkit-search-results-decoration {
+  -webkit-appearance: none;
 }
 
 .search-svg.is-hovering .search-handle {

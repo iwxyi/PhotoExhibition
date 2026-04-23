@@ -2,7 +2,7 @@
   <div class="min-h-screen bg-stone-50 dark:bg-[#111111]">
     <!-- 导航栏 -->
     <nav
-      class="sticky top-0 z-50 bg-stone-50/78 dark:bg-[#111111]/74 backdrop-blur-xl border-b border-stone-200/70 dark:border-white/10 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
+      class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
       :class="{ '-translate-y-full': isMobile && navHidden }"
       style="padding-top: env(safe-area-inset-top);"
     >

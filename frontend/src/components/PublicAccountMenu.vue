@@ -161,9 +161,9 @@
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium text-stone-700 dark:text-stone-200">深色模式</span>
             <button
-              @click="themeStore.toggleTheme"
+              @click="toggleThemeSwitch"
               class="menu-switch relative inline-flex h-6 w-11 items-center rounded-full"
-              :class="themeStore.isDark ? 'is-on bg-blue-600 shadow-blue-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600'"
+              :class="[themeStore.isDark ? 'is-on bg-blue-600 shadow-blue-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600', activeSwitchPulse === 'theme' ? 'is-pulsing' : '']"
             >
               <span class="menu-switch-thumb inline-block h-4 w-4 rounded-full bg-white shadow-sm" :class="themeStore.isDark ? 'translate-x-6' : 'translate-x-1'"></span>
             </button>
@@ -172,9 +172,9 @@
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium text-stone-700 dark:text-stone-200">相册氛围</span>
             <button
-              @click="setAtmosphereEnabled(!atmosphereEnabled)"
+              @click="toggleAtmosphereSwitch"
               class="menu-switch relative inline-flex h-6 w-11 items-center rounded-full"
-              :class="atmosphereEnabled ? 'is-on bg-green-600 shadow-green-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600'"
+              :class="[atmosphereEnabled ? 'is-on bg-green-600 shadow-green-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600', activeSwitchPulse === 'atmosphere' ? 'is-pulsing' : '']"
             >
               <span class="menu-switch-thumb inline-block h-4 w-4 rounded-full bg-white shadow-sm" :class="atmosphereEnabled ? 'translate-x-6' : 'translate-x-1'"></span>
             </button>
@@ -183,9 +183,9 @@
           <div v-if="isPhotoWall" class="flex items-center justify-between">
             <span class="text-sm font-medium text-stone-700 dark:text-stone-200">视差滚动</span>
             <button
-              @click="setParallaxEnabled(!parallaxEnabled)"
+              @click="toggleParallaxSwitch"
               class="menu-switch relative inline-flex h-6 w-11 items-center rounded-full"
-              :class="parallaxEnabled ? 'is-on bg-purple-600 shadow-purple-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600'"
+              :class="[parallaxEnabled ? 'is-on bg-purple-600 shadow-purple-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600', activeSwitchPulse === 'parallax' ? 'is-pulsing' : '']"
             >
               <span class="menu-switch-thumb inline-block h-4 w-4 rounded-full bg-white shadow-sm" :class="parallaxEnabled ? 'translate-x-6' : 'translate-x-1'"></span>
             </button>
@@ -194,9 +194,9 @@
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium text-stone-700 dark:text-stone-200">查看原图</span>
             <button
-              @click="setViewOriginalEnabled(!viewOriginalEnabled)"
+              @click="toggleViewOriginalSwitch"
               class="menu-switch relative inline-flex h-6 w-11 items-center rounded-full"
-              :class="viewOriginalEnabled ? 'is-on bg-orange-600 shadow-orange-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600'"
+              :class="[viewOriginalEnabled ? 'is-on bg-orange-600 shadow-orange-500/30 shadow-lg' : 'bg-gray-300 dark:bg-gray-600', activeSwitchPulse === 'original' ? 'is-pulsing' : '']"
             >
               <span class="menu-switch-thumb inline-block h-4 w-4 rounded-full bg-white shadow-sm" :class="viewOriginalEnabled ? 'translate-x-6' : 'translate-x-1'"></span>
             </button>
@@ -232,6 +232,8 @@ const themeStore = useThemeStore()
 const open = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
+const activeSwitchPulse = ref<'theme' | 'atmosphere' | 'parallax' | 'original' | null>(null)
+let switchPulseTimer: ReturnType<typeof setTimeout> | null = null
 const panelStyle = ref<Record<string, string>>({
   top: '0px',
   left: '0px',
@@ -262,6 +264,35 @@ const roleLabel = computed(() => {
 })
 
 const isPhotoWall = computed(() => stripPublicSlug(route.path) === '/wall')
+
+const pulseSwitch = (key: 'theme' | 'atmosphere' | 'parallax' | 'original') => {
+  activeSwitchPulse.value = key
+  if (switchPulseTimer) clearTimeout(switchPulseTimer)
+  switchPulseTimer = setTimeout(() => {
+    activeSwitchPulse.value = null
+    switchPulseTimer = null
+  }, 420)
+}
+
+const toggleThemeSwitch = () => {
+  themeStore.toggleTheme()
+  pulseSwitch('theme')
+}
+
+const toggleAtmosphereSwitch = () => {
+  setAtmosphereEnabled(!atmosphereEnabled.value)
+  pulseSwitch('atmosphere')
+}
+
+const toggleParallaxSwitch = () => {
+  setParallaxEnabled(!parallaxEnabled.value)
+  pulseSwitch('parallax')
+}
+
+const toggleViewOriginalSwitch = () => {
+  setViewOriginalEnabled(!viewOriginalEnabled.value)
+  pulseSwitch('original')
+}
 
 const updatePanelPosition = () => {
   const trigger = triggerRef.value
@@ -338,6 +369,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleWindowChange)
   window.removeEventListener('scroll', handleWindowChange)
+  if (switchPulseTimer) clearTimeout(switchPulseTimer)
 })
 </script>
 
@@ -495,20 +527,24 @@ onUnmounted(() => {
   will-change: transform;
 }
 
-.menu-switch.is-on .menu-switch-thumb {
+.menu-switch.is-pulsing {
+  animation: switchTrackPulse 0.42s cubic-bezier(0.22, 1.32, 0.32, 1);
+}
+
+.menu-switch.is-pulsing .menu-switch-thumb {
   animation: switchThumbBounce 0.42s cubic-bezier(0.22, 1.32, 0.32, 1);
 }
 
 @keyframes switchThumbBounce {
-  0% {
-    transform: translateX(1rem) scale(0.88);
-  }
-  58% {
-    transform: translateX(1.62rem) scale(1.08);
-  }
-  100% {
-    transform: translateX(1.5rem) scale(1);
-  }
+  0% { scale: 0.88; }
+  58% { scale: 1.12; }
+  100% { scale: 1; }
+}
+
+@keyframes switchTrackPulse {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.06); }
+  100% { transform: scale(1); }
 }
 
 @keyframes menuAvatarBreath {

@@ -2,7 +2,7 @@
   <!-- 分类 Tabs -->
   <div class="mb-6 relative">
     <div
-      class="flex gap-2.5 sm:gap-3 overflow-x-auto pb-2.5 px-0.5 py-0.5 scroll-smooth category-tabs-container"
+      class="flex gap-2.5 sm:gap-3 overflow-x-auto pb-1.5 px-0.5 py-0.5 scroll-smooth category-tabs-container"
       style="scrollbar-width: none; -ms-overflow-style: none;"
     >
       <button

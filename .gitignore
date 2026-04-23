@@ -13,6 +13,7 @@ frontend/.vite/
 # IDE
 .idea/
 .vscode/
+.codex
 *.iml
 *.swp
 *.swo
