@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 public class DefaultAiSearchResolver implements AiSearchResolver {
@@ -16,6 +17,48 @@ public class DefaultAiSearchResolver implements AiSearchResolver {
         }
         if ("relative_new_persons".equals(evidenceBundle.getPlanType())) {
             return resolveRelativeNewPersons(evidenceBundle);
+        }
+        if ("relative_new_persons_with_technical_scope".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsWithTechnicalScope(evidenceBundle);
+        }
+        if ("relative_new_persons_with_technical_scope_then_activity".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsWithTechnicalScopeThenActivity(evidenceBundle);
+        }
+        if ("relative_new_persons_with_scoped_photos".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsWithScopedPhotos(evidenceBundle);
+        }
+        if ("relative_new_persons_with_scoped_photos_then_activity".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsWithScopedPhotosThenActivity(evidenceBundle);
+        }
+        if ("relative_new_persons_with_scoped_photos_still_active".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsWithScopedPhotosStillActive(evidenceBundle);
+        }
+        if ("relative_new_persons_then_cooccurrence".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsThenCooccurrence(evidenceBundle);
+        }
+        if ("relative_new_persons_then_cooccurrence_missing_again".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsThenCooccurrenceMissingAgain(evidenceBundle);
+        }
+        if ("relative_new_persons_then_multi_cooccurrence".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsThenMultiCooccurrence(evidenceBundle);
+        }
+        if ("relative_new_persons_then_multi_cooccurrence_missing_again".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsThenMultiCooccurrenceMissingAgain(evidenceBundle);
+        }
+        if ("relative_new_persons_then_pair_cooccurrence".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsThenPairCooccurrence(evidenceBundle);
+        }
+        if ("relative_new_persons_with_scoped_photos_then_pair_cooccurrence".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsWithScopedPhotosThenPairCooccurrence(evidenceBundle);
+        }
+        if ("relative_new_persons_body_change".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsBodyChange(evidenceBundle);
+        }
+        if ("relative_new_persons_still_active".equals(evidenceBundle.getPlanType())) {
+            return resolveRelativeNewPersonsStillActive(evidenceBundle);
+        }
+        if ("temporal_person_set".equals(evidenceBundle.getPlanType())) {
+            return resolveTemporalPersonSet(evidenceBundle);
         }
         if ("person_overview".equals(evidenceBundle.getPlanType())) {
             return resolvePersonOverview(evidenceBundle);
@@ -70,6 +113,302 @@ public class DefaultAiSearchResolver implements AiSearchResolver {
             return period + "共找到 " + matchCount + " 位符合条件的人物。";
         }
         return period + "共找到 " + matchCount + " 位符合条件的人物，优先包括 " + String.join("、", topNames) + "。";
+    }
+
+    private String resolveTemporalPersonSet(AiSearchEvidenceBundle evidenceBundle) {
+        int absentYear = asInt(evidenceBundle.getSummary().get("absentYear"));
+        int presentYear = asInt(evidenceBundle.getSummary().get("presentYear"));
+        int missingAgainYear = asInt(evidenceBundle.getSummary().get("missingAgainYear"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        @SuppressWarnings("unchecked")
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return absentYear + " 年未出现、" + presentYear + " 年出现且 "
+                + missingAgainYear + " 年没再出现的人物结果为空。";
+        }
+        if (topNames.isEmpty()) {
+            return "检索结论：共找到 " + matchCount + " 位在 " + absentYear + " 年未出现、"
+                + presentYear + " 年出现且 " + missingAgainYear + " 年没再出现的人物。";
+        }
+        return "检索结论：符合“" + absentYear + " 年未出现、" + presentYear + " 年出现且 "
+            + missingAgainYear + " 年没再出现”条件的人物包括 " + String.join("、", topNames)
+            + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsWithTechnicalScope(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+        List<String> cameraModels = (List<String>) evidenceBundle.getSummary().getOrDefault("cameraModels", Collections.emptyList());
+        List<String> lensModels = (List<String>) evidenceBundle.getSummary().getOrDefault("lensModels", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String technicalScope = buildTechnicalScopeLabel(cameraModels, lensModels);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "没有找到符合“此前未出现且属于" + technicalScope + "拍摄范围”的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 位符合“此前未出现且属于" + technicalScope + "拍摄范围”的人物。";
+        }
+        return period + "符合“此前未出现且属于" + technicalScope + "拍摄范围”的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsWithTechnicalScopeThenActivity(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+        List<String> cameraModels = (List<String>) evidenceBundle.getSummary().getOrDefault("cameraModels", Collections.emptyList());
+        List<String> lensModels = (List<String>) evidenceBundle.getSummary().getOrDefault("lensModels", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String technicalScope = buildTechnicalScopeLabel(cameraModels, lensModels);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "属于" + technicalScope + "拍摄范围的新认识人物里，没有找到后续持续出现更活跃的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "属于" + technicalScope + "拍摄范围的新认识人物里，共找到 " + matchCount + " 位后续持续出现较活跃的人物。";
+        }
+        return period + "属于" + technicalScope + "拍摄范围且后续持续出现较活跃的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsThenCooccurrence(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        String anchorPersonName = String.valueOf(evidenceBundle.getSummary().getOrDefault("anchorPersonName", "该人物"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "没有找到“新认识之后又经常与" + anchorPersonName + "同框”的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 位在新认识之后又经常与" + anchorPersonName + "同框的人物。";
+        }
+        return period + "新认识之后又经常与" + anchorPersonName + "同框的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsWithScopedPhotos(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+        List<String> cameraModels = (List<String>) evidenceBundle.getSummary().getOrDefault("cameraModels", Collections.emptyList());
+        List<String> lensModels = (List<String>) evidenceBundle.getSummary().getOrDefault("lensModels", Collections.emptyList());
+        List<String> scopeKeywords = (List<String>) evidenceBundle.getSummary().getOrDefault("scopeKeywords", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String scopeLabel = buildScopedPhotoLabel(cameraModels, lensModels, scopeKeywords);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "没有找到属于" + scopeLabel + "范围的新认识人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 位属于" + scopeLabel + "范围的新认识人物。";
+        }
+        return period + "属于" + scopeLabel + "范围的新认识人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsWithScopedPhotosThenActivity(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+        List<String> cameraModels = (List<String>) evidenceBundle.getSummary().getOrDefault("cameraModels", Collections.emptyList());
+        List<String> lensModels = (List<String>) evidenceBundle.getSummary().getOrDefault("lensModels", Collections.emptyList());
+        List<String> scopeKeywords = (List<String>) evidenceBundle.getSummary().getOrDefault("scopeKeywords", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String scopeLabel = buildScopedPhotoLabel(cameraModels, lensModels, scopeKeywords);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "属于" + scopeLabel + "范围的新认识人物里，没有找到后续持续出现更活跃的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "属于" + scopeLabel + "范围的新认识人物里，共找到 " + matchCount + " 位后续持续出现较活跃的人物。";
+        }
+        return period + "属于" + scopeLabel + "范围且后续持续出现较活跃的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsWithScopedPhotosStillActive(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int activeYear = asInt(evidenceBundle.getSummary().get("activeYear"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+        List<String> cameraModels = (List<String>) evidenceBundle.getSummary().getOrDefault("cameraModels", Collections.emptyList());
+        List<String> lensModels = (List<String>) evidenceBundle.getSummary().getOrDefault("lensModels", Collections.emptyList());
+        List<String> scopeKeywords = (List<String>) evidenceBundle.getSummary().getOrDefault("scopeKeywords", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String scopeLabel = buildScopedPhotoLabel(cameraModels, lensModels, scopeKeywords);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "属于" + scopeLabel + "范围的新认识人物里，没有在 " + activeYear + " 年继续稳定出现的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "属于" + scopeLabel + "范围的新认识人物里，共找到 " + matchCount + " 位在 " + activeYear + " 年仍持续出现的人物。";
+        }
+        return period + "属于" + scopeLabel + "范围且在 " + activeYear + " 年仍持续出现的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsStillActive(AiSearchEvidenceBundle evidenceBundle) {
+        int targetYear = asInt(evidenceBundle.getSummary().get("targetYear"));
+        int activeYear = asInt(evidenceBundle.getSummary().get("activeYear"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return targetYear + " 年新认识的人物里，没有在 " + activeYear + " 年继续稳定出现的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return targetYear + " 年新认识的人物里，共找到 " + matchCount + " 位在 " + activeYear + " 年仍持续出现的人物。";
+        }
+        return targetYear + " 年新认识且在 " + activeYear + " 年仍持续出现的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsThenCooccurrenceMissingAgain(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int missingAgainYear = asInt(evidenceBundle.getSummary().get("missingAgainYear"));
+        String anchorPersonName = String.valueOf(evidenceBundle.getSummary().getOrDefault("anchorPersonName", "该人物"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "新认识、后来又经常与" + anchorPersonName + "同框且在 " + missingAgainYear + " 年没再出现的人物为空。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 位后来又经常与" + anchorPersonName + "同框且在 "
+                + missingAgainYear + " 年没再出现的人物。";
+        }
+        return period + "新认识后又经常与" + anchorPersonName + "同框，且在 " + missingAgainYear + " 年没再出现的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsThenMultiCooccurrence(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> anchorPersonNames = (List<String>) evidenceBundle.getSummary().getOrDefault("anchorPersonNames", Collections.emptyList());
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String anchorLabel = anchorPersonNames.isEmpty() ? "这些人物" : String.join("、", anchorPersonNames);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "没有找到新认识后又经常与" + anchorLabel + "同框的人物。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 位新认识后又经常与" + anchorLabel + "同框的人物。";
+        }
+        return period + "新认识后又经常与" + anchorLabel + "同框的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsThenMultiCooccurrenceMissingAgain(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int missingAgainYear = asInt(evidenceBundle.getSummary().get("missingAgainYear"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> anchorPersonNames = (List<String>) evidenceBundle.getSummary().getOrDefault("anchorPersonNames", Collections.emptyList());
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        String anchorLabel = anchorPersonNames.isEmpty() ? "这些人物" : String.join("、", anchorPersonNames);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "新认识后又经常与" + anchorLabel + "同框，且在 " + missingAgainYear + " 年没再出现的人物为空。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 位新认识后又经常与" + anchorLabel + "同框，且在 "
+                + missingAgainYear + " 年没再出现的人物。";
+        }
+        return period + "新认识后又经常与" + anchorLabel + "同框，且在 " + missingAgainYear + " 年没再出现的人物包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsThenPairCooccurrence(AiSearchEvidenceBundle evidenceBundle) {
+        Object targetYear = evidenceBundle.getSummary().get("targetYear");
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        String period = targetYear == null ? "该年份" : String.valueOf(targetYear) + " 年";
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return period + "没有找到新认识后又经常共同出现的人物组合。";
+        }
+        if (topNames.isEmpty()) {
+            return period + "共找到 " + matchCount + " 组新认识后又经常共同出现的人物组合。";
+        }
+        return period + "新认识后又经常共同出现的人物组合包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 组。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsBodyChange(AiSearchEvidenceBundle evidenceBundle) {
+        int targetYear = asInt(evidenceBundle.getSummary().get("targetYear"));
+        int startYear = asInt(evidenceBundle.getSummary().get("startYear"));
+        int endYear = asInt(evidenceBundle.getSummary().get("endYear"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return targetYear + " 年新认识的人物里，没有找到在 " + endYear + " 年相比 " + startYear + " 年明显变胖的人。";
+        }
+        if (topNames.isEmpty()) {
+            return targetYear + " 年新认识的人物里，共找到 " + matchCount + " 位在 " + endYear + " 年相比 " + startYear + " 年明显变胖的人。";
+        }
+        return targetYear + " 年新认识且在 " + endYear + " 年相比 " + startYear + " 年明显变胖的人包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 位。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveRelativeNewPersonsWithScopedPhotosThenPairCooccurrence(AiSearchEvidenceBundle evidenceBundle) {
+        int targetYear = asInt(evidenceBundle.getSummary().get("targetYear"));
+        int matchCount = asInt(evidenceBundle.getSummary().get("matchCount"));
+        List<String> topNames = (List<String>) evidenceBundle.getSummary().getOrDefault("topNames", Collections.emptyList());
+        List<String> cameraModels = (List<String>) evidenceBundle.getSummary().getOrDefault("cameraModels", Collections.emptyList());
+        List<String> lensModels = (List<String>) evidenceBundle.getSummary().getOrDefault("lensModels", Collections.emptyList());
+        List<String> scopeKeywords = (List<String>) evidenceBundle.getSummary().getOrDefault("scopeKeywords", Collections.emptyList());
+
+        String scopeLabel = buildScopedPhotoLabel(cameraModels, lensModels, scopeKeywords);
+        if ("none".equals(evidenceBundle.getEvidenceStatus()) || matchCount <= 0) {
+            return targetYear + " 年属于" + scopeLabel + "范围的新认识人物里，没有找到后来经常共同出现的人物组合。";
+        }
+        if (topNames.isEmpty()) {
+            return targetYear + " 年属于" + scopeLabel + "范围的新认识人物里，共找到 " + matchCount + " 组后来经常共同出现的人物组合。";
+        }
+        return targetYear + " 年属于" + scopeLabel + "范围且后来经常共同出现的人物组合包括 "
+            + String.join("、", topNames) + "，共 " + matchCount + " 组。";
+    }
+
+    private String buildTechnicalScopeLabel(List<String> cameraModels, List<String> lensModels) {
+        List<String> labels = cameraModels == null ? Collections.emptyList() : cameraModels;
+        if (!labels.isEmpty()) {
+            return labels.stream().filter(item -> item != null && !item.isBlank()).collect(Collectors.joining(" / "));
+        }
+        List<String> lensLabels = lensModels == null ? Collections.emptyList() : lensModels;
+        if (!lensLabels.isEmpty()) {
+            return lensLabels.stream().filter(item -> item != null && !item.isBlank()).collect(Collectors.joining(" / "));
+        }
+        return "指定器材";
+    }
+
+    private String buildScopedPhotoLabel(List<String> cameraModels, List<String> lensModels, List<String> scopeKeywords) {
+        String technical = buildTechnicalScopeLabel(cameraModels, lensModels);
+        List<String> keywords = scopeKeywords == null ? Collections.emptyList() : scopeKeywords;
+        if (keywords.isEmpty()) {
+            return technical;
+        }
+        return String.join(" / ", keywords) + " / " + technical;
     }
 
     private String resolvePersonOverview(AiSearchEvidenceBundle evidenceBundle) {

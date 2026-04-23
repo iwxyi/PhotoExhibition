@@ -2,6 +2,7 @@ package com.photoexhibition.aisearch.operator;
 
 import com.photoexhibition.aisearch.executor.AiSearchExecutionContext;
 import com.photoexhibition.aisearch.model.AiSearchPersonAggregate;
+import com.photoexhibition.aisearch.model.AiSearchPersonGrowthAggregate;
 import com.photoexhibition.aisearch.model.AiSearchPersonPairAggregate;
 import com.photoexhibition.aisearch.plan.AiSearchPlanStep;
 import org.springframework.stereotype.Component;
@@ -52,6 +53,9 @@ public class SortOperator implements AiSearchOperator {
             case "globalFirstSeen":
                 comparator = Comparator.comparing(item -> nullSafeDate(extractDate(item, field)));
                 break;
+            case "changePercent":
+                comparator = Comparator.comparing(item -> extractDouble(item, field));
+                break;
             case "matchedPhotoCount":
             default:
                 comparator = Comparator.comparing(item -> extractInt(item, field));
@@ -73,7 +77,23 @@ public class SortOperator implements AiSearchOperator {
                 return aggregate.getMatchedPhotoCount() == null ? 0 : aggregate.getMatchedPhotoCount();
             }
         }
+        if (item instanceof AiSearchPersonGrowthAggregate) {
+            AiSearchPersonGrowthAggregate aggregate = (AiSearchPersonGrowthAggregate) item;
+            if ("matchedPhotoCount".equals(field)) {
+                return aggregate.getMatchedPhotoCount() == null ? 0 : aggregate.getMatchedPhotoCount();
+            }
+        }
         return 0;
+    }
+
+    private Double extractDouble(Object item, String field) {
+        if (item instanceof AiSearchPersonGrowthAggregate) {
+            AiSearchPersonGrowthAggregate aggregate = (AiSearchPersonGrowthAggregate) item;
+            if ("changePercent".equals(field)) {
+                return aggregate.getChangePercent() == null ? 0D : aggregate.getChangePercent();
+            }
+        }
+        return 0D;
     }
 
     private LocalDateTime extractDate(Object item, String field) {
@@ -88,6 +108,12 @@ public class SortOperator implements AiSearchOperator {
         }
         if (item instanceof AiSearchPersonPairAggregate) {
             AiSearchPersonPairAggregate aggregate = (AiSearchPersonPairAggregate) item;
+            if ("matchedLastSeen".equals(field) || "globalFirstSeen".equals(field)) {
+                return aggregate.getMatchedLastSeen();
+            }
+        }
+        if (item instanceof AiSearchPersonGrowthAggregate) {
+            AiSearchPersonGrowthAggregate aggregate = (AiSearchPersonGrowthAggregate) item;
             if ("matchedLastSeen".equals(field) || "globalFirstSeen".equals(field)) {
                 return aggregate.getMatchedLastSeen();
             }

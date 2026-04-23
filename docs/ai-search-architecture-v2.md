@@ -198,6 +198,250 @@ V2 第一阶段只允许这些高价值、低风险算子：
 3. 单测
 4. 文档
 
+### 5.3 时间参照解析
+
+为了避免 planner 长期把 `大前年 / 前年 / 去年 / 今年` 硬编码在各自的 `supports` 和 `plan` 里，V2 需要把相对时间词抽成可复用的解析层。
+
+当前已经开始落地的约束是：
+
+1. 先统一解析相对年份词，再映射到计划需要的年份角色
+2. planner 只消费 `targetYear / activeYear / startYear / endYear / absentYear / presentYear / missingAgainYear`
+3. 同一套年份角色解析允许被“新人物集合”“持续活跃”“体型变化”“时序集合差”复用
+
+这一步不是为了支持更多文案，而是为了把时间理解从 query-specific 分支迁移成受控基础能力。
+
+## 5.4 AI 分析规格桥
+
+为了避免继续扩充 `analysisHint.capability` 这种“枚举越来越多”的兼容做法，V2 现在新增了 `analysisSpec` 作为 AI 到受控执行计划之间的中间层。
+
+`analysisSpec` 当前的核心形状是：
+
+1. `subject`
+   例如 `relative_new_persons`、`temporal_person_set`
+2. `operation`
+   例如 `identity`、`still_active`、`activity_rank`、`body_change`、`cooccurrence`、`pair_cooccurrence`
+3. `scope`
+   例如 `none`、`technical`、`scoped_photos`
+
+也就是说，AI 不再直接说“这是第 N 种固定能力”，而是先把问题拆成：
+
+1. 先定义候选集合从哪里来
+2. 再定义要对这个集合做什么运算
+3. 最后定义是否附带器材/地点/主题范围
+
+后端新增 `AiSearchAnalysisSpecMapper` 负责把这份规格映射成已有白名单 plan：
+
+1. `relative_new_persons + identity`
+   -> `relative_new_persons`
+2. `relative_new_persons + still_active`
+   -> `relative_new_persons_still_active`
+3. `relative_new_persons + activity_rank + technical/scoped_photos`
+   -> 对应后续活跃度计划
+4. `relative_new_persons + cooccurrence`
+   -> 单锚点 / 多锚点 / missing-again 变体
+5. `relative_new_persons + pair_cooccurrence`
+   -> 后续高频人物组合计划
+6. `temporal_person_set + identity`
+   -> 时序集合差计划
+7. `filtered_scope + theme_overview`
+   -> 当前过滤范围上的主题分布计划
+8. `filtered_scope + year_compare`
+   -> 当前过滤范围上的跨年份数量对比计划
+
+`analysisHint` 仍保留一段时间作为兼容层，但实现上已经优先转换为 `analysisSpec` 再进入 mapper。
+
+### 5.5 `filtered_scope` 示例
+
+下面这些例子都遵循同一个原则：
+
+1. 先把稳定筛选条件留在主 `AiSearchIntent`
+2. 再用 `analysisSpec.subject.type=filtered_scope`
+3. 用 `operation.type` 声明要在命中照片范围里做什么分析
+
+示例 A: 当前范围里有哪些人
+
+```json
+{
+  "keywords": ["杭州"],
+  "must": [
+    {"type": "keyword", "values": ["杭州"]},
+    {"type": "date_range", "startDate": "2025-01-01", "endDate": "2025-12-31"}
+  ],
+  "resultTypes": ["persons", "photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {"type": "person_overview"},
+    "scope": {"type": "none"}
+  }
+}
+```
+
+示例 B: 当前范围里与锚点人物共同出现的是谁
+
+```json
+{
+  "personIds": [1],
+  "keywords": ["杭州"],
+  "must": [
+    {"type": "person", "ids": [1]},
+    {"type": "keyword", "values": ["杭州"]}
+  ],
+  "resultTypes": ["persons", "photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {
+      "type": "person_cooccurrence",
+      "anchorPersonIds": [1],
+      "anchorPersonNames": ["小明"]
+    },
+    "scope": {"type": "none"}
+  }
+}
+```
+
+示例 C: 当前范围里的全局人物对同框排行
+
+```json
+{
+  "resultTypes": ["photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {"type": "person_pair_cooccurrence"},
+    "scope": {"type": "none"}
+  }
+}
+```
+
+示例 D: 当前范围里的年份对比
+
+```json
+{
+  "keywords": ["樱花"],
+  "must": [
+    {"type": "keyword", "values": ["樱花"]}
+  ],
+  "resultTypes": ["photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {
+      "type": "year_compare",
+      "leftYear": 2025,
+      "rightYear": 2024,
+      "subject": "樱花"
+    },
+    "scope": {"type": "none"}
+  }
+}
+```
+
+示例 E: 当前范围里的数量统计
+
+```json
+{
+  "keywords": ["樱花"],
+  "must": [
+    {"type": "keyword", "values": ["樱花"]},
+    {"type": "date_range", "startDate": "2025-01-01", "endDate": "2025-12-31"}
+  ],
+  "resultTypes": ["photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {"type": "count_overview"},
+    "scope": {"type": "none"}
+  }
+}
+```
+
+示例 F: 当前范围里的相册排行
+
+```json
+{
+  "keywords": ["樱花"],
+  "must": [
+    {"type": "keyword", "values": ["樱花"]},
+    {"type": "date_range", "startDate": "2025-01-01", "endDate": "2025-12-31"}
+  ],
+  "resultTypes": ["photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {"type": "album_overview"},
+    "scope": {"type": "none"}
+  }
+}
+```
+
+示例 G: 当前范围里的月份 / 地点 / 日期 / 标签 / 主题排行
+
+```json
+{
+  "keywords": ["樱花"],
+  "must": [
+    {"type": "keyword", "values": ["樱花"]},
+    {"type": "date_range", "startDate": "2025-01-01", "endDate": "2025-12-31"}
+  ],
+  "resultTypes": ["photos", "albums"],
+  "needAnswer": true,
+  "analysisSpec": {
+    "subjectType": "persons",
+    "subject": {"type": "filtered_scope"},
+    "operation": {"type": "month_overview"},
+    "scope": {"type": "none"}
+  }
+}
+```
+
+上面把 `operation.type` 替换为：
+
+1. `location_overview`
+2. `day_overview`
+3. `tag_overview`
+4. `theme_overview`
+
+即可分别表达“主要拍在哪些地方 / 集中在哪几天 / 高频标签有哪些 / 主要拍了什么主题”。
+
+在入口路由上，V2 也开始把“明显属于复杂时序/集合/关系推导的问题”优先送入这条链路：
+
+1. 若查询处于 `analysis` 模式
+2. 且问题同时带有相对时间和复杂集合推导语义
+3. 且 AI 配置可用
+
+则系统会先尝试：
+
+`GPT -> analysisSpec -> normalizer/repair -> mapper -> controlled plan`
+
+其中 `AiSearchAnalysisSpecNormalizer` 负责在进入 mapper 前做一层轻量修复：
+
+1. 统一 `subject/scope/operation` 大小写和空值
+2. 为 `filtered_scope` 自动补默认 `resultTypes`
+3. 从 intent 上下文回填人物锚点、人物名称、`year_compare.subject`
+4. 保持 AI 输出可以偏宽松，但执行入口仍然严格受控
+
+如果结构化规划失败，再回退到本地 legacy planner。
+
+这意味着本地 planner 逐步从“主入口”退化为“兼容 fallback”，而不是继续做唯一的复杂查询承载层。
+
+随着 `filtered_scope` 被纳入 `analysisSpec`，优先结构化规划的入口范围也扩大到了：
+
+1. 当前范围中的人物概览
+2. 当前范围中的人物共现 / 人物对共现
+3. 当前范围中的数量统计
+4. 当前范围中的相册 / 月份 / 地点 / 日期 / 标签 / 主题排行
+5. 当前范围中的跨年份数量对比
+
+换句话说，凡是已经能被 `analysisSpec` 表达的分析类型，系统都会尽量优先让 AI 输出结构化规格；本地 `resolveAnalysisRouting` 只在 AI 不可用或结构化规划失败时兜底。
+
 ## 6. 数据源适配层
 
 V2 不允许 Planner 直接选择任意数据库连接。
@@ -349,11 +593,24 @@ V2 明确采用“本地算、AI 解释”的原则。
 | `去年拍樱花主要集中在哪几天` | `day_overview` | 先筛照片 -> `aggregate_days` | 已支持 |
 | `去年和前年相比樱花拍得更多还是更少` | `year_compare` | 左右时期筛选 -> `compare_periods` | 已支持 |
 | `X 今年比去年胖了吗` | `body_change` | 人物时序统计 -> 变化信号归约 -> 保守回答 | 已支持 |
-| `去年新认识的人里，谁后来又经常和小明同框` | `multi_stage_relation` | 需要多阶段中间结果复用 | 规划中 |
-| `去年新认识的人物里，有哪些是用佳能拍到的` | `multi_stage_filtered_overview` | 集合差 -> 器材过滤 -> 人物聚合 | 规划中 |
-| `前年不存在但去年存在，今年又没再出现的人有谁` | `multi_stage_temporal_set` | 多时期集合差与交集 | 规划中 |
+| `去年新认识的人里，谁后来又经常和小明同框` | `relative_new_persons_then_cooccurrence` | 新认识人物集合 + 首次出现后的关系派生 | 已支持 |
+| `去年新认识的人物里，有哪些是用佳能拍到的` | `relative_new_persons_with_technical_scope` | 新人物集合 -> 器材范围人物集合 -> 交集 -> 排序 | 已支持 |
+| `去年新认识的人里，有哪些是在杭州用佳能拍到的` | `relative_new_persons_with_scoped_photos` | 新人物集合 -> 地点/器材范围照片 -> 范围人物集合 -> 交集 | 已支持 |
+| `去年新认识的人里，今年还经常出现的有谁` | `relative_new_persons_still_active` | 去年新人物集合 -> 与今年人物集合求交 -> 排序 | 已支持 |
+| `去年新认识的人里，有哪些是在杭州用佳能拍到、且今年还经常出现的` | `relative_new_persons_with_scoped_photos_still_active` | 范围内新人物集合 -> 与今年人物集合求交 -> 排序 | 已支持 |
+| `去年新认识的人里，后来最常和小明一起出现、但今年没再出现的有谁` | `relative_new_persons_then_cooccurrence_missing_again` | 新人物集合 -> 后续同框派生 -> 剔除今年人物 | 已支持 |
+| `去年新认识的人里，后来最常和小明、小红同框的是谁` | `relative_new_persons_then_multi_cooccurrence` | 新人物集合 -> 多锚点后续同框派生 -> 排序 | 已支持 |
+| `去年新认识的人里，后来最常和小明、小红同框、但今年没再出现的有谁` | `relative_new_persons_then_multi_cooccurrence_missing_again` | 新人物集合 -> 多锚点后续同框派生 -> 剔除今年人物 | 已支持 |
+| `去年新认识的人物里，谁和谁后来最常同框` | `relative_new_persons_then_pair_cooccurrence` | 新人物集合 -> 时序人物对同框派生 -> 排序 | 已支持 |
+| `去年新认识的人物里，用佳能拍到且后续出现次数最多的是谁` | `relative_new_persons_with_technical_scope_then_activity` | 新人物集合 -> 器材范围交集 -> 时序活跃度派生 -> 排序 | 已支持 |
+| `去年新认识的人中，哪些人今年比去年更胖` | `relative_new_persons_body_change` | 新人物集合 -> 批量体型变化派生 -> 排序 | 已支持 |
+| `前年新认识的人中，哪些人去年比前年更胖` | `relative_new_persons_body_change` | 新人物集合 -> 批量体型变化派生 -> 排序 | 已支持 |
+| `去年新认识的人里，在杭州用佳能拍到且后续出现次数最多的是谁` | `relative_new_persons_with_scoped_photos_then_activity` | 范围内新人物集合 -> 时序活跃度派生 -> 排序 | 已支持 |
+| `去年新认识的人里，在杭州用佳能拍到的人中，谁和谁后来最常同框` | `relative_new_persons_with_scoped_photos_then_pair_cooccurrence` | 范围内新人物集合 -> 时序人物对同框派生 -> 排序 | 已支持 |
+| `前年不存在但去年存在，今年又没再出现的人有谁` | `temporal_person_set` | 三个年份的人物聚合 -> 两次集合差 -> 排序 | 已支持 |
+| `大前年不存在但前年存在，去年又没再出现的人有谁` | `temporal_person_set` | 三个相对年份的人物聚合 -> 两次集合差 -> 排序 | 已支持 |
 
-“规划中”这几类问题不应通过继续向 `AiSearchService` 叠加 if/else 解决，而应通过可组合算子实现。
+后续新增问题类型，仍不应通过继续向 `AiSearchService` 叠加 if/else 解决，而应通过可组合算子实现。
 
 ### 8.2 计算链路问题
 
@@ -391,6 +648,343 @@ filter_photos(去年)
 2. `去年第一次出现、今年又继续出现的人物`
 3. `去年出现过但今年没再出现的人物`
 
+### 8.2.1 带器材范围的人物集合问题
+
+示例：`去年新认识的人物里，有哪些是用佳能拍到的`
+
+这类问题现在也已经能落到真实组合计划：
+
+```text
+去年照片
+  -> aggregate_persons
+
+去年以前照片
+  -> aggregate_persons
+
+set_difference
+  -> 去年新认识人物
+
+去年 + 佳能范围照片
+  -> aggregate_persons
+
+set_intersection
+  -> 佳能范围内的新认识人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这一步的关键意义不是支持“佳能”这两个字，而是把下面这类能力正式落地成可复用组合：
+
+1. 先得到一个人物集合
+2. 再得到一个技术范围或主题范围下的人物集合
+3. 用集合交集收敛结果
+4. 最终输出人物列表与一句结论
+
+后续同类扩展就可以复用同一思路，例如：
+
+1. `去年新认识的人物里，有哪些是用索尼拍到的`
+2. `去年新认识的人物里，有哪些是在杭州拍到的`
+3. `去年新认识的人物里，有哪些带有夜景标签`
+
+### 8.2.3 带复合照片范围的人物集合问题
+
+示例：`去年新认识的人里，有哪些是在杭州用佳能拍到的`
+
+这类问题现在已经能落到“照片范围先收敛，再回到人物集合”的组合计划：
+
+```text
+去年照片
+  -> aggregate_persons
+
+去年以前照片
+  -> aggregate_persons
+
+set_difference
+  -> 去年新认识人物
+
+去年 + 杭州 + 佳能 范围照片
+  -> aggregate_persons
+
+set_intersection
+  -> 范围内的新认识人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+关键点在于：
+
+1. “杭州 + 佳能”不再只是文案提示，而是 `filter_photos` 的受控参数组合
+2. 先按照片收敛范围，再回到人物聚合，避免把地点/器材直接硬编码进人物规则
+3. 后续地点、主题、标签类范围都可以复用同一执行骨架
+
+### 8.2.5 范围 + 持续活跃的复合人物集合问题
+
+示例：`去年新认识的人里，有哪些是在杭州用佳能拍到、且今年还经常出现的`
+
+这类问题现在已经能落到“两段集合先收敛，再做今年活跃交集”的三段式计划：
+
+```text
+去年新认识人物
+  -> 通过地点/器材范围照片收敛为 scoped_new_persons
+
+今年照片
+  -> aggregate_persons
+
+set_intersection
+  -> 范围内且今年仍出现的人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的重点是：
+
+1. 先限定“去年新认识且属于指定照片范围”
+2. 再用今年的人物集合做交集，避免把“仍活跃”写成额外的文本判断
+3. 以后可以继续叠加成“范围内 + 今年活跃 + 与某人关系更强”这类四段链路
+
+### 8.2.6 关系 + 再消失的复合人物集合问题
+
+示例：`去年新认识的人里，后来最常和小明一起出现、但今年没再出现的有谁`
+
+这类问题现在已经能落到“先做关系派生，再做今年剔除”的组合计划：
+
+```text
+去年新认识人物
+  -> derive_temporal_person_cooccurrence(锚点=小明)
+  -> 得到后续同框人物集合
+
+今年照片
+  -> aggregate_persons
+
+set_difference
+  -> 保留后来又经常同框、但今年没再出现的人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这一步的意义是：
+
+1. “后来同框”与“今年消失”是两个独立阶段，不再混成一句模糊意图
+2. 关系派生结果本身仍是可继续参与集合运算的结构化人物集
+3. 这为后续“去年新认识、后来常和小明同框、今年又回来了多少次”之类更复杂问题提供了可继续叠加的骨架
+
+### 8.2.7 多锚点关系人物集合问题
+
+示例：`去年新认识的人里，后来最常和小明、小红同框的是谁`
+
+这类问题现在已经能落到“同一个关系派生算子支持锚点组”的计划：
+
+```text
+去年新认识人物
+  -> derive_temporal_person_cooccurrence(anchorPersonIds=[小明, 小红])
+  -> 得到首次出现后与锚点组共同出现的人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. 多锚点不是额外开一套专用关系体系，而是让同一关系派生算子接受 `anchorPersonIds`
+2. 关系结果仍保持为结构化人物集，因此后续还能继续做交集、差集、年份比较
+3. 这为后面的“和小明、小红同框但今年没再出现”“和小明、小红一起出现次数变化”提供直接基础
+
+### 8.2.8 多锚点关系 + 再消失的复合人物集合问题
+
+示例：`去年新认识的人里，后来最常和小明、小红同框、但今年没再出现的有谁`
+
+这类问题现在已经能落到“多锚点关系派生 + 今年剔除”的组合计划：
+
+```text
+去年新认识人物
+  -> derive_temporal_person_cooccurrence(anchorPersonIds=[小明, 小红])
+  -> 得到首次出现后与锚点组共同出现的人物
+
+今年照片
+  -> aggregate_persons
+
+set_difference
+  -> 保留后来又经常与锚点组同框、但今年没再出现的人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. 多锚点关系与“没再出现”仍然拆成两个标准阶段，不把语义揉成新的硬编码特判
+2. 关系派生层只扩展 `anchorPersonIds`，集合剔除仍复用通用 `set_difference`
+3. 这条链路说明多锚点关系结果可以继续参与时序集合运算，为更复杂的关系型搜索继续打底
+
+### 8.2.9 时序人物集合内的人物对关系问题
+
+示例：`去年新认识的人物里，谁和谁后来最常同框`
+
+这类问题现在已经能落到“先收敛人物集合，再做人对关系派生”的组合计划：
+
+```text
+去年新认识人物
+  -> derive_temporal_person_pair_cooccurrence
+  -> 仅统计这些人物在各自首次出现之后的高频同框组合
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. 不是先做全库人物对排行再过滤，而是先得到候选人物集合
+2. `derive_temporal_person_pair_cooccurrence` 只消费候选人物集，避免退回 query-specific SQL 分支
+3. 这条链路为后续“范围内新人物的人物对关系”“新人物组合今年是否还出现”这类问题提供了可复用骨架
+
+### 8.2.10 器材范围 + 后续活跃度的人物集合问题
+
+示例：`去年新认识的人物里，用佳能拍到且后续出现次数最多的是谁`
+
+这类问题现在已经能落到“先限定器材范围内新人物，再做时序活跃度派生”的组合计划：
+
+```text
+去年新认识人物
+  -> 与器材范围人物集合求交
+  -> derive_temporal_person_activity
+  -> 统计首次出现后的持续出现频次
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. “用佳能拍到”继续作为照片范围过滤，不直接写死到人物规则里
+2. “后续出现次数最多”不再靠回答层推断，而是显式落在 `derive_temporal_person_activity`
+3. 后续如果要扩成“地点/标签范围 + 后续活跃度”，可以直接复用同一执行骨架
+
+### 8.2.10.1 复合照片范围 + 后续活跃度的人物集合问题
+
+示例：`去年新认识的人里，在杭州用佳能拍到且后续出现次数最多的是谁`
+
+这类问题现在已经能落到“先收敛到复合照片范围，再派生后续活跃度”的组合计划：
+
+```text
+去年新认识人物
+  -> 通过杭州 + 佳能范围照片收敛为 scoped_new_persons
+  -> derive_temporal_person_activity
+  -> 统计首次出现后的持续出现频次
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. “杭州 + 佳能”仍旧停留在受控照片过滤层，不被揉进人物规则
+2. 活跃度派生直接复用 `derive_temporal_person_activity`，不额外引入新的统计分支
+3. 这让地点、标签、器材等范围条件都能和时序活跃度自由组合，继续沿着同一骨架扩展
+
+### 8.2.11 候选人物集合上的批量体型变化问题
+
+示例：`去年新认识的人中，哪些人今年比去年更胖`
+
+这类问题现在已经能落到“先收敛候选人物，再批量派生体型变化信号”的组合计划：
+
+```text
+去年新认识人物
+  -> derive_candidate_body_change(startYear=去年, endYear=今年, desiredTrend=gained_weight)
+  -> sort(changePercent desc)
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. 不再把“胖了没”限制成单人物问法，允许它消费一个候选人物集合
+2. 单人物 `derive_person_growth_signals` 与批量 `derive_candidate_body_change` 共用同一套本地体型信号计算逻辑
+3. 以后如果要继续扩成“器材范围内谁更胖”“新认识且后续更胖的人”，都可以直接在候选集合上继续组合
+
+### 8.2.4 带持续活跃约束的人物集合问题
+
+示例：`去年新认识的人里，今年还经常出现的有谁`
+
+这类问题现在也已经能落到真实时序集合复用计划：
+
+```text
+去年照片
+  -> aggregate_persons
+
+去年以前照片
+  -> aggregate_persons
+
+set_difference
+  -> 去年新认识人物
+
+今年照片
+  -> aggregate_persons
+
+set_intersection
+  -> 去年新认识且今年仍出现的人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这一步的意义是：
+
+1. “还经常出现”首先被落实成“今年仍在集合内”，不是自由回答
+2. 交集的输入顺序可以显式决定排序依据，例如按今年的出现频次排序
+3. 这为后续“去年新认识但今年没再出现”“去年新认识且今年出现更多”等问题提供了直接骨架
+
+### 8.2.2 带后续关系约束的人物集合问题
+
+示例：`去年新认识的人里，谁后来又经常和小明同框`
+
+这类问题现在也已经能落到真实多阶段关系计划：
+
+```text
+去年照片
+  -> aggregate_persons
+
+去年以前照片
+  -> aggregate_persons
+
+set_difference
+  -> 去年新认识人物
+
+derive_temporal_person_cooccurrence(锚点人物=小明)
+  -> 仅统计这些人物在各自首次出现之后与锚点人物的共同出现频率
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+这里的关键点是：
+
+1. 先定义候选集，再做关系派生，而不是全库直接做人物关系排行
+2. “后来”不是自然语言描述，而是被落实成“晚于候选人物首次出现时间”的可执行约束
+3. 关系派生算子只接收受控参数，例如 `anchorPersonId`，不暴露任意 SQL
+4. 最终回答仍只消费归约后的 Top N 结果与计数摘要
+
+这一类能力为后续更复杂的组合问题提供了稳定骨架，例如：
+
+1. `去年新认识的人里，谁后来最常和小红一起出现`
+2. `今年新认识的人里，哪些人后来又经常和小明、小红同框`
+3. `去年第一次出现的人里，后续和某个人关系最密切的是谁`
+
 ### 8.3 高自由度分析问题
 
 示例：`X 今年比去年胖了吗`
@@ -407,6 +1001,41 @@ filter_photos(去年)
 1. 不把单张照片或全量人脸框直接交给模型
 2. 先在本地把时序信号压成有限指标
 3. 允许回答 `limited`，而不是逼模型给强结论
+
+### 8.3.1 时序人物集合问题
+
+示例：`前年不存在但去年存在，今年又没再出现的人有谁`
+
+这类问题已经开始落到真实多阶段计划，不再需要额外的 Service 特判统计逻辑：
+
+```text
+filter_photos(前年)
+  -> aggregate_persons
+
+filter_photos(去年)
+  -> aggregate_persons
+
+filter_photos(今年)
+  -> aggregate_persons
+
+去年人物 - 前年人物
+  -> 去年新增人物
+
+去年新增人物 - 今年人物
+  -> sort
+  -> limit
+  -> reducer
+  -> resolver
+```
+
+它确认了 V2 已经能承载：
+
+1. 多时期并行过滤
+2. 多个中间人物集合
+3. 连续集合差计算
+4. 最终人物结果解释
+
+后续继续扩展时，应把这类能力抽象成更通用的时序集合规划，而不是为每个年份组合继续加硬编码入口。
 
 ### 8.4 关系分析问题
 
@@ -430,9 +1059,7 @@ filter_photos(去年)
 
 下面这些问法最终要支持，但当前不适合用临时规则硬补：
 
-1. `去年新认识的人物里，谁和谁后来最常同框`
-2. `佳能拍到的新认识人物里，后续出现次数最多的是谁`
-3. `去年新认识的人中，哪些人今年比去年更胖`
+当前这一批典型关系型 / 组合型问题已经基本从文档目标落到了真实执行链，后续新增能力仍应优先沿着“候选集合 -> 受控派生 -> 归约 -> 结论”扩展，而不是回到 Service 特判。
 
 原因不是“问题太难”，而是它们都需要真正的多阶段中间结果复用：
 

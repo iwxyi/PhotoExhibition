@@ -189,6 +189,76 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
     List<Object[]> summarizePersonCooccurrencesByPhotoIds(@Param("anchorPersonId") Long anchorPersonId,
                                                           @Param("photoIds") List<Long> photoIds);
 
+    @Query(value = "SELECT other_face.person_id AS person_id, " +
+           "COUNT(DISTINCT anchor_face.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face anchor_face " +
+           "INNER JOIN photo_face other_face ON other_face.photo_id = anchor_face.photo_id " +
+           "INNER JOIN photo p ON p.id = anchor_face.photo_id " +
+           "INNER JOIN person_profile other_person ON other_person.id = other_face.person_id " +
+           "INNER JOIN (" +
+           "  SELECT pf.person_id AS person_id, " +
+           "  MIN(COALESCE(p2.taken_at, p2.created_at)) AS candidate_first_seen " +
+           "  FROM photo_face pf " +
+           "  INNER JOIN photo p2 ON p2.id = pf.photo_id " +
+           "  INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "  WHERE pf.person_id IN (:candidatePersonIds) " +
+           "  AND (p2.is_hidden = 0 OR p2.is_hidden IS NULL) " +
+           "  AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "  GROUP BY pf.person_id" +
+           ") candidate_first ON candidate_first.person_id = other_face.person_id " +
+           "WHERE anchor_face.person_id = :anchorPersonId " +
+           "AND other_face.person_id IN (:candidatePersonIds) " +
+           "AND other_face.person_id <> :anchorPersonId " +
+           "AND COALESCE(p.taken_at, p.created_at) >= candidate_first.candidate_first_seen " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (other_person.hidden = 0 OR other_person.hidden IS NULL) " +
+           "GROUP BY other_face.person_id " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonCooccurrencesAfterFirstSeen(@Param("anchorPersonId") Long anchorPersonId,
+                                                              @Param("candidatePersonIds") List<Long> candidatePersonIds);
+
+    @Query(value = "SELECT candidate_face.person_id AS person_id, " +
+           "COUNT(DISTINCT candidate_face.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face candidate_face " +
+           "INNER JOIN photo p ON p.id = candidate_face.photo_id " +
+           "INNER JOIN person_profile other_person ON other_person.id = candidate_face.person_id " +
+           "INNER JOIN (" +
+           "  SELECT pf.person_id AS person_id, " +
+           "  MIN(COALESCE(p2.taken_at, p2.created_at)) AS candidate_first_seen " +
+           "  FROM photo_face pf " +
+           "  INNER JOIN photo p2 ON p2.id = pf.photo_id " +
+           "  INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "  WHERE pf.person_id IN (:candidatePersonIds) " +
+           "  AND (p2.is_hidden = 0 OR p2.is_hidden IS NULL) " +
+           "  AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "  GROUP BY pf.person_id" +
+           ") candidate_first ON candidate_first.person_id = candidate_face.person_id " +
+           "INNER JOIN (" +
+           "  SELECT anchor_face.photo_id AS photo_id " +
+           "  FROM photo_face anchor_face " +
+           "  INNER JOIN photo p3 ON p3.id = anchor_face.photo_id " +
+           "  WHERE anchor_face.person_id IN (:anchorPersonIds) " +
+           "  AND (p3.is_hidden = 0 OR p3.is_hidden IS NULL) " +
+           "  GROUP BY anchor_face.photo_id " +
+           "  HAVING COUNT(DISTINCT anchor_face.person_id) = :anchorCount" +
+           ") anchor_group ON anchor_group.photo_id = candidate_face.photo_id " +
+           "WHERE candidate_face.person_id IN (:candidatePersonIds) " +
+           "AND candidate_face.person_id NOT IN (:anchorPersonIds) " +
+           "AND COALESCE(p.taken_at, p.created_at) >= candidate_first.candidate_first_seen " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (other_person.hidden = 0 OR other_person.hidden IS NULL) " +
+           "GROUP BY candidate_face.person_id " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonGroupCooccurrencesAfterFirstSeen(@Param("anchorPersonIds") List<Long> anchorPersonIds,
+                                                                   @Param("anchorCount") Long anchorCount,
+                                                                   @Param("candidatePersonIds") List<Long> candidatePersonIds);
+
     @Query(value = "SELECT LEAST(pf1.person_id, pf2.person_id) AS person_a_id, " +
            "GREATEST(pf1.person_id, pf2.person_id) AS person_b_id, " +
            "COUNT(DISTINCT pf1.photo_id) AS matched_photo_count, " +
@@ -209,4 +279,74 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
            "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
            nativeQuery = true)
     List<Object[]> summarizePersonPairCooccurrencesByPhotoIds(@Param("photoIds") List<Long> photoIds);
+
+    @Query(value = "SELECT pf.person_id AS person_id, " +
+           "COUNT(DISTINCT pf.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face pf " +
+           "INNER JOIN photo p ON p.id = pf.photo_id " +
+           "INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "INNER JOIN (" +
+           "  SELECT pf2.person_id AS person_id, " +
+           "  MIN(COALESCE(p2.taken_at, p2.created_at)) AS candidate_first_seen " +
+           "  FROM photo_face pf2 " +
+           "  INNER JOIN photo p2 ON p2.id = pf2.photo_id " +
+           "  INNER JOIN person_profile pp2 ON pp2.id = pf2.person_id " +
+           "  WHERE pf2.person_id IN (:candidatePersonIds) " +
+           "  AND (p2.is_hidden = 0 OR p2.is_hidden IS NULL) " +
+           "  AND (pp2.hidden = 0 OR pp2.hidden IS NULL) " +
+           "  GROUP BY pf2.person_id" +
+           ") candidate_first ON candidate_first.person_id = pf.person_id " +
+           "WHERE pf.person_id IN (:candidatePersonIds) " +
+           "AND COALESCE(p.taken_at, p.created_at) >= candidate_first.candidate_first_seen " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "GROUP BY pf.person_id " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonAppearancesAfterFirstSeen(@Param("candidatePersonIds") List<Long> candidatePersonIds);
+
+    @Query(value = "SELECT LEAST(pf1.person_id, pf2.person_id) AS person_a_id, " +
+           "GREATEST(pf1.person_id, pf2.person_id) AS person_b_id, " +
+           "COUNT(DISTINCT pf1.photo_id) AS matched_photo_count, " +
+           "MIN(COALESCE(p.taken_at, p.created_at)) AS matched_first_seen, " +
+           "MAX(COALESCE(p.taken_at, p.created_at)) AS matched_last_seen " +
+           "FROM photo_face pf1 " +
+           "INNER JOIN photo_face pf2 ON pf2.photo_id = pf1.photo_id AND pf2.person_id > pf1.person_id " +
+           "INNER JOIN photo p ON p.id = pf1.photo_id " +
+           "INNER JOIN person_profile pp1 ON pp1.id = pf1.person_id " +
+           "INNER JOIN person_profile pp2 ON pp2.id = pf2.person_id " +
+           "INNER JOIN (" +
+           "  SELECT pf.person_id AS person_id, " +
+           "  MIN(COALESCE(p2.taken_at, p2.created_at)) AS candidate_first_seen " +
+           "  FROM photo_face pf " +
+           "  INNER JOIN photo p2 ON p2.id = pf.photo_id " +
+           "  INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "  WHERE pf.person_id IN (:candidatePersonIds) " +
+           "  AND (p2.is_hidden = 0 OR p2.is_hidden IS NULL) " +
+           "  AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "  GROUP BY pf.person_id" +
+           ") candidate_first_1 ON candidate_first_1.person_id = pf1.person_id " +
+           "INNER JOIN (" +
+           "  SELECT pf.person_id AS person_id, " +
+           "  MIN(COALESCE(p2.taken_at, p2.created_at)) AS candidate_first_seen " +
+           "  FROM photo_face pf " +
+           "  INNER JOIN photo p2 ON p2.id = pf.photo_id " +
+           "  INNER JOIN person_profile pp ON pp.id = pf.person_id " +
+           "  WHERE pf.person_id IN (:candidatePersonIds) " +
+           "  AND (p2.is_hidden = 0 OR p2.is_hidden IS NULL) " +
+           "  AND (pp.hidden = 0 OR pp.hidden IS NULL) " +
+           "  GROUP BY pf.person_id" +
+           ") candidate_first_2 ON candidate_first_2.person_id = pf2.person_id " +
+           "WHERE pf1.person_id IN (:candidatePersonIds) " +
+           "AND pf2.person_id IN (:candidatePersonIds) " +
+           "AND COALESCE(p.taken_at, p.created_at) >= GREATEST(candidate_first_1.candidate_first_seen, candidate_first_2.candidate_first_seen) " +
+           "AND (p.is_hidden = 0 OR p.is_hidden IS NULL) " +
+           "AND (pp1.hidden = 0 OR pp1.hidden IS NULL) " +
+           "AND (pp2.hidden = 0 OR pp2.hidden IS NULL) " +
+           "GROUP BY LEAST(pf1.person_id, pf2.person_id), GREATEST(pf1.person_id, pf2.person_id) " +
+           "ORDER BY matched_photo_count DESC, matched_last_seen DESC",
+           nativeQuery = true)
+    List<Object[]> summarizePersonPairCooccurrencesAfterFirstSeen(@Param("candidatePersonIds") List<Long> candidatePersonIds);
 }

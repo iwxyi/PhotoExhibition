@@ -24,8 +24,12 @@ public class AiSearchPlanValidator {
         "summarize",
         "compare_periods",
         "derive_person_growth_signals",
+        "derive_candidate_body_change",
         "derive_person_cooccurrence",
-        "derive_person_pair_cooccurrence"
+        "derive_temporal_person_cooccurrence",
+        "derive_person_pair_cooccurrence",
+        "derive_temporal_person_pair_cooccurrence",
+        "derive_temporal_person_activity"
     );
 
     public void validate(AiSearchPlan plan) {

@@ -4,7 +4,6 @@ import com.photoexhibition.aisearch.plan.AiSearchPlan;
 import com.photoexhibition.aisearch.plan.AiSearchPlanStep;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -15,15 +14,20 @@ public class RelativeNewPersonsAiSearchPlanner {
         if (query == null || query.isBlank()) {
             return false;
         }
-        return refersToPersons(query) && refersToNewness(query) && refersToRelativeYear(query);
+        return refersToPersons(query)
+            && refersToNewness(query)
+            && RelativeYearExpressionParser.resolveSingleYear(query) != null;
     }
 
     public AiSearchPlan plan(String query, int offset, int limit) {
-        int currentYear = LocalDate.now().getYear();
-        int targetYear = query.contains("前年")
-            ? currentYear - 2
-            : query.contains("今年") ? currentYear : currentYear - 1;
+        Integer targetYear = RelativeYearExpressionParser.resolveSingleYear(query);
+        if (targetYear == null) {
+            throw new IllegalArgumentException("query does not contain a supported relative year");
+        }
+        return planForYears(query, targetYear, offset, limit);
+    }
 
+    public AiSearchPlan planForYears(String query, int targetYear, int offset, int limit) {
         String targetStart = targetYear + "-01-01";
         String targetEnd = targetYear + "-12-31";
         String baselineEnd = (targetYear - 1) + "-12-31";
@@ -125,7 +129,4 @@ public class RelativeNewPersonsAiSearchPlanner {
             || query.contains("首次出现") || query.contains("才出现");
     }
 
-    private boolean refersToRelativeYear(String query) {
-        return query.contains("去年") || query.contains("前年") || query.contains("今年");
-    }
 }

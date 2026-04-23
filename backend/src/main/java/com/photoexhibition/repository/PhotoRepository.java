@@ -597,4 +597,10 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
            "AND LOWER(COALESCE(p.lensModel, '')) LIKE LOWER(CONCAT('%', :lensModel, '%')) " +
            "ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
     List<Long> findVisibleIdsByLensModelContaining(@Param("lensModel") String lensModel);
+
+    @Query("SELECT p.id FROM Photo p " +
+           "WHERE (p.isHidden IS NULL OR p.isHidden = false) " +
+           "AND p.albumId IN :albumIds " +
+           "ORDER BY COALESCE(p.takenAt, p.createdAt) DESC")
+    List<Long> findVisibleIdsByAlbumIds(@Param("albumIds") List<Long> albumIds);
 }
