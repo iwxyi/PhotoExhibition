@@ -8,6 +8,14 @@ import com.photoexhibition.aisearch.executor.AiSearchPlanExecutor;
 import com.photoexhibition.aisearch.model.AiSearchPersonAggregate;
 import com.photoexhibition.aisearch.model.AiSearchPersonGrowthAggregate;
 import com.photoexhibition.aisearch.model.AiSearchPersonPairAggregate;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisResponseDispatcher;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisResponseAssembler;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisHandlerSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchBodyChangeSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchExecutionResultSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchOverviewAnalysisSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchPersonAnalysisSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchYearCompareSupport;
 import com.photoexhibition.aisearch.plan.AiSearchPlan;
 import com.photoexhibition.aisearch.planner.AlbumOverviewAiSearchPlanner;
 import com.photoexhibition.aisearch.planner.AiSearchAnalysisSpecMapper;
@@ -42,6 +50,9 @@ import com.photoexhibition.aisearch.reducer.DefaultAiSearchEvidenceReducer;
 import com.photoexhibition.aisearch.resolver.DefaultAiSearchResolver;
 import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackIntentFactory;
 import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackSpecBuilder;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackDescriptorBuilder;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisRoutingAiSupport;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisRoutingLocalSupport;
 import com.photoexhibition.aisearch.validation.AiSearchAnalysisSpecNormalizer;
 import com.photoexhibition.dto.AiSearchAnalysisOperation;
 import com.photoexhibition.dto.AiSearchAnalysisScope;
@@ -209,9 +220,37 @@ class AiSearchServiceTest {
             aiSearchPlanExecutor,
             new DefaultAiSearchEvidenceReducer(),
             new DefaultAiSearchResolver(),
-            new AiSearchAnalysisFallbackIntentFactory(),
-            new AiSearchAnalysisFallbackSpecBuilder(),
             new AiSearchAnalysisSpecNormalizer(personProfileRepository),
+            new AiSearchAnalysisRoutingAiSupport(),
+            new AiSearchAnalysisRoutingLocalSupport(),
+            new AiSearchAnalysisFallbackDescriptorBuilder(
+                new AiSearchAnalysisFallbackIntentFactory(),
+                new AiSearchAnalysisFallbackSpecBuilder()
+            ),
+            new AiSearchAnalysisResponseDispatcher(),
+            new AiSearchYearCompareSupport(),
+            new AiSearchBodyChangeSupport(),
+            new AiSearchAnalysisResponseAssembler(),
+            new AiSearchExecutionResultSupport(),
+            new AiSearchOverviewAnalysisSupport(),
+            new AiSearchAnalysisFlowSupport(),
+            new AiSearchOverviewResponseSupport(
+                new AiSearchOverviewAnalysisSupport(),
+                new AiSearchAnalysisFlowSupport()
+            ),
+            new AiSearchPersonResponseSupport(
+                new AiSearchPersonAnalysisSupport(),
+                new AiSearchAnalysisFlowSupport(),
+                new AiSearchExecutionResultSupport()
+            ),
+            new AiSearchStructuredPhotoResponseSupport(),
+            new AiSearchAnalysisFallbackSupport(
+                new AiSearchAnalysisFallbackDescriptorBuilder(
+                    new AiSearchAnalysisFallbackIntentFactory(),
+                    new AiSearchAnalysisFallbackSpecBuilder()
+                )
+            ),
+            new AiSearchAnalysisHandlerSupport(),
             new ObjectMapper()
         );
 

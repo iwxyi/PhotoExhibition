@@ -10,6 +10,14 @@ import com.photoexhibition.aisearch.executor.AiSearchPlanExecutor;
 import com.photoexhibition.aisearch.model.AiSearchPersonAggregate;
 import com.photoexhibition.aisearch.model.AiSearchPersonGrowthAggregate;
 import com.photoexhibition.aisearch.model.AiSearchPersonPairAggregate;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisHandlerSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchExecutionResultSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchOverviewAnalysisSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisResponseAssembler;
+import com.photoexhibition.aisearch.orchestration.AiSearchBodyChangeSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchPersonAnalysisSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisResponseDispatcher;
+import com.photoexhibition.aisearch.orchestration.AiSearchYearCompareSupport;
 import com.photoexhibition.aisearch.plan.AiSearchPlan;
 import com.photoexhibition.aisearch.plan.AiSearchPlanStep;
 import com.photoexhibition.aisearch.planner.AiSearchPlannerRequest;
@@ -47,9 +55,10 @@ import com.photoexhibition.aisearch.reducer.AiSearchEvidenceReducer;
 import com.photoexhibition.aisearch.compatibility.LegacyIntentAiSearchPlanner;
 import com.photoexhibition.aisearch.resolver.AiSearchResolver;
 import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackRequest;
-import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackSpecBuilder;
-import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackIntentFactory;
 import com.photoexhibition.aisearch.validation.AiSearchAnalysisSpecNormalizer;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisRoutingAiSupport;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisRoutingLocalSupport;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackDescriptorBuilder;
 import com.photoexhibition.dto.*;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
@@ -141,9 +150,22 @@ public class AiSearchService {
     private final AiSearchPlanExecutor aiSearchPlanExecutor;
     private final AiSearchEvidenceReducer aiSearchEvidenceReducer;
     private final AiSearchResolver aiSearchResolver;
-    private final AiSearchAnalysisFallbackIntentFactory aiSearchAnalysisFallbackIntentFactory;
-    private final AiSearchAnalysisFallbackSpecBuilder aiSearchAnalysisFallbackSpecBuilder;
     private final AiSearchAnalysisSpecNormalizer aiSearchAnalysisSpecNormalizer;
+    private final AiSearchAnalysisRoutingAiSupport aiSearchAnalysisRoutingAiSupport;
+    private final AiSearchAnalysisRoutingLocalSupport aiSearchAnalysisRoutingLocalSupport;
+    private final AiSearchAnalysisFallbackDescriptorBuilder aiSearchAnalysisFallbackDescriptorBuilder;
+    private final AiSearchAnalysisResponseDispatcher aiSearchAnalysisResponseDispatcher;
+    private final AiSearchYearCompareSupport aiSearchYearCompareSupport;
+    private final AiSearchBodyChangeSupport aiSearchBodyChangeSupport;
+    private final AiSearchAnalysisResponseAssembler aiSearchAnalysisResponseAssembler;
+    private final AiSearchExecutionResultSupport aiSearchExecutionResultSupport;
+    private final AiSearchOverviewAnalysisSupport aiSearchOverviewAnalysisSupport;
+    private final AiSearchAnalysisFlowSupport aiSearchAnalysisFlowSupport;
+    private final AiSearchOverviewResponseSupport aiSearchOverviewResponseSupport;
+    private final AiSearchPersonResponseSupport aiSearchPersonResponseSupport;
+    private final AiSearchStructuredPhotoResponseSupport aiSearchStructuredPhotoResponseSupport;
+    private final AiSearchAnalysisFallbackSupport aiSearchAnalysisFallbackSupport;
+    private final AiSearchAnalysisHandlerSupport aiSearchAnalysisHandlerSupport;
     private RestTemplate restTemplate = createDefaultRestTemplate();
     private final ObjectMapper objectMapper;
 
@@ -463,13 +485,6 @@ public class AiSearchService {
             if (relativeNewPersonsWithTechnicalScopeThenActivityAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
                 return executeRelativeNewPersonsWithTechnicalScopeThenActivityPlan(query, normalizedQuery, candidates, page, size);
             }
-            // 分析模式不缓存，每次都需要完整计算
-            AnalysisRouting analysisRouting = resolveAnalysisRouting(normalizedQuery, null, queryMode);
-            if ("analysis".equals(queryMode) && analysisRouting.isResolved()) {
-                return buildAnalysisResponse(analysisRouting, candidates, page, size, queryMode);
-            }
-
-            // 尝试从缓存获取（只有 simple_search 和 simple_answer 模式缓存）
             if (relativeNewPersonsWithScopedPhotosStillActiveAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
                 return executeRelativeNewPersonsWithScopedPhotosStillActivePlan(query, normalizedQuery, candidates, page, size);
             }
@@ -483,10 +498,17 @@ public class AiSearchService {
                 return executeRelativeNewPersonsPlan(query, normalizedQuery, page, size);
             }
 
+            // 分析模式不缓存，每次都需要完整计算，但应让更具体的受控 planner 先匹配
+            AnalysisRouting analysisRouting = resolveAnalysisRouting(normalizedQuery, null, queryMode);
+            if ("analysis".equals(queryMode) && analysisRouting.isResolved()) {
+                return buildAnalysisResponse(analysisRouting, candidates, page, size, queryMode);
+            }
+
             if (technicalDisjunctionAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
                 return executeTechnicalDisjunctionPlan(query, normalizedQuery, candidates, page, size);
             }
 
+            // 尝试从缓存获取（只有 simple_search 和 simple_answer 模式缓存）
             // 收集当前相册ID快照，用于检测变化
             Set<Long> currentAlbumIds = candidates.albums.stream()
                 .map(Album::getId)
@@ -1135,58 +1157,17 @@ public class AiSearchService {
                                                                        String normalizedQuery,
                                                                        AiSearchIntent sourceIntent,
                                                                        AiSearchPlan plan) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = sourceIntent != null ? sourceIntent : new AiSearchIntent();
-        if (intent.getResultTypes() == null || intent.getResultTypes().isEmpty()) {
-            intent.setResultTypes(List.of("persons"));
-        }
-        intent.setNeedAnswer(true);
-        if (intent.getMust() == null) {
-            intent.setMust(new ArrayList<>());
-        }
-        if (intent.getShould() == null) {
-            intent.setShould(new ArrayList<>());
-        }
-        if (intent.getMustNot() == null) {
-            intent.setMustNot(new ArrayList<>());
-        }
-        normalizeRelativeYearRange(normalizedQuery, intent);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(sourceIntent != null);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation() != null && !intent.getExplanation().isBlank()
-            ? intent.getExplanation()
-            : "已使用受控执行计划计算“目标年份首次出现、此前未出现”的人物集合。");
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_new_persons",
+            "limited_new_persons",
+            "persons",
+            "已使用受控执行计划计算“目标年份首次出现、此前未出现”的人物集合。",
+            (intent, currentPlan, executionResult) -> normalizeRelativeYearRange(normalizedQuery, intent),
+            null
+        );
     }
 
     private AiSearchResponse executeTemporalPersonSetPlan(String originalQuery, String normalizedQuery, int page, int size) {
@@ -1198,58 +1179,17 @@ public class AiSearchService {
     private AiSearchResponse buildStructuredTemporalPersonSetResponse(String originalQuery,
                                                                       AiSearchIntent sourceIntent,
                                                                       AiSearchPlan plan) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_temporal_person_set", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_temporal_person_set", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = sourceIntent != null ? sourceIntent : new AiSearchIntent();
-        if (intent.getResultTypes() == null || intent.getResultTypes().isEmpty()) {
-            intent.setResultTypes(List.of("persons"));
-        }
-        intent.setNeedAnswer(true);
-        if (intent.getExplanation() == null || intent.getExplanation().isBlank()) {
-            intent.setExplanation("已使用受控执行计划计算跨年份出现/消失的人物集合。");
-        }
-        if (intent.getMust() == null) {
-            intent.setMust(new ArrayList<>());
-        }
-        if (intent.getShould() == null) {
-            intent.setShould(new ArrayList<>());
-        }
-        if (intent.getMustNot() == null) {
-            intent.setMustNot(new ArrayList<>());
-        }
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(sourceIntent != null);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_temporal_person_set",
+            "limited_temporal_person_set",
+            "persons",
+            "已使用受控执行计划计算跨年份出现/消失的人物集合。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse buildStructuredMatchedPhotoAnalysisResponse(String originalQuery,
@@ -1261,51 +1201,34 @@ public class AiSearchService {
             return null;
         }
 
-        AiSearchIntent intent = ensureStructuredIntentDefaults(sourceIntent, "photos", "已使用受控执行计划完成范围分析。");
+        AiSearchIntent intent = aiSearchStructuredPhotoResponseSupport.ensureStructuredMatchedPhotoIntentDefaults(
+            sourceIntent,
+            "photos",
+            "已使用受控执行计划完成范围分析。"
+        );
         normalizeIntent(originalQuery, intent, true);
 
         PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
         AiSearchExecutionResult executionResult = executeStructuredMatchedPhotoPlan(originalQuery, plan, intent, photoSearch);
         List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
 
-        switch (plan.getPlanType()) {
-            case "count_overview":
-                return buildPlannedAnalysisResponse(plan.getQueryMode(), intent, photoSearch, albums, plan, executionResult);
-            case "person_overview": {
-                List<PersonSummaryDTO> persons = extractPersonSummaries(executionResult, "limited_persons");
-                long totalPersons = extractPersonAggregates(executionResult, "sorted_persons").size();
-                AiSearchResponse response = buildPlannedAnalysisResponse(
-                    plan.getQueryMode(), intent, photoSearch, albums, persons, totalPersons, plan, executionResult);
-                response.setAnalysisData(buildPersonOverviewAnalysisData(intent, executionResult, response.getAnswer()));
-                return response;
-            }
-            case "person_cooccurrence": {
-                List<PersonSummaryDTO> persons = extractPersonSummaries(executionResult, "limited_cooccurring_persons");
-                long totalPersons = extractPersonAggregates(executionResult, "sorted_cooccurring_persons").size();
-                AiSearchResponse response = buildPlannedAnalysisResponse(
-                    plan.getQueryMode(), intent, photoSearch, albums, persons, totalPersons, plan, executionResult);
-                response.setAnalysisData(buildPersonCooccurrenceAnalysisData(intent, executionResult, response.getAnswer()));
-                return response;
-            }
-            case "person_pair_cooccurrence": {
-                long totalPairs = extractPersonPairAggregates(executionResult, "sorted_cooccurring_pairs").size();
-                AiSearchResponse response = buildPlannedAnalysisResponse(
-                    plan.getQueryMode(), intent, photoSearch, albums, Collections.emptyList(), totalPairs, plan, executionResult);
-                response.setAnalysisData(buildPersonPairCooccurrenceAnalysisData(intent, executionResult, response.getAnswer()));
-                return response;
-            }
-            case "album_overview":
-            case "month_overview":
-            case "location_overview":
-            case "day_overview":
-            case "tag_overview":
-            case "theme_overview":
-                return buildPlannedAnalysisResponse(plan.getQueryMode(), intent, photoSearch, albums, plan, executionResult);
-            case "year_compare":
-                return buildStructuredYearCompareResponse(intent, plan, page, size);
-            default:
-                return null;
-        }
+        return aiSearchStructuredPhotoResponseSupport.buildStructuredMatchedPhotoAnalysisResponse(
+            plan,
+            intent,
+            photoSearch,
+            albums,
+            executionResult,
+            this::buildPlannedAnalysisResponse,
+            this::extractPersonSummaries,
+            (result, outputKey) -> extractPersonAggregates(result, outputKey).size(),
+            (result, outputKey) -> extractPersonPairAggregates(result, outputKey).size(),
+            aiSearchPersonResponseSupport::buildOverviewAnalysisData,
+            aiSearchPersonResponseSupport::buildCooccurrenceAnalysisData,
+            aiSearchPersonResponseSupport::buildPairCooccurrenceAnalysisData,
+            this::buildStructuredYearCompareResponse,
+            page,
+            size
+        );
     }
 
     private AiSearchExecutionResult executeStructuredMatchedPhotoPlan(String query,
@@ -1316,12 +1239,23 @@ public class AiSearchService {
             case "count_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "count_overview_metrics",
-                    result -> buildCountOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildCountMetrics(
+                        intent,
+                        photoSearch,
+                        extractAlbumCounts(result),
+                        this::buildTimeRangeSummary
+                    )
                 );
             case "person_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "person_overview_metrics",
-                    result -> buildPersonOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchPersonResponseSupport.buildOverviewMetrics(
+                        intent,
+                        photoSearch,
+                        result,
+                        this::buildTimeRangeSummary,
+                        this::extractPersonAggregates
+                    )
                 );
             case "person_cooccurrence": {
                 Long anchorPersonId = intent.getPersonIds() != null && !intent.getPersonIds().isEmpty()
@@ -1332,43 +1266,95 @@ public class AiSearchService {
                 }
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "person_cooccurrence_metrics",
-                    result -> buildPersonCooccurrenceMetrics(intent, photoSearch, result, anchorPersonId)
+                    result -> aiSearchPersonResponseSupport.buildCooccurrenceMetrics(
+                        intent,
+                        photoSearch,
+                        result,
+                        anchorPersonId,
+                        this::buildTimeRangeSummary,
+                        this::extractPersonAggregates,
+                        this::resolvePersonName
+                    )
                 );
             }
             case "person_pair_cooccurrence":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "person_pair_cooccurrence_metrics",
-                    result -> buildPersonPairCooccurrenceMetrics(intent, photoSearch, result)
+                    result -> aiSearchPersonResponseSupport.buildPairCooccurrenceMetrics(
+                        intent,
+                        photoSearch,
+                        result,
+                        this::buildTimeRangeSummary,
+                        this::extractPersonPairAggregates
+                    )
                 );
             case "album_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "album_overview_metrics",
-                    result -> buildAlbumOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildAlbumMetrics(
+                        intent,
+                        photoSearch,
+                        extractAlbumCounts(result),
+                        this::fetchAlbumsByCount,
+                        4,
+                        this::buildTimeRangeSummary,
+                        albumId -> "相册#" + albumId
+                    )
                 );
             case "month_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "month_overview_metrics",
-                    result -> buildMonthOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractMonthCounts(result),
+                        4,
+                        this::buildTimeRangeSummary
+                    )
                 );
             case "location_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "location_overview_metrics",
-                    result -> buildLocationOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractLocationCounts(result),
+                        4,
+                        this::buildTimeRangeSummary
+                    )
                 );
             case "day_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "day_overview_metrics",
-                    result -> buildDayOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractDayCounts(result),
+                        5,
+                        this::buildTimeRangeSummary
+                    )
                 );
             case "tag_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "tag_overview_metrics",
-                    result -> buildTagOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractTagCounts(result),
+                        5,
+                        this::buildTimeRangeSummary
+                    )
                 );
             case "theme_overview":
                 return executeMatchedPhotoOverviewPlan(
                     query, plan, photoSearch, "theme_overview_metrics",
-                    result -> buildThemeOverviewMetrics(intent, photoSearch, result)
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractThemeCounts(result),
+                        4,
+                        this::buildTimeRangeSummary
+                    )
                 );
             case "year_compare":
                 throw new IllegalArgumentException("year_compare uses dedicated execution flow");
@@ -1446,42 +1432,73 @@ public class AiSearchService {
                                                                     String pagedOutputKey,
                                                                     String defaultResultType,
                                                                     String defaultExplanation) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            pagedOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            null,
+            null
+        );
+    }
 
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault(allOutputKey, Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault(pagedOutputKey, Collections.emptyList());
+    private AiSearchResponse buildStructuredPersonAggregateResponse(String originalQuery,
+                                                                    AiSearchIntent sourceIntent,
+                                                                    AiSearchPlan plan,
+                                                                    String allOutputKey,
+                                                                    String pagedOutputKey,
+                                                                    String defaultResultType,
+                                                                    String defaultExplanation,
+                                                                    AiSearchPersonResponseSupport.StructuredIntentCustomizer intentCustomizer,
+                                                                    AiSearchPersonResponseSupport.StructuredResponseCustomizer responseCustomizer) {
+        return aiSearchPersonResponseSupport.buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            pagedOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            this::executeStructuredPlan,
+            this::extractPersonAggregates,
+            this::toPersonSummaryFromAggregate,
+            aiSearchEvidenceReducer::reduce,
+            aiSearchResolver::resolve,
+            this::buildExecutionPlanSummary,
+            intentCustomizer,
+            responseCustomizer
+        );
+    }
 
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = ensureStructuredIntentDefaults(sourceIntent, defaultResultType, defaultExplanation);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(sourceIntent != null);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+    private AiSearchResponse buildStructuredPersonGrowthResponse(String originalQuery,
+                                                                 AiSearchIntent sourceIntent,
+                                                                 AiSearchPlan plan,
+                                                                 String allOutputKey,
+                                                                 String pagedOutputKey,
+                                                                 String defaultResultType,
+                                                                 String defaultExplanation,
+                                                                 AiSearchPersonResponseSupport.StructuredIntentCustomizer intentCustomizer,
+                                                                 AiSearchPersonResponseSupport.StructuredResponseCustomizer responseCustomizer) {
+        return aiSearchPersonResponseSupport.buildStructuredPersonGrowthResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            pagedOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            this::executeStructuredPlan,
+            this::extractPersonGrowthAggregates,
+            this::toPersonSummaryFromGrowthAggregate,
+            aiSearchEvidenceReducer::reduce,
+            aiSearchResolver::resolve,
+            this::buildExecutionPlanSummary,
+            intentCustomizer,
+            responseCustomizer
+        );
     }
 
     private AiSearchResponse buildStructuredPersonPairResponse(String originalQuery,
@@ -1489,59 +1506,73 @@ public class AiSearchService {
                                                                AiSearchPlan plan,
                                                                String allOutputKey,
                                                                String defaultExplanation) {
+        return buildStructuredPersonPairResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            "albums",
+            defaultExplanation,
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse buildStructuredPersonPairResponse(String originalQuery,
+                                                               AiSearchIntent sourceIntent,
+                                                               AiSearchPlan plan,
+                                                               String allOutputKey,
+                                                               String defaultResultType,
+                                                               String defaultExplanation,
+                                                               AiSearchPersonResponseSupport.StructuredIntentCustomizer intentCustomizer,
+                                                               AiSearchPersonResponseSupport.StructuredResponseCustomizer responseCustomizer) {
+        return aiSearchPersonResponseSupport.buildStructuredPersonPairResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            this::executeStructuredPlan,
+            this::extractPersonPairAggregates,
+            aiSearchEvidenceReducer::reduce,
+            aiSearchResolver::resolve,
+            this::buildExecutionPlanSummary,
+            intentCustomizer,
+            (response, executionResult) -> {
+                if ("relative_new_persons_then_pair_cooccurrence".equals(plan.getPlanType())) {
+                    response.setAnalysisData(buildRelativeNewPersonsThenPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
+                } else if ("relative_new_persons_with_scoped_photos_then_pair_cooccurrence".equals(plan.getPlanType())) {
+                    response.setAnalysisData(buildRelativeScopedNewPersonsPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
+                }
+                if (responseCustomizer != null) {
+                    responseCustomizer.customize(response, executionResult);
+                }
+            }
+        );
+    }
+
+    private void applyScopeKeywordsToIntent(AiSearchIntent intent, AiSearchPlan plan) {
+        @SuppressWarnings("unchecked")
+        List<String> scopeKeywords = (List<String>) plan.getMetadata().getOrDefault("scopeKeywords", Collections.emptyList());
+        intent.setKeywords(new ArrayList<>(scopeKeywords));
+        scopeKeywords.forEach(keyword -> intent.getMust().add(valueCondition("keyword", keyword)));
+    }
+
+    private void applyTechnicalScopeToIntent(AiSearchIntent intent, AiSearchPlan plan) {
+        @SuppressWarnings("unchecked")
+        List<String> cameraModels = (List<String>) plan.getMetadata().getOrDefault("cameraModels", Collections.emptyList());
+        @SuppressWarnings("unchecked")
+        List<String> lensModels = (List<String>) plan.getMetadata().getOrDefault("lensModels", Collections.emptyList());
+        cameraModels.forEach(model -> intent.getMust().add(valueCondition("cameraModel", model)));
+        lensModels.forEach(model -> intent.getMust().add(valueCondition("lensModel", model)));
+    }
+
+    private AiSearchExecutionResult executeStructuredPlan(String originalQuery, AiSearchPlan plan) {
         AiSearchExecutionContext context = new AiSearchExecutionContext();
         context.setQuery(originalQuery);
         context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        List<AiSearchPersonPairAggregate> allPairs = extractPersonPairAggregates(executionResult, allOutputKey);
-        AiSearchIntent intent = ensureStructuredIntentDefaults(sourceIntent, "albums", defaultExplanation);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(sourceIntent != null);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(Collections.emptyList());
-        response.setTotalElements(allPairs.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        if ("relative_new_persons_then_pair_cooccurrence".equals(plan.getPlanType())) {
-            response.setAnalysisData(buildRelativeNewPersonsThenPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
-        } else if ("relative_new_persons_with_scoped_photos_then_pair_cooccurrence".equals(plan.getPlanType())) {
-            response.setAnalysisData(buildRelativeScopedNewPersonsPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
-        }
-        return response;
-    }
-
-    private AiSearchIntent ensureStructuredIntentDefaults(AiSearchIntent sourceIntent,
-                                                          String defaultResultType,
-                                                          String defaultExplanation) {
-        AiSearchIntent intent = sourceIntent != null ? sourceIntent : new AiSearchIntent();
-        if (intent.getResultTypes() == null || intent.getResultTypes().isEmpty()) {
-            intent.setResultTypes(List.of(defaultResultType));
-        }
-        intent.setNeedAnswer(true);
-        if (intent.getExplanation() == null || intent.getExplanation().isBlank()) {
-            intent.setExplanation(defaultExplanation);
-        }
-        if (intent.getMust() == null) {
-            intent.setMust(new ArrayList<>());
-        }
-        if (intent.getShould() == null) {
-            intent.setShould(new ArrayList<>());
-        }
-        if (intent.getMustNot() == null) {
-            intent.setMustNot(new ArrayList<>());
-        }
-        return intent;
+        return aiSearchPlanExecutor.execute(plan, context);
     }
 
     private AiSearchResponse executeRelativeNewPersonsWithTechnicalScopePlan(String originalQuery,
@@ -1557,49 +1588,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_filtered_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_filtered_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算器材范围内的新认识人物集合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_filtered_new_persons",
+            "limited_filtered_new_persons",
+            "persons",
+            "已使用受控执行计划计算器材范围内的新认识人物集合。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsWithTechnicalScopeThenActivityPlan(String originalQuery,
@@ -1615,56 +1614,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_followup_active_filtered_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_followup_active_filtered_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算器材范围内新认识人物在首次出现后的持续活跃度。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        @SuppressWarnings("unchecked")
-        List<String> cameraModels = (List<String>) plan.getMetadata().getOrDefault("cameraModels", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<String> lensModels = (List<String>) plan.getMetadata().getOrDefault("lensModels", Collections.emptyList());
-        cameraModels.forEach(model -> intent.getMust().add(valueCondition("cameraModel", model)));
-        lensModels.forEach(model -> intent.getMust().add(valueCondition("lensModel", model)));
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_followup_active_filtered_new_persons",
+            "limited_followup_active_filtered_new_persons",
+            "persons",
+            "已使用受控执行计划计算器材范围内新认识人物在首次出现后的持续活跃度。",
+            (intent, currentPlan, executionResult) -> applyTechnicalScopeToIntent(intent, currentPlan),
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosThenPairCooccurrencePlan(String originalQuery,
@@ -1680,45 +1640,16 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        List<AiSearchPersonPairAggregate> allPairs = extractPersonPairAggregates(executionResult, "sorted_relative_scoped_new_person_pairs");
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("albums"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算范围内新认识人物在首次出现后的高频同框人物组合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        @SuppressWarnings("unchecked")
-        List<String> scopeKeywords = (List<String>) plan.getMetadata().getOrDefault("scopeKeywords", Collections.emptyList());
-        intent.setKeywords(new ArrayList<>(scopeKeywords));
-        scopeKeywords.forEach(keyword -> intent.getMust().add(valueCondition("keyword", keyword)));
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(Collections.emptyList());
-        response.setTotalElements(allPairs.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        response.setAnalysisData(buildRelativeScopedNewPersonsPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
-        return response;
+        return buildStructuredPersonPairResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_scoped_new_person_pairs",
+            "albums",
+            "已使用受控执行计划计算范围内新认识人物在首次出现后的高频同框人物组合。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosThenActivityPlan(String originalQuery,
@@ -1734,54 +1665,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_followup_active_scoped_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_followup_active_scoped_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算范围内新认识人物在首次出现后的持续活跃度。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        @SuppressWarnings("unchecked")
-        List<String> scopeKeywords = (List<String>) plan.getMetadata().getOrDefault("scopeKeywords", Collections.emptyList());
-        intent.setKeywords(new ArrayList<>(scopeKeywords));
-        scopeKeywords.forEach(keyword -> intent.getMust().add(valueCondition("keyword", keyword)));
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_followup_active_scoped_new_persons",
+            "limited_followup_active_scoped_new_persons",
+            "persons",
+            "已使用受控执行计划计算范围内新认识人物在首次出现后的持续活跃度。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsThenCooccurrencePlan(String originalQuery,
@@ -1798,49 +1692,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_relative_new_persons_cooccurrence", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_relative_new_persons_cooccurrence", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算新认识人物在首次出现后的后续同框关系。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_new_persons_cooccurrence",
+            "limited_relative_new_persons_cooccurrence",
+            "persons",
+            "已使用受控执行计划计算新认识人物在首次出现后的后续同框关系。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsThenCooccurrenceMissingAgainPlan(String originalQuery,
@@ -1857,49 +1719,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_cooccurring_new_persons_missing_again", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_cooccurring_new_persons_missing_again", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算新认识人物在后续同框后又于今年消失的关系集合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_cooccurring_new_persons_missing_again",
+            "limited_cooccurring_new_persons_missing_again",
+            "persons",
+            "已使用受控执行计划计算新认识人物在后续同框后又于今年消失的关系集合。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsThenMultiCooccurrencePlan(String originalQuery,
@@ -1916,49 +1746,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_relative_new_persons_multi_cooccurrence", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_relative_new_persons_multi_cooccurrence", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算新认识人物在首次出现后的多锚点后续同框关系。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_new_persons_multi_cooccurrence",
+            "limited_relative_new_persons_multi_cooccurrence",
+            "persons",
+            "已使用受控执行计划计算新认识人物在首次出现后的多锚点后续同框关系。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsThenMultiCooccurrenceMissingAgainPlan(String originalQuery,
@@ -1975,49 +1773,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_multi_cooccurring_new_persons_missing_again", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_multi_cooccurring_new_persons_missing_again", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算新认识人物在多锚点后续同框后又于今年消失的关系集合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_multi_cooccurring_new_persons_missing_again",
+            "limited_multi_cooccurring_new_persons_missing_again",
+            "persons",
+            "已使用受控执行计划计算新认识人物在多锚点后续同框后又于今年消失的关系集合。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsThenPairCooccurrencePlan(String originalQuery,
@@ -2026,40 +1792,16 @@ public class AiSearchService {
                                                                                int size) {
         int offset = Math.max(0, page * size);
         AiSearchPlan plan = relativeNewPersonsThenPairCooccurrenceAiSearchPlanner.plan(normalizedQuery, offset, size);
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        List<AiSearchPersonPairAggregate> allPairs = extractPersonPairAggregates(executionResult, "sorted_relative_new_person_pairs");
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("albums"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算新认识人物在首次出现后的高频同框人物组合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(Collections.emptyList());
-        response.setTotalElements(allPairs.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        response.setAnalysisData(buildRelativeNewPersonsThenPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
-        return response;
+        return buildStructuredPersonPairResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_new_person_pairs",
+            "albums",
+            "已使用受控执行计划计算新认识人物在首次出现后的高频同框人物组合。",
+            null,
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsBodyChangePlan(String originalQuery,
@@ -2074,54 +1816,18 @@ public class AiSearchService {
     private AiSearchResponse buildStructuredBodyChangeResponse(String originalQuery,
                                                                AiSearchIntent sourceIntent,
                                                                AiSearchPlan plan) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        List<AiSearchPersonGrowthAggregate> allPersons = extractPersonGrowthAggregates(executionResult, "sorted_body_change_new_persons");
-        List<AiSearchPersonGrowthAggregate> pagedPersons = extractPersonGrowthAggregates(executionResult, "limited_body_change_new_persons");
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromGrowthAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = sourceIntent != null ? sourceIntent : new AiSearchIntent();
-        if (intent.getResultTypes() == null || intent.getResultTypes().isEmpty()) {
-            intent.setResultTypes(List.of("persons"));
-        }
-        intent.setNeedAnswer(true);
-        if (intent.getExplanation() == null || intent.getExplanation().isBlank()) {
-            intent.setExplanation("已使用受控执行计划计算候选人物集合在指定年份区间内的体型变化。");
-        }
-        if (intent.getMust() == null) {
-            intent.setMust(new ArrayList<>());
-        }
-        if (intent.getShould() == null) {
-            intent.setShould(new ArrayList<>());
-        }
-        if (intent.getMustNot() == null) {
-            intent.setMustNot(new ArrayList<>());
-        }
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(sourceIntent != null);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        response.setAnalysisData(buildRelativeNewPersonsBodyChangeAnalysisData(executionResult, response.getAnswer()));
-        return response;
+        return buildStructuredPersonGrowthResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_body_change_new_persons",
+            "limited_body_change_new_persons",
+            "persons",
+            "已使用受控执行计划计算候选人物集合在指定年份区间内的体型变化。",
+            null,
+            (response, executionResult) ->
+                response.setAnalysisData(buildRelativeNewPersonsBodyChangeAnalysisData(executionResult, response.getAnswer()))
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsStillActivePlan(String originalQuery,
@@ -2137,61 +1843,21 @@ public class AiSearchService {
                                                                 String normalizedQuery,
                                                                 AiSearchIntent sourceIntent,
                                                                 AiSearchPlan plan) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_still_active_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_still_active_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = sourceIntent != null ? sourceIntent : new AiSearchIntent();
-        if (intent.getResultTypes() == null || intent.getResultTypes().isEmpty()) {
-            intent.setResultTypes(List.of("persons"));
-        }
-        intent.setNeedAnswer(true);
-        if (intent.getExplanation() == null || intent.getExplanation().isBlank()) {
-            intent.setExplanation("已使用受控执行计划计算目标年份新认识且后续仍持续出现的人物集合。");
-        }
-        if (intent.getMust() == null) {
-            intent.setMust(new ArrayList<>());
-        }
-        if (intent.getShould() == null) {
-            intent.setShould(new ArrayList<>());
-        }
-        if (intent.getMustNot() == null) {
-            intent.setMustNot(new ArrayList<>());
-        }
-        if (normalizedQuery != null) {
-            normalizeRelativeYearRange(normalizedQuery, intent);
-        }
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(sourceIntent != null);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_still_active_new_persons",
+            "limited_still_active_new_persons",
+            "persons",
+            "已使用受控执行计划计算目标年份新认识且后续仍持续出现的人物集合。",
+            (intent, currentPlan, executionResult) -> {
+                if (normalizedQuery != null) {
+                    normalizeRelativeYearRange(normalizedQuery, intent);
+                }
+            },
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosPlan(String originalQuery,
@@ -2207,53 +1873,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_scoped_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_scoped_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算范围照片内的新认识人物集合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        @SuppressWarnings("unchecked")
-        List<String> scopeKeywords = (List<String>) plan.getMetadata().getOrDefault("scopeKeywords", Collections.emptyList());
-        intent.setKeywords(new ArrayList<>(scopeKeywords));
-        scopeKeywords.forEach(keyword -> intent.getMust().add(valueCondition("keyword", keyword)));
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_scoped_new_persons",
+            "limited_scoped_new_persons",
+            "persons",
+            "已使用受控执行计划计算范围照片内的新认识人物集合。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
     }
 
     private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosStillActivePlan(String originalQuery,
@@ -2269,53 +1899,17 @@ public class AiSearchService {
             offset,
             size
         );
-
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(originalQuery);
-        context.setQueryMode(plan.getQueryMode());
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> allPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("sorted_still_active_scoped_new_persons", Collections.emptyList());
-        @SuppressWarnings("unchecked")
-        List<AiSearchPersonAggregate> pagedPersons = (List<AiSearchPersonAggregate>) executionResult.getFinalOutputs()
-            .getOrDefault("limited_still_active_scoped_new_persons", Collections.emptyList());
-
-        List<PersonSummaryDTO> personResults = pagedPersons.stream()
-            .map(this::toPersonSummaryFromAggregate)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setResultTypes(List.of("persons"));
-        intent.setNeedAnswer(true);
-        intent.setExplanation("已使用受控执行计划计算范围内且今年仍活跃的新认识人物集合。");
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        @SuppressWarnings("unchecked")
-        List<String> scopeKeywords = (List<String>) plan.getMetadata().getOrDefault("scopeKeywords", Collections.emptyList());
-        intent.setKeywords(new ArrayList<>(scopeKeywords));
-        scopeKeywords.forEach(keyword -> intent.getMust().add(valueCondition("keyword", keyword)));
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(plan.getQueryMode());
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setPhotos(Collections.emptyList());
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(personResults);
-        response.setTotalElements(allPersons.size());
-        response.setSuggestions(Collections.emptyList());
-        response.setSuggestionActions(Collections.emptyList());
-        response.setExplanation(intent.getExplanation());
-        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-        return response;
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_still_active_scoped_new_persons",
+            "limited_still_active_scoped_new_persons",
+            "persons",
+            "已使用受控执行计划计算范围内且今年仍活跃的新认识人物集合。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
     }
 
     private PersonSummaryDTO toPersonSummaryFromAggregate(AiSearchPersonAggregate aggregate) {
@@ -2849,9 +2443,7 @@ public class AiSearchService {
         if (normalized.isBlank()) {
             return "simple_search";
         }
-        int localBestAnalysisScore = scoreAnalysisTypes(normalizeSemanticQuery(query)).values().stream()
-            .max(Integer::compareTo)
-            .orElse(0);
+        int localBestAnalysisScore = aiSearchAnalysisRoutingLocalSupport.resolveBestScore(normalizeSemanticQuery(query));
         if (containsCue(normalized, ANALYSIS_CUES) || localBestAnalysisScore >= 4) {
             return "analysis";
         }
@@ -3052,51 +2644,75 @@ public class AiSearchService {
             structuredFallback.setUsedAi(routing.usedAi);
             return structuredFallback;
         }
-        AiSearchResponse response;
-        switch (routing.type) {
-            case THEME:
-                response = buildThemeOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case LOCATION:
-                response = buildLocationOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case ALBUM:
-                response = buildAlbumOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case MONTH:
-                response = buildMonthOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case COUNT:
-                response = buildCountOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case PERSON_COOCCURRENCE:
-                response = hasExplicitAnchorPerson(query, candidates)
-                    ? buildPersonCooccurrenceResponse(query, candidates, page, size, queryMode)
-                    : buildPersonPairCooccurrenceResponse(query, candidates, page, size, queryMode);
-                break;
-            case PERSON_PAIR_COOCCURRENCE:
-                response = hasExplicitAnchorPerson(query, candidates)
-                    ? buildPersonCooccurrenceResponse(query, candidates, page, size, queryMode)
-                    : buildPersonPairCooccurrenceResponse(query, candidates, page, size, queryMode);
-                break;
-            case PERSON:
-                response = buildPersonOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case DAY:
-                response = buildDayOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case TAG:
-                response = buildTagOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case YEAR_COMPARE:
-                response = buildYearCompareResponse(query, candidates, page, size, queryMode);
-                break;
-            case BODY_CHANGE:
-                response = buildBodyChangeResponse(query, candidates, page, size, queryMode);
-                break;
-            default:
-                throw new IllegalArgumentException("不支持的分析类型: " + routing.type);
-        }
+        boolean explicitAnchorPerson = hasExplicitAnchorPerson(query, candidates);
+        Map<String, java.util.function.Supplier<AiSearchResponse>> handlers =
+            aiSearchAnalysisHandlerSupport.buildHandlers(new AiSearchAnalysisHandlerSupport.HandlerCallbacks() {
+                @Override
+                public AiSearchResponse buildThemeOverviewResponse() {
+                    return AiSearchService.this.buildThemeOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildLocationOverviewResponse() {
+                    return AiSearchService.this.buildLocationOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildAlbumOverviewResponse() {
+                    return AiSearchService.this.buildAlbumOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildMonthOverviewResponse() {
+                    return AiSearchService.this.buildMonthOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildCountOverviewResponse() {
+                    return AiSearchService.this.buildCountOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildPersonCooccurrenceResponse() {
+                    return AiSearchService.this.buildPersonCooccurrenceResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildPersonPairCooccurrenceResponse() {
+                    return AiSearchService.this.buildPersonPairCooccurrenceResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildPersonOverviewResponse() {
+                    return AiSearchService.this.buildPersonOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildDayOverviewResponse() {
+                    return AiSearchService.this.buildDayOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildTagOverviewResponse() {
+                    return AiSearchService.this.buildTagOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildYearCompareResponse() {
+                    return AiSearchService.this.buildYearCompareResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildBodyChangeResponse() {
+                    return AiSearchService.this.buildBodyChangeResponse(query, candidates, page, size, queryMode);
+                }
+            });
+
+        AiSearchResponse response = aiSearchAnalysisResponseDispatcher.dispatch(
+            routing.type.externalValue,
+            explicitAnchorPerson,
+            handlers
+        );
         response.setUsedAi(routing.usedAi);
         return response;
     }
@@ -3105,7 +2721,7 @@ public class AiSearchService {
                                                                      CandidateContext candidates,
                                                                      int page,
                                                                      int size) {
-        AnalysisFallbackDescriptor descriptor = resolveAnalysisFallbackDescriptor(routing, candidates);
+        AiSearchAnalysisFallbackDescriptorBuilder.Result descriptor = resolveAnalysisFallbackDescriptor(routing, candidates);
         if (descriptor == null || descriptor.intent == null || descriptor.intent.getAnalysisSpec() == null) {
             return null;
         }
@@ -3127,49 +2743,95 @@ public class AiSearchService {
         );
     }
 
-    private AnalysisFallbackDescriptor resolveAnalysisFallbackDescriptor(AnalysisRouting routing, CandidateContext candidates) {
+    private AiSearchAnalysisFallbackDescriptorBuilder.Result resolveAnalysisFallbackDescriptor(AnalysisRouting routing, CandidateContext candidates) {
         if (routing == null || routing.type == null) {
             return null;
         }
-        AnalysisFallbackDescriptor descriptor = new AnalysisFallbackDescriptor();
-        descriptor.normalizeQuery = routing.resolvedQuery;
-        descriptor.applyRelativeYearRange = routing.type != AnalysisRouteType.YEAR_COMPARE;
-
-        AiSearchAnalysisFallbackRequest request = new AiSearchAnalysisFallbackRequest();
-        request.setRoutingType(routing.type.externalValue);
-        request.setResolvedQuery(routing.resolvedQuery);
-        request.setExplicitAnchorPerson(hasExplicitAnchorPerson(routing.resolvedQuery, candidates));
-
-        if (routing.type == AnalysisRouteType.YEAR_COMPARE) {
-            YearComparison comparison = resolveYearComparison(routing.resolvedQuery);
-            request.setLeftYear(comparison.leftYear);
-            request.setRightYear(comparison.rightYear);
-            descriptor.normalizeQuery = stripComparisonNoise(routing.resolvedQuery);
-            descriptor.applyRelativeYearRange = false;
-        }
-
-        AiSearchIntent baseIntent = aiSearchAnalysisFallbackIntentFactory.build(
+        return aiSearchAnalysisFallbackSupport.resolveDescriptor(
             routing.type.externalValue,
-            request,
-            query -> buildLocationOverviewIntent(query, candidates),
-            query -> buildAlbumOverviewIntent(query, candidates),
-            query -> buildMonthOverviewIntent(query, candidates),
-            query -> buildCountOverviewIntent(query, candidates),
-            query -> buildPersonOverviewIntent(query, candidates),
-            query -> buildPersonCooccurrenceIntent(query, candidates),
-            query -> buildPersonPairCooccurrenceIntent(query, candidates),
-            query -> buildDayOverviewIntent(query, candidates),
-            query -> buildTagOverviewIntent(query, candidates),
-            query -> buildThemeOverviewIntent(query, candidates),
-            query -> buildCountOverviewIntent(stripComparisonNoise(query), candidates)
-        );
-        if (baseIntent == null) {
-            return null;
-        }
-        request.setKeywordSummary(buildKeywordSummary(baseIntent));
+            routing.resolvedQuery,
+            routing.fallbackRequest,
+            new AiSearchAnalysisFallbackSupport.AnalysisFallbackCallbacks() {
+                @Override
+                public boolean hasExplicitAnchorPerson(String query) {
+                    return AiSearchService.this.hasExplicitAnchorPerson(query, candidates);
+                }
 
-        descriptor.intent = aiSearchAnalysisFallbackSpecBuilder.build(request, baseIntent);
-        return descriptor.intent == null ? null : descriptor;
+                @Override
+                public AiSearchAnalysisFallbackDescriptorBuilder.YearRange resolveYearRange(String query) {
+                    AiSearchYearCompareSupport.YearComparison comparison = resolveYearComparison(query);
+                    return new AiSearchAnalysisFallbackDescriptorBuilder.YearRange(
+                        comparison.getLeftYear(),
+                        comparison.getRightYear()
+                    );
+                }
+
+                @Override
+                public String stripComparisonNoise(String query) {
+                    return AiSearchService.this.stripComparisonNoise(query);
+                }
+
+                @Override
+                public String buildKeywordSummary(AiSearchIntent intent) {
+                    return AiSearchService.this.buildKeywordSummary(intent);
+                }
+
+                @Override
+                public AiSearchIntent buildLocationIntent(String query) {
+                    return AiSearchService.this.buildLocationOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildAlbumIntent(String query) {
+                    return AiSearchService.this.buildAlbumOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildMonthIntent(String query) {
+                    return AiSearchService.this.buildMonthOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildCountIntent(String query) {
+                    return AiSearchService.this.buildCountOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildPersonIntent(String query) {
+                    return AiSearchService.this.buildPersonOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildPersonCooccurrenceIntent(String query) {
+                    return AiSearchService.this.buildPersonCooccurrenceIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildPersonPairIntent(String query) {
+                    return AiSearchService.this.buildPersonPairCooccurrenceIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildDayIntent(String query) {
+                    return AiSearchService.this.buildDayOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildTagIntent(String query) {
+                    return AiSearchService.this.buildTagOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildThemeIntent(String query) {
+                    return AiSearchService.this.buildThemeOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildYearCompareIntent(String query) {
+                    return AiSearchService.this.buildCountOverviewIntent(stripComparisonNoise(query), candidates);
+                }
+            }
+        );
     }
 
     private AnalysisRouting resolveAnalysisRouting(String query, CandidateContext candidates, String queryMode) {
@@ -3177,8 +2839,9 @@ public class AiSearchService {
             return AnalysisRouting.none();
         }
 
-        Map<String, Integer> scores = scoreAnalysisTypes(query);
-        int bestLocalScore = scores.values().stream().max(Integer::compareTo).orElse(0);
+        AiSearchAnalysisRoutingLocalSupport.LocalAnalysisRouting localRouting =
+            aiSearchAnalysisRoutingLocalSupport.resolve(query);
+        int bestLocalScore = localRouting.getScore();
 
         // 只有当 candidates 不为 null 时才尝试 AI 路由
         AnalysisRouting aiRouting = (candidates != null)
@@ -3188,130 +2851,14 @@ public class AiSearchService {
             return aiRouting;
         }
 
-        String bestType = null;
-        int bestScore = Integer.MIN_VALUE;
-        for (Map.Entry<String, Integer> entry : scores.entrySet()) {
-            if (entry.getValue() > bestScore) {
-                bestScore = entry.getValue();
-                bestType = entry.getKey();
-            }
-        }
-
-        if (bestType == null || bestScore < 4) {
+        if (!localRouting.isResolved()) {
             return AnalysisRouting.none();
         }
-        AnalysisRouteType routeType = AnalysisRouteType.fromExternalValue(bestType);
+        AnalysisRouteType routeType = AnalysisRouteType.fromExternalValue(localRouting.getRoutingType());
         if (routeType == null) {
             return AnalysisRouting.none();
         }
-        return new AnalysisRouting(routeType, query, aiRouting.usedAi);
-    }
-
-    private Map<String, Integer> scoreAnalysisTypes(String query) {
-        String normalized = normalizeLooseText(query);
-        Map<String, Integer> scores = new LinkedHashMap<>();
-        scores.put("theme", 0);
-        scores.put("location", 0);
-        scores.put("album", 0);
-        scores.put("month", 0);
-        scores.put("count", 0);
-        scores.put("person_cooccurrence", 0);
-        scores.put("person_pair_cooccurrence", 0);
-        scores.put("person", 0);
-        scores.put("day", 0);
-        scores.put("tag", 0);
-        scores.put("year_compare", 0);
-        scores.put("body_change", 0);
-
-        boolean hasDayCue = containsCue(normalized, DAY_ANALYSIS_CUES);
-        boolean hasMonthCue = containsCue(normalized, MONTH_ANALYSIS_CUES) || normalized.contains("月份");
-        boolean hasBodyChangeCue = containsCue(normalized, BODY_CHANGE_ANALYSIS_CUES);
-
-        if (containsCue(normalized, THEME_ANALYSIS_CUES)) {
-            scores.computeIfPresent("theme", (key, value) -> value + 5);
-        }
-        if (containsCue(normalized, LOCATION_ANALYSIS_CUES)
-            || (containsCue(normalized, LOCATION_GENERAL_CUES) && !hasDayCue && !hasMonthCue)) {
-            scores.computeIfPresent("location", (key, value) -> value + 5);
-        }
-        if (containsCue(normalized, ALBUM_ANALYSIS_CUES) || normalized.contains("相册")) {
-            scores.computeIfPresent("album", (key, value) -> value + 4);
-        }
-        if (hasMonthCue) {
-            scores.computeIfPresent("month", (key, value) -> value + 4);
-        }
-        if (containsCue(normalized, COUNT_ANALYSIS_CUES) || normalized.contains("数量")) {
-            scores.computeIfPresent("count", (key, value) -> value + 5);
-        }
-        if (containsCue(normalized, PERSON_COOCCURRENCE_ANALYSIS_CUES)
-            && containsCue(normalized, PERSON_OVERVIEW_ANALYSIS_CUES)) {
-            scores.computeIfPresent("person_cooccurrence", (key, value) -> value + 8);
-        }
-        if (containsCue(normalized, PERSON_PAIR_COOCCURRENCE_ANALYSIS_CUES)) {
-            scores.computeIfPresent("person_pair_cooccurrence", (key, value) -> value + 9);
-        }
-        if (containsCue(normalized, PERSON_OVERVIEW_ANALYSIS_CUES)
-            && !containsCue(normalized, BODY_CHANGE_ANALYSIS_CUES)
-            && !containsCue(normalized, YEAR_COMPARE_ANALYSIS_CUES)
-            && !containsCue(normalized, PERSON_COOCCURRENCE_ANALYSIS_CUES)
-            && !containsCue(normalized, PERSON_PAIR_COOCCURRENCE_ANALYSIS_CUES)) {
-            scores.computeIfPresent("person", (key, value) -> value + 5);
-        }
-        if (hasDayCue) {
-            scores.computeIfPresent("day", (key, value) -> value + 8);
-        }
-        if (containsCue(normalized, TAG_ANALYSIS_CUES)) {
-            scores.computeIfPresent("tag", (key, value) -> value + 6);
-        }
-        if (containsCue(normalized, YEAR_COMPARE_ANALYSIS_CUES)) {
-            scores.computeIfPresent("year_compare", (key, value) -> value + 6);
-        }
-        // 胖瘦变化分析：需要有人物 + 时间范围 + 胖瘦相关关键词
-        if (hasBodyChangeCue) {
-            boolean hasTimeCue = normalized.contains("年") || normalized.contains("月") || normalized.contains("以前")
-                || normalized.contains("过去") || normalized.contains("之前") || normalized.contains("变化");
-            if (hasTimeCue) {
-                scores.computeIfPresent("body_change", (key, value) -> value + 10);
-            } else {
-                scores.computeIfPresent("body_change", (key, value) -> value + 6);
-            }
-        }
-
-        if (containsCue(normalized, ANALYSIS_RANK_CUES)) {
-            if (containsCue(normalized, PERSON_PAIR_COOCCURRENCE_ANALYSIS_CUES)) {
-                scores.computeIfPresent("person_pair_cooccurrence", (key, value) -> value + 2);
-            }
-            if (containsCue(normalized, PERSON_COOCCURRENCE_ANALYSIS_CUES)) {
-                scores.computeIfPresent("person_cooccurrence", (key, value) -> value + 2);
-            }
-            if (containsCue(normalized, PERSON_OVERVIEW_ANALYSIS_CUES)) {
-                scores.computeIfPresent("person", (key, value) -> value + 1);
-            }
-            if (containsCue(normalized, LOCATION_GENERAL_CUES) && !hasDayCue && !hasMonthCue) {
-                scores.computeIfPresent("location", (key, value) -> value + 2);
-            }
-            if (normalized.contains("主题") || normalized.contains("题材") || normalized.contains("拍什么")) {
-                scores.computeIfPresent("theme", (key, value) -> value + 2);
-            }
-            if (normalized.contains("相册")) {
-                scores.computeIfPresent("album", (key, value) -> value + 2);
-            }
-            if (normalized.contains("月")) {
-                scores.computeIfPresent("month", (key, value) -> value + 2);
-            }
-            if (normalized.contains("标签")) {
-                scores.computeIfPresent("tag", (key, value) -> value + 2);
-            }
-        }
-
-        if (normalized.contains("去年") && normalized.contains("前年")) {
-            scores.computeIfPresent("year_compare", (key, value) -> value + 3);
-        }
-        if (normalized.contains("今年") && normalized.contains("去年")) {
-            scores.computeIfPresent("year_compare", (key, value) -> value + 3);
-        }
-
-        return scores;
+        return new AnalysisRouting(routeType, query, aiRouting.usedAi, localRouting.getFallbackRequest());
     }
 
     private AnalysisRouting tryResolveAnalysisRoutingWithAi(String query, CandidateContext candidates, int localBestScore) {
@@ -3331,7 +2878,12 @@ public class AiSearchService {
             requestBody.put("messages", List.of(
                 Map.of(
                     "role", "system",
-                    "content", buildAnalysisRoutingPrompt(candidates, localBestScore)
+                    "content", aiSearchAnalysisRoutingAiSupport.buildPrompt(
+                        candidates == null
+                            ? Collections.emptyList()
+                            : candidates.tags.stream().map(Tag::getName).collect(Collectors.toList()),
+                        localBestScore
+                    )
                 ),
                 Map.of("role", "user", "content", query)
             ));
@@ -3344,12 +2896,13 @@ public class AiSearchService {
             }
             String content = choices.get(0).get("message").get("content").asText();
             JsonNode result = objectMapper.readTree(extractJsonBlock(content));
-            String type = normalizeLooseText(result.path("analysisType").asText(""));
+            AiSearchAnalysisFallbackRequest fallbackRequest = aiSearchAnalysisRoutingAiSupport.parseFallbackRequest(query, result);
+            String type = normalizeLooseText(fallbackRequest.getRoutingType());
             if (type.isBlank() || "unknown".equals(type)) {
                 return AnalysisRouting.none();
             }
 
-            String mappedType = mapAiAnalysisType(type);
+            String mappedType = aiSearchAnalysisRoutingAiSupport.mapAnalysisType(type);
             if (mappedType.isBlank()) {
                 return AnalysisRouting.aiAttempted();
             }
@@ -3359,72 +2912,16 @@ public class AiSearchService {
                 return AnalysisRouting.aiAttempted();
             }
 
-            LinkedHashSet<String> extraKeywords = new LinkedHashSet<>();
-            JsonNode topicKeywords = result.get("topicKeywords");
-            if (topicKeywords != null && topicKeywords.isArray()) {
-                for (JsonNode item : topicKeywords) {
-                    String keyword = normalizeSemanticQuery(item.asText(""));
-                    if (!keyword.isBlank()) {
-                        extraKeywords.add(keyword);
-                    }
-                }
-            }
-
-            String resolvedQuery = query;
-            if (!extraKeywords.isEmpty()) {
-                resolvedQuery = (query + " " + String.join(" ", extraKeywords)).trim();
-            }
+            String resolvedQuery = fallbackRequest.getResolvedQuery();
             AnalysisRouteType routeType = AnalysisRouteType.fromExternalValue(mappedType);
             if (routeType == null) {
                 return AnalysisRouting.aiAttempted();
             }
-            return new AnalysisRouting(routeType, resolvedQuery, true);
+            fallbackRequest.setRoutingType(routeType.externalValue);
+            return new AnalysisRouting(routeType, resolvedQuery, true, fallbackRequest);
         } catch (Exception e) {
             log.warn("AI分析路由兜底失败: {}", e.getMessage());
             return AnalysisRouting.aiAttempted();
-        }
-    }
-
-    private String buildAnalysisRoutingPrompt(CandidateContext candidates, int localBestScore) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("你是图库搜索的分析问题分类器。");
-        sb.append("请把用户问题分类到以下类型之一：theme, location, album, month, count, person, person_cooccurrence, person_pair_cooccurrence, day, tag, year_compare, unknown。\n");
-        sb.append("规则：\n");
-        sb.append("1. 只做类型分类和主题词抽取，不生成答案。\n");
-        sb.append("2. theme=主题/题材分布；location=地点分布；album=相册排行；month=月份分布；count=数量统计；person=人物概览；person_cooccurrence=与指定人物共同出现；person_pair_cooccurrence=全局人物对共同出现；day=日期分布；tag=标签排行；year_compare=两个年份对比。\n");
-        sb.append("3. 如果问题像“去年哪些地方最常拍夜樱”，应返回 location，topicKeywords 可返回 [\"夜樱\"]。\n");
-        sb.append("4. 如果问题像“去年和前年相比樱花拍得更多还是更少”，应返回 year_compare，topicKeywords 可返回 [\"樱花\"]。\n");
-        sb.append("5. 如果问题像“去年有谁”或“在杭州拍到了哪些人”，应返回 person，topicKeywords 可返回 [\"杭州\"]。\n");
-        sb.append("6. 如果问题像“小明经常一起出现的是谁”或“和小明同框最多的是谁”，应返回 person_cooccurrence。\n");
-        sb.append("7. 如果问题像“经常一起出现的是谁”或“谁和谁最常同框”，应返回 person_pair_cooccurrence。\n");
-        sb.append("8. 不确定时返回 unknown。\n");
-        sb.append("9. 只返回 JSON：{\"analysisType\":\"...\",\"topicKeywords\":[],\"confidence\":0.0}\n");
-        sb.append("当前本地路由最高分: ").append(localBestScore).append("\n");
-        if (candidates != null && !candidates.tags.isEmpty()) {
-            sb.append("候选标签示例: ");
-            sb.append(candidates.tags.stream().limit(12).map(Tag::getName).collect(Collectors.joining("、")));
-            sb.append("\n");
-        }
-        return sb.toString();
-    }
-
-    private String mapAiAnalysisType(String type) {
-        switch (type) {
-            case "theme":
-            case "location":
-            case "album":
-            case "month":
-            case "count":
-            case "person_cooccurrence":
-            case "person_pair_cooccurrence":
-            case "person":
-            case "day":
-            case "tag":
-            case "yearcompare":
-            case "year_compare":
-                return "yearcompare".equals(type) ? "year_compare" : type;
-            default:
-                return "";
         }
     }
 
@@ -3442,57 +2939,36 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildThemeOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = themeOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildThemeOverviewIntent(query, candidates),
+            () -> themeOverviewAiSearchPlanner.plan(query),
             "theme_overview_metrics",
-            result -> buildThemeOverviewMetrics(intent, photoSearch, result)
+            this::extractThemeCounts,
+            4,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
     }
 
     private Map<String, Long> extractThemeCounts(AiSearchExecutionResult executionResult) {
         return extractStringLongCounts(executionResult, "theme_counts", "theme");
     }
 
-    private Map<String, Object> buildThemeOverviewMetrics(AiSearchIntent intent,
-                                                          PhotoSearchExecution photoSearch,
-                                                          AiSearchExecutionResult executionResult) {
-        Map<String, Long> themeCounts = extractThemeCounts(executionResult);
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("summaryItems", themeCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.toList()));
-        return metrics;
-    }
-
     private AiSearchIntent buildThemeOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括拍摄主题的高频分布");
-        intent.setExplanation("统计指定时间范围内拍摄较多的主题（基于相册名与标签）");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括拍摄主题的高频分布",
+            "统计指定时间范围内拍摄较多的主题（基于相册名与标签）"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         if (intent.getKeywords().isEmpty() && intent.getTagIds().isEmpty() && intent.getAlbumIds().isEmpty()) {
@@ -3514,57 +2990,36 @@ public class AiSearchService {
                                                            int page,
                                                            int size,
                                                            String queryMode) {
-        AiSearchIntent intent = buildLocationOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = locationOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildLocationOverviewIntent(query, candidates),
+            () -> locationOverviewAiSearchPlanner.plan(query),
             "location_overview_metrics",
-            result -> buildLocationOverviewMetrics(intent, photoSearch, result)
+            this::extractLocationCounts,
+            4,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
     }
 
     private Map<String, Long> extractLocationCounts(AiSearchExecutionResult executionResult) {
         return extractStringLongCounts(executionResult, "location_counts", "location");
     }
 
-    private Map<String, Object> buildLocationOverviewMetrics(AiSearchIntent intent,
-                                                             PhotoSearchExecution photoSearch,
-                                                             AiSearchExecutionResult executionResult) {
-        Map<String, Long> locationCounts = extractLocationCounts(executionResult);
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("summaryItems", locationCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.toList()));
-        return metrics;
-    }
-
     private AiSearchIntent buildLocationOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括主要拍摄地点");
-        intent.setExplanation("统计指定时间范围内相关主题主要拍摄于哪些地点（基于相册名与路径）");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括主要拍摄地点",
+            "统计指定时间范围内相关主题主要拍摄于哪些地点（基于相册名与路径）"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -3583,59 +3038,34 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildAlbumOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = albumOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildAlbumOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildAlbumOverviewIntent(query, candidates),
+            () -> albumOverviewAiSearchPlanner.plan(query),
             "album_overview_metrics",
-            result -> buildAlbumOverviewMetrics(intent, photoSearch, result)
+            this::extractAlbumCounts,
+            this::fetchAlbumsByCount,
+            6,
+            4,
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            albumId -> nullToDefault(null, "相册#" + albumId)
         );
-        Map<Long, Long> albumCounts = extractAlbumCounts(executionResult);
-        List<AlbumDTO> albums = fetchAlbumsByCount(albumCounts, 6);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
-    }
-
-    private Map<String, Object> buildAlbumOverviewMetrics(AiSearchIntent intent,
-                                                          PhotoSearchExecution photoSearch,
-                                                          AiSearchExecutionResult executionResult) {
-        Map<Long, Long> albumCounts = extractAlbumCounts(executionResult);
-        List<AlbumDTO> albums = fetchAlbumsByCount(albumCounts, 4);
-        Map<Long, String> albumNames = albums.stream()
-            .filter(album -> album.getId() != null)
-            .collect(Collectors.toMap(AlbumDTO::getId, AlbumDTO::getName, (left, right) -> left, LinkedHashMap::new));
-
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("summaryItems", albumCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> nullToDefault(albumNames.get(entry.getKey()), "相册#" + entry.getKey()) + "(" + entry.getValue() + "张)")
-            .collect(Collectors.toList()));
-        return metrics;
     }
 
     private AiSearchIntent buildAlbumOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括照片最多的相册");
-        intent.setExplanation("统计指定时间范围内照片较多的相册");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括照片最多的相册",
+            "统计指定时间范围内照片较多的相册"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -3654,56 +3084,36 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildMonthOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = monthOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildMonthOverviewIntent(query, candidates),
+            () -> monthOverviewAiSearchPlanner.plan(query),
             "month_overview_metrics",
-            result -> buildMonthOverviewMetrics(intent, photoSearch, result)
+            this::extractMonthCounts,
+            4,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
     }
 
     private Map<String, Long> extractMonthCounts(AiSearchExecutionResult executionResult) {
         return extractStringLongCounts(executionResult, "month_counts", "month");
     }
 
-    private Map<String, Object> buildMonthOverviewMetrics(AiSearchIntent intent,
-                                                          PhotoSearchExecution photoSearch,
-                                                          AiSearchExecutionResult executionResult) {
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("summaryItems", extractMonthCounts(executionResult).entrySet().stream()
-            .limit(4)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.toList()));
-        return metrics;
-    }
-
     private AiSearchIntent buildMonthOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括拍摄高峰月份");
-        intent.setExplanation("统计指定时间范围内拍摄较多的月份");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括拍摄高峰月份",
+            "统计指定时间范围内拍摄较多的月份"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -3722,22 +3132,23 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildCountOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = countOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildCountOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildCountOverviewIntent(query, candidates),
+            () -> countOverviewAiSearchPlanner.plan(query),
             "count_overview_metrics",
-            result -> buildCountOverviewMetrics(intent, photoSearch, result)
+            this::extractAlbumCounts,
+            this::fetchAlbumsByCount,
+            4,
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
         );
-        Map<Long, Long> albumCounts = extractAlbumCounts(executionResult);
-        List<AlbumDTO> albums = fetchAlbumsByCount(albumCounts, 4);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
     }
 
     private AiSearchResponse buildPersonOverviewResponse(String query,
@@ -3745,81 +3156,35 @@ public class AiSearchService {
                                                          int page,
                                                          int size,
                                                          String queryMode) {
-        AiSearchIntent intent = buildPersonOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = personOverviewAiSearchPlanner.plan(query, page * size, size);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchPersonResponseSupport.buildPersonOverviewResponse(
             query,
-            plan,
-            photoSearch,
-            "person_overview_metrics",
-            result -> buildPersonOverviewMetrics(intent, photoSearch, result)
+            page,
+            size,
+            queryMode,
+            () -> buildPersonOverviewIntent(query, candidates),
+            () -> personOverviewAiSearchPlanner.plan(query, page * size, size),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            currentPhotoSearch -> fetchTopAlbumsForMatchedPhotos(currentPhotoSearch.allMatchedPhotos, 6),
+            this::extractPersonSummaries,
+            this::extractPersonAggregates
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-        List<PersonSummaryDTO> persons = extractPersonSummaries(executionResult, "limited_persons");
-        long totalPersons = extractPersonAggregates(executionResult, "sorted_persons").size();
-
-        AiSearchResponse response = buildPlannedAnalysisResponse(
-            queryMode, intent, photoSearch, albums, persons, totalPersons, plan, executionResult);
-        response.setAnalysisData(buildPersonOverviewAnalysisData(intent, executionResult, response.getAnswer()));
-        return response;
     }
 
     private Map<Long, Long> extractAlbumCounts(AiSearchExecutionResult executionResult) {
         return extractLongLongCounts(executionResult, "album_counts", "albumId");
     }
 
-    private Map<String, Object> buildPersonOverviewMetrics(AiSearchIntent intent,
-                                                           PhotoSearchExecution photoSearch,
-                                                           AiSearchExecutionResult executionResult) {
-        List<AiSearchPersonAggregate> persons = extractPersonAggregates(executionResult, "sorted_persons");
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", persons.size());
-        metrics.put("summaryItems", persons.stream()
-            .limit(5)
-            .map(item -> nullToDefault(item.getPersonName(), "人物#" + item.getPersonId())
-                + "(" + nullSafeCount(item.getMatchedPhotoCount()) + "张)")
-            .collect(Collectors.toList()));
-        metrics.put("topPersons", persons.stream()
-            .limit(5)
-            .map(item -> Map.of(
-                "personId", item.getPersonId(),
-                "personName", nullToDefault(item.getPersonName(), "人物#" + item.getPersonId()),
-                "matchedPhotoCount", nullSafeCount(item.getMatchedPhotoCount())
-            ))
-            .collect(Collectors.toList()));
-        return metrics;
-    }
-
-    private Map<String, Object> buildCountOverviewMetrics(AiSearchIntent intent,
-                                                          PhotoSearchExecution photoSearch,
-                                                          AiSearchExecutionResult executionResult) {
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("albumSize", extractAlbumCounts(executionResult).size());
-        return metrics;
-    }
-
     private AiSearchIntent buildCountOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("给出公开照片数量");
-        intent.setExplanation("统计指定条件下公开照片数量");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "给出公开照片数量",
+            "统计指定条件下公开照片数量"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -3827,20 +3192,11 @@ public class AiSearchService {
 
     private AiSearchIntent buildPersonOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("persons", "photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括当前条件下出现的人物");
-        intent.setExplanation("统计指定时间范围和主题条件下出现的人物");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("persons", "photos", "albums"),
+            "概括当前条件下出现的人物",
+            "统计指定时间范围和主题条件下出现的人物"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -3851,48 +3207,25 @@ public class AiSearchService {
                                                              int page,
                                                              int size,
                                                              String queryMode) {
-        AiSearchIntent intent = buildPersonCooccurrenceIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        Long anchorPersonId = intent.getPersonIds() != null && !intent.getPersonIds().isEmpty()
-            ? intent.getPersonIds().get(0)
-            : null;
-        if (anchorPersonId == null) {
-            AiSearchResponse response = new AiSearchResponse();
-            response.setAiSearchEnabled(true);
-            response.setQueryMode(queryMode);
-            response.setUsedAi(false);
-            response.setNeedAnswer(true);
-            response.setParsedIntent(intent);
-            response.setExplanation("未能识别人物共现分析中的锚点人物");
-            response.setPhotos(Collections.emptyList());
-            response.setAlbums(Collections.emptyList());
-            response.setPersons(Collections.emptyList());
-            response.setTotalElements(0L);
-            response.setAnswer("检索结论：未识别出要分析的人物，暂时无法判断共同出现关系。");
-            response.setSuggestionActions(Collections.emptyList());
-            response.setSuggestions(Collections.emptyList());
-            return response;
-        }
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = personCooccurrenceAiSearchPlanner.plan(query, anchorPersonId, page * size, size);
-        plan.getMetadata().put("anchorPersonName", resolvePersonName(anchorPersonId));
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchPersonResponseSupport.buildPersonCooccurrenceResponse(
             query,
-            plan,
-            photoSearch,
-            "person_cooccurrence_metrics",
-            result -> buildPersonCooccurrenceMetrics(intent, photoSearch, result, anchorPersonId)
+            page,
+            size,
+            queryMode,
+            () -> buildPersonCooccurrenceIntent(query, candidates),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            (currentQuery, anchorPersonId, offset, currentSize) ->
+                personCooccurrenceAiSearchPlanner.plan(currentQuery, anchorPersonId, offset, currentSize),
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            currentPhotoSearch -> fetchTopAlbumsForMatchedPhotos(currentPhotoSearch.allMatchedPhotos, 6),
+            this::extractPersonSummaries,
+            this::extractPersonAggregates,
+            this::resolvePersonName,
+            this::buildEmptyAnalysisResponse
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-        List<PersonSummaryDTO> persons = extractPersonSummaries(executionResult, "limited_cooccurring_persons");
-        long totalPersons = extractPersonAggregates(executionResult, "sorted_cooccurring_persons").size();
-
-        AiSearchResponse response = buildPlannedAnalysisResponse(
-            queryMode, intent, photoSearch, albums, persons, totalPersons, plan, executionResult);
-        response.setAnalysisData(buildPersonCooccurrenceAnalysisData(intent, executionResult, response.getAnswer()));
-        return response;
     }
 
     private AiSearchResponse buildPersonPairCooccurrenceResponse(String query,
@@ -3900,33 +3233,21 @@ public class AiSearchService {
                                                                  int page,
                                                                  int size,
                                                                  String queryMode) {
-        AiSearchIntent intent = buildPersonPairCooccurrenceIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = personPairCooccurrenceAiSearchPlanner.plan(query, page * size, size);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchPersonResponseSupport.buildPersonPairCooccurrenceResponse(
             query,
-            plan,
-            photoSearch,
-            "person_pair_cooccurrence_metrics",
-            result -> buildPersonPairCooccurrenceMetrics(intent, photoSearch, result)
-        );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-        long totalPairs = extractPersonPairAggregates(executionResult, "sorted_cooccurring_pairs").size();
-
-        AiSearchResponse response = buildPlannedAnalysisResponse(
+            page,
+            size,
             queryMode,
-            intent,
-            photoSearch,
-            albums,
-            Collections.emptyList(),
-            totalPairs,
-            plan,
-            executionResult
+            () -> buildPersonPairCooccurrenceIntent(query, candidates),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            currentPhotoSearch -> fetchTopAlbumsForMatchedPhotos(currentPhotoSearch.allMatchedPhotos, 6),
+            () -> personPairCooccurrenceAiSearchPlanner.plan(query, page * size, size),
+            this::extractPersonPairAggregates
         );
-        response.setAnalysisData(buildPersonPairCooccurrenceAnalysisData(intent, executionResult, response.getAnswer()));
-        return response;
     }
 
     private AiSearchResponse buildDayOverviewResponse(String query,
@@ -3934,105 +3255,32 @@ public class AiSearchService {
                                                       int page,
                                                       int size,
                                                       String queryMode) {
-        AiSearchIntent intent = buildDayOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = dayOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildDayOverviewIntent(query, candidates),
+            () -> dayOverviewAiSearchPlanner.plan(query),
             "day_overview_metrics",
-            result -> buildDayOverviewMetrics(intent, photoSearch, result)
+            this::extractDayCounts,
+            5,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
-    }
-
-    private Map<String, Object> buildPersonCooccurrenceMetrics(AiSearchIntent intent,
-                                                               PhotoSearchExecution photoSearch,
-                                                               AiSearchExecutionResult executionResult,
-                                                               Long anchorPersonId) {
-        List<AiSearchPersonAggregate> persons = extractPersonAggregates(executionResult, "sorted_cooccurring_persons");
-        String anchorPersonName = resolvePersonName(anchorPersonId);
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("anchorPersonName", anchorPersonName);
-        metrics.put("totalMatched", persons.size());
-        metrics.put("summaryItems", persons.stream()
-            .limit(5)
-            .map(item -> nullToDefault(item.getPersonName(), "人物#" + item.getPersonId())
-                + "(" + nullSafeCount(item.getMatchedPhotoCount()) + "张)")
-            .collect(Collectors.toList()));
-        metrics.put("photoMatched", photoSearch.totalMatched);
-        metrics.put("topPersons", persons.stream()
-            .limit(5)
-            .map(item -> Map.of(
-                "personId", item.getPersonId(),
-                "personName", nullToDefault(item.getPersonName(), "人物#" + item.getPersonId()),
-                "matchedPhotoCount", nullSafeCount(item.getMatchedPhotoCount())
-            ))
-            .collect(Collectors.toList()));
-        return metrics;
-    }
-
-    private Map<String, Object> buildPersonPairCooccurrenceMetrics(AiSearchIntent intent,
-                                                                   PhotoSearchExecution photoSearch,
-                                                                   AiSearchExecutionResult executionResult) {
-        List<AiSearchPersonPairAggregate> pairs = extractPersonPairAggregates(executionResult, "sorted_cooccurring_pairs");
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", pairs.size());
-        metrics.put("summaryItems", pairs.stream()
-            .limit(5)
-            .map(item -> item.getPersonAName() + " / " + item.getPersonBName()
-                + "(" + nullSafeCount(item.getMatchedPhotoCount()) + "张)")
-            .collect(Collectors.toList()));
-        metrics.put("photoMatched", photoSearch.totalMatched);
-        metrics.put("topPairs", pairs.stream()
-            .limit(5)
-            .map(item -> Map.of(
-                "personAId", item.getPersonAId(),
-                "personAName", item.getPersonAName(),
-                "personBId", item.getPersonBId(),
-                "personBName", item.getPersonBName(),
-                "matchedPhotoCount", nullSafeCount(item.getMatchedPhotoCount())
-            ))
-            .collect(Collectors.toList()));
-        return metrics;
-    }
-
-    private Map<String, Object> buildDayOverviewMetrics(AiSearchIntent intent,
-                                                        PhotoSearchExecution photoSearch,
-                                                        AiSearchExecutionResult executionResult) {
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("summaryItems", extractDayCounts(executionResult).entrySet().stream()
-            .limit(5)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.toList()));
-        return metrics;
     }
 
     private AiSearchIntent buildDayOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括拍摄较集中的日期");
-        intent.setExplanation("统计指定时间范围内拍摄较集中的日期");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括拍摄较集中的日期",
+            "统计指定时间范围内拍摄较集中的日期"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -4044,20 +3292,12 @@ public class AiSearchService {
         List<Long> anchorPersonIds = rankPersonMatches(candidates, query, tokens, 1);
         String anchorPersonName = anchorPersonIds.isEmpty() ? null : resolvePersonName(anchorPersonIds.get(0));
 
-        AiSearchIntent intent = new AiSearchIntent();
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("persons", "photos", "albums"),
+            "概括与指定人物共同出现频率较高的人物",
+            "统计指定人物在当前筛选条件下经常一起出现的人物"
+        );
         intent.setPersonIds(new ArrayList<>(anchorPersonIds));
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("persons", "photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括与指定人物共同出现频率较高的人物");
-        intent.setExplanation("统计指定人物在当前筛选条件下经常一起出现的人物");
 
         applyAnalysisTopicKeywords(intent, candidates, filterAnalysisKeywordsExcludingPerson(topicKeywords, anchorPersonName));
         return intent;
@@ -4065,20 +3305,11 @@ public class AiSearchService {
 
     private AiSearchIntent buildPersonPairCooccurrenceIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括当前条件下共同出现频率较高的人物组合");
-        intent.setExplanation("统计当前筛选条件下经常共同出现的人物组合");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括当前条件下共同出现频率较高的人物组合",
+            "统计当前筛选条件下经常共同出现的人物组合"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -4089,21 +3320,23 @@ public class AiSearchService {
                                                       int page,
                                                       int size,
                                                       String queryMode) {
-        AiSearchIntent intent = buildTagOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        AiSearchPlan plan = tagOverviewAiSearchPlanner.plan(query);
-        AiSearchExecutionResult executionResult = executeMatchedPhotoOverviewPlan(
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
             query,
-            plan,
-            photoSearch,
+            page,
+            size,
+            queryMode,
+            () -> buildTagOverviewIntent(query, candidates),
+            () -> tagOverviewAiSearchPlanner.plan(query),
             "tag_overview_metrics",
-            result -> buildTagOverviewMetrics(intent, photoSearch, result)
+            this::extractTagCounts,
+            5,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
         );
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        return buildPlannedAnalysisResponse(queryMode, intent, photoSearch, albums, plan, executionResult);
     }
 
     private AiSearchExecutionResult executeMatchedPhotoOverviewPlan(String query,
@@ -4111,17 +3344,17 @@ public class AiSearchService {
                                                                     PhotoSearchExecution photoSearch,
                                                                     String metricsKey,
                                                                     Function<AiSearchExecutionResult, Map<String, Object>> metricsBuilder) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(query);
-        context.setQueryMode(plan.getQueryMode());
-        context.getValues().put("matched_photo_ids", photoSearch.allMatchedPhotos.stream()
-            .map(Photo::getId)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toCollection(ArrayList::new)));
-
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-        executionResult.getFinalOutputs().put(metricsKey, metricsBuilder.apply(executionResult));
-        return executionResult;
+        return aiSearchExecutionResultSupport.executeMatchedPhotoOverviewPlan(
+            aiSearchPlanExecutor,
+            query,
+            plan,
+            photoSearch.allMatchedPhotos.stream()
+                .map(Photo::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(ArrayList::new)),
+            metricsKey,
+            metricsBuilder
+        );
     }
 
     private AiSearchResponse buildPlannedAnalysisResponse(String queryMode,
@@ -4150,45 +3383,72 @@ public class AiSearchService {
                                                           long totalElements,
                                                           AiSearchPlan plan,
                                                           AiSearchExecutionResult executionResult) {
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(totalElements);
-        response.setAlbums(albums);
-        response.setPersons(persons);
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-
         AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-
         List<AiSearchSuggestionAction> suggestionActions =
             buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+        return aiSearchAnalysisResponseAssembler.assembleResolved(
+            queryMode,
+            intent,
+            intent.getExplanation(),
+            photoSearch.pagedPhotoDtos,
+            totalElements,
+            albums,
+            persons,
+            photoSearch.relaxed,
+            photoSearch.relaxedReason,
+            aiSearchResolver.resolve(evidenceBundle),
+            buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true),
+            suggestionActions
+        );
     }
 
-    private Map<String, Object> buildTagOverviewMetrics(AiSearchIntent intent,
-                                                        PhotoSearchExecution photoSearch,
-                                                        AiSearchExecutionResult executionResult) {
-        Map<String, Long> tagCounts = extractTagCounts(executionResult);
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("periodLabel", buildTimeRangeSummary(intent));
-        metrics.put("totalMatched", photoSearch.totalMatched);
-        metrics.put("summaryItems", tagCounts.entrySet().stream()
-            .limit(5)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.toList()));
-        return metrics;
+    private AiSearchResponse buildStandardAnalysisResponse(String queryMode,
+                                                           AiSearchIntent intent,
+                                                           String explanation,
+                                                           PhotoSearchExecution photoSearch,
+                                                           long totalElements,
+                                                           List<AlbumDTO> albums,
+                                                           List<PersonSummaryDTO> persons,
+                                                           AiSearchPlan plan,
+                                                           AiSearchExecutionResult executionResult,
+                                                           AiSearchEvidenceBundle evidenceBundle) {
+        List<AiSearchSuggestionAction> suggestionActions = buildSuggestionActions(
+            intent,
+            photoSearch == null ? emptyPhotoSearchExecution() : photoSearch,
+            albums == null ? Collections.emptyList() : albums,
+            Collections.emptyList()
+        );
+        return aiSearchAnalysisResponseAssembler.assembleResolved(
+            queryMode,
+            intent,
+            explanation,
+            photoSearch == null ? Collections.emptyList() : photoSearch.pagedPhotoDtos,
+            totalElements,
+            albums,
+            persons,
+            photoSearch != null && photoSearch.relaxed,
+            photoSearch == null ? null : photoSearch.relaxedReason,
+            aiSearchResolver.resolve(evidenceBundle),
+            buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true),
+            suggestionActions
+        );
+    }
+
+    private AiSearchResponse buildEmptyAnalysisResponse(String queryMode,
+                                                        AiSearchIntent intent,
+                                                        String explanation,
+                                                        String answer) {
+        return aiSearchAnalysisResponseAssembler.assembleEmpty(queryMode, intent, explanation, answer);
+    }
+
+    private Long firstPersonId(AiSearchIntent intent) {
+        return intent == null || intent.getPersonIds() == null || intent.getPersonIds().isEmpty()
+            ? null
+            : intent.getPersonIds().get(0);
+    }
+
+    private PhotoSearchExecution emptyPhotoSearchExecution() {
+        return PhotoSearchExecution.empty();
     }
 
     private Map<String, Long> extractTagCounts(AiSearchExecutionResult executionResult) {
@@ -4196,109 +3456,46 @@ public class AiSearchService {
     }
 
     @SuppressWarnings("unchecked")
+    private Map<String, Object> buildAnalysisDataFromMetrics(AiSearchExecutionResult executionResult,
+                                                             String metricsKey,
+                                                             String analysisType,
+                                                             String answer,
+                                                             Map<String, String> extraMetricMappings) {
+        Map<String, Object> metrics = (Map<String, Object>) executionResult.getFinalOutputs()
+            .getOrDefault(metricsKey, Collections.emptyMap());
+        Map<String, Object> analysisData = new LinkedHashMap<>();
+        analysisData.put("analysisType", analysisType);
+        analysisData.put("periodLabel", metrics.get("periodLabel"));
+        analysisData.put("totalEntities", metrics.get("totalMatched"));
+        analysisData.put("conclusion", answer);
+        analysisData.put("summaryItems", metrics.getOrDefault("summaryItems", Collections.emptyList()));
+        for (Map.Entry<String, String> entry : extraMetricMappings.entrySet()) {
+            analysisData.put(entry.getKey(), metrics.getOrDefault(entry.getValue(), Collections.emptyList()));
+        }
+        return analysisData;
+    }
+
     private List<AiSearchPersonAggregate> extractPersonAggregates(AiSearchExecutionResult executionResult, String outputKey) {
-        Object output = executionResult.getFinalOutputs().get(outputKey);
-        if (!(output instanceof List<?>)) {
-            return Collections.emptyList();
-        }
-        List<?> rows = (List<?>) output;
-        List<AiSearchPersonAggregate> aggregates = new ArrayList<>();
-        for (Object row : rows) {
-            if (row instanceof AiSearchPersonAggregate) {
-                aggregates.add((AiSearchPersonAggregate) row);
-            }
-        }
-        return aggregates;
+        return aiSearchExecutionResultSupport.extractPersonAggregates(executionResult, outputKey);
     }
 
     private List<PersonSummaryDTO> extractPersonSummaries(AiSearchExecutionResult executionResult, String outputKey) {
-        return extractPersonAggregates(executionResult, outputKey).stream()
+        return aiSearchExecutionResultSupport.extractPersonAggregates(executionResult, outputKey).stream()
             .map(this::toPersonSummaryFromAggregate)
             .filter(java.util.Objects::nonNull)
             .collect(Collectors.toList());
     }
 
-    @SuppressWarnings("unchecked")
     private List<AiSearchPersonPairAggregate> extractPersonPairAggregates(AiSearchExecutionResult executionResult, String outputKey) {
-        Object output = executionResult.getFinalOutputs().get(outputKey);
-        if (!(output instanceof List<?>)) {
-            return Collections.emptyList();
-        }
-        List<?> rows = (List<?>) output;
-        List<AiSearchPersonPairAggregate> aggregates = new ArrayList<>();
-        for (Object row : rows) {
-            if (row instanceof AiSearchPersonPairAggregate) {
-                aggregates.add((AiSearchPersonPairAggregate) row);
-            }
-        }
-        return aggregates;
+        return aiSearchExecutionResultSupport.extractPersonPairAggregates(executionResult, outputKey);
     }
 
-    @SuppressWarnings("unchecked")
     private List<AiSearchPersonGrowthAggregate> extractPersonGrowthAggregates(AiSearchExecutionResult executionResult, String outputKey) {
-        Object output = executionResult.getFinalOutputs().get(outputKey);
-        if (!(output instanceof List<?>)) {
-            return Collections.emptyList();
-        }
-        List<?> rows = (List<?>) output;
-        List<AiSearchPersonGrowthAggregate> aggregates = new ArrayList<>();
-        for (Object row : rows) {
-            if (row instanceof AiSearchPersonGrowthAggregate) {
-                aggregates.add((AiSearchPersonGrowthAggregate) row);
-            }
-        }
-        return aggregates;
+        return aiSearchExecutionResultSupport.extractPersonGrowthAggregates(executionResult, outputKey);
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> buildPersonOverviewAnalysisData(AiSearchIntent intent,
-                                                                AiSearchExecutionResult executionResult,
-                                                                String answer) {
-        Map<String, Object> metrics = (Map<String, Object>) executionResult.getFinalOutputs()
-            .getOrDefault("person_overview_metrics", Collections.emptyMap());
-        Map<String, Object> analysisData = new LinkedHashMap<>();
-        analysisData.put("analysisType", "person_overview");
-        analysisData.put("periodLabel", metrics.get("periodLabel"));
-        analysisData.put("totalEntities", metrics.get("totalMatched"));
-        analysisData.put("topPersons", metrics.getOrDefault("topPersons", Collections.emptyList()));
-        analysisData.put("conclusion", answer);
-        analysisData.put("summaryItems", metrics.getOrDefault("summaryItems", Collections.emptyList()));
-        return analysisData;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> buildPersonCooccurrenceAnalysisData(AiSearchIntent intent,
-                                                                    AiSearchExecutionResult executionResult,
-                                                                    String answer) {
-        Map<String, Object> metrics = (Map<String, Object>) executionResult.getFinalOutputs()
-            .getOrDefault("person_cooccurrence_metrics", Collections.emptyMap());
-        Map<String, Object> analysisData = new LinkedHashMap<>();
-        analysisData.put("analysisType", "person_cooccurrence");
-        analysisData.put("periodLabel", metrics.get("periodLabel"));
-        analysisData.put("anchorPersonName", metrics.get("anchorPersonName"));
-        analysisData.put("totalEntities", metrics.get("totalMatched"));
-        analysisData.put("photoMatched", metrics.get("photoMatched"));
-        analysisData.put("topPersons", metrics.getOrDefault("topPersons", Collections.emptyList()));
-        analysisData.put("conclusion", answer);
-        analysisData.put("summaryItems", metrics.getOrDefault("summaryItems", Collections.emptyList()));
-        return analysisData;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> buildPersonPairCooccurrenceAnalysisData(AiSearchIntent intent,
-                                                                        AiSearchExecutionResult executionResult,
-                                                                        String answer) {
-        Map<String, Object> metrics = (Map<String, Object>) executionResult.getFinalOutputs()
-            .getOrDefault("person_pair_cooccurrence_metrics", Collections.emptyMap());
-        Map<String, Object> analysisData = new LinkedHashMap<>();
-        analysisData.put("analysisType", "person_pair_cooccurrence");
-        analysisData.put("periodLabel", metrics.get("periodLabel"));
-        analysisData.put("totalEntities", metrics.get("totalMatched"));
-        analysisData.put("photoMatched", metrics.get("photoMatched"));
-        analysisData.put("topPairs", metrics.getOrDefault("topPairs", Collections.emptyList()));
-        analysisData.put("conclusion", answer);
-        analysisData.put("summaryItems", metrics.getOrDefault("summaryItems", Collections.emptyList()));
-        return analysisData;
+    private Map<String, Object> extractMetrics(AiSearchExecutionResult executionResult, String metricsKey) {
+        return aiSearchExecutionResultSupport.extractMetrics(executionResult, metricsKey);
     }
 
     private Map<String, Object> buildRelativeNewPersonsThenPairCooccurrenceAnalysisData(AiSearchExecutionResult executionResult,
@@ -4438,20 +3635,11 @@ public class AiSearchService {
 
     private AiSearchIntent buildTagOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括相关照片中出现较多的标签");
-        intent.setExplanation("统计指定时间范围内相关照片的高频标签");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括相关照片中出现较多的标签",
+            "统计指定时间范围内相关照片的高频标签"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
         ensureAnalysisScopeCondition(intent);
         return intent;
@@ -4462,21 +3650,21 @@ public class AiSearchService {
                                                       int page,
                                                       int size,
                                                       String queryMode) {
-        YearComparison comparison = resolveYearComparison(query);
+        AiSearchYearCompareSupport.YearComparison comparison = resolveYearComparison(query);
         AiSearchIntent baseIntent = buildCountOverviewIntent(stripComparisonNoise(query), candidates);
         normalizeIntent(stripComparisonNoise(query), baseIntent, false);
 
         AiSearchIntent leftIntent = cloneIntent(baseIntent);
-        setYearRange(leftIntent, comparison.leftYear);
+        setYearRange(leftIntent, comparison.getLeftYear());
         AiSearchIntent rightIntent = cloneIntent(baseIntent);
-        setYearRange(rightIntent, comparison.rightYear);
+        setYearRange(rightIntent, comparison.getRightYear());
 
         PhotoSearchExecution leftSearch = executePhotoQuery(leftIntent, page, size);
         PhotoSearchExecution rightSearch = executePhotoQuery(rightIntent, page, size);
         AiSearchPlan plan = yearCompareAiSearchPlanner.plan(
             query,
-            comparison.leftYear,
-            comparison.rightYear,
+            comparison.getLeftYear(),
+            comparison.getRightYear(),
             buildKeywordSummary(baseIntent)
         );
         AiSearchExecutionResult executionResult = executeYearComparePlan(plan, leftSearch, rightSearch);
@@ -4487,52 +3675,32 @@ public class AiSearchService {
         Map<Long, Long> dominantAlbumCounts = summarizeAlbumCounts(dominantSearch.allMatchedPhotos);
         List<AlbumDTO> albums = fetchAlbumsByCount(dominantAlbumCounts, 4);
 
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(dominantIntent);
-        response.setExplanation("对比 " + comparison.leftYear + " 年与 " + comparison.rightYear + " 年相关照片数量");
-        response.setPhotos(dominantSearch.pagedPhotoDtos);
-        response.setTotalElements(dominantSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(false);
-        response.setRelaxedReason(null);
         AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
-        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(dominantIntent, dominantSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
+        AiSearchResponse response = buildStandardAnalysisResponse(
+            queryMode,
+            dominantIntent,
+            "对比 " + comparison.getLeftYear() + " 年与 " + comparison.getRightYear() + " 年相关照片数量",
+            dominantSearch,
+            dominantSearch.totalMatched,
+            albums,
+            Collections.emptyList(),
+            plan,
+            executionResult,
+            evidenceBundle
+        );
+        response.setAnalysisData(aiSearchYearCompareSupport.buildAnalysisData(comparison, executionResult, response.getAnswer()));
         return response;
     }
 
     private AiSearchExecutionResult executeYearComparePlan(AiSearchPlan plan,
                                                            PhotoSearchExecution leftSearch,
                                                            PhotoSearchExecution rightSearch) {
-        AiSearchExecutionContext context = new AiSearchExecutionContext();
-        context.setQuery(plan.getQuery());
-        context.setQueryMode(plan.getQueryMode());
-        context.getValues().put("left_period_photo_ids", extractPhotoIds(leftSearch));
-        context.getValues().put("right_period_photo_ids", extractPhotoIds(rightSearch));
-
-        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> comparison = (Map<String, Object>) executionResult.getFinalOutputs()
-            .getOrDefault("period_comparison", Collections.emptyMap());
-        Map<String, Object> metrics = new LinkedHashMap<>(comparison);
-        metrics.put("leftYear", plan.getMetadata().get("leftYear"));
-        metrics.put("rightYear", plan.getMetadata().get("rightYear"));
-        metrics.put("subject", plan.getMetadata().get("subject"));
-        executionResult.getFinalOutputs().put("year_compare_metrics", metrics);
-        return executionResult;
+        return aiSearchYearCompareSupport.executePlan(
+            aiSearchPlanExecutor,
+            plan,
+            extractPhotoIds(leftSearch),
+            extractPhotoIds(rightSearch)
+        );
     }
 
     private List<Long> extractPhotoIds(PhotoSearchExecution photoSearch) {
@@ -4550,50 +3718,41 @@ public class AiSearchService {
                                                     int page,
                                                     int size,
                                                     String queryMode) {
-        // 解析人物和时间范围
-        BodyChangeAnalysis analysis = analyzeBodyChangeQuery(query, candidates);
-        
-        if (analysis.personId == null) {
-            AiSearchResponse response = new AiSearchResponse();
-            response.setAiSearchEnabled(true);
-            response.setQueryMode(queryMode);
-            response.setUsedAi(false);
-            response.setExplanation("未识别到具体人物，请明确说出一个相册中已确认的人物名称");
-            response.setPhotos(Collections.emptyList());
-            response.setTotalElements(0);
-            response.setAlbums(Collections.emptyList());
-            response.setPersons(Collections.emptyList());
-            response.setSuggestions(Collections.emptyList());
-            response.setSuggestionActions(Collections.emptyList());
-            return response;
+        AiSearchBodyChangeSupport.BodyChangeAnalysis analysis = analyzeBodyChangeQuery(query, candidates);
+
+        if (analysis.getPersonId() == null) {
+            return buildEmptyAnalysisResponse(
+                queryMode,
+                null,
+                "未识别到具体人物，请明确说出一个相册中已确认的人物名称",
+                null
+            );
         }
 
         AiSearchPlan plan = bodyChangeAiSearchPlanner.plan(
             query,
-            analysis.personId,
-            analysis.personName,
-            analysis.startYear,
-            analysis.endYear
+            analysis.getPersonId(),
+            analysis.getPersonName(),
+            analysis.getStartYear(),
+            analysis.getEndYear()
         );
         AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, new AiSearchExecutionContext());
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> metrics = (Map<String, Object>) executionResult.getFinalOutputs()
-            .getOrDefault("body_change_metrics", Collections.emptyMap());
+        AiSearchIntent photoIntent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos"),
+            null,
+            analysis.getExplanation()
+        );
+        photoIntent.setPersonIds(List.of(analysis.getPersonId()));
+        photoIntent.setStartDate(analysis.getStartYear() + "-01-01");
+        photoIntent.setEndDate(analysis.getEndYear() + "-12-31");
 
-        // 执行照片搜索
-        AiSearchIntent photoIntent = new AiSearchIntent();
-        photoIntent.setPersonIds(List.of(analysis.personId));
-        photoIntent.setStartDate(analysis.startYear + "-01-01");
-        photoIntent.setEndDate(analysis.endYear + "-12-31");
-        
         PhotoSearchExecution photoSearch = executePhotoQuery(photoIntent, page, size);
-        
-        // 获取人物信息
+
         List<PersonSummaryDTO> persons = new ArrayList<>();
-        if (analysis.personId != null) {
+        if (analysis.getPersonId() != null) {
             try {
-                Optional<PersonProfile> opt = personProfileRepository.findById(analysis.personId);
+                Optional<PersonProfile> opt = personProfileRepository.findById(analysis.getPersonId());
                 if (opt.isPresent()) {
                     persons.add(faceService.toSummaryDTO(opt.get()));
                 }
@@ -4605,126 +3764,33 @@ public class AiSearchService {
         AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
         String answer = aiSearchResolver.resolve(evidenceBundle);
 
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(photoIntent);
-        response.setExplanation(analysis.explanation);
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(persons);
-        response.setRelaxed(false);
-        response.setRelaxedReason(null);
-        response.setAnswer(answer);
-        
-        // 添加分析数据到响应中，供前端展示图表
-        Map<String, Object> analysisData = new LinkedHashMap<>();
-        analysisData.put("analysisType", "body_change");
-        analysisData.put("personId", analysis.personId);
-        analysisData.put("personName", analysis.personName);
-        analysisData.put("startYear", analysis.startYear);
-        analysisData.put("endYear", analysis.endYear);
-        analysisData.put("totalPhotos", metrics.get("totalPhotos"));
-        analysisData.put("avgFaceArea", metrics.get("avgFaceArea"));
-        analysisData.put("avgFaceWidth", metrics.get("avgFaceWidth"));
-        analysisData.put("avgFaceHeight", metrics.get("avgFaceHeight"));
-        analysisData.put("avgAspectRatio", metrics.get("avgAspectRatio"));
-        analysisData.put("yearlyStats", metrics.getOrDefault("yearlyStats", Collections.emptyList()));
-        analysisData.put("trend", metrics.get("trend"));
-        analysisData.put("conclusion", answer);
-        analysisData.put("changePercent", metrics.get("changePercent"));
-        analysisData.put("firstPeriod", metrics.get("firstPeriod"));
-        analysisData.put("lastPeriod", metrics.get("lastPeriod"));
-        response.setAnalysisData(analysisData);
+        AiSearchResponse response = buildStandardAnalysisResponse(
+            queryMode,
+            photoIntent,
+            analysis.getExplanation(),
+            photoSearch,
+            photoSearch.totalMatched,
+            Collections.emptyList(),
+            persons,
+            plan,
+            executionResult,
+            evidenceBundle
+        );
+        response.setAnalysisData(aiSearchBodyChangeSupport.buildAnalysisData(analysis, executionResult, answer));
         response.setSuggestionActions(Collections.emptyList());
         response.setSuggestions(Collections.emptyList());
-        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
-
         return response;
     }
 
-    private BodyChangeAnalysis analyzeBodyChangeQuery(String query, CandidateContext candidates) {
-        BodyChangeAnalysis analysis = new BodyChangeAnalysis();
-        int currentYear = LocalDate.now().getYear();
-
-        // 默认时间范围：过去2年
-        analysis.endYear = currentYear;
-        analysis.startYear = currentYear - 2;
-
-        // 解析时间范围
-        if (query.contains("这两年") || query.contains("近两年")) {
-            analysis.startYear = currentYear - 2;
-            analysis.endYear = currentYear;
-        } else if (query.contains("这三年") || query.contains("近三年")) {
-            analysis.startYear = currentYear - 3;
-            analysis.endYear = currentYear;
-        } else if (query.contains("近五年") || query.contains("这五年")) {
-            analysis.startYear = currentYear - 5;
-            analysis.endYear = currentYear;
-        } else if (query.contains("近几年") || query.contains("近几年")) {
-            analysis.startYear = currentYear - 3;
-            analysis.endYear = currentYear;
-        } else if (query.contains("近一年") || query.contains("这一年")) {
-            analysis.startYear = currentYear - 1;
-            analysis.endYear = currentYear;
-        } else if (query.contains("去年")) {
-            analysis.startYear = currentYear - 1;
-            analysis.endYear = currentYear - 1;
-        } else if (query.contains("今年")) {
-            analysis.startYear = currentYear;
-            analysis.endYear = currentYear;
-        } else if (query.contains("前年")) {
-            analysis.startYear = currentYear - 2;
-            analysis.endYear = currentYear - 2;
-        }
-
-        // 解析具体年份（如"24年"、"2024年"）
-        if (query.contains("年")) {
-            String yearStr = query.replaceAll(".*?(\\d{2,4})年.*", "$1");
-            try {
-                int year;
-                if (yearStr.length() == 2) {
-                    year = 2000 + Integer.parseInt(yearStr);
-                } else {
-                    year = Integer.parseInt(yearStr);
-                }
-                if (year >= 2000 && year <= currentYear + 1) {
-                    analysis.startYear = year;
-                    analysis.endYear = year;
-                    // 如果同时有其他年份，尝试扩展范围
-                    String allYears = query.replaceAll("[^\\d]", " ");
-                    String[] parts = allYears.trim().split("\\s+");
-                    for (String p : parts) {
-                        if (p.length() >= 2) {
-                            try {
-                                int y = p.length() == 2 ? 2000 + Integer.parseInt(p) : Integer.parseInt(p);
-                                if (y >= 2000 && y <= currentYear + 1 && y != year) {
-                                    analysis.startYear = Math.min(year, y);
-                                    analysis.endYear = Math.max(year, y);
-                                }
-                            } catch (NumberFormatException ignored) {}
-                        }
-                    }
-                }
-            } catch (NumberFormatException ignored) {}
-        }
-
-        // 解析人物
+    private AiSearchBodyChangeSupport.BodyChangeAnalysis analyzeBodyChangeQuery(String query, CandidateContext candidates) {
+        Long personId = null;
+        String personName = null;
         if (candidates != null && !candidates.persons.isEmpty()) {
-            // 选择第一个匹配的人物
             PersonProfile person = candidates.persons.get(0);
-            analysis.personId = person.getId();
-            analysis.personName = person.getName();
+            personId = person.getId();
+            personName = person.getName();
         }
-
-        analysis.explanation = String.format("分析 %s 在 %d-%d 年间的体型/面部变化",
-            analysis.personName != null ? analysis.personName : "该人物",
-            analysis.startYear, analysis.endYear);
-
-        return analysis;
+        return aiSearchBodyChangeSupport.analyze(query, personId, personName, LocalDate.now().getYear());
     }
 
     private AiSearchIntent callGpt(String query, CandidateContext candidates, String queryMode) {
@@ -6730,29 +5796,29 @@ public class AiSearchService {
     }
 
     private String buildYearCompareAnswer(AiSearchIntent baseIntent,
-                                          YearComparison comparison,
+                                          AiSearchYearCompareSupport.YearComparison comparison,
                                           PhotoSearchExecution leftSearch,
                                           PhotoSearchExecution rightSearch) {
         long leftCount = leftSearch.totalMatched;
         long rightCount = rightSearch.totalMatched;
         String subject = buildKeywordSummary(baseIntent);
         if (leftCount == 0 && rightCount == 0) {
-            return "检索结论：" + comparison.leftYear + " 年和 " + comparison.rightYear + " 年都未找到相关公开照片。";
+            return "检索结论：" + comparison.getLeftYear() + " 年和 " + comparison.getRightYear() + " 年都未找到相关公开照片。";
         }
         if (leftCount == rightCount) {
-            return "检索结论：" + comparison.leftYear + " 年与 " + comparison.rightYear + " 年关于 " + subject
+            return "检索结论：" + comparison.getLeftYear() + " 年与 " + comparison.getRightYear() + " 年关于 " + subject
                 + " 的公开照片数量相同，都是 " + leftCount + " 张。";
         }
 
         boolean leftMore = leftCount > rightCount;
         long more = leftMore ? leftCount : rightCount;
         long less = leftMore ? rightCount : leftCount;
-        int moreYear = leftMore ? comparison.leftYear : comparison.rightYear;
-        int lessYear = leftMore ? comparison.rightYear : comparison.leftYear;
+        int moreYear = leftMore ? comparison.getLeftYear() : comparison.getRightYear();
+        int lessYear = leftMore ? comparison.getRightYear() : comparison.getLeftYear();
         String ratioText = less == 0 ? "明显更多" : String.format(Locale.ROOT, "约 %.1f 倍", (double) more / (double) less);
 
-        return "检索结论：" + comparison.leftYear + " 年找到 " + leftCount + " 张，"
-            + comparison.rightYear + " 年找到 " + rightCount + " 张；"
+        return "检索结论：" + comparison.getLeftYear() + " 年找到 " + leftCount + " 张，"
+            + comparison.getRightYear() + " 年找到 " + rightCount + " 张；"
             + moreYear + " 年关于 " + subject + " 的拍摄更多，相比 " + lessYear + " 年" + ratioText + "。";
     }
 
@@ -6770,23 +5836,8 @@ public class AiSearchService {
         return nullToDefault(startDate, "开始时间未知") + " 到 " + nullToDefault(endDate, "现在");
     }
 
-    private YearComparison resolveYearComparison(String query) {
-        int currentYear = LocalDate.now().getYear();
-        if (query != null) {
-            if (query.contains("今年") && query.contains("去年")) {
-                return new YearComparison(currentYear, currentYear - 1);
-            }
-            if (query.contains("去年") && query.contains("前年")) {
-                return new YearComparison(currentYear - 1, currentYear - 2);
-            }
-            if (query.contains("今年") && query.contains("前年")) {
-                return new YearComparison(currentYear, currentYear - 2);
-            }
-            if (query.contains("去年")) {
-                return new YearComparison(currentYear - 1, currentYear - 2);
-            }
-        }
-        return new YearComparison(currentYear, currentYear - 1);
+    private AiSearchYearCompareSupport.YearComparison resolveYearComparison(String query) {
+        return aiSearchYearCompareSupport.resolveComparison(query, LocalDate.now().getYear());
     }
 
     private void setYearRange(AiSearchIntent intent, int year) {
@@ -7649,21 +6700,7 @@ public class AiSearchService {
     }
 
     private String stripComparisonNoise(String query) {
-        if (query == null) {
-            return "";
-        }
-        String result = query
-            .replace("去年和前年相比", " ")
-            .replace("今年和去年相比", " ")
-            .replace("和前年相比", " ")
-            .replace("和去年相比", " ")
-            .replace("相比", " ")
-            .replace("对比", " ")
-            .replace("比较", " ")
-            .replace("更多还是更少", " ")
-            .replace("更少还是更多", " ")
-            .replace("更多还是少", " ");
-        return stripAnalysisNoise(result);
+        return aiSearchYearCompareSupport.stripComparisonNoise(query, this::stripAnalysisNoise);
     }
 
     private String stripAnalysisNoise(String query) {
@@ -7969,11 +7006,16 @@ public class AiSearchService {
         final AnalysisRouteType type;
         final String resolvedQuery;
         final boolean usedAi;
+        final AiSearchAnalysisFallbackRequest fallbackRequest;
 
-        AnalysisRouting(AnalysisRouteType type, String resolvedQuery, boolean usedAi) {
+        AnalysisRouting(AnalysisRouteType type,
+                        String resolvedQuery,
+                        boolean usedAi,
+                        AiSearchAnalysisFallbackRequest fallbackRequest) {
             this.type = type;
             this.resolvedQuery = resolvedQuery;
             this.usedAi = usedAi;
+            this.fallbackRequest = fallbackRequest;
         }
 
         boolean isResolved() {
@@ -7981,36 +7023,12 @@ public class AiSearchService {
         }
 
         static AnalysisRouting none() {
-            return new AnalysisRouting(null, null, false);
+            return new AnalysisRouting(null, null, false, null);
         }
 
         static AnalysisRouting aiAttempted() {
-            return new AnalysisRouting(null, null, true);
+            return new AnalysisRouting(null, null, true, null);
         }
-    }
-
-    static class YearComparison {
-        final int leftYear;
-        final int rightYear;
-
-        YearComparison(int leftYear, int rightYear) {
-            this.leftYear = leftYear;
-            this.rightYear = rightYear;
-        }
-    }
-
-    static class BodyChangeAnalysis {
-        Long personId;
-        String personName;
-        int startYear;
-        int endYear;
-        String explanation;
-    }
-
-    static class AnalysisFallbackDescriptor {
-        AiSearchIntent intent;
-        String normalizeQuery;
-        boolean applyRelativeYearRange;
     }
 
 }

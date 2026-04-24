@@ -250,6 +250,51 @@ V2 第一阶段只允许这些高价值、低风险算子：
 
 `analysisHint` 仍保留一段时间作为兼容层，但实现上已经优先转换为 `analysisSpec` 再进入 mapper。
 
+此外，分析模式下的 AI 路由现在也遵循同样的“受控中间层”原则：
+
+1. AI 只返回一个很小的 JSON 路由结果
+   例如 `analysisType / topicKeywords / keywordSummary / leftYear / rightYear / confidence`
+2. 本地 `AiSearchAnalysisRoutingLocalSupport` 先给出保守的本地评分路由，作为 AI 路由的 baseline 和 fallback
+3. 本地 `AiSearchAnalysisRoutingAiSupport` 负责把这份 JSON 归一化成 `AiSearchAnalysisFallbackRequest`
+4. `AiSearchAnalysisFallbackRequest` 只承载可控元数据
+   例如路由类型、补充主题词、年份槽位、摘要词
+5. `AiSearchAnalysisFallbackDescriptorBuilder` 负责把 fallback request 补全成 `baseIntent + analysisSpec`
+6. `AiSearchAnalysisResponseDispatcher` 负责把路由类型分发到对应的 analysis response builder，而不是在 `AiSearchService` 内继续扩张 `switch`
+7. `AiSearchYearCompareSupport` 负责 `year_compare` 的相对年份解析、执行上下文装配、指标回填与 analysisData 组装
+8. `AiSearchBodyChangeSupport` 负责 `body_change` 的时间范围解析、解释文案收口与 analysisData 组装
+9. `AiSearchPersonAnalysisSupport` 负责 `person_overview / person_cooccurrence / person_pair_cooccurrence` 的指标摘要与 analysisData 组装
+10. `AiSearchAnalysisResponseAssembler` 负责把已求值的 answer / executionPlan / suggestions / photos / persons 组装成统一 `AiSearchResponse`
+11. `AiSearchExecutionResultSupport` 负责把 `matched_photo_ids` 注入执行上下文、执行 matched-photo overview 计划，并从 `finalOutputs` 中提取 typed aggregates / metrics
+12. `AiSearchOverviewAnalysisSupport` 负责 overview 型分析的 scoped intent 初始化，以及 theme/location/album/month/day/tag/count 这类基础 metrics 组装
+13. `AiSearchAnalysisFlowSupport` 负责 matched-photo overview / person aggregate / person pair aggregate 这类分析编排模板
+14. `AiSearchOverviewResponseSupport` 负责 theme/location/album/month/count/day/tag 这组 overview response 的统一编排与 metrics 组装，避免在 `AiSearchService` 里保留一组重复骨架
+15. `AiSearchPersonResponseSupport` 负责 `person_overview / person_cooccurrence / person_pair_cooccurrence` 这组人物分析 response 的统一编排、metrics 与 analysisData 组装，也承接结构化人物聚合 / 人物增长 / 人物组合响应装配，并允许通过 intent/response customizer 把 `scopeKeywords`、器材条件、analysisData 这类兼容细节从 `AiSearchService` 继续外移
+16. `AiSearchStructuredPhotoResponseSupport` 负责 structured matched-photo analysis response 的默认 intent 填充与 plan-type 分发装配
+17. `AiSearchAnalysisFallbackSupport` 负责把 analysis fallback descriptor 所需的 anchor/year/keyword/intent builders 收口成一组回调，再委托给 descriptor builder
+18. `AiSearchAnalysisHandlerSupport` 负责维护 `analysisType -> response builder` 的稳定注册顺序，避免 handler map 继续膨胀在 `AiSearchService`
+19. 之后仍然只能进入两条白名单路径之一
+   要么转成 `analysisSpec`
+   要么退回本地 legacy fallback builder / planner
+
+这意味着 AI 在分析路由阶段仍然不能直接生成执行计划，更不能绕过 mapper / planner / validator。
+
+补充说明：
+
+1. `AiSearchService` 现在只保留“挑哪条受控路径、调用哪些 support、最终组装 response”的职责
+2. `year_compare` 不再把“比较哪两年”“如何把左右期 photo ids 注入 executor”“如何把 comparison 输出补齐为前端可消费指标”散落在 service 内部
+3. `body_change` 不再把“时间词解析”“显式年份归一化”“analysisData 字段拼装”写死在 service 内部
+4. 人物概览、人物共现、人物组合共现不再各自在 service 内部重复手拼摘要 map，而统一走 `AiSearchPersonAnalysisSupport`
+5. 分析型 response 的公共字段填充不再在 service 内部重复拼装，而统一走 `AiSearchAnalysisResponseAssembler`
+6. 执行结果里的 typed list 提取与 metrics 读取不再是 `AiSearchService` 私有工具细节，而统一走 `AiSearchExecutionResultSupport`
+7. theme/location/album/month/day/tag/count 这类 overview 分析不再各自维护一套几乎相同的 intent 初始化和 summary metrics 拼装，而统一走 `AiSearchOverviewAnalysisSupport`
+8. overview family 与 person aggregate family 的编排模板不再作为 service 私有模板方法存在，而统一走 `AiSearchAnalysisFlowSupport`
+9. overview family 的 response 骨架与基础 metrics 拼装不再分散在 `AiSearchService` 的多个私有方法里，而统一走 `AiSearchOverviewResponseSupport`
+10. 人物概览、人物共现、人物组合共现，以及 relative-new-persons family 的大部分结构化人物响应骨架，不再分散在 `AiSearchService` 中，而统一走 `AiSearchPersonResponseSupport`
+11. structured matched-photo analysis response 的默认 intent 与 plan-type 分发不再由 `AiSearchService` 内联维护，而统一走 `AiSearchStructuredPhotoResponseSupport`
+12. analysis fallback descriptor 所需的多组 callback 不再直接在 `AiSearchService.resolveAnalysisFallbackDescriptor(...)` 内联堆叠，而统一走 `AiSearchAnalysisFallbackSupport`
+13. 分析类型到具体 response builder 的分发表不再直接内联在 `AiSearchService.buildAnalysisResponse(...)` 中，而统一走 `AiSearchAnalysisHandlerSupport`
+14. 后续如果继续扩展单人物时序分析、跨时期计数分析、人物组合统计，应优先复用这些 support，而不是继续向 `AiSearchService` 加 query-specific 分支
+
 ### 5.5 `filtered_scope` 示例
 
 下面这些例子都遵循同一个原则：

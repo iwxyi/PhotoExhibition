@@ -2,6 +2,8 @@ package com.photoexhibition.aisearch.validation;
 
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class AiSearchAnalysisFallbackRequest {
     private String routingType;
@@ -10,4 +12,6 @@ public class AiSearchAnalysisFallbackRequest {
     private Integer leftYear;
     private Integer rightYear;
     private String keywordSummary;
+    private List<String> topicKeywords;
+    private boolean aiDerived;
 }
