@@ -27,7 +27,7 @@
     <!-- 右下角显示毛玻璃效果 -->
     <div
       v-if="photoCount > 0"
-      class="absolute bottom-1.5 right-1.5 bg-black/30 backdrop-blur-md px-2 py-0.5 rounded album-cover-overlay"
+      class="absolute bottom-1.5 right-1.5 bg-black/45 px-2 py-0.5 rounded album-cover-overlay"
     >
       <span class="text-xs text-white">共 {{ photoCount }} 张</span>
     </div>

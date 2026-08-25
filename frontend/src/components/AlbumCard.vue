@@ -10,7 +10,6 @@
     @keydown.enter.prevent="handleClick"
     @keydown.space.prevent="handleClick"
     ref="cardRef"
-    style="contain: layout style paint; will-change: transform;"
   >
     <!-- 封面布局 -->
     <div class="overflow-hidden rounded-t-2xl">
@@ -194,8 +193,9 @@ const handleClick = () => {
 /* 默认状态：微妙边框，无阴影 */
 .photo-card {
   border: 1px solid rgba(120, 113, 108, 0.18);
-  backdrop-filter: saturate(118%) blur(10px);
-  -webkit-backdrop-filter: saturate(118%) blur(10px);
+  content-visibility: auto;
+  contain: layout paint style;
+  contain-intrinsic-size: 240px 300px;
   transition: transform 0.28s ease, border-color 0.28s ease, background-color 0.28s ease;
 }
 

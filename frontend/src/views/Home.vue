@@ -19,7 +19,7 @@
 
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 pb-14 md:pt-8 md:pb-16" style="contain: layout style paint; will-change: transform;">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 pb-14 md:pt-8 md:pb-16">
       <template v-if="showPublicPortal">
         <section class="py-10 md:py-14">
           <div class="max-w-4xl">
@@ -576,51 +576,42 @@ const loadMore = async () => {
   }
 }
 
-// 优化滚动处理，减少顿卡感
-let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
-let lastScrollCheck = 0
-let isScrollInProgress = false
-const SCROLL_THROTTLE_MS = 16 // ~60fps
+// 优化滚动处理：触摸板会产生高频 scroll，避免每帧写 sessionStorage。
+let scrollRafId: number | null = null
+let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null
 const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载，增加缓冲区
 const PRELOAD_THRESHOLD = 2000 // 距离底部2000px时开始预加载
 
 const handleScroll = () => {
   if (showPublicPortal.value) return
-  const now = Date.now()
 
-  // 如果正在处理滚动或节流时间内，跳过
-  if (isScrollInProgress || now - lastScrollCheck < SCROLL_THROTTLE_MS) return
-  lastScrollCheck = now
-  isScrollInProgress = true
+  if (scrollRafId !== null) return
 
-  // 清除之前的定时器
-  if (scrollThrottleTimer) {
-    clearTimeout(scrollThrottleTimer)
-  }
-
-  // 使用 requestAnimationFrame 优化滚动检测
-  requestAnimationFrame(() => {
-  scrollThrottleTimer = setTimeout(() => {
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
 
-      // 保存滚动位置到 sessionStorage 和 ref
-      savedScrollTop.value = scrollTop
-      sessionStorage.setItem('home-scroll-position', String(scrollTop))
+    savedScrollTop.value = scrollTop
 
-      // 距离底部PRELOAD_THRESHOLD像素时开始预加载
-      if (scrollTop + windowHeight >= documentHeight - PRELOAD_THRESHOLD) {
-        preloadNextPage()
-      }
+    if (scrollSaveTimer) {
+      clearTimeout(scrollSaveTimer)
+    }
+    scrollSaveTimer = setTimeout(() => {
+      sessionStorage.setItem('home-scroll-position', String(savedScrollTop.value))
+      scrollSaveTimer = null
+    }, 180)
+
+    // 距离底部PRELOAD_THRESHOLD像素时开始预加载
+    if (scrollTop + windowHeight >= documentHeight - PRELOAD_THRESHOLD) {
+      preloadNextPage()
+    }
 
     // 距离底部LOAD_THRESHOLD像素时开始加载
     if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
       loadMore()
     }
-
-      isScrollInProgress = false
-  }, 0)
   })
 }
 
@@ -702,7 +693,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
-  if (scrollThrottleTimer) clearTimeout(scrollThrottleTimer)
+  if (scrollRafId !== null) cancelAnimationFrame(scrollRafId)
+  if (scrollSaveTimer) clearTimeout(scrollSaveTimer)
 })
 
 onActivated(() => {
@@ -750,6 +742,14 @@ onDeactivated(() => {
     sessionStorage.setItem('home-scroll-position', String(scrollY))
   }
   window.removeEventListener('scroll', handleScroll)
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
+  if (scrollSaveTimer) {
+    clearTimeout(scrollSaveTimer)
+    scrollSaveTimer = null
+  }
 })
 
 const selectCategory = async (c: string) => {
