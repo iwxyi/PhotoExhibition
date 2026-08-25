@@ -2,23 +2,17 @@
   <div class="min-h-screen admin-shell admin-albums-page">
     <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
-      <div class="admin-page-actions">
-        <div class="admin-page-actions__group">
-          <button v-on:click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <button v-if="authStore.isSuperAdmin" v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary disabled:opacity-50">
-            重新扫描
+      <div class="glass-panel admin-query-toolbar admin-query-toolbar--compact">
+        <div class="admin-query-toolbar__fields">
+          <input v-model="keyword" aria-label="搜索相册" placeholder="搜索相册" class="admin-field admin-albums-field admin-query-toolbar__search" @keyup.enter="load" />
+          <button v-on:click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__icon-button disabled:opacity-50" title="搜索相册" aria-label="搜索相册">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg>
           </button>
+          <span v-if="loading && albums.length === 0" class="admin-albums-empty-state admin-query-toolbar__status">加载中...</span>
         </div>
-      </div>
-
-      <div class="glass-panel p-4 mb-6">
-        <div class="flex flex-wrap gap-4">
-          <label class="space-y-2">
-            <span class="admin-albums-field-label text-sm text-gray-300">搜索相册</span>
-            <input v-model="keyword" placeholder="按名称或路径关键词搜索" class="admin-field admin-albums-field px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </label>
-          <button v-on:click="load" :disabled="loading" class="admin-button-soft px-4 py-2 rounded-lg text-sm disabled:opacity-50">查询</button>
-          <span v-if="loading && albums.length === 0" class="admin-albums-empty-state text-sm text-gray-400 py-2">加载中...</span>
+        <div class="admin-query-toolbar__actions">
+          <button v-on:click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__button disabled:opacity-50">刷新</button>
+          <button v-if="authStore.isSuperAdmin" v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary admin-query-toolbar__button disabled:opacity-50">重新扫描</button>
         </div>
       </div>
 
@@ -80,6 +74,9 @@
                   @click="openMenu($event, album)"
                   class="admin-button-soft p-1 rounded text-xs transition-colors flex-shrink-0"
                   title="更多操作"
+                  aria-label="相册更多操作"
+                  aria-haspopup="menu"
+                  :aria-expanded="showMenuForAlbum?.id === album.id"
                 >
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -151,6 +148,7 @@
         <div
           class="absolute glass-menu admin-albums-menu admin-albums-menu--album rounded-lg shadow-2xl z-10 w-48"
           :style="menuStyle"
+          role="menu"
           @click.stop
         >
           <div class="py-1">
@@ -222,6 +220,8 @@
               <button
                 class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
                 @mouseenter="loadMoveMenuData(showMenuForAlbum)"
+                aria-haspopup="menu"
+                :aria-expanded="showMoveMenu"
               >
                 <span class="flex items-center gap-2">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -237,37 +237,22 @@
                 v-show="showMoveMenu"
                 class="fixed glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-[60] overflow-y-auto"
                 :style="moveMenuStyle"
+                role="menu"
                 @click.stop
                 @mouseenter="cancelMoveMenuClose"
                 @mouseleave="scheduleMoveMenuClose"
               >
                 <div class="py-1">
                   <!-- 分类 -->
-                  <div class="relative" @mouseenter="showCatMenu = true" @mouseleave="showCatMenu = false">
-                    <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                  <button
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+                    @mouseenter="openMoveSubmenu('categories', $event)"
+                    aria-haspopup="menu"
+                    :aria-expanded="activeMoveSubmenu === 'categories'"
+                  >
                       <span>分类</span>
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                    </button>
-                    <!-- 分类子菜单 -->
-                    <div
-                      v-show="showCatMenu"
-                      class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
-                      :style="subSubMenuStyle"
-                    >
-                      <div class="py-1">
-                        <button
-                          v-for="cat in moveCategories"
-                          :key="cat.path"
-                          @click="doMoveToCategory(showMenuForAlbum, cat)"
-                          class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                          :title="cat.name"
-                        >
-                          {{ cat.name }}
-                        </button>
-                        <div v-if="moveCategories.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无分类</div>
-                      </div>
-                    </div>
-                  </div>
+                  </button>
                   <!-- 上一级 -->
                   <button
                     @click="doMoveToParent(showMenuForAlbum)"
@@ -276,65 +261,27 @@
                     上一级
                   </button>
                   <!-- 下一级 -->
-                  <div class="relative" @mouseenter="showChildMenu = true" @mouseleave="showChildMenu = false">
-                    <button
+                  <button
                       class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
-                      @mouseenter="loadChildDirs(showMenuForAlbum)"
-                    >
+                      @mouseenter="openMoveSubmenu('children', $event)"
+                      aria-haspopup="menu"
+                      :aria-expanded="activeMoveSubmenu === 'children'"
+                  >
                       <span>下一级</span>
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                    </button>
-                    <!-- 下一级子菜单 -->
-                    <div
-                      v-show="showChildMenu"
-                      class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
-                      :style="subSubMenuStyle"
-                    >
-                      <div class="py-1">
-                        <button
-                          v-for="dir in moveChildDirs"
-                          :key="dir.path"
-                          @click="doMoveToChild(showMenuForAlbum, dir)"
-                          class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                          :title="dir.name"
-                        >
-                          {{ dir.name }}
-                        </button>
-                        <div v-if="moveChildDirs.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无子目录</div>
-                      </div>
-                    </div>
-                  </div>
+                  </button>
                   <!-- 分割线 -->
                   <div class="border-t border-gray-600 my-1"></div>
                   <!-- 合并至同级 -->
-                  <div class="relative" @mouseenter="showMergeMenu = true" @mouseleave="showMergeMenu = false">
-                    <button
+                  <button
                       class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
-                      @mouseenter="loadSiblingDirs(showMenuForAlbum)"
-                    >
+                      @mouseenter="openMoveSubmenu('siblings', $event)"
+                      aria-haspopup="menu"
+                      :aria-expanded="activeMoveSubmenu === 'siblings'"
+                  >
                       <span>合并至同级</span>
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                    </button>
-                    <!-- 合并至同级子菜单 -->
-                    <div
-                      v-show="showMergeMenu"
-                      class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-30 max-h-80 overflow-y-auto"
-                      :style="subSubMenuStyle"
-                    >
-                      <div class="py-1">
-                        <button
-                          v-for="dir in mergeSiblingDirs"
-                          :key="dir.path"
-                          @click="doMergeToSibling(showMenuForAlbum, dir)"
-                          class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
-                          :title="dir.name"
-                        >
-                          {{ dir.name }}
-                        </button>
-                        <div v-if="mergeSiblingDirs.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无同级目录</div>
-                      </div>
-                    </div>
-                  </div>
+                  </button>
                   <!-- 指定路径 -->
                   <button
                     @click="openPathPicker(showMenuForAlbum)"
@@ -344,6 +291,50 @@
                   </button>
                 </div>
               </div>
+              </teleport>
+              <teleport to="body">
+                <div
+                  v-if="activeMoveSubmenu"
+                  class="fixed glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-[70] max-h-[calc(100vh-2rem)] overflow-y-auto"
+                  :style="moveSubmenuStyle"
+                  role="menu"
+                  @click.stop
+                  @mouseenter="cancelMoveMenuClose"
+                  @mouseleave="scheduleMoveMenuClose"
+                >
+                  <div class="py-1">
+                    <template v-if="activeMoveSubmenu === 'categories'">
+                      <button
+                        v-for="cat in moveCategories"
+                        :key="cat.path"
+                        @click="doMoveToCategory(showMenuForAlbum, cat)"
+                        class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                        :title="cat.name"
+                      >{{ cat.name }}</button>
+                      <div v-if="moveCategories.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无分类</div>
+                    </template>
+                    <template v-else-if="activeMoveSubmenu === 'children'">
+                      <button
+                        v-for="dir in moveChildDirs"
+                        :key="dir.path"
+                        @click="doMoveToChild(showMenuForAlbum, dir)"
+                        class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                        :title="dir.name"
+                      >{{ dir.name }}</button>
+                      <div v-if="moveChildDirs.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无子目录</div>
+                    </template>
+                    <template v-else>
+                      <button
+                        v-for="dir in mergeSiblingDirs"
+                        :key="dir.path"
+                        @click="doMergeToSibling(showMenuForAlbum, dir)"
+                        class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 truncate"
+                        :title="dir.name"
+                      >{{ dir.name }}</button>
+                      <div v-if="mergeSiblingDirs.length === 0" class="px-4 py-2 text-xs text-gray-500">暂无同级目录</div>
+                    </template>
+                  </div>
+                </div>
               </teleport>
             </div>
             <!-- 隐藏相册菜单项 -->
@@ -1214,9 +1205,15 @@ import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
 import CoverDisplay from '@/components/CoverDisplay.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import DropMenu from '@/components/DropMenu.vue'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const { notify, confirm } = useAdminFeedback()
+const alert = (message: unknown) => {
+  const text = String(message).replace(/^[✅❌]\s*/, '')
+  notify(text, /失败|错误|不能|未找到|不支持|无效/.test(text) ? 'error' : 'info')
+}
 
 const albums = ref<any[]>([])
 const loading = ref(false)
@@ -1272,9 +1269,8 @@ const mergeSiblingDirs = ref<any[]>([]) // 合并至同级的同级目录列表
 const showMoveMenu = ref(false)
 let moveMenuCloseTimer: number | null = null
 const moveMenuAnchor = ref({ top: 0, left: 0, right: 0 })
-const showCatMenu = ref(false)
-const showChildMenu = ref(false)
-const showMergeMenu = ref(false) // 合并至同级子菜单显示状态
+const activeMoveSubmenu = ref<'categories' | 'children' | 'siblings' | null>(null)
+const moveSubmenuAnchor = ref({ top: 0, left: 0, right: 0 })
 const moveConflictDialogVisible = ref(false)
 const moveConflictInfo = ref<any>({})
 const moveConflictAlbum = ref<any>(null)
@@ -2015,14 +2011,20 @@ const saveName = async () => {
 }
 
 const deleteAlbum = async (album: any) => {
-  if (!window.confirm(`确定删除相册"${album.displayTitle || album.name}"吗？`)) return
+  const confirmed = await confirm({
+    title: '删除相册',
+    message: `“${album.displayTitle || album.name}”将从后台删除。`,
+    confirmLabel: '删除相册',
+    tone: 'danger'
+  })
+  if (!confirmed) return
 
   try {
     await api.delete(`/albums/${album.id}`)
     await load()
     closeAllMenus()
   } catch (e: any) {
-    alert('删除相册失败: ' + (e.response?.data?.error || e.message))
+    notify('删除相册失败：' + (e.response?.data?.error || e.message), 'error')
   }
 }
 
@@ -2228,18 +2230,6 @@ const openMenu = (event: MouseEvent, album: any) => {
   menuPosition.value = { x, y }
 }
 
-// 计算子菜单样式（根据主菜单位置调整）
-const subMenuStyle = computed(() => {
-  const baseLeft = menuNearRight.value ? 'auto' : '100%'
-  const rightOffset = menuNearRight.value ? '100%' : 'auto'
-  return {
-    left: baseLeft,
-    right: rightOffset,
-    top: '0',
-    width: '192px' // w-48
-  }
-})
-
 const moveMenuStyle = computed(() => {
   const width = 192
   const margin = 16
@@ -2261,15 +2251,23 @@ const moveMenuStyle = computed(() => {
   }
 })
 
-// 计算三级子菜单样式（根据二级菜单位置调整）
-const subSubMenuStyle = computed(() => {
-  const baseLeft = menuNearRight.value ? 'auto' : '100%'
-  const rightOffset = menuNearRight.value ? '100%' : 'auto'
+const moveSubmenuStyle = computed(() => {
+  const width = 192
+  const margin = 16
+  const estimatedHeight = 320
+  const fitsRight = moveSubmenuAnchor.value.right + width + margin <= window.innerWidth
+  const left = fitsRight
+    ? moveSubmenuAnchor.value.right
+    : Math.max(margin, moveSubmenuAnchor.value.left - width)
+  const top = Math.max(
+    margin,
+    Math.min(moveSubmenuAnchor.value.top, window.innerHeight - estimatedHeight - margin)
+  )
+
   return {
-    left: baseLeft,
-    right: rightOffset,
-    top: '0',
-    width: '192px' // w-48
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`
   }
 })
 
@@ -2293,9 +2291,7 @@ const closeAllMenus = () => {
   mergeSiblingDirs.value = [] // 重置合并至同级目录列表
   // 重置移动至子菜单状态
   showMoveMenu.value = false
-  showCatMenu.value = false
-  showChildMenu.value = false
-  showMergeMenu.value = false
+  activeMoveSubmenu.value = null
 }
 
 const openMoveMenu = (event: MouseEvent) => {
@@ -2306,6 +2302,18 @@ const openMoveMenu = (event: MouseEvent) => {
   moveMenuAnchor.value = { top: rect.top, left: rect.left, right: rect.right }
   showMoveMenu.value = true
   if (showMenuForAlbum.value) loadMoveMenuData(showMenuForAlbum.value)
+}
+
+const openMoveSubmenu = async (type: 'categories' | 'children' | 'siblings', event: MouseEvent) => {
+  cancelMoveMenuClose()
+  const anchor = event.currentTarget as HTMLElement
+  const rect = anchor.getBoundingClientRect()
+  moveSubmenuAnchor.value = { top: rect.top, left: rect.left, right: rect.right }
+  activeMoveSubmenu.value = type
+
+  if (!showMenuForAlbum.value) return
+  if (type === 'children') await loadChildDirs(showMenuForAlbum.value)
+  if (type === 'siblings') await loadSiblingDirs(showMenuForAlbum.value)
 }
 
 const cancelMoveMenuClose = () => {
@@ -2319,9 +2327,7 @@ const scheduleMoveMenuClose = () => {
   cancelMoveMenuClose()
   moveMenuCloseTimer = window.setTimeout(() => {
     showMoveMenu.value = false
-    showCatMenu.value = false
-    showChildMenu.value = false
-    showMergeMenu.value = false
+    activeMoveSubmenu.value = null
   }, 180)
 }
 
@@ -2810,7 +2816,13 @@ const refreshPhotoModalAfterChange = async () => {
 const deleteSelectedPhotos = async () => {
   if (photoModalSelected.value.size === 0) return
   const count = photoModalSelected.value.size
-  if (!confirm(`确定删除选中的 ${count} 张照片吗？此操作不可撤销，照片文件将被永久删除。`)) return
+  const confirmed = await confirm({
+    title: `删除 ${count} 张照片`,
+    message: '此操作不可撤销，照片文件将被永久删除。',
+    confirmLabel: '删除照片',
+    tone: 'danger'
+  })
+  if (!confirmed) return
 
   try {
     const res = await api.post('/admin/photos/batch-delete', {
@@ -2818,28 +2830,26 @@ const deleteSelectedPhotos = async () => {
     }, getAdminRequestConfig())
     const result = res.data
     if (result.success) {
-      alert('✅ ' + result.message)
+      notify(result.message || '照片已删除', 'success')
       await refreshPhotoModalAfterChange()
     } else {
-      alert('删除失败: ' + (result.message || result.error || '未知错误'))
+      notify('删除失败：' + (result.message || result.error || '未知错误'), 'error')
     }
   } catch (e: any) {
-    alert('删除失败: ' + getApiErrorMessage(e, '未知错误'))
+    notify('删除失败：' + getApiErrorMessage(e, '未知错误'), 'error')
   }
 }
 
 const forceScanAndRebuild = async () => {
   if (!authStore.isSuperAdmin) {
-    alert('普通用户不能主动发起扫描，请等待系统按队列自动处理。')
+    notify('普通用户不能主动发起扫描，请等待系统按队列自动处理。', 'info')
     return
   }
-  const confirmed = window.confirm(
-    '📸 重新扫描相册\n\n' +
-    '此操作将：\n' +
-    '• 扫描相册中新增或修改的照片\n' +
-    '• 更新相册的元数据信息\n\n' +
-    '不会重新生成人脸数据和标签。确定要继续吗？'
-  )
+  const confirmed = await confirm({
+    title: '重新扫描相册',
+    message: '将扫描新增或修改的照片，并更新相册元数据。不会重新生成人脸数据和标签。',
+    confirmLabel: '开始扫描'
+  })
 
   if (!confirmed) return
 
@@ -2873,9 +2883,7 @@ const forceScanAndRebuild = async () => {
       throw new Error('扫描超时，请稍后手动检查扫描状态')
     }
 
-    alert('✅ 重新扫描任务已完成！\n\n' +
-          '• 相册扫描：完成\n\n' +
-          '请刷新页面查看最新结果。')
+    notify('重新扫描完成，已更新相册数据。', 'success')
 
     // 重新加载相册数据
     await load()
@@ -2883,7 +2891,7 @@ const forceScanAndRebuild = async () => {
   } catch (error: any) {
     console.error('重新扫描失败:', error)
     const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message
-    alert('❌ 重新扫描失败: ' + errorMsg)
+    notify('重新扫描失败：' + errorMsg, 'error')
   } finally {
     loading.value = false
   }
@@ -2925,11 +2933,9 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
       return
     }
     if (showMenuForAlbum.value) {
-      showMenuForAlbum.value = null
+      closeAllMenus()
       return
     }
-    // 所有弹窗都关闭后，返回首页
-    router.push('/admin')
   }
 }
 

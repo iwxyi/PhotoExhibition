@@ -10,25 +10,26 @@
 
       <div class="glass-panel p-3 flex flex-col max-h-[calc(100vh-120px)] admin-tags-panel">
         <!-- 顶部操作栏 -->
-        <div class="flex flex-wrap items-center gap-3 mb-3 flex-shrink-0 admin-tags-toolbar">
-          <div class="flex flex-wrap items-center gap-3">
-            <label class="space-y-2">
-              <span class="text-sm admin-tags-label">搜索标签</span>
+        <div class="admin-query-toolbar admin-tags-toolbar">
+          <div class="admin-query-toolbar__fields">
+            <label class="admin-query-field">
+              <span>搜索标签</span>
               <input
                 v-model="keyword"
                 placeholder="输入标签名称关键词"
-                class="admin-field px-3 py-2 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field"
+                @keyup.enter="load"
               />
             </label>
             <button
               @click="load"
               :disabled="loading"
-              class="admin-button-soft px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+              class="admin-button-soft admin-query-toolbar__button disabled:opacity-50"
             >
               查询
             </button>
           </div>
-          <div class="ml-auto">
+          <div class="admin-query-toolbar__actions">
             <button
               @click="selectAll"
               :disabled="loading || filteredTags.length === 0"

@@ -6469,6 +6469,13 @@
   -webkit-backdrop-filter: none !important;
 }
 
+/* Admin surfaces are material panels, not decorative glass cards. Floating menus keep their own glass rule. */
+.admin-shell .glass-panel::before,
+.admin-shell .glass-panel::after {
+  content: none !important;
+  display: none !important;
+}
+
 :root[data-admin-color-mode='dark'] .admin-shell input,
 :root[data-admin-color-mode='dark'] .admin-shell textarea,
 :root[data-admin-color-mode='dark'] .admin-shell select {
@@ -6678,6 +6685,7 @@
   box-shadow: none !important;
 }
 
+.admin-shell .btn-primary,
 .admin-shell .admin-button-primary {
   border: 1px solid #4f8cff !important;
   border-radius: 6px !important;
@@ -6686,9 +6694,25 @@
   box-shadow: none !important;
 }
 
-.admin-shell .admin-button-danger {
-  border-radius: 6px !important;
+.admin-shell .btn-primary:hover:not(:disabled),
+.admin-shell .admin-button-primary:hover:not(:disabled) {
+  background: #3b7cf0 !important;
   box-shadow: none !important;
+  transform: none !important;
+}
+
+.admin-shell .admin-button-danger {
+  border: 1px solid #e11d48 !important;
+  border-radius: 6px !important;
+  background: #e11d48 !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
+.admin-shell .admin-button-danger:hover:not(:disabled) {
+  background: #be123c !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .admin-shell .admin-field,
@@ -6711,6 +6735,188 @@
 
 .admin-shell .admin-table-toolbar-right {
   margin-left: auto;
+}
+
+/* A compact, shared query rail keeps list pages visually and mechanically consistent. */
+.admin-shell .admin-query-toolbar {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--admin-space-2);
+  margin-bottom: var(--admin-space-2);
+  padding: var(--admin-space-2) !important;
+}
+
+.admin-shell .admin-query-toolbar__fields,
+.admin-shell .admin-query-toolbar__actions {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--admin-space-2);
+}
+
+.admin-shell .admin-query-toolbar__actions {
+  margin-left: auto;
+}
+
+.admin-shell .admin-query-field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: min(17rem, 100%);
+  color: var(--pe-admin-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.admin-shell .admin-query-field--select { min-width: 9rem; }
+
+.admin-shell .admin-query-field > .admin-field,
+.admin-shell .admin-query-field > select,
+.admin-shell .admin-query-toolbar__button {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.admin-shell .admin-query-toolbar__button { white-space: nowrap; }
+.admin-shell .admin-query-toolbar__icon-button {
+  display: inline-grid;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  padding: 0;
+}
+
+.admin-shell .admin-query-toolbar__icon-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+.admin-shell .admin-query-toolbar__status { align-self: end; min-height: 2.25rem; display: inline-flex; align-items: center; font-size: 0.75rem; color: var(--pe-admin-text-muted); }
+
+.admin-shell .admin-query-toolbar--compact,
+.admin-shell .admin-query-toolbar--compact .admin-query-toolbar__fields {
+  align-items: center;
+}
+
+.admin-shell .admin-query-toolbar__search {
+  width: min(18rem, calc(100vw - 10rem));
+  min-height: 2.25rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+/* The people workspace already owns vertical rhythm through flex gap. */
+.admin-shell .admin-persons-workspace {
+  gap: var(--admin-space-3) !important;
+}
+
+.admin-shell .admin-persons-workspace > .admin-query-toolbar {
+  margin-bottom: 0;
+}
+
+/* Album and photo views deliberately use the same quiet, solid surfaces as the rest of the workbench. */
+.admin-shell .admin-albums-card,
+.admin-shell .admin-photos-panel,
+.admin-shell .admin-query-toolbar.glass-panel {
+  border: 1px solid var(--pe-surface-border) !important;
+  border-radius: 8px !important;
+  background: var(--pe-surface-bg) !important;
+  box-shadow: var(--pe-surface-shadow) !important;
+}
+
+.admin-shell .admin-albums-card {
+  overflow: hidden !important;
+}
+
+.admin-shell .admin-photos-panel {
+  overflow: visible !important;
+}
+
+.admin-shell .admin-albums-card::before,
+.admin-shell .admin-albums-card::after,
+.admin-shell .admin-photos-panel::before,
+.admin-shell .admin-photos-panel::after,
+.admin-shell .admin-query-toolbar.glass-panel::before,
+.admin-shell .admin-query-toolbar.glass-panel::after {
+  content: none !important;
+  display: none !important;
+}
+
+.admin-shell .admin-albums-card:hover {
+  border-color: color-mix(in srgb, #4f8cff 46%, var(--pe-surface-border)) !important;
+  background: color-mix(in srgb, var(--pe-surface-bg) 97%, #4f8cff 3%) !important;
+  box-shadow: var(--pe-surface-shadow) !important;
+  transform: none !important;
+}
+
+.admin-shell .admin-persons-panel,
+.admin-shell .admin-faces-panel,
+.admin-shell .admin-folders-panel,
+.admin-shell .admin-face-batch-panel {
+  border: 1px solid var(--pe-surface-border) !important;
+  border-radius: 8px !important;
+  background: var(--pe-surface-bg) !important;
+  box-shadow: var(--pe-surface-shadow) !important;
+}
+
+.admin-shell .admin-persons-panel::before,
+.admin-shell .admin-persons-panel::after,
+.admin-shell .admin-faces-panel::before,
+.admin-shell .admin-faces-panel::after,
+.admin-shell .admin-folders-panel::before,
+.admin-shell .admin-folders-panel::after,
+.admin-shell .admin-face-batch-panel::before,
+.admin-shell .admin-face-batch-panel::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* A restrained light mode needs deliberate layers rather than a reversed dark palette. */
+:root[data-admin-color-mode='light'] .admin-shell {
+  --pe-admin-bg: #eef2f7;
+  --pe-surface-bg: #ffffff;
+  --pe-admin-soft-bg: #f7f9fc;
+  --pe-surface-border: #d8e0ea;
+  --pe-surface-shadow: 0 2px 8px rgba(15, 23, 42, 0.055), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --pe-admin-text-primary: #172033;
+  --pe-admin-text-secondary: #475569;
+  --pe-admin-text-muted: #64748b;
+  --pe-admin-text-faint: #94a3b8;
+}
+
+:root[data-admin-color-mode='light'] .admin-shell input,
+:root[data-admin-color-mode='light'] .admin-shell textarea,
+:root[data-admin-color-mode='light'] .admin-shell select {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #172033 !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 640px) {
+  .admin-shell .admin-query-toolbar,
+  .admin-shell .admin-query-toolbar__fields,
+  .admin-shell .admin-query-toolbar__actions {
+    width: 100%;
+  }
+
+  .admin-shell .admin-query-field,
+  .admin-shell .admin-query-field--select {
+    width: 100%;
+  }
+
+  .admin-shell .admin-query-field > .admin-field,
+  .admin-shell .admin-query-field > select,
+  .admin-shell .admin-query-toolbar__search {
+    width: 100%;
+  }
+
+  .admin-shell .admin-query-toolbar__actions { margin-left: 0; }
 }
 
 .admin-shell .admin-button-contrast {

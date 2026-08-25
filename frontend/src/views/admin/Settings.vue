@@ -319,6 +319,7 @@
 <script setup lang="ts">
 import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, computed } from 'vue'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 import { useRouter } from 'vue-router'
 import { api, getEffectiveAuthToken } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -367,6 +368,7 @@ const currentUsername = ref('')
 const newUsername = ref('')
 const usernameChangePassword = ref('')
 const changingUsername = ref(false)
+const { notify, confirm } = useAdminFeedback()
 
 const loadSettings = async () => {
   try {
@@ -398,13 +400,13 @@ const loadSettings = async () => {
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
-    alert('加载设置失败')
+    notify('加载设置失败', 'error')
   }
 }
 
 const saveSettings = async () => {
   if (maxAlbumDepth.value < 0) {
-    alert('最大相册层级不能为负数')
+    notify('最大相册层级不能为负数', 'error')
     return
   }
 
@@ -460,7 +462,7 @@ const saveSettings = async () => {
     }
     message += '\n建议立即进行重新扫描以应用新设置。\n\n确定要保存吗？'
 
-    const confirmed = confirm(message)
+    const confirmed = await confirm({ title: '保存设置', message, confirmLabel: '保存' })
     if (!confirmed) {
       return
     }
@@ -569,13 +571,13 @@ const saveSettings = async () => {
 
     // 显示保存成功的提示
     if (needsWallRefresh.value) {
-      alert('✅ 设置保存成功！\n\n图墙排序已更新，请刷新图墙页面查看效果。\n建议使用 Ctrl+F5 强制刷新以清除缓存。')
+      notify('设置已保存。图墙排序已更新，请刷新图墙查看。', 'success')
       needsWallRefresh.value = false
     } else {
-      alert('✅ 设置保存成功！')
+      notify('设置已保存', 'success')
     }
   } catch (error: any) {
-    alert('保存设置失败: ' + (error.response?.data?.error || error.message))
+    notify('保存设置失败：' + (error.response?.data?.error || error.message), 'error')
   } finally {
     saving.value = false
   }
@@ -583,20 +585,20 @@ const saveSettings = async () => {
 
 const triggerForceScan = async () => {
   if (!authStore.isSuperAdmin) {
-    alert('普通用户不能主动重新扫描，请等待系统按队列自动处理。')
+    notify('普通用户不能主动重新扫描，请等待系统按队列自动处理。', 'info')
     return
   }
-  if (!confirm('⚠️ 确认重新扫描\n\n这将根据新的层级设置重建所有相册，可能需要较长时间。\n确定要继续吗？')) {
+  if (!await confirm({ title: '重新扫描', message: '这将根据新的层级设置重建所有相册，可能需要较长时间。', confirmLabel: '开始扫描', tone: 'danger' })) {
     return
   }
 
   scanning.value = true
   try {
     await api.post('/admin/scan/force')
-    alert('重新扫描任务已启动，请稍后查看控制台的扫描状态')
+    notify('重新扫描任务已启动，请稍后查看扫描状态', 'success')
     settingsChanged.value = false
   } catch (error: any) {
-    alert('启动扫描失败: ' + (error.response?.data?.message || error.message))
+    notify('启动扫描失败：' + (error.response?.data?.message || error.message), 'error')
   } finally {
     scanning.value = false
   }
@@ -656,11 +658,11 @@ const canChangeUsername = computed(() => {
 
 const changePassword = async () => {
   if (!canChangePassword.value) {
-    alert('请检查密码输入是否正确')
+    notify('请检查密码输入是否正确', 'error')
     return
   }
 
-  if (!confirm('确定要修改密码吗？修改成功后需要重新登录。')) {
+  if (!await confirm({ title: '修改密码', message: '修改成功后需要重新登录。', confirmLabel: '修改密码', tone: 'danger' })) {
     return
   }
 
@@ -672,7 +674,7 @@ const changePassword = async () => {
       newPassword: newPassword.value
     })
 
-    alert('✅ 密码修改成功！请重新登录。')
+    notify('密码已修改，请重新登录。', 'success')
 
     // 清空表单
     currentPassword.value = ''
@@ -691,7 +693,7 @@ const changePassword = async () => {
 
   } catch (error: any) {
     const errorMsg = error.response?.data?.error || '密码修改失败'
-    alert('❌ ' + errorMsg)
+    notify(errorMsg, 'error')
   } finally {
     changingPassword.value = false
   }
@@ -699,11 +701,11 @@ const changePassword = async () => {
 
 const changeUsername = async () => {
   if (!canChangeUsername.value) {
-    alert('请检查用户名输入是否正确')
+    notify('请检查用户名输入是否正确', 'error')
     return
   }
 
-  if (!confirm('确定要更改用户名吗？更改后将自动重新登录系统。')) {
+  if (!await confirm({ title: '更改用户名', message: '更改后将自动重新登录系统。', confirmLabel: '更改用户名', tone: 'danger' })) {
     return
   }
 
@@ -715,7 +717,7 @@ const changeUsername = async () => {
       password: usernameChangePassword.value
     })
 
-    alert('✅ 用户名更改成功！系统将自动重新登录。')
+    notify('用户名已更改，正在重新登录。', 'success')
 
     // 更新本地存储的token
     if (response.data.token) {
@@ -734,7 +736,7 @@ const changeUsername = async () => {
 
   } catch (error: any) {
     const errorMsg = error.response?.data?.error || '用户名更改失败'
-    alert('❌ ' + errorMsg)
+    notify(errorMsg, 'error')
   } finally {
     changingUsername.value = false
   }

@@ -3,9 +3,18 @@
     <AdminStyleChrome />
     <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="admin-persons-workspace flex flex-col gap-4 min-h-[calc(100vh-10rem)]">
-        <div class="admin-page-actions admin-persons-actions">
-          <div class="admin-page-actions__group">
-              <router-link to="/admin/persons/batch-assign" class="btn-primary px-3 py-1.5 rounded text-sm">批量分配</router-link>
+        <div class="glass-panel admin-query-toolbar admin-query-toolbar--compact admin-persons-query-toolbar">
+          <div class="admin-query-toolbar__fields">
+            <input
+              v-model="personKeyword"
+              aria-label="搜索人物"
+              @input="loadPersons"
+              placeholder="搜索人物"
+              class="admin-field admin-persons-field admin-query-toolbar__search"
+            />
+          </div>
+          <div class="admin-query-toolbar__actions">
+            <router-link to="/admin/persons/batch-assign" class="btn-primary admin-query-toolbar__button">批量分配</router-link>
           </div>
         </div>
 
@@ -17,15 +26,6 @@
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
         <div class="mb-3 space-y-2">
-          <label class="block space-y-1">
-            <span class="admin-persons-field-label text-[11px] text-gray-400">搜索人物</span>
-            <input
-              v-model="personKeyword"
-              @input="loadPersons"
-              placeholder="按人物姓名关键词搜索"
-              class="admin-field admin-persons-field w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </label>
           <div class="admin-persons-threshold-row flex items-center gap-2 text-[11px] text-gray-300">
             <span
               class="whitespace-nowrap"

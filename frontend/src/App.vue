@@ -24,6 +24,7 @@
           </div>
         </div>
       </TransitionGroup>
+      <AdminFeedbackLayer />
     </div>
   </div>
 </template>
@@ -36,6 +37,7 @@ import { useLanguageStore } from '@/stores/language'
 import { useAuthStore } from '@/stores/auth'
 import { usePublicSiteStore } from '@/stores/publicSite'
 import { useSyncNotice } from '@/composables/useSyncNotice'
+import AdminFeedbackLayer from '@/components/admin/AdminFeedbackLayer.vue'
 
 const themeStore = useThemeStore()
 const languageStore = useLanguageStore()

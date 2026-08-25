@@ -2,22 +2,20 @@
   <div class="min-h-screen admin-shell admin-faces-page">
     <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
-      <div class="glass-panel admin-faces-panel admin-faces-toolbar p-4 mb-6">
-        <div class="flex flex-wrap gap-4 items-center">
-          <label class="space-y-2">
-            <span class="text-sm text-gray-300">搜索人脸</span>
+      <div class="glass-panel admin-faces-panel admin-query-toolbar">
+        <label class="admin-query-field">
+            <span>搜索人脸</span>
             <input
               v-model="keyword"
               placeholder="按人物姓名或文件名搜索"
-              class="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+              class="admin-field"
               @keyup.enter="load"
             />
           </label>
-          <button @click="load" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50">
+          <button @click="load" :disabled="loading" class="admin-button-primary admin-query-toolbar__button disabled:opacity-50">
             {{ loading ? '加载中...' : '搜索' }}
           </button>
-          <button @click="resetSearch" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">重置</button>
-        </div>
+          <button @click="resetSearch" class="admin-button-soft admin-query-toolbar__button">重置</button>
       </div>
 
       <div class="glass-panel admin-faces-panel p-4">

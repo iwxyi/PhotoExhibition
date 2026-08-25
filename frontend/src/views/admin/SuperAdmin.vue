@@ -26,20 +26,7 @@
         </div>
       </section>
 
-      <div class="admin-tabbar admin-super-admin-tabbar admin-super-admin-tabbar-shell">
-        <button
-          v-for="tab in superAdminTabs"
-          :key="tab.key"
-          type="button"
-          class="admin-tab-pill"
-          :class="activeTab === tab.key
-            ? 'admin-tab-pill-active'
-            : ''"
-          @click="changeActiveTab(tab.key)"
-        >
-          <span class="admin-tab-pill-label">{{ tab.label }}</span>
-        </button>
-      </div>
+      <AdminSuperAdminTabbar :tabs="superAdminTabs" :active-tab="activeTab" @change="changeActiveTab($event as SuperAdminTabKey)" />
 
       <div
         v-if="statusMessage"
@@ -3512,6 +3499,7 @@
 
 <script setup lang="ts">
 import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
+import AdminSuperAdminTabbar from '@/components/admin/AdminSuperAdminTabbar.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiTestToolPanel from '@/components/admin/ApiTestToolPanel.vue'

@@ -222,9 +222,15 @@ import { useAuthStore } from '@/stores/auth'
 import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { api } from '@/api'
 import { storageTypeLabel } from '@/utils/providerLabels'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const { notify } = useAdminFeedback()
+const alert = (message: unknown) => {
+  const text = String(message).replace(/^[✅❌]\s*/, '')
+  notify(text, /失败|错误|不能|未找到|不支持|无效/.test(text) ? 'error' : 'info')
+}
 
 const stats = ref({
   albums: 0,

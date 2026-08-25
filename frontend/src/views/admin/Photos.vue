@@ -2,37 +2,20 @@
   <div class="min-h-screen admin-shell admin-photos-page">
     <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
-      <div class="admin-page-actions">
-        <div class="admin-page-actions__group">
-          <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-        </div>
-      </div>
-
-      <div class="glass-panel p-4 admin-photos-panel">
-        <div class="flex flex-wrap gap-4 mb-4">
-          <label class="space-y-2">
-            <span class="text-sm text-gray-300">搜索图片</span>
-            <input v-model="keyword" placeholder="按文件名、相机或镜头搜索" class="admin-field px-3 py-2 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </label>
-          <label class="space-y-2">
-            <span class="text-sm text-gray-300">去重视图</span>
-            <select
-              v-model="dedupFilter"
-              class="admin-field px-3 py-2 rounded w-40 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">全部</option>
-              <option value="canonical">仅规范源</option>
-              <option value="duplicate">仅重复副本</option>
-            </select>
-          </label>
-          <button @click="load" :disabled="loading" class="admin-button-soft px-4 py-2 rounded-lg text-sm disabled:opacity-50">查询</button>
-          <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="admin-button-danger px-4 py-2 rounded-lg text-sm disabled:opacity-50">删除</button>
+      <div class="glass-panel admin-photos-panel">
+        <div class="admin-query-toolbar">
+          <div class="admin-query-toolbar__fields">
+            <input v-model="keyword" aria-label="搜索图片" placeholder="搜索图片" class="admin-field admin-query-toolbar__search" @keyup.enter="load" />
+            <button @click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__button disabled:opacity-50">查询</button>
+          </div>
+          <div class="admin-query-toolbar__actions">
+            <button @click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__button disabled:opacity-50">刷新</button>
+            <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="admin-button-danger admin-query-toolbar__button disabled:opacity-50">删除</button>
+          </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
           <span>当前页 {{ photos.length }} 项</span>
-          <span>规范源 {{ canonicalCount }}</span>
-          <span>重复副本 {{ duplicateCount }}</span>
         </div>
 
         <div class="overflow-auto">
@@ -248,7 +231,6 @@ const page = ref(0)
 const size = ref(20)
 const totalPages = ref(1)
 const keyword = ref('')
-const dedupFilter = ref<'all' | 'canonical' | 'duplicate'>('all')
 const selectedIds = ref<number[]>([])
 const showFaceDialog = ref(false)
 const faces = ref<any[]>([])
@@ -274,9 +256,6 @@ const pageNumbers = computed(() => {
   return list
 })
 
-const canonicalCount = computed(() => photos.value.filter((p: any) => !p.duplicateContent).length)
-const duplicateCount = computed(() => photos.value.filter((p: any) => !!p.duplicateContent).length)
-
 const load = async () => {
   loading.value = true
   try {
@@ -290,11 +269,6 @@ const load = async () => {
         (p.cameraModel || '').toLowerCase().includes(kw) ||
         (p.lensModel || '').toLowerCase().includes(kw)
       )
-    }
-    if (dedupFilter.value === 'canonical') {
-      content = content.filter((p: any) => !p.duplicateContent)
-    } else if (dedupFilter.value === 'duplicate') {
-      content = content.filter((p: any) => !!p.duplicateContent)
     }
     photos.value = content
     totalPages.value = res.data.totalPages || 1

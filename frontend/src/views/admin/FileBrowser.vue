@@ -1151,6 +1151,7 @@ import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { buildPublicPath } from '@/utils/publicRoute'
 import { storageTypeLabel } from '@/utils/providerLabels'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 interface PhotoInfo {
   id?: number
@@ -1242,6 +1243,11 @@ interface UploadResponse {
 }
 
 const authStore = useAuthStore()
+const { notify } = useAdminFeedback()
+const alert = (message: unknown) => {
+  const text = String(message).replace(/^[✅❌]\s*/, '')
+  notify(text, /失败|错误|不能|未获取|不支持|无效/.test(text) ? 'error' : 'info')
+}
 const basePath = ref('')
 const currentPath = ref('')
 const breadcrumbTrailPath = ref<string | null>(null)
