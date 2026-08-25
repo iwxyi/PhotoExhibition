@@ -1,37 +1,9 @@
 <template>
   <div class="min-h-screen admin-shell admin-login-page">
     <div class="admin-login-shell">
-      <section class="admin-login-brand">
-        <div class="admin-login-brand-mark">PE</div>
-        <div class="space-y-4">
-          <div class="space-y-2">
-            <p class="admin-login-eyebrow">Admin Console</p>
-            <h1 class="admin-login-title">管理员登录</h1>
-            <p class="admin-login-description">摄影作品展示平台管理后台</p>
-          </div>
-          <div class="admin-login-points">
-            <div class="admin-login-point">
-              <span class="admin-login-point-dot"></span>
-              <span>相册、照片、标签与主题统一管理</span>
-            </div>
-            <div class="admin-login-point">
-              <span class="admin-login-point-dot"></span>
-              <span>扫描、模型、存储与支付能力集中控制</span>
-            </div>
-            <div class="admin-login-point">
-              <span class="admin-login-point-dot"></span>
-              <span>当前账号主题会同步到数据库，跨设备保持一致</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="admin-login-panel glass-panel">
+      <main class="admin-login-panel">
         <div class="admin-login-panel-head">
-          <div>
-            <div class="admin-login-panel-kicker">进入后台</div>
-            <h2 class="admin-login-panel-title">登录</h2>
-          </div>
+          <h1 class="admin-login-panel-title">管理员登录</h1>
           <router-link
             to="/"
             class="admin-login-home-link"
@@ -108,28 +80,16 @@
             {{ error }}
           </div>
 
-          <div class="space-y-4">
-            <button
-              type="submit"
-              :disabled="loading"
-              class="admin-login-submit"
-            >
-              <span v-if="!loading">登录</span>
-              <span v-else>登录中...</span>
-            </button>
-
-            <div class="admin-login-help">
-              <h3 class="admin-login-help-title">忘记密码？</h3>
-              <div class="admin-login-help-body">
-                <p>如果忘记了管理员密码，需要：</p>
-                <p class="admin-login-help-code">在数据库中删除 admin_user 表的所有记录</p>
-                <p>然后使用默认账户重新登录：</p>
-                <p class="font-mono text-blue-400">用户名: admin | 密码: admin</p>
-              </div>
-            </div>
-          </div>
+          <button
+            type="submit"
+            :disabled="loading"
+            class="admin-login-submit"
+          >
+            <span v-if="!loading">登录</span>
+            <span v-else>登录中...</span>
+          </button>
         </form>
-      </section>
+      </main>
     </div>
   </div>
 </template>

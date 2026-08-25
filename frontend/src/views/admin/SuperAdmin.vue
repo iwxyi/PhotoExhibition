@@ -4,13 +4,6 @@
     <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-3 space-y-3 admin-super-admin-shell">
       <section class="admin-page-hero admin-super-admin-hero">
         <div class="admin-page-hero-grid">
-          <div class="space-y-5 admin-super-admin-hero-copy">
-            <div class="space-y-3">
-              <h1 class="admin-page-title">超级管理员控制台</h1>
-              <p class="admin-page-subtitle admin-super-admin-hero-subtitle">管理用户、扫描、模型与系统状态。</p>
-            </div>
-          </div>
-
           <div class="space-y-4 admin-super-admin-hero-side">
             <div class="admin-kpi-grid admin-super-admin-kpi-grid">
               <div class="admin-kpi-card admin-super-admin-kpi-card">
@@ -35,7 +28,7 @@
 
       <div class="admin-tabbar admin-super-admin-tabbar admin-super-admin-tabbar-shell">
         <button
-          v-for="(tab, index) in superAdminTabs"
+          v-for="tab in superAdminTabs"
           :key="tab.key"
           type="button"
           class="admin-tab-pill"
@@ -44,7 +37,6 @@
             : ''"
           @click="changeActiveTab(tab.key)"
         >
-          <span class="admin-tab-pill-index">{{ String(index + 1).padStart(2, '0') }}</span>
           <span class="admin-tab-pill-label">{{ tab.label }}</span>
         </button>
       </div>

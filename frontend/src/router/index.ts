@@ -197,12 +197,6 @@ const routes = [
     meta: { requiresAuth: true, title: '后台管理' }
   },
   {
-    path: '/admin/theme',
-    name: 'AdminTheme',
-    component: () => import('@/views/admin/Theme.vue'),
-    meta: { requiresAuth: true, title: '主题设置' }
-  },
-  {
     path: '/admin/albums',
     name: 'AdminAlbums',
     component: () => import('@/views/admin/Albums.vue'),

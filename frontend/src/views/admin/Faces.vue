@@ -1,14 +1,7 @@
 <template>
   <div class="min-h-screen admin-shell admin-faces-page">
     <AdminStyleChrome />
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-      <div class="admin-faces-hero flex items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 class="text-2xl font-light admin-page-title">人脸管理</h1>
-        </div>
-        <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
-      </div>
-
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="glass-panel admin-faces-panel admin-faces-toolbar p-4 mb-6">
         <div class="flex flex-wrap gap-4 items-center">
           <label class="space-y-2">

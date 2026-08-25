@@ -1,28 +1,17 @@
 <template>
   <div class="min-h-screen admin-shell admin-settings-shell">
     <AdminStyleChrome />
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 space-y-3 admin-settings-page">
-      <section class="admin-page-header admin-settings-header">
-        <div class="admin-page-header-copy">
-          <h1 class="admin-page-title">系统设置</h1>
-          <p class="admin-page-subtitle">管理相册、排序与运行参数。</p>
-        </div>
-        <div class="admin-page-header-meta">
-          <span class="admin-page-header-chip">待保存 {{ settingsChangeCount }}</span>
-          <span class="admin-page-header-chip">{{ authStore.isSuperAdmin ? '超管可直接扫描' : '普通管理员排队处理' }}</span>
-        </div>
-      </section>
-
-      <!-- 相册排序方式设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">相册排序方式</h2>
-          </div>
-          <div class="flex items-center gap-3 admin-settings-control">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-settings-page">
+      <section class="glass-panel admin-settings-group">
+        <h2 class="admin-settings-group-title">展示与内容</h2>
+        <div class="admin-settings-group-list">
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="album-sort-order">相册排序方式</label>
+            <div class="admin-settings-control">
             <select
+              id="album-sort-order"
               v-model="albumSortOrder"
-              class="admin-field px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-select focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="name_asc">相册名称正序</option>
               <option value="name_desc">相册名称倒序</option>
@@ -33,22 +22,16 @@
               <option value="created_at_desc">创建时间倒序</option>
               <option value="created_at_asc">创建时间正序</option>
             </select>
+            </div>
           </div>
-        </div>
 
-        <!-- 排序说明 -->
-      </section>
-
-      <!-- 照片排序方式设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">照片排序方式</h2>
-          </div>
-          <div class="flex items-center gap-3 admin-settings-control">
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="photo-sort-order">照片排序方式</label>
+            <div class="admin-settings-control">
             <select
+              id="photo-sort-order"
               v-model="photoSortOrder"
-              class="admin-field px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-select focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="taken_at_desc">拍摄时间倒序</option>
               <option value="taken_at_asc">拍摄时间正序</option>
@@ -57,22 +40,16 @@
               <option value="created_at_desc">创建时间倒序</option>
               <option value="created_at_asc">创建时间正序</option>
             </select>
+            </div>
           </div>
-        </div>
 
-        <!-- 排序说明 -->
-      </section>
-
-      <!-- 图墙排序方式设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">图墙排序方式</h2>
-          </div>
-          <div class="flex items-center gap-3 admin-settings-control">
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="wall-sort-order">图墙排序方式</label>
+            <div class="admin-settings-control">
             <select
+              id="wall-sort-order"
               v-model="wallSortOrder"
-              class="admin-field px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-select focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="taken_at_desc">拍摄时间倒序</option>
               <option value="taken_at_asc">拍摄时间正序</option>
@@ -81,63 +58,44 @@
               <option value="created_at_desc">创建时间倒序</option>
               <option value="created_at_asc">创建时间正序</option>
             </select>
+            </div>
           </div>
-        </div>
 
-        <!-- 排序说明 -->
-      </section>
-
-      <!-- 相册层级设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">最大相册层级</h2>
-          </div>
-          <div class="flex items-center gap-3 admin-settings-control">
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="max-album-depth">最大相册层级</label>
+            <div class="admin-settings-control admin-settings-control--inline">
             <input
+              id="max-album-depth"
               v-model="maxAlbumDepth"
               type="number"
               min="0"
               max="10"
-              class="admin-field admin-settings-number-field w-20 px-3 py-2 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-number-field focus:outline-none focus:ring-2 focus:ring-blue-500"
               @input="maxAlbumDepth = Math.max(0, parseInt($event.target.value) || 0)"
             />
             <span class="text-xs admin-settings-inline-label">层级</span>
+            </div>
           </div>
-        </div>
 
-        <!-- 设置说明 -->
-      </section>
-
-      <!-- 人脸聚类设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">聚类显示最小人脸数量</h2>
-          </div>
-          <div class="flex items-center gap-3 admin-settings-control">
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="min-cluster-face-count">聚类显示最小人脸数量</label>
+            <div class="admin-settings-control admin-settings-control--inline">
             <input
+              id="min-cluster-face-count"
               v-model="minClusterFaceCount"
               type="number"
               min="1"
               max="10"
-              class="admin-field admin-settings-number-field w-20 px-3 py-2 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-number-field focus:outline-none focus:ring-2 focus:ring-blue-500"
               @input="minClusterFaceCount = Math.max(1, Math.min(10, parseInt($event.target.value) || 1))"
             />
             <span class="text-xs admin-settings-inline-label">人脸</span>
+            </div>
           </div>
-        </div>
 
-        <!-- 设置说明 -->
-      </section>
-
-      <!-- 全局下载权限设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">全局下载权限</h2>
-          </div>
-          <div class="flex items-center gap-3 admin-settings-control">
+          <div class="admin-settings-row">
+            <span class="admin-settings-row-label">全局下载权限</span>
+            <div class="admin-settings-control admin-settings-control--inline">
             <label class="admin-settings-toggle cursor-pointer">
               <input
                 type="checkbox"
@@ -146,65 +104,40 @@
               />
               <span class="text-sm admin-settings-toggle-text">允许下载</span>
             </label>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <!-- 相册分类排序设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">相册分类排序</h2>
-          </div>
-          <div class="flex items-center gap-3 min-w-[300px] admin-settings-control">
-            <label class="w-full space-y-2">
-              <span class="text-sm admin-settings-field-label">分类排序值</span>
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="album-category-sort-order">相册分类排序</label>
+            <div class="admin-settings-control">
               <input
+                id="album-category-sort-order"
                 v-model="albumCategorySortOrder"
                 type="text"
                 placeholder="例如：人像,风景 静物 或 人像，风景，静物"
-                class="admin-field flex-1 w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </label>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <!-- 标签忽略列表设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">标签忽略列表</h2>
-            <p class="text-xs text-gray-400 admin-settings-block-note">
-              设置在筛选功能中隐藏的标签，用空格或逗号分隔多个标签名称。
-            </p>
-            <p class="text-xs text-gray-400 mt-1 admin-settings-block-note">
-              被忽略的标签不会在 PhotoViewer、图墙筛选等界面中显示。
-            </p>
-          </div>
-          <div class="flex items-center gap-3 min-w-[300px] admin-settings-control">
-            <label class="w-full space-y-2">
-              <span class="text-sm admin-settings-field-label">忽略标签列表</span>
+          <div class="admin-settings-row">
+            <label class="admin-settings-row-label" for="tag-ignore-list">标签忽略列表</label>
+            <div class="admin-settings-control">
               <input
+                id="tag-ignore-list"
                 v-model="tagIgnoreList"
                 type="text"
                 placeholder="例如：横图 竖图 全景 或 横图，竖图，全景"
-                class="admin-field flex-1 w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </label>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- AI智能搜索设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">AI 智能搜索</h2>
-            <p class="text-xs text-gray-400 admin-settings-block-note">
-              启用AI自然语言搜索功能，支持语义理解搜索照片。需要配置兼容OpenAI格式的API接口。
-            </p>
-          </div>
+      <section class="glass-panel admin-settings-group">
+        <div class="admin-settings-group-heading">
+          <h2 class="admin-settings-group-title">智能能力</h2>
           <label class="admin-settings-toggle cursor-pointer">
             <input
               type="checkbox"
@@ -215,161 +148,124 @@
           </label>
         </div>
 
-        <div v-if="aiSearchEnabled" class="space-y-4 mt-4 admin-settings-form-grid">
-          <div>
-            <label class="block text-sm font-medium mb-2 admin-settings-field-label">API 地址</label>
+        <div v-if="aiSearchEnabled" class="admin-settings-ai-grid">
+          <label class="admin-settings-field-stack">
+            <span class="admin-settings-field-label">API 地址</span>
             <input
               v-model="aiSearchApiUrl"
               type="text"
               placeholder="https://api.openai.com/v1"
-              class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p class="text-xs mt-1 admin-settings-help">OpenAI 兼容地址，末尾不需要加 `/chat/completions`。</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-2 admin-settings-field-label">API 密钥</label>
+          </label>
+          <label class="admin-settings-field-stack">
+            <span class="admin-settings-field-label">API 密钥</span>
             <input
               v-model="aiSearchApiKey"
               type="password"
               placeholder="sk-..."
-              class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-2 admin-settings-field-label">模型名称</label>
+          </label>
+          <label class="admin-settings-field-stack">
+            <span class="admin-settings-field-label">模型名称</span>
             <input
               v-model="aiSearchModel"
               type="text"
               placeholder="gpt-4o"
-              class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p class="text-xs mt-1 admin-settings-help">支持 `gpt-4o`、`gpt-4o-mini`、`deepseek-chat` 等兼容模型。</p>
-          </div>
-        </div>
-
-        <div class="admin-note-card admin-settings-note-card rounded-lg p-4 text-xs admin-settings-note-body">
-          启用后可用自然语言搜索；失败时会回退到普通关键词搜索。
+          </label>
         </div>
       </section>
 
-      <!-- 用户名更改设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">更改管理员用户名</h2>
-            <p class="text-xs text-gray-400 admin-settings-block-note">3-50 个字符，支持字母、数字、下划线和连字符。</p>
-          </div>
-        </div>
-
-        <!-- 用户名更改表单 -->
-        <div class="mt-6 space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label class="block text-sm font-medium mb-2 admin-settings-field-label">当前用户名</label>
+      <section class="glass-panel admin-settings-group">
+        <h2 class="admin-settings-group-title">账户安全</h2>
+        <div class="admin-settings-account-grid">
+          <section class="admin-settings-account-section">
+            <h3 class="admin-settings-account-title">用户名</h3>
+            <div class="admin-settings-security-fields">
+              <label class="admin-settings-field-stack">
+                <span class="admin-settings-field-label">当前用户名</span>
               <input
                 v-model="currentUsername"
                 type="text"
-                class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="当前管理员用户名"
                 readonly
               />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2 admin-settings-field-label">新用户名</label>
+              </label>
+              <label class="admin-settings-field-stack">
+                <span class="admin-settings-field-label">新用户名</span>
               <input
                 v-model="newUsername"
                 type="text"
-                class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="新用户名"
                 :class="{ 'border-red-500': newUsername && !isValidUsername }"
               />
-              <p v-if="newUsername && !isValidUsername" class="text-xs text-red-400 mt-1">
+              <span v-if="newUsername && !isValidUsername" class="admin-settings-validation-error">
                 用户名格式不正确（3-50字符，只能包含字母、数字、下划线、连字符）
-              </p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2 admin-settings-field-label">验证密码</label>
+              </span>
+              </label>
+              <label class="admin-settings-field-stack">
+                <span class="admin-settings-field-label">验证密码</span>
               <input
                 v-model="usernameChangePassword"
                 type="password"
-                class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="当前密码"
               />
+              </label>
             </div>
-          </div>
-
-          <div class="flex items-center gap-4">
             <button
               @click="changeUsername"
               :disabled="!canChangeUsername || changingUsername"
-              class="admin-button-primary px-6 py-2 rounded-lg transition-colors text-sm font-medium disabled:cursor-not-allowed"
+              class="admin-button-primary admin-settings-section-action transition-colors disabled:cursor-not-allowed"
             >
               {{ changingUsername ? '修改中...' : '更改用户名' }}
             </button>
-          </div>
-        </div>
+          </section>
 
-        <!-- 用户名更改说明 -->
-        <div class="admin-note-card admin-settings-note-card admin-settings-note-card--danger rounded-lg p-4 text-xs admin-settings-note-body">
-          保存后会重新登录，并终止旧用户名会话。
-        </div>
-      </section>
-
-      <!-- 密码修改设置 -->
-      <section class="glass-panel p-6 space-y-4 admin-settings-block">
-        <div class="flex items-center justify-between flex-wrap gap-4 admin-settings-block-head">
-          <div class="admin-settings-block-copy">
-            <h2 class="text-lg font-light admin-settings-block-title">修改管理员密码</h2>
-            <p class="text-xs text-gray-400 admin-settings-block-note">至少 6 位。</p>
-          </div>
-        </div>
-
-        <!-- 密码修改表单 -->
-        <div class="mt-6 space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label class="block text-sm font-medium mb-2 admin-settings-field-label">当前密码</label>
+          <section class="admin-settings-account-section">
+            <h3 class="admin-settings-account-title">密码</h3>
+            <div class="admin-settings-security-fields">
+              <label class="admin-settings-field-stack">
+                <span class="admin-settings-field-label">当前密码</span>
               <input
                 v-model="currentPassword"
                 type="password"
-                class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="当前密码"
               />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2 admin-settings-field-label">新密码</label>
+              </label>
+              <label class="admin-settings-field-stack">
+                <span class="admin-settings-field-label">新密码</span>
               <input
                 v-model="newPassword"
                 type="password"
-                class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="新密码"
               />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2 admin-settings-field-label">确认新密码</label>
+              </label>
+              <label class="admin-settings-field-stack">
+                <span class="admin-settings-field-label">确认新密码</span>
               <input
                 v-model="confirmPassword"
                 type="password"
-                class="admin-field w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="再次输入新密码"
               />
+              </label>
             </div>
-          </div>
-
-          <div class="flex items-center gap-4">
             <button
               @click="changePassword"
               :disabled="!canChangePassword || changingPassword"
-              class="admin-button-primary px-6 py-2 rounded-lg transition-colors text-sm font-medium disabled:cursor-not-allowed"
+              class="admin-button-primary admin-settings-section-action transition-colors disabled:cursor-not-allowed"
             >
               {{ changingPassword ? '修改中...' : '修改密码' }}
             </button>
-          </div>
-        </div>
-
-        <!-- 密码修改说明 -->
-        <div class="admin-note-card admin-settings-note-card admin-settings-note-card--warning rounded-lg p-4 text-xs admin-settings-note-body">
-          保存后需要重新登录。
+          </section>
         </div>
       </section>
 
@@ -471,23 +367,6 @@ const currentUsername = ref('')
 const newUsername = ref('')
 const usernameChangePassword = ref('')
 const changingUsername = ref(false)
-
-const settingsChangeCount = computed(() => {
-  let count = 0
-  if (maxAlbumDepth.value !== originalMaxAlbumDepth.value) count += 1
-  if (photoSortOrder.value !== originalPhotoSortOrder.value) count += 1
-  if (albumSortOrder.value !== originalAlbumSortOrder.value) count += 1
-  if (wallSortOrder.value !== originalWallSortOrder.value) count += 1
-  if (minClusterFaceCount.value !== originalMinClusterFaceCount.value) count += 1
-  if (globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value) count += 1
-  if (albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value) count += 1
-  if (tagIgnoreList.value !== originalTagIgnoreList.value) count += 1
-  if (aiSearchEnabled.value !== originalAiSearchEnabled.value) count += 1
-  if (aiSearchApiUrl.value !== originalAiSearchApiUrl.value) count += 1
-  if (aiSearchApiKey.value !== originalAiSearchApiKey.value) count += 1
-  if (aiSearchModel.value !== originalAiSearchModel.value) count += 1
-  return count
-})
 
 const loadSettings = async () => {
   try {

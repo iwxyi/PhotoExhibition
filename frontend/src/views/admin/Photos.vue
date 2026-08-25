@@ -1,12 +1,10 @@
 <template>
   <div class="min-h-screen admin-shell admin-photos-page">
     <AdminStyleChrome />
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-2xl font-light">图片管理</h1>
-        <div class="space-x-3">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
+      <div class="admin-page-actions">
+        <div class="admin-page-actions__group">
           <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
         </div>
       </div>
 

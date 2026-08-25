@@ -26,6 +26,14 @@ public class SystemConfigController {
     private static final Pattern EMBEDDED_PATH_PATTERN =
         Pattern.compile("(storage://[^\\s,;]+|[A-Za-z]:\\\\[^\\s,;]+|/(?:[^\\s,;])+)");
 
+    private String normalizeAdminColorMode(String value) {
+        if (value == null) return "dark";
+        String normalized = value.trim().toLowerCase();
+        return "light".equals(normalized) || "dark".equals(normalized) || "system".equals(normalized)
+            ? normalized
+            : "dark";
+    }
+
     private final AuthService authService;
     private final SystemConfigService systemConfigService;
     private final UserPathService userPathService;
@@ -64,58 +72,33 @@ public class SystemConfigController {
     }
 
     @GetMapping("/admin-theme")
-    public ResponseEntity<Map<String, Object>> getAdminThemePreferences(@RequestHeader("Authorization") String authorization) {
+    public ResponseEntity<Map<String, Object>> getAdminColorMode(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
             UserAccount user = requireCurrentUser(authorization);
-            resp.put("themeKey", user.getAdminThemeKey() == null || user.getAdminThemeKey().isBlank() ? "default" : user.getAdminThemeKey());
-            resp.put("colorMode", user.getAdminColorMode() == null || user.getAdminColorMode().isBlank() ? "dark" : user.getAdminColorMode());
-            resp.put("styleFamily", user.getAdminStyleFamily() == null || user.getAdminStyleFamily().isBlank() ? "material" : user.getAdminStyleFamily());
+            resp.put("colorMode", normalizeAdminColorMode(user.getAdminColorMode()));
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取后台主题失败"));
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取后台颜色模式失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
 
     @PutMapping("/admin-theme")
-    public ResponseEntity<Map<String, Object>> updateAdminThemePreferences(@RequestHeader("Authorization") String authorization,
-                                                                           @RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> updateAdminColorMode(@RequestHeader("Authorization") String authorization,
+                                                                      @RequestBody Map<String, Object> request) {
         Map<String, Object> resp = new HashMap<>();
         try {
             UserAccount user = requireCurrentUser(authorization);
-            String themeKey = request.get("themeKey") == null ? "default" : String.valueOf(request.get("themeKey")).trim();
-            String colorMode = request.get("colorMode") == null ? "dark" : String.valueOf(request.get("colorMode")).trim().toLowerCase();
-            String styleFamily = request.get("styleFamily") == null ? "material" : String.valueOf(request.get("styleFamily")).trim().toLowerCase();
-            if (themeKey.isEmpty()) {
-                themeKey = "default";
-            }
-            if (!"dark".equals(colorMode) && !"light".equals(colorMode)) {
-                colorMode = "dark";
-            }
-            if (!"material".equals(styleFamily)
-                && !"glass".equals(styleFamily)
-                && !"classic".equals(styleFamily)
-                && !"gallery".equals(styleFamily)
-                && !"compact".equals(styleFamily)
-                && !"brutalist".equals(styleFamily)
-                && !"paper".equals(styleFamily)
-                && !"neon".equals(styleFamily)
-                && !"zen".equals(styleFamily)
-                && !"terminal".equals(styleFamily)) {
-                styleFamily = "material";
-            }
-            user.setAdminThemeKey(themeKey);
+            String colorMode = normalizeAdminColorMode(
+                request.get("colorMode") == null ? null : String.valueOf(request.get("colorMode"))
+            );
             user.setAdminColorMode(colorMode);
-            user.setAdminStyleFamily(styleFamily);
             authService.saveUserAccount(user);
-            resp.put("themeKey", themeKey);
             resp.put("colorMode", colorMode);
-            resp.put("styleFamily", styleFamily);
-            resp.put("message", "后台主题已保存");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存后台主题失败"));
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存后台颜色模式失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }

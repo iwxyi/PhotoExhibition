@@ -1,12 +1,10 @@
 <template>
   <div class="min-h-screen admin-shell admin-tags-page">
     <AdminStyleChrome />
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-      <div class="flex items-center justify-between mb-4">
-        <h1 class="text-2xl font-light admin-tags-title">标签管理</h1>
-        <div class="space-x-3">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
+      <div class="admin-page-actions">
+        <div class="admin-page-actions__group">
           <button @click="load" :disabled="loading" class="admin-button-primary disabled:opacity-50 px-4 py-2 rounded-lg">刷新</button>
-          <router-link to="/admin" class="admin-button-soft px-4 py-2 rounded-lg transition-colors">返回</router-link>
         </div>
       </div>
 

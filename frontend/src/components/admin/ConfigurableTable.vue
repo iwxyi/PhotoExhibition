@@ -56,7 +56,7 @@
               :key="column.key"
               draggable="true"
               class="px-4 py-2.5 text-left whitespace-nowrap select-none admin-table-header-cell"
-              :class="[column.headerClass, draggingColumnKey === column.key ? 'opacity-60' : '']"
+              :class="[column.headerClass, isActionColumn(column) ? 'admin-table-action-column' : '', draggingColumnKey === column.key ? 'opacity-60' : '']"
               @dragstart="startDrag(column.key)"
               @dragover.prevent
               @drop="dropColumn(column.key)"
@@ -84,7 +84,7 @@
               v-for="column in visibleColumns"
               :key="column.key"
               class="px-4 py-3 admin-table-cell"
-              :class="column.cellClass"
+              :class="[column.cellClass, isActionColumn(column) ? 'admin-table-action-column' : '']"
             >
               <slot
                 :name="`cell-${column.key}`"
@@ -193,6 +193,10 @@ const hiddenColumnSet = computed(() => {
 })
 
 const visibleColumns = computed(() => orderedColumns.value.filter(column => !hiddenColumnSet.value.has(column.key)))
+
+const isActionColumn = (column: ConfigurableColumn) => {
+  return /action|actions|operate|operation/i.test(column.key) || /操作|动作/.test(column.label)
+}
 
 const compareValues = (left: any, right: any) => {
   if (left == null && right == null) return 0

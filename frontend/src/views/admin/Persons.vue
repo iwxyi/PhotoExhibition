@@ -1,17 +1,11 @@
 <template>
   <div class="min-h-screen admin-shell admin-persons-page">
     <AdminStyleChrome />
-    <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="admin-persons-workspace flex flex-col gap-4 min-h-[calc(100vh-10rem)]">
-        <div class="admin-persons-hero flex-shrink-0 px-4 sm:px-5 py-4">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <h1 class="text-2xl font-light admin-page-title">人物管理</h1>
-            </div>
-            <div class="flex items-center gap-2">
+        <div class="admin-page-actions admin-persons-actions">
+          <div class="admin-page-actions__group">
               <router-link to="/admin/persons/batch-assign" class="btn-primary px-3 py-1.5 rounded text-sm">批量分配</router-link>
-              <router-link to="/admin" class="admin-button-soft admin-page-back-link px-3 py-1.5 rounded text-sm">返回</router-link>
-            </div>
           </div>
         </div>
 

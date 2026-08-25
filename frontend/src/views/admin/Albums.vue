@@ -1,15 +1,13 @@
 <template>
   <div class="min-h-screen admin-shell admin-albums-page">
     <AdminStyleChrome />
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-2xl font-light">相册管理</h1>
-        <div class="space-x-3">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
+      <div class="admin-page-actions">
+        <div class="admin-page-actions__group">
           <button v-on:click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
           <button v-if="authStore.isSuperAdmin" v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary disabled:opacity-50">
             重新扫描
           </button>
-          <router-link to="/admin" class="admin-button-soft admin-page-back-link px-4 py-2 rounded-lg transition-colors">返回</router-link>
         </div>
       </div>
 
@@ -24,7 +22,7 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" @click="closeAllMenus">
+      <div class="admin-albums-grid" @click="closeAllMenus">
         <div
           v-for="album in albums"
           :key="album.id"
@@ -220,7 +218,7 @@
               重命名
             </button>
             <!-- 移动至菜单项 -->
-            <div class="relative" @mouseenter="showMoveMenu = true" @mouseleave="showMoveMenu = false">
+            <div class="relative" @mouseenter="openMoveMenu($event)" @mouseleave="scheduleMoveMenuClose">
               <button
                 class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between"
                 @mouseenter="loadMoveMenuData(showMenuForAlbum)"
@@ -233,11 +231,15 @@
                 </span>
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
               </button>
-              <!-- 移动至子菜单 - 使用绝对定位和 JS 控制显示，移除间隙避免鼠标移出隐藏 -->
+              <teleport to="body">
+              <!-- 子菜单提升到 body，避免一级菜单的 backdrop-filter 成为它的背板根。 -->
               <div
                 v-show="showMoveMenu"
-                class="absolute glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-20"
-                :style="subMenuStyle"
+                class="fixed glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-2xl z-[60] overflow-y-auto"
+                :style="moveMenuStyle"
+                @click.stop
+                @mouseenter="cancelMoveMenuClose"
+                @mouseleave="scheduleMoveMenuClose"
               >
                 <div class="py-1">
                   <!-- 分类 -->
@@ -342,6 +344,7 @@
                   </button>
                 </div>
               </div>
+              </teleport>
             </div>
             <!-- 隐藏相册菜单项 -->
             <button
@@ -1267,6 +1270,8 @@ const moveChildDirs = ref<any[]>([])
 const mergeSiblingDirs = ref<any[]>([]) // 合并至同级的同级目录列表
 // 移动至子菜单显示状态（使用 JS 控制，解决鼠标移动间隙问题）
 const showMoveMenu = ref(false)
+let moveMenuCloseTimer: number | null = null
+const moveMenuAnchor = ref({ top: 0, left: 0, right: 0 })
 const showCatMenu = ref(false)
 const showChildMenu = ref(false)
 const showMergeMenu = ref(false) // 合并至同级子菜单显示状态
@@ -2235,6 +2240,27 @@ const subMenuStyle = computed(() => {
   }
 })
 
+const moveMenuStyle = computed(() => {
+  const width = 192
+  const margin = 16
+  const estimatedHeight = 232
+  const fitsRight = moveMenuAnchor.value.right + width + margin <= window.innerWidth
+  const left = fitsRight
+    ? moveMenuAnchor.value.right
+    : Math.max(margin, moveMenuAnchor.value.left - width)
+  const top = Math.max(
+    margin,
+    Math.min(moveMenuAnchor.value.top, window.innerHeight - estimatedHeight - margin)
+  )
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    maxHeight: `calc(100vh - ${margin * 2}px)`
+  }
+})
+
 // 计算三级子菜单样式（根据二级菜单位置调整）
 const subSubMenuStyle = computed(() => {
   const baseLeft = menuNearRight.value ? 'auto' : '100%'
@@ -2256,6 +2282,7 @@ const menuStyle = computed(() => {
 })
 
 const closeAllMenus = () => {
+  cancelMoveMenuClose()
   showMenuForAlbum.value = null
   tagDialogVisible.value = false
   effectsDialogVisible.value = false
@@ -2269,6 +2296,33 @@ const closeAllMenus = () => {
   showCatMenu.value = false
   showChildMenu.value = false
   showMergeMenu.value = false
+}
+
+const openMoveMenu = (event: MouseEvent) => {
+  event.stopPropagation()
+  cancelMoveMenuClose()
+  const anchor = event.currentTarget as HTMLElement
+  const rect = anchor.getBoundingClientRect()
+  moveMenuAnchor.value = { top: rect.top, left: rect.left, right: rect.right }
+  showMoveMenu.value = true
+  if (showMenuForAlbum.value) loadMoveMenuData(showMenuForAlbum.value)
+}
+
+const cancelMoveMenuClose = () => {
+  if (moveMenuCloseTimer !== null) {
+    window.clearTimeout(moveMenuCloseTimer)
+    moveMenuCloseTimer = null
+  }
+}
+
+const scheduleMoveMenuClose = () => {
+  cancelMoveMenuClose()
+  moveMenuCloseTimer = window.setTimeout(() => {
+    showMoveMenu.value = false
+    showCatMenu.value = false
+    showChildMenu.value = false
+    showMergeMenu.value = false
+  }, 180)
 }
 
 const hasSubAlbums = (album: any) => {
@@ -2911,6 +2965,27 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(75, 85, 99, 0.4);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
+
+/* Teleported menus must not inherit the translucent shared surface token. */
+.admin-albums-menu,
+.admin-albums-menu--nested,
+.admin-albums-menu--photo-sub {
+  opacity: 1 !important;
+  border: 1px solid rgba(148, 163, 184, 0.5) !important;
+  background: rgba(15, 23, 42, 0.74) !important;
+  box-shadow: 0 18px 38px rgba(2, 6, 23, 0.42), inset 0 1px rgba(255, 255, 255, 0.14) !important;
+  backdrop-filter: blur(40px) saturate(180%) contrast(1.08) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(180%) contrast(1.08) !important;
+}
+
+:root:not(.dark) .admin-albums-menu,
+:root:not(.dark) .admin-albums-menu--nested,
+:root:not(.dark) .admin-albums-menu--photo-sub {
+  border-color: rgba(148, 163, 184, 0.5) !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.16) !important;
+}
+
 </style>
 
 <style scoped>

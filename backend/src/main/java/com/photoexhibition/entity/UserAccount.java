@@ -30,6 +30,9 @@ public class UserAccount {
     @Column(nullable = false, length = 255)
     private String password;
 
+    @Column(name = "admin_color_mode", length = 16)
+    private String adminColorMode = "dark";
+
     @Column(name = "nickname", length = 100)
     private String nickname;
 
@@ -76,15 +79,6 @@ public class UserAccount {
 
     @Column(name = "multi_user_visible", nullable = false)
     private Boolean multiUserVisible = true;
-
-    @Column(name = "admin_theme_key", length = 32)
-    private String adminThemeKey = "default";
-
-    @Column(name = "admin_color_mode", length = 16)
-    private String adminColorMode = "dark";
-
-    @Column(name = "admin_style_family", length = 32)
-    private String adminStyleFamily = "material";
 
     @Column(name = "login_attempts", nullable = false)
     private Integer loginAttempts = 0;
