@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { albumApi, personApi } from '@/api'
+import { buildPublicPath, stripPublicSlug } from '@/utils/publicRoute'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,9 +29,10 @@ const handleResolve = async () => {
   keyword.value = (route.params.keyword as string) || ''
 
   // 判断路由类型
-  if (route.path.startsWith('/a/')) {
+  const normalizedPath = stripPublicSlug(route.path)
+  if (normalizedPath.startsWith('/a/')) {
     linkType.value = 'album'
-  } else if (route.path.startsWith('/p/')) {
+  } else if (normalizedPath.startsWith('/p/')) {
     linkType.value = 'person'
   }
 
@@ -40,9 +42,9 @@ const handleResolve = async () => {
   // 如果关键词是纯数字，认为是 ID
   if (/^\d+$/.test(decodedKeyword)) {
     if (linkType.value === 'album') {
-      redirectPath.value = `/album/${decodedKeyword}`
+      redirectPath.value = buildPublicPath(`/album/${decodedKeyword}`, route.path)
     } else {
-      redirectPath.value = `/person/${decodedKeyword}`
+      redirectPath.value = buildPublicPath(`/person/${decodedKeyword}`, route.path)
     }
     router.replace(redirectPath.value)
     return
@@ -54,9 +56,9 @@ const handleResolve = async () => {
   try {
     if (linkType.value === 'album') {
       // 搜索相册
-      const response = await albumApi.searchByName(decodedKeyword)
-      if (response.data && response.data.id) {
-        redirectPath.value = `/album/${response.data.id}`
+        const response = await albumApi.searchByName(decodedKeyword)
+        if (response.data && response.data.id) {
+        redirectPath.value = buildPublicPath(`/album/${response.data.id}`, route.path)
         router.replace(redirectPath.value)
       } else {
         error.value = '未找到匹配的相册'
@@ -65,7 +67,7 @@ const handleResolve = async () => {
       // 搜索人物
       const response = await personApi.searchByName(decodedKeyword)
       if (response.data && response.data.id) {
-        redirectPath.value = `/person/${response.data.id}`
+        redirectPath.value = buildPublicPath(`/person/${response.data.id}`, route.path)
         router.replace(redirectPath.value)
       } else {
         error.value = '未找到匹配的人物'
@@ -101,7 +103,7 @@ const handleResolve = async () => {
           关键词: {{ keyword }}
         </p>
         <button
-          @click="router.push('/')"
+          @click="router.push(buildPublicPath('/', route.path))"
           class="mt-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
         >
           返回首页

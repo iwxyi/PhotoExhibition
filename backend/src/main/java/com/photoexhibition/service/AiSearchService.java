@@ -4,6 +4,61 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.photoexhibition.aisearch.executor.AiSearchExecutionContext;
+import com.photoexhibition.aisearch.executor.AiSearchExecutionResult;
+import com.photoexhibition.aisearch.executor.AiSearchPlanExecutor;
+import com.photoexhibition.aisearch.model.AiSearchPersonAggregate;
+import com.photoexhibition.aisearch.model.AiSearchPersonGrowthAggregate;
+import com.photoexhibition.aisearch.model.AiSearchPersonPairAggregate;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisHandlerSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchExecutionResultSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchOverviewAnalysisSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisResponseAssembler;
+import com.photoexhibition.aisearch.orchestration.AiSearchBodyChangeSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchPersonAnalysisSupport;
+import com.photoexhibition.aisearch.orchestration.AiSearchAnalysisResponseDispatcher;
+import com.photoexhibition.aisearch.orchestration.AiSearchYearCompareSupport;
+import com.photoexhibition.aisearch.plan.AiSearchPlan;
+import com.photoexhibition.aisearch.plan.AiSearchPlanStep;
+import com.photoexhibition.aisearch.planner.AiSearchPlannerRequest;
+import com.photoexhibition.aisearch.planner.AlbumOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.AiSearchAnalysisSpecMapper;
+import com.photoexhibition.aisearch.planner.BodyChangeAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.CountOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.DayOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.LocationOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.MonthOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.PersonCooccurrenceAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.PersonOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.PersonPairCooccurrenceAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsStillActiveAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsBodyChangeAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsThenCooccurrenceMissingAgainAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsThenPairCooccurrenceAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsThenMultiCooccurrenceMissingAgainAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsThenMultiCooccurrenceAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsThenCooccurrenceAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsWithScopedPhotosAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsWithScopedPhotosThenActivityAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsWithScopedPhotosThenPairCooccurrenceAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsWithScopedPhotosStillActiveAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsWithTechnicalScopeThenActivityAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.RelativeNewPersonsWithTechnicalScopeAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.TagOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.TechnicalDisjunctionAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.TemporalPersonSetAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.ThemeOverviewAiSearchPlanner;
+import com.photoexhibition.aisearch.planner.YearCompareAiSearchPlanner;
+import com.photoexhibition.aisearch.reducer.AiSearchEvidenceBundle;
+import com.photoexhibition.aisearch.reducer.AiSearchEvidenceReducer;
+import com.photoexhibition.aisearch.compatibility.LegacyIntentAiSearchPlanner;
+import com.photoexhibition.aisearch.resolver.AiSearchResolver;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackRequest;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisSpecNormalizer;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisRoutingAiSupport;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisRoutingLocalSupport;
+import com.photoexhibition.aisearch.validation.AiSearchAnalysisFallbackDescriptorBuilder;
 import com.photoexhibition.dto.*;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
@@ -25,6 +80,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -43,6 +99,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -59,8 +116,67 @@ public class AiSearchService {
     private final PhotoService photoService;
     private final AlbumService albumService;
     private final FaceService faceService;
-    private final RestTemplate restTemplate;
+    private final UserPathService userPathService;
+    private final LegacyIntentAiSearchPlanner legacyIntentAiSearchPlanner;
+    private final RelativeNewPersonsAiSearchPlanner relativeNewPersonsAiSearchPlanner;
+    private final RelativeNewPersonsStillActiveAiSearchPlanner relativeNewPersonsStillActiveAiSearchPlanner;
+    private final RelativeNewPersonsBodyChangeAiSearchPlanner relativeNewPersonsBodyChangeAiSearchPlanner;
+    private final RelativeNewPersonsThenCooccurrenceMissingAgainAiSearchPlanner relativeNewPersonsThenCooccurrenceMissingAgainAiSearchPlanner;
+    private final RelativeNewPersonsThenPairCooccurrenceAiSearchPlanner relativeNewPersonsThenPairCooccurrenceAiSearchPlanner;
+    private final RelativeNewPersonsThenMultiCooccurrenceMissingAgainAiSearchPlanner relativeNewPersonsThenMultiCooccurrenceMissingAgainAiSearchPlanner;
+    private final RelativeNewPersonsThenMultiCooccurrenceAiSearchPlanner relativeNewPersonsThenMultiCooccurrenceAiSearchPlanner;
+    private final RelativeNewPersonsThenCooccurrenceAiSearchPlanner relativeNewPersonsThenCooccurrenceAiSearchPlanner;
+    private final RelativeNewPersonsWithScopedPhotosAiSearchPlanner relativeNewPersonsWithScopedPhotosAiSearchPlanner;
+    private final RelativeNewPersonsWithScopedPhotosThenActivityAiSearchPlanner relativeNewPersonsWithScopedPhotosThenActivityAiSearchPlanner;
+    private final RelativeNewPersonsWithScopedPhotosThenPairCooccurrenceAiSearchPlanner relativeNewPersonsWithScopedPhotosThenPairCooccurrenceAiSearchPlanner;
+    private final RelativeNewPersonsWithScopedPhotosStillActiveAiSearchPlanner relativeNewPersonsWithScopedPhotosStillActiveAiSearchPlanner;
+    private final RelativeNewPersonsWithTechnicalScopeThenActivityAiSearchPlanner relativeNewPersonsWithTechnicalScopeThenActivityAiSearchPlanner;
+    private final RelativeNewPersonsWithTechnicalScopeAiSearchPlanner relativeNewPersonsWithTechnicalScopeAiSearchPlanner;
+    private final TemporalPersonSetAiSearchPlanner temporalPersonSetAiSearchPlanner;
+    private final TechnicalDisjunctionAiSearchPlanner technicalDisjunctionAiSearchPlanner;
+    private final CountOverviewAiSearchPlanner countOverviewAiSearchPlanner;
+    private final DayOverviewAiSearchPlanner dayOverviewAiSearchPlanner;
+    private final MonthOverviewAiSearchPlanner monthOverviewAiSearchPlanner;
+    private final PersonCooccurrenceAiSearchPlanner personCooccurrenceAiSearchPlanner;
+    private final PersonOverviewAiSearchPlanner personOverviewAiSearchPlanner;
+    private final PersonPairCooccurrenceAiSearchPlanner personPairCooccurrenceAiSearchPlanner;
+    private final AlbumOverviewAiSearchPlanner albumOverviewAiSearchPlanner;
+    private final TagOverviewAiSearchPlanner tagOverviewAiSearchPlanner;
+    private final LocationOverviewAiSearchPlanner locationOverviewAiSearchPlanner;
+    private final ThemeOverviewAiSearchPlanner themeOverviewAiSearchPlanner;
+    private final YearCompareAiSearchPlanner yearCompareAiSearchPlanner;
+    private final BodyChangeAiSearchPlanner bodyChangeAiSearchPlanner;
+    private final AiSearchAnalysisSpecMapper aiSearchAnalysisSpecMapper;
+    private final AiSearchPlanExecutor aiSearchPlanExecutor;
+    private final AiSearchEvidenceReducer aiSearchEvidenceReducer;
+    private final AiSearchResolver aiSearchResolver;
+    private final AiSearchAnalysisSpecNormalizer aiSearchAnalysisSpecNormalizer;
+    private final AiSearchAnalysisRoutingAiSupport aiSearchAnalysisRoutingAiSupport;
+    private final AiSearchAnalysisRoutingLocalSupport aiSearchAnalysisRoutingLocalSupport;
+    private final AiSearchAnalysisFallbackDescriptorBuilder aiSearchAnalysisFallbackDescriptorBuilder;
+    private final AiSearchAnalysisResponseDispatcher aiSearchAnalysisResponseDispatcher;
+    private final AiSearchYearCompareSupport aiSearchYearCompareSupport;
+    private final AiSearchBodyChangeSupport aiSearchBodyChangeSupport;
+    private final AiSearchAnalysisResponseAssembler aiSearchAnalysisResponseAssembler;
+    private final AiSearchExecutionResultSupport aiSearchExecutionResultSupport;
+    private final AiSearchOverviewAnalysisSupport aiSearchOverviewAnalysisSupport;
+    private final AiSearchAnalysisFlowSupport aiSearchAnalysisFlowSupport;
+    private final AiSearchOverviewResponseSupport aiSearchOverviewResponseSupport;
+    private final AiSearchPersonResponseSupport aiSearchPersonResponseSupport;
+    private final AiSearchStructuredPhotoResponseSupport aiSearchStructuredPhotoResponseSupport;
+    private final AiSearchAnalysisFallbackSupport aiSearchAnalysisFallbackSupport;
+    private final AiSearchAnalysisHandlerSupport aiSearchAnalysisHandlerSupport;
+    private RestTemplate restTemplate = createDefaultRestTemplate();
     private final ObjectMapper objectMapper;
+
+    private static RestTemplate createDefaultRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10000);
+        factory.setReadTimeout(60000);
+        RestTemplate restTemplate = new RestTemplate();
+        restTemplate.setRequestFactory(factory);
+        return restTemplate;
+    }
 
     // ==================== 搜索结果缓存 ====================
     private static final int SEARCH_CACHE_TTL_SECONDS = 600; // 缓存10分钟
@@ -203,7 +319,8 @@ public class AiSearchService {
         "更多还是更少", "相比"
     );
     private static final Set<String> QUESTION_CUES = Set.of(
-        "怎么样", "如何", "好不好", "是否", "有没有", "吗", "呢", "多少", "几张", "怎么看"
+        "怎么样", "如何", "好不好", "是否", "有没有", "吗", "呢", "多少", "几张", "怎么看",
+        "谁", "有谁", "哪些人", "哪些人物", "哪位", "哪几位"
     );
     private static final Set<String> THEME_ANALYSIS_CUES = Set.of(
         "主题", "题材", "拍的什么", "拍了什么", "什么比较多", "什么最多"
@@ -258,6 +375,23 @@ public class AiSearchService {
         "肥", "壮", "变胖", "变瘦", "变高", "变矮", "变壮", "横向发展", "纵向发展",
         "人变", "看起来", "脸变", "身材"
     );
+    private static final Set<String> PERSON_OVERVIEW_ANALYSIS_CUES = Set.of(
+        "谁", "有谁", "哪些人", "哪些人物", "哪位", "哪几位"
+    );
+    private static final Set<String> PERSON_COOCCURRENCE_ANALYSIS_CUES = Set.of(
+        "经常一起", "一起出现", "同框", "共同出现", "一起拍", "一起合照"
+    );
+    private static final Set<String> PERSON_PAIR_COOCCURRENCE_ANALYSIS_CUES = Set.of(
+        "谁和谁", "哪些人经常一起", "经常一起出现的是谁", "最常同框", "同框最多", "哪两位"
+    );
+    private static final Set<String> CAMERA_BRAND_CUES = Set.of(
+        "canon", "佳能", "nikon", "尼康", "sony", "索尼", "fujifilm", "fuji", "富士",
+        "leica", "徕卡", "panasonic", "lumix", "松下", "olympus", "omsystem", "奥林巴斯",
+        "om", "ricoh", "理光", "pentax", "宾得", "hasselblad", "哈苏", "dj", "大疆",
+        "dji", "gopro", "适马", "sigma", "tamron", "腾龙", "viltrox", "唯卓仕",
+        "zeiss", "蔡司", "七工匠", "ttartisan", "永诺", "yongnuo"
+    );
+    private static final Set<String> DISJUNCTION_CUES = Set.of("或者", "或", "/", "、");
 
     public AiSearchResponse search(String query, int page, int size) {
         log.info("AI搜索开始, query={}, page={}, size={}", query, page, size);
@@ -265,23 +399,116 @@ public class AiSearchService {
         try {
             String normalizedQuery = normalizeSemanticQuery(query);
             String queryMode = classifyQueryMode(normalizedQuery);
+            if (temporalPersonSetAiSearchPlanner.supports(normalizedQuery)) {
+                return executeTemporalPersonSetPlan(query, normalizedQuery, page, size);
+            }
             Set<String> tokens = generateTokens(normalizedQuery);
             log.info("分词结果: {}", tokens);
-
-            // 分析模式不缓存，每次都需要完整计算
-            AnalysisRouting analysisRouting = resolveAnalysisRouting(normalizedQuery, null, queryMode);
-            if ("analysis".equals(queryMode) && analysisRouting.isResolved()) {
-                CandidateContext candidates = preRetrieve(tokens);
-                log.info("预检索候选: persons={}, tags={}, albums={}",
-                    candidates.persons.size(), candidates.tags.size(), candidates.albums.size());
-                return buildAnalysisResponse(analysisRouting, candidates, page, size, queryMode);
-            }
-
-            // 尝试从缓存获取（只有 simple_search 和 simple_answer 模式缓存）
             CandidateContext candidates = preRetrieve(tokens);
             log.info("预检索候选: persons={}, tags={}, albums={}",
                 candidates.persons.size(), candidates.tags.size(), candidates.albums.size());
 
+            List<Long> rankedAnchorPersonIds = rankPersonMatches(candidates, normalizedQuery, tokens, 5);
+            List<Long> anchorPersonIds = resolveDistinctAnchorPersonIds(rankedAnchorPersonIds);
+            Long anchorPersonId = anchorPersonIds.isEmpty() ? null : anchorPersonIds.get(0);
+            String anchorPersonName = anchorPersonId == null ? null : resolvePersonName(anchorPersonId);
+            List<String> anchorPersonNames = anchorPersonIds.stream()
+                .map(this::resolvePersonName)
+                .filter(name -> name != null && !name.isBlank())
+                .collect(Collectors.toList());
+            AiSearchResponse preferredStructuredAnalysis = tryBuildPreferredStructuredAnalysis(
+                query,
+                normalizedQuery,
+                candidates,
+                queryMode,
+                page,
+                size
+            );
+            if (preferredStructuredAnalysis != null) {
+                return preferredStructuredAnalysis;
+            }
+            if (relativeNewPersonsWithScopedPhotosThenPairCooccurrenceAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeRelativeNewPersonsWithScopedPhotosThenPairCooccurrencePlan(query, normalizedQuery, candidates, page, size);
+            }
+            if (relativeNewPersonsThenPairCooccurrenceAiSearchPlanner.supports(normalizedQuery)) {
+                return executeRelativeNewPersonsThenPairCooccurrencePlan(query, normalizedQuery, page, size);
+            }
+            if (relativeNewPersonsThenMultiCooccurrenceMissingAgainAiSearchPlanner.supports(normalizedQuery, anchorPersonIds.size())) {
+                return executeRelativeNewPersonsThenMultiCooccurrenceMissingAgainPlan(
+                    query,
+                    normalizedQuery,
+                    anchorPersonIds,
+                    anchorPersonNames,
+                    page,
+                    size
+                );
+            }
+            if (relativeNewPersonsThenMultiCooccurrenceAiSearchPlanner.supports(normalizedQuery, anchorPersonIds.size())) {
+                return executeRelativeNewPersonsThenMultiCooccurrencePlan(
+                    query,
+                    normalizedQuery,
+                    anchorPersonIds,
+                    anchorPersonNames,
+                    page,
+                    size
+                );
+            }
+            if (relativeNewPersonsThenCooccurrenceMissingAgainAiSearchPlanner.supports(normalizedQuery, anchorPersonId != null)) {
+                return executeRelativeNewPersonsThenCooccurrenceMissingAgainPlan(
+                    query,
+                    normalizedQuery,
+                    anchorPersonId,
+                    anchorPersonName,
+                    page,
+                    size
+                );
+            }
+            if (relativeNewPersonsThenCooccurrenceAiSearchPlanner.supports(normalizedQuery, anchorPersonId != null)) {
+                return executeRelativeNewPersonsThenCooccurrencePlan(
+                    query,
+                    normalizedQuery,
+                    anchorPersonId,
+                    anchorPersonName,
+                    page,
+                    size
+                );
+            }
+            if (relativeNewPersonsStillActiveAiSearchPlanner.supports(normalizedQuery)) {
+                return executeRelativeNewPersonsStillActivePlan(query, normalizedQuery, page, size);
+            }
+            if (relativeNewPersonsBodyChangeAiSearchPlanner.supports(normalizedQuery)) {
+                return executeRelativeNewPersonsBodyChangePlan(query, normalizedQuery, page, size);
+            }
+            if (relativeNewPersonsWithScopedPhotosThenActivityAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeRelativeNewPersonsWithScopedPhotosThenActivityPlan(query, normalizedQuery, candidates, page, size);
+            }
+            if (relativeNewPersonsWithTechnicalScopeThenActivityAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeRelativeNewPersonsWithTechnicalScopeThenActivityPlan(query, normalizedQuery, candidates, page, size);
+            }
+            if (relativeNewPersonsWithScopedPhotosStillActiveAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeRelativeNewPersonsWithScopedPhotosStillActivePlan(query, normalizedQuery, candidates, page, size);
+            }
+            if (relativeNewPersonsWithScopedPhotosAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeRelativeNewPersonsWithScopedPhotosPlan(query, normalizedQuery, candidates, page, size);
+            }
+            if (relativeNewPersonsWithTechnicalScopeAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeRelativeNewPersonsWithTechnicalScopePlan(query, normalizedQuery, candidates, page, size);
+            }
+            if (relativeNewPersonsAiSearchPlanner.supports(normalizedQuery)) {
+                return executeRelativeNewPersonsPlan(query, normalizedQuery, page, size);
+            }
+
+            // 分析模式不缓存，每次都需要完整计算，但应让更具体的受控 planner 先匹配
+            AnalysisRouting analysisRouting = resolveAnalysisRouting(normalizedQuery, null, queryMode);
+            if ("analysis".equals(queryMode) && analysisRouting.isResolved()) {
+                return buildAnalysisResponse(analysisRouting, candidates, page, size, queryMode);
+            }
+
+            if (technicalDisjunctionAiSearchPlanner.supports(normalizedQuery, candidates.cameraModels, candidates.lensModels)) {
+                return executeTechnicalDisjunctionPlan(query, normalizedQuery, candidates, page, size);
+            }
+
+            // 尝试从缓存获取（只有 simple_search 和 simple_answer 模式缓存）
             // 收集当前相册ID快照，用于检测变化
             Set<Long> currentAlbumIds = candidates.albums.stream()
                 .map(Album::getId)
@@ -303,8 +530,19 @@ public class AiSearchService {
             // 缓存未命中，执行搜索
             AiSearchResponse response;
 
+            AiSearchIntent disjunctiveIntent = tryBuildTechnicalDisjunctionIntent(normalizedQuery, queryMode, candidates);
+            if (disjunctiveIntent != null) {
+                normalizeIntent(normalizedQuery, disjunctiveIntent, true);
+                log.info("本地布尔检索 intent={}", intentToString(disjunctiveIntent));
+                response = buildSearchResponse(query, disjunctiveIntent, candidates, page, size, queryMode, false, null);
+                if (response.getTotalElements() > 0) {
+                    cacheSearchResult(normalizedQuery, includeHidden, disjunctiveIntent, response, currentAlbumIds);
+                }
+                return response;
+            }
+
             // 尝试快速检索
-            boolean useDirectIntent = shouldUseDirectIntent(normalizedQuery, queryMode);
+            boolean useDirectIntent = shouldUseDirectIntent(normalizedQuery, queryMode, candidates);
             if (useDirectIntent) {
                 AiSearchIntent directIntent = buildDirectIntent(normalizedQuery, candidates, tokens);
                 normalizeIntent(normalizedQuery, directIntent, true);
@@ -319,6 +557,14 @@ public class AiSearchService {
                     AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
                     normalizeIntent(normalizedQuery, gptIntent, true);
                     log.info("GPT解析结果: intent={}", intentToString(gptIntent));
+                    AiSearchResponse hintedAnalysis = tryBuildResponseFromAnalysisSpec(query, normalizedQuery, gptIntent, page, size);
+                    if (hintedAnalysis != null) {
+                        return hintedAnalysis;
+                    }
+                    hintedAnalysis = tryBuildResponseFromAnalysisHint(query, normalizedQuery, gptIntent, page, size);
+                    if (hintedAnalysis != null) {
+                        return hintedAnalysis;
+                    }
                     response = buildSearchResponse(query, gptIntent, candidates, page, size, queryMode, true, null);
 
                     // 缓存 GPT 结果（完整搜索）
@@ -335,6 +581,14 @@ public class AiSearchService {
                 AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
                 normalizeIntent(normalizedQuery, gptIntent, true);
                 log.info("GPT解析结果: mode={}, intent={}", queryMode, intentToString(gptIntent));
+                AiSearchResponse hintedAnalysis = tryBuildResponseFromAnalysisSpec(query, normalizedQuery, gptIntent, page, size);
+                if (hintedAnalysis != null) {
+                    return hintedAnalysis;
+                }
+                hintedAnalysis = tryBuildResponseFromAnalysisHint(query, normalizedQuery, gptIntent, page, size);
+                if (hintedAnalysis != null) {
+                    return hintedAnalysis;
+                }
                 response = buildSearchResponse(query, gptIntent, candidates, page, size, queryMode, true, null);
 
                 // 缓存结果
@@ -361,6 +615,136 @@ public class AiSearchService {
         }
     }
 
+    private AiSearchResponse tryBuildPreferredStructuredAnalysis(String originalQuery,
+                                                                 String normalizedQuery,
+                                                                 CandidateContext candidates,
+                                                                 String queryMode,
+                                                                 int page,
+                                                                 int size) {
+        if (!shouldPreferStructuredAnalysis(normalizedQuery, queryMode) || !isAiSearchApiConfigured()) {
+            return null;
+        }
+        try {
+            AiSearchIntent gptIntent = callGpt(normalizedQuery, candidates, queryMode);
+            normalizeIntent(normalizedQuery, gptIntent, true);
+            log.info("复杂分析优先尝试 GPT 结构化规格: intent={}", intentToString(gptIntent));
+
+            AiSearchResponse response = tryBuildResponseFromAnalysisSpec(originalQuery, normalizedQuery, gptIntent, page, size);
+            if (response != null) {
+                return response;
+            }
+            return tryBuildResponseFromAnalysisHint(originalQuery, normalizedQuery, gptIntent, page, size);
+        } catch (Exception e) {
+            log.warn("复杂分析优先结构化规划失败，回退本地 planner: query={}, reason={}", normalizedQuery, e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean shouldPreferStructuredAnalysis(String query, String queryMode) {
+        if (!"analysis".equals(queryMode) || query == null || query.isBlank()) {
+            return false;
+        }
+        String normalized = normalizeLooseText(query);
+        return isLikelyTemporalStructuredSpecQuery(query) || isLikelyFilteredScopeStructuredSpecQuery(normalized);
+    }
+
+    private boolean isLikelyTemporalStructuredSpecQuery(String query) {
+        boolean hasRelativeYear = query.contains("今年") || query.contains("去年") || query.contains("前年") || query.contains("大前年");
+        boolean hasCandidateSetCue = query.contains("新认识") || query.contains("新出现")
+            || query.contains("第一次出现") || query.contains("首次出现") || query.contains("才出现")
+            || query.contains("不存在") || query.contains("未出现") || query.contains("没出现");
+        boolean hasDerivedOperationCue = query.contains("后来") || query.contains("后续") || query.contains("之后")
+            || query.contains("还经常出现") || query.contains("仍然出现") || query.contains("没再出现")
+            || query.contains("未再出现") || query.contains("同框") || query.contains("一起出现")
+            || query.contains("共同出现") || query.contains("最活跃") || query.contains("出现次数最多")
+            || query.contains("胖") || query.contains("瘦") || query.contains("发福") || query.contains("变胖")
+            || query.contains("变瘦");
+        return hasRelativeYear && (hasCandidateSetCue || hasDerivedOperationCue);
+    }
+
+    private boolean isLikelyFilteredScopeStructuredSpecQuery(String normalized) {
+        if (normalized == null || normalized.isBlank()) {
+            return false;
+        }
+        boolean hasOverviewCue = containsCue(normalized, COUNT_ANALYSIS_CUES)
+            || containsCue(normalized, ALBUM_ANALYSIS_CUES)
+            || containsCue(normalized, MONTH_ANALYSIS_CUES)
+            || containsCue(normalized, LOCATION_GENERAL_CUES)
+            || containsCue(normalized, DAY_ANALYSIS_CUES)
+            || containsCue(normalized, TAG_ANALYSIS_CUES)
+            || containsCue(normalized, THEME_ANALYSIS_CUES)
+            || containsCue(normalized, PERSON_OVERVIEW_ANALYSIS_CUES)
+            || containsCue(normalized, PERSON_COOCCURRENCE_ANALYSIS_CUES)
+            || containsCue(normalized, PERSON_PAIR_COOCCURRENCE_ANALYSIS_CUES)
+            || containsCue(normalized, YEAR_COMPARE_ANALYSIS_CUES);
+        if (!hasOverviewCue) {
+            return false;
+        }
+        boolean hasSupportedAnalysisSignal = normalized.contains("相册")
+            || normalized.contains("标签")
+            || normalized.contains("主题")
+            || normalized.contains("题材")
+            || normalized.contains("拍什么")
+            || normalized.contains("月份")
+            || normalized.contains("地点")
+            || normalized.contains("地方")
+            || normalized.contains("哪里")
+            || normalized.contains("哪儿")
+            || normalized.contains("哪天")
+            || normalized.contains("哪几天")
+            || normalized.contains("几号")
+            || normalized.contains("谁")
+            || normalized.contains("哪些人")
+            || normalized.contains("哪些人物")
+            || normalized.contains("同框")
+            || normalized.contains("一起出现")
+            || normalized.contains("共同出现")
+            || normalized.contains("多少张")
+            || normalized.contains("数量")
+            || normalized.contains("相比")
+            || normalized.contains("对比");
+        return hasSupportedAnalysisSignal;
+    }
+
+    private boolean isAiSearchApiConfigured() {
+        String apiUrl = systemConfigService.getAiSearchApiUrl();
+        String apiKey = systemConfigService.getAiSearchApiKey();
+        return apiUrl != null && !apiUrl.isBlank() && apiKey != null && !apiKey.isBlank();
+    }
+
+    private AiSearchResponse tryBuildResponseFromAnalysisHint(String originalQuery,
+                                                              String normalizedQuery,
+                                                              AiSearchIntent gptIntent,
+                                                              int page,
+                                                              int size) {
+        if (gptIntent == null || gptIntent.getAnalysisHint() == null) {
+            return null;
+        }
+        AiSearchAnalysisSpec spec = convertLegacyAnalysisHint(gptIntent.getAnalysisHint());
+        if (spec == null) {
+            return null;
+        }
+        AiSearchPlan plan = aiSearchAnalysisSpecMapper.map(normalizedQuery, spec, Math.max(0, page * size), size);
+        return buildStructuredResponseFromPlan(originalQuery, normalizedQuery, gptIntent, plan, page, size);
+    }
+
+    private AiSearchResponse tryBuildResponseFromAnalysisSpec(String originalQuery,
+                                                              String normalizedQuery,
+                                                              AiSearchIntent gptIntent,
+                                                              int page,
+                                                              int size) {
+        if (gptIntent == null || gptIntent.getAnalysisSpec() == null) {
+            return null;
+        }
+        AiSearchPlan plan = aiSearchAnalysisSpecMapper.map(
+            normalizedQuery,
+            gptIntent.getAnalysisSpec(),
+            Math.max(0, page * size),
+            size
+        );
+        return buildStructuredResponseFromPlan(originalQuery, normalizedQuery, gptIntent, plan, page, size);
+    }
+
     // 从缓存构建响应（分页）
     private AiSearchResponse buildResponseFromCache(SearchCacheEntry cached, String query, String queryMode, int page, int size) {
         List<Long> allPhotoIds = cached.allPhotoIds;
@@ -383,6 +767,7 @@ public class AiSearchService {
             response.setCached(true);
             response.setSuggestions(Collections.emptyList());
             response.setSuggestionActions(Collections.emptyList());
+            attachExecutionPlanSummary(response, query, queryMode, cached.intent);
             return response;
         }
 
@@ -416,6 +801,7 @@ public class AiSearchService {
         response.setCached(true); // 标记为缓存结果
         response.setSuggestions(Collections.emptyList());
         response.setSuggestionActions(Collections.emptyList());
+        attachExecutionPlanSummary(response, query, queryMode, cached.intent);
 
         return response;
     }
@@ -577,6 +963,7 @@ public class AiSearchService {
         response.setNeedAnswer(false);
         response.setParsedIntent(intent);
         response.setExplanation(intent.getExplanation());
+        attachExecutionPlanSummary(response, query, queryMode, intent);
         fillMatchedNames(response, intent, candidates);
 
         List<String> resultTypes = normalizeResultTypes(intent);
@@ -592,11 +979,14 @@ public class AiSearchService {
         response.setRelaxed(photoSearch.relaxed);
         response.setRelaxedReason(photoSearch.relaxedReason);
 
+        Map<Long, PersonAppearanceStats> derivedPersonStats =
+            collectPersonAppearanceStats(photoSearch.allMatchedPhotos);
+
         response.setAlbums(resultTypes.contains("albums")
             ? fetchAlbumResults(intent)
             : Collections.emptyList());
         response.setPersons(resultTypes.contains("persons")
-            ? fetchPersonResults(intent)
+            ? fetchPersonResults(query, intent, photoSearch, derivedPersonStats, usedAi)
             : Collections.emptyList());
 
         List<AiSearchSuggestionAction> suggestionActions =
@@ -613,7 +1003,7 @@ public class AiSearchService {
                 response.setAnswer(cachedAnswer);
             } else {
                 // 只有第一页或缓存未命中时才生成新回答
-                String answer = generateAnswer(query, intent, photoSearch, response.getAlbums(), response.getPersons());
+                String answer = generateAnswer(query, intent, photoSearch, response.getAlbums(), response.getPersons(), derivedPersonStats);
                 if (answer != null && !answer.isBlank()) {
                     response.setNeedAnswer(true);
                     response.setAnswer(answer.trim());
@@ -622,6 +1012,1020 @@ public class AiSearchService {
         }
 
         return response;
+    }
+
+    private void attachExecutionPlanSummary(AiSearchResponse response, String query, String queryMode, AiSearchIntent intent) {
+        if (response == null || intent == null) {
+            return;
+        }
+        try {
+            AiSearchPlannerRequest request = new AiSearchPlannerRequest();
+            request.setQuery(query);
+            request.setQueryMode(queryMode);
+            request.setLegacyIntent(intent);
+
+            AiSearchPlan plan = legacyIntentAiSearchPlanner.plan(request);
+            AiSearchExecutionContext context = new AiSearchExecutionContext();
+            context.setQuery(query);
+            context.setQueryMode(queryMode);
+            AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
+
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("version", plan.getVersion());
+            summary.put("planType", plan.getPlanType());
+            summary.put("stepCount", plan.getSteps().size());
+            summary.put("operators", plan.getSteps().stream()
+                .map(AiSearchPlanStep::getOperator)
+                .collect(Collectors.toList()));
+            summary.put("resultTypes", plan.getResultTypes());
+            summary.put("metadata", plan.getMetadata());
+            summary.put("finalOutputKeys", new ArrayList<>(executionResult.getFinalOutputs().keySet()));
+            response.setExecutionPlan(summary);
+        } catch (Exception e) {
+            log.warn("构建 AI 搜索 V2 计划摘要失败, query={}: {}", query, e.getMessage());
+        }
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsPlan(String originalQuery, String normalizedQuery, int page, int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsAiSearchPlanner.plan(normalizedQuery, offset, size);
+        return buildStructuredRelativeNewPersonsResponse(originalQuery, normalizedQuery, null, plan);
+    }
+
+    private AiSearchResponse buildStructuredResponseFromPlan(String originalQuery,
+                                                             String normalizedQuery,
+                                                             AiSearchIntent sourceIntent,
+                                                             AiSearchPlan plan,
+                                                             int page,
+                                                             int size) {
+        if (plan == null || plan.getPlanType() == null) {
+            return null;
+        }
+        switch (plan.getPlanType()) {
+            case "relative_new_persons":
+                return buildStructuredRelativeNewPersonsResponse(originalQuery, normalizedQuery, sourceIntent, plan);
+            case "relative_new_persons_still_active":
+                return buildStructuredStillActiveResponse(originalQuery, normalizedQuery, sourceIntent, plan);
+            case "relative_new_persons_body_change":
+                return buildStructuredBodyChangeResponse(originalQuery, sourceIntent, plan);
+            case "temporal_person_set":
+                return buildStructuredTemporalPersonSetResponse(originalQuery, sourceIntent, plan);
+            case "relative_new_persons_with_technical_scope":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_filtered_new_persons", "limited_filtered_new_persons",
+                    "persons", "已使用受控执行计划计算器材范围内的新认识人物集合。"
+                );
+            case "relative_new_persons_with_technical_scope_then_activity":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_followup_active_filtered_new_persons", "limited_followup_active_filtered_new_persons",
+                    "persons", "已使用受控执行计划计算器材范围内新认识人物在首次出现后的持续活跃度。"
+                );
+            case "relative_new_persons_with_scoped_photos":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_scoped_new_persons", "limited_scoped_new_persons",
+                    "persons", "已使用受控执行计划计算范围内的新认识人物集合。"
+                );
+            case "relative_new_persons_with_scoped_photos_then_activity":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_followup_active_scoped_new_persons", "limited_followup_active_scoped_new_persons",
+                    "persons", "已使用受控执行计划计算范围内新认识人物在首次出现后的持续活跃度。"
+                );
+            case "relative_new_persons_with_scoped_photos_still_active":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_still_active_scoped_new_persons", "limited_still_active_scoped_new_persons",
+                    "persons", "已使用受控执行计划计算范围内新认识且后续仍持续出现的人物集合。"
+                );
+            case "relative_new_persons_then_cooccurrence":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_relative_new_persons_cooccurrence", "limited_relative_new_persons_cooccurrence",
+                    "persons", "已使用受控执行计划计算新认识人物在首次出现后的后续同框关系。"
+                );
+            case "relative_new_persons_then_cooccurrence_missing_again":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_cooccurring_new_persons_missing_again", "limited_cooccurring_new_persons_missing_again",
+                    "persons", "已使用受控执行计划计算新认识人物在后续同框后再次缺席的关系集合。"
+                );
+            case "relative_new_persons_then_multi_cooccurrence":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_relative_new_persons_multi_cooccurrence", "limited_relative_new_persons_multi_cooccurrence",
+                    "persons", "已使用受控执行计划计算新认识人物在首次出现后的多锚点后续同框关系。"
+                );
+            case "relative_new_persons_then_multi_cooccurrence_missing_again":
+                return buildStructuredPersonAggregateResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_multi_cooccurring_new_persons_missing_again", "limited_multi_cooccurring_new_persons_missing_again",
+                    "persons", "已使用受控执行计划计算新认识人物在多锚点后续同框后再次缺席的关系集合。"
+                );
+            case "relative_new_persons_then_pair_cooccurrence":
+                return buildStructuredPersonPairResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_relative_new_person_pairs",
+                    "已使用受控执行计划计算新认识人物在首次出现后的高频同框人物组合。"
+                );
+            case "relative_new_persons_with_scoped_photos_then_pair_cooccurrence":
+                return buildStructuredPersonPairResponse(
+                    originalQuery, sourceIntent, plan,
+                    "sorted_relative_scoped_new_person_pairs",
+                    "已使用受控执行计划计算范围内新认识人物在首次出现后的高频同框人物组合。"
+                );
+            case "count_overview":
+            case "person_overview":
+            case "person_cooccurrence":
+            case "person_pair_cooccurrence":
+            case "album_overview":
+            case "month_overview":
+            case "location_overview":
+            case "day_overview":
+            case "tag_overview":
+            case "theme_overview":
+            case "year_compare":
+                return buildStructuredMatchedPhotoAnalysisResponse(originalQuery, sourceIntent, plan, page, size);
+            default:
+                return null;
+        }
+    }
+
+    private AiSearchResponse buildStructuredRelativeNewPersonsResponse(String originalQuery,
+                                                                       String normalizedQuery,
+                                                                       AiSearchIntent sourceIntent,
+                                                                       AiSearchPlan plan) {
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_new_persons",
+            "limited_new_persons",
+            "persons",
+            "已使用受控执行计划计算“目标年份首次出现、此前未出现”的人物集合。",
+            (intent, currentPlan, executionResult) -> normalizeRelativeYearRange(normalizedQuery, intent),
+            null
+        );
+    }
+
+    private AiSearchResponse executeTemporalPersonSetPlan(String originalQuery, String normalizedQuery, int page, int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = temporalPersonSetAiSearchPlanner.plan(normalizedQuery, offset, size);
+        return buildStructuredTemporalPersonSetResponse(originalQuery, null, plan);
+    }
+
+    private AiSearchResponse buildStructuredTemporalPersonSetResponse(String originalQuery,
+                                                                      AiSearchIntent sourceIntent,
+                                                                      AiSearchPlan plan) {
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_temporal_person_set",
+            "limited_temporal_person_set",
+            "persons",
+            "已使用受控执行计划计算跨年份出现/消失的人物集合。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse buildStructuredMatchedPhotoAnalysisResponse(String originalQuery,
+                                                                         AiSearchIntent sourceIntent,
+                                                                         AiSearchPlan plan,
+                                                                         int page,
+                                                                         int size) {
+        if (sourceIntent == null) {
+            return null;
+        }
+
+        AiSearchIntent intent = aiSearchStructuredPhotoResponseSupport.ensureStructuredMatchedPhotoIntentDefaults(
+            sourceIntent,
+            "photos",
+            "已使用受控执行计划完成范围分析。"
+        );
+        normalizeIntent(originalQuery, intent, true);
+
+        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
+        AiSearchExecutionResult executionResult = executeStructuredMatchedPhotoPlan(originalQuery, plan, intent, photoSearch);
+        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
+
+        return aiSearchStructuredPhotoResponseSupport.buildStructuredMatchedPhotoAnalysisResponse(
+            plan,
+            intent,
+            photoSearch,
+            albums,
+            executionResult,
+            this::buildPlannedAnalysisResponse,
+            this::extractPersonSummaries,
+            (result, outputKey) -> extractPersonAggregates(result, outputKey).size(),
+            (result, outputKey) -> extractPersonPairAggregates(result, outputKey).size(),
+            aiSearchPersonResponseSupport::buildOverviewAnalysisData,
+            aiSearchPersonResponseSupport::buildCooccurrenceAnalysisData,
+            aiSearchPersonResponseSupport::buildPairCooccurrenceAnalysisData,
+            this::buildStructuredYearCompareResponse,
+            page,
+            size
+        );
+    }
+
+    private AiSearchExecutionResult executeStructuredMatchedPhotoPlan(String query,
+                                                                      AiSearchPlan plan,
+                                                                      AiSearchIntent intent,
+                                                                      PhotoSearchExecution photoSearch) {
+        switch (plan.getPlanType()) {
+            case "count_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "count_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildCountMetrics(
+                        intent,
+                        photoSearch,
+                        extractAlbumCounts(result),
+                        this::buildTimeRangeSummary
+                    )
+                );
+            case "person_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "person_overview_metrics",
+                    result -> aiSearchPersonResponseSupport.buildOverviewMetrics(
+                        intent,
+                        photoSearch,
+                        result,
+                        this::buildTimeRangeSummary,
+                        this::extractPersonAggregates
+                    )
+                );
+            case "person_cooccurrence": {
+                Long anchorPersonId = intent.getPersonIds() != null && !intent.getPersonIds().isEmpty()
+                    ? intent.getPersonIds().get(0)
+                    : null;
+                if (anchorPersonId != null) {
+                    plan.getMetadata().put("anchorPersonName", resolvePersonName(anchorPersonId));
+                }
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "person_cooccurrence_metrics",
+                    result -> aiSearchPersonResponseSupport.buildCooccurrenceMetrics(
+                        intent,
+                        photoSearch,
+                        result,
+                        anchorPersonId,
+                        this::buildTimeRangeSummary,
+                        this::extractPersonAggregates,
+                        this::resolvePersonName
+                    )
+                );
+            }
+            case "person_pair_cooccurrence":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "person_pair_cooccurrence_metrics",
+                    result -> aiSearchPersonResponseSupport.buildPairCooccurrenceMetrics(
+                        intent,
+                        photoSearch,
+                        result,
+                        this::buildTimeRangeSummary,
+                        this::extractPersonPairAggregates
+                    )
+                );
+            case "album_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "album_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildAlbumMetrics(
+                        intent,
+                        photoSearch,
+                        extractAlbumCounts(result),
+                        this::fetchAlbumsByCount,
+                        4,
+                        this::buildTimeRangeSummary,
+                        albumId -> "相册#" + albumId
+                    )
+                );
+            case "month_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "month_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractMonthCounts(result),
+                        4,
+                        this::buildTimeRangeSummary
+                    )
+                );
+            case "location_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "location_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractLocationCounts(result),
+                        4,
+                        this::buildTimeRangeSummary
+                    )
+                );
+            case "day_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "day_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractDayCounts(result),
+                        5,
+                        this::buildTimeRangeSummary
+                    )
+                );
+            case "tag_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "tag_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractTagCounts(result),
+                        5,
+                        this::buildTimeRangeSummary
+                    )
+                );
+            case "theme_overview":
+                return executeMatchedPhotoOverviewPlan(
+                    query, plan, photoSearch, "theme_overview_metrics",
+                    result -> aiSearchOverviewResponseSupport.buildSummaryMetrics(
+                        intent,
+                        photoSearch,
+                        extractThemeCounts(result),
+                        4,
+                        this::buildTimeRangeSummary
+                    )
+                );
+            case "year_compare":
+                throw new IllegalArgumentException("year_compare uses dedicated execution flow");
+            default:
+                throw new IllegalArgumentException("unsupported structured matched photo plan: " + plan.getPlanType());
+        }
+    }
+
+    private AiSearchResponse buildStructuredYearCompareResponse(AiSearchIntent intent,
+                                                                AiSearchPlan plan,
+                                                                int page,
+                                                                int size) {
+        Integer leftYear = castToInteger(plan.getMetadata().get("leftYear"));
+        Integer rightYear = castToInteger(plan.getMetadata().get("rightYear"));
+        if (leftYear == null || rightYear == null) {
+            return null;
+        }
+
+        AiSearchIntent baseIntent = cloneIntent(intent);
+        normalizeIntent(plan.getQuery(), baseIntent, false);
+        AiSearchIntent leftIntent = cloneIntent(baseIntent);
+        setYearRange(leftIntent, leftYear);
+        AiSearchIntent rightIntent = cloneIntent(baseIntent);
+        setYearRange(rightIntent, rightYear);
+
+        PhotoSearchExecution leftSearch = executePhotoQuery(leftIntent, page, size);
+        PhotoSearchExecution rightSearch = executePhotoQuery(rightIntent, page, size);
+        AiSearchExecutionResult executionResult = executeYearComparePlan(plan, leftSearch, rightSearch);
+
+        boolean leftDominant = leftSearch.totalMatched >= rightSearch.totalMatched;
+        AiSearchIntent dominantIntent = leftDominant ? leftIntent : rightIntent;
+        PhotoSearchExecution dominantSearch = leftDominant ? leftSearch : rightSearch;
+        Map<Long, Long> dominantAlbumCounts = summarizeAlbumCounts(dominantSearch.allMatchedPhotos);
+        List<AlbumDTO> albums = fetchAlbumsByCount(dominantAlbumCounts, 4);
+
+        AiSearchResponse response = new AiSearchResponse();
+        response.setAiSearchEnabled(true);
+        response.setQueryMode(plan.getQueryMode());
+        response.setUsedAi(true);
+        response.setNeedAnswer(true);
+        response.setParsedIntent(dominantIntent);
+        response.setExplanation("对比 " + leftYear + " 年与 " + rightYear + " 年相关照片数量");
+        response.setPhotos(dominantSearch.pagedPhotoDtos);
+        response.setTotalElements(dominantSearch.totalMatched);
+        response.setAlbums(albums);
+        response.setPersons(Collections.emptyList());
+        response.setRelaxed(false);
+        response.setRelaxedReason(null);
+        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
+        response.setAnswer(aiSearchResolver.resolve(evidenceBundle));
+        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true));
+        List<AiSearchSuggestionAction> suggestionActions =
+            buildSuggestionActions(dominantIntent, dominantSearch, albums, Collections.emptyList());
+        response.setSuggestionActions(suggestionActions);
+        response.setSuggestions(suggestionActions.stream()
+            .map(AiSearchSuggestionAction::getLabel)
+            .collect(Collectors.toList()));
+        return response;
+    }
+
+    private Integer castToInteger(Object value) {
+        if (value instanceof Integer) {
+            return (Integer) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        return null;
+    }
+
+    private AiSearchResponse buildStructuredPersonAggregateResponse(String originalQuery,
+                                                                    AiSearchIntent sourceIntent,
+                                                                    AiSearchPlan plan,
+                                                                    String allOutputKey,
+                                                                    String pagedOutputKey,
+                                                                    String defaultResultType,
+                                                                    String defaultExplanation) {
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            pagedOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse buildStructuredPersonAggregateResponse(String originalQuery,
+                                                                    AiSearchIntent sourceIntent,
+                                                                    AiSearchPlan plan,
+                                                                    String allOutputKey,
+                                                                    String pagedOutputKey,
+                                                                    String defaultResultType,
+                                                                    String defaultExplanation,
+                                                                    AiSearchPersonResponseSupport.StructuredIntentCustomizer intentCustomizer,
+                                                                    AiSearchPersonResponseSupport.StructuredResponseCustomizer responseCustomizer) {
+        return aiSearchPersonResponseSupport.buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            pagedOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            this::executeStructuredPlan,
+            this::extractPersonAggregates,
+            this::toPersonSummaryFromAggregate,
+            aiSearchEvidenceReducer::reduce,
+            aiSearchResolver::resolve,
+            this::buildExecutionPlanSummary,
+            intentCustomizer,
+            responseCustomizer
+        );
+    }
+
+    private AiSearchResponse buildStructuredPersonGrowthResponse(String originalQuery,
+                                                                 AiSearchIntent sourceIntent,
+                                                                 AiSearchPlan plan,
+                                                                 String allOutputKey,
+                                                                 String pagedOutputKey,
+                                                                 String defaultResultType,
+                                                                 String defaultExplanation,
+                                                                 AiSearchPersonResponseSupport.StructuredIntentCustomizer intentCustomizer,
+                                                                 AiSearchPersonResponseSupport.StructuredResponseCustomizer responseCustomizer) {
+        return aiSearchPersonResponseSupport.buildStructuredPersonGrowthResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            pagedOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            this::executeStructuredPlan,
+            this::extractPersonGrowthAggregates,
+            this::toPersonSummaryFromGrowthAggregate,
+            aiSearchEvidenceReducer::reduce,
+            aiSearchResolver::resolve,
+            this::buildExecutionPlanSummary,
+            intentCustomizer,
+            responseCustomizer
+        );
+    }
+
+    private AiSearchResponse buildStructuredPersonPairResponse(String originalQuery,
+                                                               AiSearchIntent sourceIntent,
+                                                               AiSearchPlan plan,
+                                                               String allOutputKey,
+                                                               String defaultExplanation) {
+        return buildStructuredPersonPairResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            "albums",
+            defaultExplanation,
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse buildStructuredPersonPairResponse(String originalQuery,
+                                                               AiSearchIntent sourceIntent,
+                                                               AiSearchPlan plan,
+                                                               String allOutputKey,
+                                                               String defaultResultType,
+                                                               String defaultExplanation,
+                                                               AiSearchPersonResponseSupport.StructuredIntentCustomizer intentCustomizer,
+                                                               AiSearchPersonResponseSupport.StructuredResponseCustomizer responseCustomizer) {
+        return aiSearchPersonResponseSupport.buildStructuredPersonPairResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            allOutputKey,
+            defaultResultType,
+            defaultExplanation,
+            this::executeStructuredPlan,
+            this::extractPersonPairAggregates,
+            aiSearchEvidenceReducer::reduce,
+            aiSearchResolver::resolve,
+            this::buildExecutionPlanSummary,
+            intentCustomizer,
+            (response, executionResult) -> {
+                if ("relative_new_persons_then_pair_cooccurrence".equals(plan.getPlanType())) {
+                    response.setAnalysisData(buildRelativeNewPersonsThenPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
+                } else if ("relative_new_persons_with_scoped_photos_then_pair_cooccurrence".equals(plan.getPlanType())) {
+                    response.setAnalysisData(buildRelativeScopedNewPersonsPairCooccurrenceAnalysisData(executionResult, response.getAnswer()));
+                }
+                if (responseCustomizer != null) {
+                    responseCustomizer.customize(response, executionResult);
+                }
+            }
+        );
+    }
+
+    private void applyScopeKeywordsToIntent(AiSearchIntent intent, AiSearchPlan plan) {
+        @SuppressWarnings("unchecked")
+        List<String> scopeKeywords = (List<String>) plan.getMetadata().getOrDefault("scopeKeywords", Collections.emptyList());
+        intent.setKeywords(new ArrayList<>(scopeKeywords));
+        scopeKeywords.forEach(keyword -> intent.getMust().add(valueCondition("keyword", keyword)));
+    }
+
+    private void applyTechnicalScopeToIntent(AiSearchIntent intent, AiSearchPlan plan) {
+        @SuppressWarnings("unchecked")
+        List<String> cameraModels = (List<String>) plan.getMetadata().getOrDefault("cameraModels", Collections.emptyList());
+        @SuppressWarnings("unchecked")
+        List<String> lensModels = (List<String>) plan.getMetadata().getOrDefault("lensModels", Collections.emptyList());
+        cameraModels.forEach(model -> intent.getMust().add(valueCondition("cameraModel", model)));
+        lensModels.forEach(model -> intent.getMust().add(valueCondition("lensModel", model)));
+    }
+
+    private AiSearchExecutionResult executeStructuredPlan(String originalQuery, AiSearchPlan plan) {
+        AiSearchExecutionContext context = new AiSearchExecutionContext();
+        context.setQuery(originalQuery);
+        context.setQueryMode(plan.getQueryMode());
+        return aiSearchPlanExecutor.execute(plan, context);
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsWithTechnicalScopePlan(String originalQuery,
+                                                                             String normalizedQuery,
+                                                                             CandidateContext candidates,
+                                                                             int page,
+                                                                             int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsWithTechnicalScopeAiSearchPlanner.plan(
+            normalizedQuery,
+            candidates.cameraModels,
+            candidates.lensModels,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_filtered_new_persons",
+            "limited_filtered_new_persons",
+            "persons",
+            "已使用受控执行计划计算器材范围内的新认识人物集合。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsWithTechnicalScopeThenActivityPlan(String originalQuery,
+                                                                                         String normalizedQuery,
+                                                                                         CandidateContext candidates,
+                                                                                         int page,
+                                                                                         int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsWithTechnicalScopeThenActivityAiSearchPlanner.plan(
+            normalizedQuery,
+            candidates.cameraModels,
+            candidates.lensModels,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_followup_active_filtered_new_persons",
+            "limited_followup_active_filtered_new_persons",
+            "persons",
+            "已使用受控执行计划计算器材范围内新认识人物在首次出现后的持续活跃度。",
+            (intent, currentPlan, executionResult) -> applyTechnicalScopeToIntent(intent, currentPlan),
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosThenPairCooccurrencePlan(String originalQuery,
+                                                                                               String normalizedQuery,
+                                                                                               CandidateContext candidates,
+                                                                                               int page,
+                                                                                               int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsWithScopedPhotosThenPairCooccurrenceAiSearchPlanner.plan(
+            normalizedQuery,
+            candidates.cameraModels,
+            candidates.lensModels,
+            offset,
+            size
+        );
+        return buildStructuredPersonPairResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_scoped_new_person_pairs",
+            "albums",
+            "已使用受控执行计划计算范围内新认识人物在首次出现后的高频同框人物组合。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosThenActivityPlan(String originalQuery,
+                                                                                       String normalizedQuery,
+                                                                                       CandidateContext candidates,
+                                                                                       int page,
+                                                                                       int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsWithScopedPhotosThenActivityAiSearchPlanner.plan(
+            normalizedQuery,
+            candidates.cameraModels,
+            candidates.lensModels,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_followup_active_scoped_new_persons",
+            "limited_followup_active_scoped_new_persons",
+            "persons",
+            "已使用受控执行计划计算范围内新认识人物在首次出现后的持续活跃度。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsThenCooccurrencePlan(String originalQuery,
+                                                                           String normalizedQuery,
+                                                                           Long anchorPersonId,
+                                                                           String anchorPersonName,
+                                                                           int page,
+                                                                           int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsThenCooccurrenceAiSearchPlanner.plan(
+            normalizedQuery,
+            anchorPersonId,
+            anchorPersonName,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_new_persons_cooccurrence",
+            "limited_relative_new_persons_cooccurrence",
+            "persons",
+            "已使用受控执行计划计算新认识人物在首次出现后的后续同框关系。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsThenCooccurrenceMissingAgainPlan(String originalQuery,
+                                                                                       String normalizedQuery,
+                                                                                       Long anchorPersonId,
+                                                                                       String anchorPersonName,
+                                                                                       int page,
+                                                                                       int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsThenCooccurrenceMissingAgainAiSearchPlanner.plan(
+            normalizedQuery,
+            anchorPersonId,
+            anchorPersonName,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_cooccurring_new_persons_missing_again",
+            "limited_cooccurring_new_persons_missing_again",
+            "persons",
+            "已使用受控执行计划计算新认识人物在后续同框后又于今年消失的关系集合。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsThenMultiCooccurrencePlan(String originalQuery,
+                                                                                String normalizedQuery,
+                                                                                List<Long> anchorPersonIds,
+                                                                                List<String> anchorPersonNames,
+                                                                                int page,
+                                                                                int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsThenMultiCooccurrenceAiSearchPlanner.plan(
+            normalizedQuery,
+            anchorPersonIds,
+            anchorPersonNames,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_new_persons_multi_cooccurrence",
+            "limited_relative_new_persons_multi_cooccurrence",
+            "persons",
+            "已使用受控执行计划计算新认识人物在首次出现后的多锚点后续同框关系。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsThenMultiCooccurrenceMissingAgainPlan(String originalQuery,
+                                                                                            String normalizedQuery,
+                                                                                            List<Long> anchorPersonIds,
+                                                                                            List<String> anchorPersonNames,
+                                                                                            int page,
+                                                                                            int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsThenMultiCooccurrenceMissingAgainAiSearchPlanner.plan(
+            normalizedQuery,
+            anchorPersonIds,
+            anchorPersonNames,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_multi_cooccurring_new_persons_missing_again",
+            "limited_multi_cooccurring_new_persons_missing_again",
+            "persons",
+            "已使用受控执行计划计算新认识人物在多锚点后续同框后又于今年消失的关系集合。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsThenPairCooccurrencePlan(String originalQuery,
+                                                                               String normalizedQuery,
+                                                                               int page,
+                                                                               int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsThenPairCooccurrenceAiSearchPlanner.plan(normalizedQuery, offset, size);
+        return buildStructuredPersonPairResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_relative_new_person_pairs",
+            "albums",
+            "已使用受控执行计划计算新认识人物在首次出现后的高频同框人物组合。",
+            null,
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsBodyChangePlan(String originalQuery,
+                                                                     String normalizedQuery,
+                                                                     int page,
+                                                                     int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsBodyChangeAiSearchPlanner.plan(normalizedQuery, offset, size);
+        return buildStructuredBodyChangeResponse(originalQuery, null, plan);
+    }
+
+    private AiSearchResponse buildStructuredBodyChangeResponse(String originalQuery,
+                                                               AiSearchIntent sourceIntent,
+                                                               AiSearchPlan plan) {
+        return buildStructuredPersonGrowthResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_body_change_new_persons",
+            "limited_body_change_new_persons",
+            "persons",
+            "已使用受控执行计划计算候选人物集合在指定年份区间内的体型变化。",
+            null,
+            (response, executionResult) ->
+                response.setAnalysisData(buildRelativeNewPersonsBodyChangeAnalysisData(executionResult, response.getAnswer()))
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsStillActivePlan(String originalQuery,
+                                                                      String normalizedQuery,
+                                                                      int page,
+                                                                      int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsStillActiveAiSearchPlanner.plan(normalizedQuery, offset, size);
+        return buildStructuredStillActiveResponse(originalQuery, normalizedQuery, null, plan);
+    }
+
+    private AiSearchResponse buildStructuredStillActiveResponse(String originalQuery,
+                                                                String normalizedQuery,
+                                                                AiSearchIntent sourceIntent,
+                                                                AiSearchPlan plan) {
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            sourceIntent,
+            plan,
+            "sorted_still_active_new_persons",
+            "limited_still_active_new_persons",
+            "persons",
+            "已使用受控执行计划计算目标年份新认识且后续仍持续出现的人物集合。",
+            (intent, currentPlan, executionResult) -> {
+                if (normalizedQuery != null) {
+                    normalizeRelativeYearRange(normalizedQuery, intent);
+                }
+            },
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosPlan(String originalQuery,
+                                                                           String normalizedQuery,
+                                                                           CandidateContext candidates,
+                                                                           int page,
+                                                                           int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsWithScopedPhotosAiSearchPlanner.plan(
+            normalizedQuery,
+            candidates.cameraModels,
+            candidates.lensModels,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_scoped_new_persons",
+            "limited_scoped_new_persons",
+            "persons",
+            "已使用受控执行计划计算范围照片内的新认识人物集合。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
+    }
+
+    private AiSearchResponse executeRelativeNewPersonsWithScopedPhotosStillActivePlan(String originalQuery,
+                                                                                      String normalizedQuery,
+                                                                                      CandidateContext candidates,
+                                                                                      int page,
+                                                                                      int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = relativeNewPersonsWithScopedPhotosStillActiveAiSearchPlanner.plan(
+            normalizedQuery,
+            candidates.cameraModels,
+            candidates.lensModels,
+            offset,
+            size
+        );
+        return buildStructuredPersonAggregateResponse(
+            originalQuery,
+            null,
+            plan,
+            "sorted_still_active_scoped_new_persons",
+            "limited_still_active_scoped_new_persons",
+            "persons",
+            "已使用受控执行计划计算范围内且今年仍活跃的新认识人物集合。",
+            (intent, currentPlan, executionResult) -> applyScopeKeywordsToIntent(intent, currentPlan),
+            null
+        );
+    }
+
+    private PersonSummaryDTO toPersonSummaryFromAggregate(AiSearchPersonAggregate aggregate) {
+        if (aggregate == null || aggregate.getPersonId() == null) {
+            return null;
+        }
+        return personProfileRepository.findById(aggregate.getPersonId())
+            .filter(person -> !Boolean.TRUE.equals(person.getHidden()))
+            .map(faceService::toSummaryDTO)
+            .orElse(null);
+    }
+
+    private PersonSummaryDTO toPersonSummaryFromGrowthAggregate(AiSearchPersonGrowthAggregate aggregate) {
+        if (aggregate == null || aggregate.getPersonId() == null) {
+            return null;
+        }
+        return personProfileRepository.findById(aggregate.getPersonId())
+            .filter(person -> !Boolean.TRUE.equals(person.getHidden()))
+            .map(faceService::toSummaryDTO)
+            .orElse(null);
+    }
+
+    private Map<String, Object> buildExecutionPlanSummary(AiSearchPlan plan, AiSearchExecutionResult executionResult) {
+        return buildExecutionPlanSummary(plan, executionResult, null, false);
+    }
+
+    private Map<String, Object> buildExecutionPlanSummary(AiSearchPlan plan,
+                                                          AiSearchExecutionResult executionResult,
+                                                          AiSearchEvidenceBundle evidenceBundle,
+                                                          boolean resolverUsed) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("version", plan.getVersion());
+        summary.put("planType", plan.getPlanType());
+        summary.put("stepCount", plan.getSteps().size());
+        summary.put("operators", plan.getSteps().stream()
+            .map(AiSearchPlanStep::getOperator)
+            .collect(Collectors.toList()));
+        summary.put("resultTypes", plan.getResultTypes());
+        summary.put("metadata", plan.getMetadata());
+        summary.put("finalOutputKeys", new ArrayList<>(executionResult.getFinalOutputs().keySet()));
+        if (evidenceBundle != null) {
+            summary.put("evidenceStatus", evidenceBundle.getEvidenceStatus());
+        }
+        summary.put("resolverUsed", resolverUsed);
+        return summary;
+    }
+
+    private AiSearchResponse executeTechnicalDisjunctionPlan(String originalQuery,
+                                                             String normalizedQuery,
+                                                             CandidateContext candidates,
+                                                             int page,
+                                                             int size) {
+        int offset = Math.max(0, page * size);
+        AiSearchPlan plan = technicalDisjunctionAiSearchPlanner.plan(
+            normalizedQuery, candidates.cameraModels, candidates.lensModels, offset, size);
+
+        AiSearchExecutionContext context = new AiSearchExecutionContext();
+        context.setQuery(originalQuery);
+        context.setQueryMode(plan.getQueryMode());
+        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, context);
+
+        @SuppressWarnings("unchecked")
+        List<Long> allPhotoIds = (List<Long>) executionResult.getFinalOutputs()
+            .getOrDefault("technical_candidates", Collections.emptyList());
+        @SuppressWarnings("unchecked")
+        List<Long> pagePhotoIds = (List<Long>) executionResult.getFinalOutputs()
+            .getOrDefault("paged_technical_candidates", Collections.emptyList());
+
+        List<PhotoDTO> photos = loadPhotoDtos(pagePhotoIds);
+
+        AiSearchIntent intent = new AiSearchIntent();
+        intent.setResultTypes(List.of("photos"));
+        intent.setNeedAnswer(false);
+        intent.setExplanation("布尔检索：" + normalizedQuery);
+        intent.setShould(new ArrayList<>());
+        @SuppressWarnings("unchecked")
+        List<String> cameraModels = (List<String>) plan.getMetadata().getOrDefault("cameraModels", Collections.emptyList());
+        @SuppressWarnings("unchecked")
+        List<String> lensModels = (List<String>) plan.getMetadata().getOrDefault("lensModels", Collections.emptyList());
+        cameraModels.forEach(model -> intent.getShould().add(valueCondition("camera_model", model)));
+        lensModels.forEach(model -> intent.getShould().add(valueCondition("lens_model", model)));
+
+        AiSearchResponse response = new AiSearchResponse();
+        response.setAiSearchEnabled(true);
+        response.setQueryMode(plan.getQueryMode());
+        response.setUsedAi(false);
+        response.setNeedAnswer(false);
+        response.setParsedIntent(intent);
+        response.setExplanation(intent.getExplanation());
+        response.setPhotos(photos);
+        response.setTotalElements(allPhotoIds.size());
+        response.setAlbums(Collections.emptyList());
+        response.setPersons(Collections.emptyList());
+        response.setSuggestions(Collections.emptyList());
+        response.setSuggestionActions(Collections.emptyList());
+        response.setExecutionPlan(buildExecutionPlanSummary(plan, executionResult, null, false));
+        fillMatchedNames(response, intent, candidates);
+        return response;
+    }
+
+    private List<PhotoDTO> loadPhotoDtos(List<Long> photoIds) {
+        if (photoIds == null || photoIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Photo> photos = photoRepository.findAllByIdIn(photoIds);
+        Map<Long, Integer> order = new LinkedHashMap<>();
+        for (int i = 0; i < photoIds.size(); i++) {
+            order.put(photoIds.get(i), i);
+        }
+        return photos.stream()
+            .sorted((left, right) -> Integer.compare(
+                order.getOrDefault(left.getId(), Integer.MAX_VALUE),
+                order.getOrDefault(right.getId(), Integer.MAX_VALUE)
+            ))
+            .map(photoService::convertToDTO)
+            .collect(Collectors.toList());
     }
 
     private List<AlbumDTO> fetchAlbumResults(AiSearchIntent intent) {
@@ -754,10 +2158,17 @@ public class AiSearchService {
         }
     }
 
-    private List<PersonSummaryDTO> fetchPersonResults(AiSearchIntent intent) {
+    private List<PersonSummaryDTO> fetchPersonResults(String query,
+                                                      AiSearchIntent intent,
+                                                      PhotoSearchExecution photoSearch,
+                                                      Map<Long, PersonAppearanceStats> derivedPersonStats,
+                                                      boolean usedAi) {
         LinkedHashSet<Long> personIds = collectPositiveConditionIds(intent, "person");
         if (personIds.isEmpty()) {
-            return Collections.emptyList();
+            personIds = selectDerivedPersonIds(query, intent, photoSearch, derivedPersonStats, usedAi);
+            if (personIds.isEmpty()) {
+                return Collections.emptyList();
+            }
         }
 
         List<PersonSummaryDTO> results = new ArrayList<>();
@@ -776,6 +2187,159 @@ public class AiSearchService {
             }
         }
         return results;
+    }
+
+    private LinkedHashSet<Long> selectDerivedPersonIds(String query,
+                                                       AiSearchIntent intent,
+                                                       PhotoSearchExecution photoSearch,
+                                                       Map<Long, PersonAppearanceStats> derivedPersonStats,
+                                                       boolean usedAi) {
+        if (photoSearch == null || photoSearch.allMatchedPhotos.isEmpty() || derivedPersonStats.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+
+        LinkedHashSet<Long> selected = usedAi
+            ? selectRelevantPersonIdsWithAi(query, intent, derivedPersonStats)
+            : new LinkedHashSet<>();
+        if (!selected.isEmpty()) {
+            return selected;
+        }
+
+        return derivedPersonStats.values().stream()
+            .sorted((left, right) -> {
+                int byCount = Integer.compare(right.matchedPhotoCount, left.matchedPhotoCount);
+                if (byCount != 0) {
+                    return byCount;
+                }
+                if (left.matchedLastSeen == null && right.matchedLastSeen == null) {
+                    return Long.compare(left.personId, right.personId);
+                }
+                if (left.matchedLastSeen == null) {
+                    return 1;
+                }
+                if (right.matchedLastSeen == null) {
+                    return -1;
+                }
+                return right.matchedLastSeen.compareTo(left.matchedLastSeen);
+            })
+            .limit(8)
+            .map(stats -> stats.personId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Map<Long, PersonAppearanceStats> collectPersonAppearanceStats(List<Photo> photos) {
+        if (photos == null || photos.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<Long> photoIds = photos.stream()
+            .map(Photo::getId)
+            .filter(java.util.Objects::nonNull)
+            .distinct()
+            .collect(Collectors.toList());
+        if (photoIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<Long, PersonAppearanceStats> statsMap = new LinkedHashMap<>();
+        for (Object[] row : faceRepository.summarizePersonAppearancesByPhotoIds(photoIds)) {
+            Long personId = toLong(row[0]);
+            if (personId == null) {
+                continue;
+            }
+            PersonAppearanceStats stats = new PersonAppearanceStats();
+            stats.personId = personId;
+            stats.matchedPhotoCount = Math.max(0, nullSafeCount((Number) row[1]));
+            stats.matchedFirstSeen = toLocalDateTime(row[2]);
+            stats.matchedLastSeen = toLocalDateTime(row[3]);
+            personProfileRepository.findById(personId).ifPresent(person -> stats.personName = person.getName());
+            if (!isBlank(stats.personName)) {
+                statsMap.put(personId, stats);
+            }
+        }
+
+        if (statsMap.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<Long> personIds = new ArrayList<>(statsMap.keySet());
+        for (Object[] row : faceRepository.summarizeGlobalPersonAppearances(personIds)) {
+            Long personId = toLong(row[0]);
+            PersonAppearanceStats stats = statsMap.get(personId);
+            if (stats == null) {
+                continue;
+            }
+            stats.globalFirstSeen = toLocalDateTime(row[1]);
+            stats.globalLastSeen = toLocalDateTime(row[2]);
+        }
+
+        return statsMap;
+    }
+
+    private LinkedHashSet<Long> selectRelevantPersonIdsWithAi(String query,
+                                                              AiSearchIntent intent,
+                                                              Map<Long, PersonAppearanceStats> derivedPersonStats) {
+        if (derivedPersonStats.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+
+        String apiUrl = systemConfigService.getAiSearchApiUrl();
+        String apiKey = systemConfigService.getAiSearchApiKey();
+        String model = systemConfigService.getAiSearchModel();
+        if (isBlank(apiUrl) || isBlank(apiKey)) {
+            return new LinkedHashSet<>();
+        }
+
+        StringBuilder candidateSummary = new StringBuilder();
+        derivedPersonStats.values().forEach(stats -> candidateSummary.append("- id=")
+            .append(stats.personId)
+            .append(", name=").append(nullToDefault(stats.personName, "未知"))
+            .append(", matchedPhotos=").append(stats.matchedPhotoCount)
+            .append(", matchedFirst=").append(formatLocalDate(stats.matchedFirstSeen))
+            .append(", matchedLast=").append(formatLocalDate(stats.matchedLastSeen))
+            .append(", globalFirst=").append(formatLocalDate(stats.globalFirstSeen))
+            .append(", globalLast=").append(formatLocalDate(stats.globalLastSeen))
+            .append("\n"));
+
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("model", model);
+        requestBody.put("temperature", 0.1);
+        requestBody.put("response_format", Map.of("type", "json_object"));
+        requestBody.put("messages", List.of(
+            Map.of(
+                "role", "system",
+                "content", "你是图库人物候选筛选助手。根据用户问题和候选人物统计，只能从候选列表中选出最相关的人物 id。规则：1. 不能虚构候选外的人物。2. 如果问题涉及第一次出现/新认识/首次同框/去年才出现等，需要综合 matchedFirst、matchedLast、globalFirst、globalLast 判断。3. 如果没有明确满足条件的人物，返回空数组。4. 只返回 JSON：{\"personIds\":[1,2],\"reason\":\"...\"}。"
+            ),
+            Map.of(
+                "role", "user",
+                "content", "用户问题：" + query + "\n" +
+                    "搜索说明：" + nullToDefault(intent.getExplanation(), "无") + "\n" +
+                    "候选人物：\n" + candidateSummary)
+        ));
+
+        try {
+            String responseBody = invokeChatCompletion(getChatEndpoint(apiUrl), apiKey, requestBody);
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray() || choices.isEmpty()) {
+                return new LinkedHashSet<>();
+            }
+            String content = choices.get(0).path("message").path("content").asText("");
+            JsonNode parsed = objectMapper.readTree(extractJsonBlock(content));
+            LinkedHashSet<Long> selected = new LinkedHashSet<>();
+            JsonNode personIds = parsed.path("personIds");
+            if (personIds.isArray()) {
+                for (JsonNode item : personIds) {
+                    if (item.isNumber() && derivedPersonStats.containsKey(item.longValue())) {
+                        selected.add(item.longValue());
+                    }
+                }
+            }
+            return selected;
+        } catch (Exception e) {
+            log.debug("人物候选二次筛选失败: {}", e.getMessage());
+            return new LinkedHashSet<>();
+        }
     }
 
     Set<String> generateTokens(String query) {
@@ -879,9 +2443,7 @@ public class AiSearchService {
         if (normalized.isBlank()) {
             return "simple_search";
         }
-        int localBestAnalysisScore = scoreAnalysisTypes(normalizeSemanticQuery(query)).values().stream()
-            .max(Integer::compareTo)
-            .orElse(0);
+        int localBestAnalysisScore = aiSearchAnalysisRoutingLocalSupport.resolveBestScore(normalizeSemanticQuery(query));
         if (containsCue(normalized, ANALYSIS_CUES) || localBestAnalysisScore >= 4) {
             return "analysis";
         }
@@ -891,7 +2453,7 @@ public class AiSearchService {
         return "simple_search";
     }
 
-    private boolean shouldUseDirectIntent(String query, String queryMode) {
+    private boolean shouldUseDirectIntent(String query, String queryMode, CandidateContext candidates) {
         if (!"simple_search".equals(queryMode)) {
             return false;
         }
@@ -902,7 +2464,125 @@ public class AiSearchService {
         if (subject.length() > 12) {
             return false;
         }
+        if (isLikelyCameraOrLensIntent(subject, candidates)) {
+            return false;
+        }
         return !containsCue(subject, ANALYSIS_CUES) && !containsCue(subject, QUESTION_CUES);
+    }
+
+    private boolean isLikelyCameraOrLensIntent(String subject, CandidateContext candidates) {
+        if (subject == null || subject.isBlank()) {
+            return false;
+        }
+
+        String normalizedSubject = normalizeLooseText(subject);
+        if (normalizedSubject.isBlank()) {
+            return false;
+        }
+
+        if (containsCue(normalizedSubject, CAMERA_BRAND_CUES)) {
+            return true;
+        }
+
+        if (normalizedSubject.matches(".*\\d+mm.*")
+            || normalizedSubject.matches(".*f\\d+(\\.\\d+)?(?:mm)?.*")
+            || normalizedSubject.matches(".*iso\\d+.*")
+            || normalizedSubject.matches(".*\\d+k.*")) {
+            return true;
+        }
+
+        return matchesTechnicalCandidate(normalizedSubject, candidates.cameraModels)
+            || matchesTechnicalCandidate(normalizedSubject, candidates.lensModels);
+    }
+
+    private boolean matchesTechnicalCandidate(String subject, List<String> candidates) {
+        if (subject == null || subject.isBlank() || candidates == null || candidates.isEmpty()) {
+            return false;
+        }
+        return candidates.stream()
+            .filter(candidate -> candidate != null && !candidate.isBlank())
+            .map(this::normalizeLooseText)
+            .anyMatch(candidate -> !candidate.isBlank()
+                && (candidate.contains(subject) || subject.contains(candidate)));
+    }
+
+    private AiSearchIntent tryBuildTechnicalDisjunctionIntent(String query, String queryMode, CandidateContext candidates) {
+        if (!"simple_search".equals(queryMode) || query == null || query.isBlank()) {
+            return null;
+        }
+        if (!containsCue(query, DISJUNCTION_CUES)) {
+            return null;
+        }
+
+        List<String> segments = splitDisjunctiveQuery(query);
+        if (segments.size() < 2) {
+            return null;
+        }
+
+        LinkedHashSet<String> cameraModels = new LinkedHashSet<>();
+        LinkedHashSet<String> lensModels = new LinkedHashSet<>();
+        for (String segment : segments) {
+            String subject = stripDirectQueryNoise(segment);
+            if (subject.isBlank()) {
+                continue;
+            }
+            String camera = bestTechnicalCandidate(subject, candidates.cameraModels);
+            if (camera != null) {
+                cameraModels.add(camera);
+            }
+            String lens = bestTechnicalCandidate(subject, candidates.lensModels);
+            if (lens != null) {
+                lensModels.add(lens);
+            }
+        }
+
+        int totalMatches = cameraModels.size() + lensModels.size();
+        if (totalMatches < 2) {
+            return null;
+        }
+
+        AiSearchIntent intent = new AiSearchIntent();
+        intent.setPersonIds(new ArrayList<>());
+        intent.setTagIds(new ArrayList<>());
+        intent.setAlbumIds(new ArrayList<>());
+        intent.setKeywords(new ArrayList<>());
+        intent.setFilenameKeywords(new ArrayList<>());
+        intent.setMust(new ArrayList<>());
+        intent.setShould(new ArrayList<>());
+        intent.setMustNot(new ArrayList<>());
+        intent.setResultTypes(new ArrayList<>(List.of("photos")));
+        intent.setIncludeHidden(false);
+        intent.setNeedAnswer(false);
+        intent.setExplanation("布尔检索：" + query);
+
+        cameraModels.forEach(model -> intent.getShould().add(valueCondition("camera_model", model)));
+        lensModels.forEach(model -> intent.getShould().add(valueCondition("lens_model", model)));
+        return intent;
+    }
+
+    private List<String> splitDisjunctiveQuery(String query) {
+        if (query == null || query.isBlank()) {
+            return Collections.emptyList();
+        }
+        return java.util.Arrays.stream(query.split("或者|或|/|、"))
+            .map(String::trim)
+            .filter(part -> !part.isBlank())
+            .collect(Collectors.toList());
+    }
+
+    private String bestTechnicalCandidate(String subject, List<String> candidates) {
+        if (subject == null || subject.isBlank() || candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        Set<String> tokens = generateTokens(subject);
+        return candidates.stream()
+            .filter(candidate -> candidate != null && !candidate.isBlank())
+            .map(candidate -> Map.entry(candidate, scoreCandidate(List.of(candidate), subject, tokens)))
+            .filter(entry -> entry.getValue() > 0)
+            .sorted((left, right) -> Integer.compare(right.getValue(), left.getValue()))
+            .map(Map.Entry::getKey)
+            .findFirst()
+            .orElse(null);
     }
 
     private AiSearchIntent buildDirectIntent(String query, CandidateContext candidates, Set<String> tokens) {
@@ -959,40 +2639,199 @@ public class AiSearchService {
                                                    int size,
                                                    String queryMode) {
         String query = routing.resolvedQuery;
-        AiSearchResponse response;
-        switch (routing.type) {
-            case "theme":
-                response = buildThemeOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "location":
-                response = buildLocationOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "album":
-                response = buildAlbumOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "month":
-                response = buildMonthOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "count":
-                response = buildCountOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "day":
-                response = buildDayOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "tag":
-                response = buildTagOverviewResponse(query, candidates, page, size, queryMode);
-                break;
-            case "year_compare":
-                response = buildYearCompareResponse(query, candidates, page, size, queryMode);
-                break;
-            case "body_change":
-                response = buildBodyChangeResponse(query, candidates, page, size, queryMode);
-                break;
-            default:
-                throw new IllegalArgumentException("不支持的分析类型: " + routing.type);
+        AiSearchResponse structuredFallback = buildStructuredFallbackAnalysisResponse(routing, candidates, page, size);
+        if (structuredFallback != null) {
+            structuredFallback.setUsedAi(routing.usedAi);
+            return structuredFallback;
         }
+        boolean explicitAnchorPerson = hasExplicitAnchorPerson(query, candidates);
+        Map<String, java.util.function.Supplier<AiSearchResponse>> handlers =
+            aiSearchAnalysisHandlerSupport.buildHandlers(new AiSearchAnalysisHandlerSupport.HandlerCallbacks() {
+                @Override
+                public AiSearchResponse buildThemeOverviewResponse() {
+                    return AiSearchService.this.buildThemeOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildLocationOverviewResponse() {
+                    return AiSearchService.this.buildLocationOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildAlbumOverviewResponse() {
+                    return AiSearchService.this.buildAlbumOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildMonthOverviewResponse() {
+                    return AiSearchService.this.buildMonthOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildCountOverviewResponse() {
+                    return AiSearchService.this.buildCountOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildPersonCooccurrenceResponse() {
+                    return AiSearchService.this.buildPersonCooccurrenceResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildPersonPairCooccurrenceResponse() {
+                    return AiSearchService.this.buildPersonPairCooccurrenceResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildPersonOverviewResponse() {
+                    return AiSearchService.this.buildPersonOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildDayOverviewResponse() {
+                    return AiSearchService.this.buildDayOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildTagOverviewResponse() {
+                    return AiSearchService.this.buildTagOverviewResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildYearCompareResponse() {
+                    return AiSearchService.this.buildYearCompareResponse(query, candidates, page, size, queryMode);
+                }
+
+                @Override
+                public AiSearchResponse buildBodyChangeResponse() {
+                    return AiSearchService.this.buildBodyChangeResponse(query, candidates, page, size, queryMode);
+                }
+            });
+
+        AiSearchResponse response = aiSearchAnalysisResponseDispatcher.dispatch(
+            routing.type.externalValue,
+            explicitAnchorPerson,
+            handlers
+        );
         response.setUsedAi(routing.usedAi);
         return response;
+    }
+
+    private AiSearchResponse buildStructuredFallbackAnalysisResponse(AnalysisRouting routing,
+                                                                     CandidateContext candidates,
+                                                                     int page,
+                                                                     int size) {
+        AiSearchAnalysisFallbackDescriptorBuilder.Result descriptor = resolveAnalysisFallbackDescriptor(routing, candidates);
+        if (descriptor == null || descriptor.intent == null || descriptor.intent.getAnalysisSpec() == null) {
+            return null;
+        }
+        normalizeIntent(descriptor.normalizeQuery, descriptor.intent, descriptor.applyRelativeYearRange);
+
+        AiSearchPlan plan = aiSearchAnalysisSpecMapper.map(
+            routing.resolvedQuery,
+            descriptor.intent.getAnalysisSpec(),
+            Math.max(0, page * size),
+            size
+        );
+        return buildStructuredResponseFromPlan(
+            routing.resolvedQuery,
+            routing.resolvedQuery,
+            descriptor.intent,
+            plan,
+            page,
+            size
+        );
+    }
+
+    private AiSearchAnalysisFallbackDescriptorBuilder.Result resolveAnalysisFallbackDescriptor(AnalysisRouting routing, CandidateContext candidates) {
+        if (routing == null || routing.type == null) {
+            return null;
+        }
+        return aiSearchAnalysisFallbackSupport.resolveDescriptor(
+            routing.type.externalValue,
+            routing.resolvedQuery,
+            routing.fallbackRequest,
+            new AiSearchAnalysisFallbackSupport.AnalysisFallbackCallbacks() {
+                @Override
+                public boolean hasExplicitAnchorPerson(String query) {
+                    return AiSearchService.this.hasExplicitAnchorPerson(query, candidates);
+                }
+
+                @Override
+                public AiSearchAnalysisFallbackDescriptorBuilder.YearRange resolveYearRange(String query) {
+                    AiSearchYearCompareSupport.YearComparison comparison = resolveYearComparison(query);
+                    return new AiSearchAnalysisFallbackDescriptorBuilder.YearRange(
+                        comparison.getLeftYear(),
+                        comparison.getRightYear()
+                    );
+                }
+
+                @Override
+                public String stripComparisonNoise(String query) {
+                    return AiSearchService.this.stripComparisonNoise(query);
+                }
+
+                @Override
+                public String buildKeywordSummary(AiSearchIntent intent) {
+                    return AiSearchService.this.buildKeywordSummary(intent);
+                }
+
+                @Override
+                public AiSearchIntent buildLocationIntent(String query) {
+                    return AiSearchService.this.buildLocationOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildAlbumIntent(String query) {
+                    return AiSearchService.this.buildAlbumOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildMonthIntent(String query) {
+                    return AiSearchService.this.buildMonthOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildCountIntent(String query) {
+                    return AiSearchService.this.buildCountOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildPersonIntent(String query) {
+                    return AiSearchService.this.buildPersonOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildPersonCooccurrenceIntent(String query) {
+                    return AiSearchService.this.buildPersonCooccurrenceIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildPersonPairIntent(String query) {
+                    return AiSearchService.this.buildPersonPairCooccurrenceIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildDayIntent(String query) {
+                    return AiSearchService.this.buildDayOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildTagIntent(String query) {
+                    return AiSearchService.this.buildTagOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildThemeIntent(String query) {
+                    return AiSearchService.this.buildThemeOverviewIntent(query, candidates);
+                }
+
+                @Override
+                public AiSearchIntent buildYearCompareIntent(String query) {
+                    return AiSearchService.this.buildCountOverviewIntent(stripComparisonNoise(query), candidates);
+                }
+            }
+        );
     }
 
     private AnalysisRouting resolveAnalysisRouting(String query, CandidateContext candidates, String queryMode) {
@@ -1000,8 +2839,9 @@ public class AiSearchService {
             return AnalysisRouting.none();
         }
 
-        Map<String, Integer> scores = scoreAnalysisTypes(query);
-        int bestLocalScore = scores.values().stream().max(Integer::compareTo).orElse(0);
+        AiSearchAnalysisRoutingLocalSupport.LocalAnalysisRouting localRouting =
+            aiSearchAnalysisRoutingLocalSupport.resolve(query);
+        int bestLocalScore = localRouting.getScore();
 
         // 只有当 candidates 不为 null 时才尝试 AI 路由
         AnalysisRouting aiRouting = (candidates != null)
@@ -1011,100 +2851,14 @@ public class AiSearchService {
             return aiRouting;
         }
 
-        String bestType = null;
-        int bestScore = Integer.MIN_VALUE;
-        for (Map.Entry<String, Integer> entry : scores.entrySet()) {
-            if (entry.getValue() > bestScore) {
-                bestScore = entry.getValue();
-                bestType = entry.getKey();
-            }
-        }
-
-        if (bestType == null || bestScore < 4) {
+        if (!localRouting.isResolved()) {
             return AnalysisRouting.none();
         }
-        return new AnalysisRouting(bestType, query, aiRouting.usedAi);
-    }
-
-    private Map<String, Integer> scoreAnalysisTypes(String query) {
-        String normalized = normalizeLooseText(query);
-        Map<String, Integer> scores = new LinkedHashMap<>();
-        scores.put("theme", 0);
-        scores.put("location", 0);
-        scores.put("album", 0);
-        scores.put("month", 0);
-        scores.put("count", 0);
-        scores.put("day", 0);
-        scores.put("tag", 0);
-        scores.put("year_compare", 0);
-        scores.put("body_change", 0);
-
-        boolean hasDayCue = containsCue(normalized, DAY_ANALYSIS_CUES);
-        boolean hasMonthCue = containsCue(normalized, MONTH_ANALYSIS_CUES) || normalized.contains("月份");
-        boolean hasBodyChangeCue = containsCue(normalized, BODY_CHANGE_ANALYSIS_CUES);
-
-        if (containsCue(normalized, THEME_ANALYSIS_CUES)) {
-            scores.computeIfPresent("theme", (key, value) -> value + 5);
+        AnalysisRouteType routeType = AnalysisRouteType.fromExternalValue(localRouting.getRoutingType());
+        if (routeType == null) {
+            return AnalysisRouting.none();
         }
-        if (containsCue(normalized, LOCATION_ANALYSIS_CUES)
-            || (containsCue(normalized, LOCATION_GENERAL_CUES) && !hasDayCue && !hasMonthCue)) {
-            scores.computeIfPresent("location", (key, value) -> value + 5);
-        }
-        if (containsCue(normalized, ALBUM_ANALYSIS_CUES) || normalized.contains("相册")) {
-            scores.computeIfPresent("album", (key, value) -> value + 4);
-        }
-        if (hasMonthCue) {
-            scores.computeIfPresent("month", (key, value) -> value + 4);
-        }
-        if (containsCue(normalized, COUNT_ANALYSIS_CUES) || normalized.contains("数量")) {
-            scores.computeIfPresent("count", (key, value) -> value + 5);
-        }
-        if (hasDayCue) {
-            scores.computeIfPresent("day", (key, value) -> value + 8);
-        }
-        if (containsCue(normalized, TAG_ANALYSIS_CUES)) {
-            scores.computeIfPresent("tag", (key, value) -> value + 6);
-        }
-        if (containsCue(normalized, YEAR_COMPARE_ANALYSIS_CUES)) {
-            scores.computeIfPresent("year_compare", (key, value) -> value + 6);
-        }
-        // 胖瘦变化分析：需要有人物 + 时间范围 + 胖瘦相关关键词
-        if (hasBodyChangeCue) {
-            boolean hasTimeCue = normalized.contains("年") || normalized.contains("月") || normalized.contains("以前")
-                || normalized.contains("过去") || normalized.contains("之前") || normalized.contains("变化");
-            if (hasTimeCue) {
-                scores.computeIfPresent("body_change", (key, value) -> value + 10);
-            } else {
-                scores.computeIfPresent("body_change", (key, value) -> value + 6);
-            }
-        }
-
-        if (containsCue(normalized, ANALYSIS_RANK_CUES)) {
-            if (containsCue(normalized, LOCATION_GENERAL_CUES) && !hasDayCue && !hasMonthCue) {
-                scores.computeIfPresent("location", (key, value) -> value + 2);
-            }
-            if (normalized.contains("主题") || normalized.contains("题材") || normalized.contains("拍什么")) {
-                scores.computeIfPresent("theme", (key, value) -> value + 2);
-            }
-            if (normalized.contains("相册")) {
-                scores.computeIfPresent("album", (key, value) -> value + 2);
-            }
-            if (normalized.contains("月")) {
-                scores.computeIfPresent("month", (key, value) -> value + 2);
-            }
-            if (normalized.contains("标签")) {
-                scores.computeIfPresent("tag", (key, value) -> value + 2);
-            }
-        }
-
-        if (normalized.contains("去年") && normalized.contains("前年")) {
-            scores.computeIfPresent("year_compare", (key, value) -> value + 3);
-        }
-        if (normalized.contains("今年") && normalized.contains("去年")) {
-            scores.computeIfPresent("year_compare", (key, value) -> value + 3);
-        }
-
-        return scores;
+        return new AnalysisRouting(routeType, query, aiRouting.usedAi, localRouting.getFallbackRequest());
     }
 
     private AnalysisRouting tryResolveAnalysisRoutingWithAi(String query, CandidateContext candidates, int localBestScore) {
@@ -1124,7 +2878,12 @@ public class AiSearchService {
             requestBody.put("messages", List.of(
                 Map.of(
                     "role", "system",
-                    "content", buildAnalysisRoutingPrompt(candidates, localBestScore)
+                    "content", aiSearchAnalysisRoutingAiSupport.buildPrompt(
+                        candidates == null
+                            ? Collections.emptyList()
+                            : candidates.tags.stream().map(Tag::getName).collect(Collectors.toList()),
+                        localBestScore
+                    )
                 ),
                 Map.of("role", "user", "content", query)
             ));
@@ -1137,12 +2896,13 @@ public class AiSearchService {
             }
             String content = choices.get(0).get("message").get("content").asText();
             JsonNode result = objectMapper.readTree(extractJsonBlock(content));
-            String type = normalizeLooseText(result.path("analysisType").asText(""));
+            AiSearchAnalysisFallbackRequest fallbackRequest = aiSearchAnalysisRoutingAiSupport.parseFallbackRequest(query, result);
+            String type = normalizeLooseText(fallbackRequest.getRoutingType());
             if (type.isBlank() || "unknown".equals(type)) {
                 return AnalysisRouting.none();
             }
 
-            String mappedType = mapAiAnalysisType(type);
+            String mappedType = aiSearchAnalysisRoutingAiSupport.mapAnalysisType(type);
             if (mappedType.isBlank()) {
                 return AnalysisRouting.aiAttempted();
             }
@@ -1152,62 +2912,16 @@ public class AiSearchService {
                 return AnalysisRouting.aiAttempted();
             }
 
-            LinkedHashSet<String> extraKeywords = new LinkedHashSet<>();
-            JsonNode topicKeywords = result.get("topicKeywords");
-            if (topicKeywords != null && topicKeywords.isArray()) {
-                for (JsonNode item : topicKeywords) {
-                    String keyword = normalizeSemanticQuery(item.asText(""));
-                    if (!keyword.isBlank()) {
-                        extraKeywords.add(keyword);
-                    }
-                }
+            String resolvedQuery = fallbackRequest.getResolvedQuery();
+            AnalysisRouteType routeType = AnalysisRouteType.fromExternalValue(mappedType);
+            if (routeType == null) {
+                return AnalysisRouting.aiAttempted();
             }
-
-            String resolvedQuery = query;
-            if (!extraKeywords.isEmpty()) {
-                resolvedQuery = (query + " " + String.join(" ", extraKeywords)).trim();
-            }
-            return new AnalysisRouting(mappedType, resolvedQuery, true);
+            fallbackRequest.setRoutingType(routeType.externalValue);
+            return new AnalysisRouting(routeType, resolvedQuery, true, fallbackRequest);
         } catch (Exception e) {
             log.warn("AI分析路由兜底失败: {}", e.getMessage());
             return AnalysisRouting.aiAttempted();
-        }
-    }
-
-    private String buildAnalysisRoutingPrompt(CandidateContext candidates, int localBestScore) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("你是图库搜索的分析问题分类器。");
-        sb.append("请把用户问题分类到以下类型之一：theme, location, album, month, count, day, tag, year_compare, unknown。\n");
-        sb.append("规则：\n");
-        sb.append("1. 只做类型分类和主题词抽取，不生成答案。\n");
-        sb.append("2. theme=主题/题材分布；location=地点分布；album=相册排行；month=月份分布；count=数量统计；day=日期分布；tag=标签排行；year_compare=两个年份对比。\n");
-        sb.append("3. 如果问题像“去年哪些地方最常拍夜樱”，应返回 location，topicKeywords 可返回 [\"夜樱\"]。\n");
-        sb.append("4. 如果问题像“去年和前年相比樱花拍得更多还是更少”，应返回 year_compare，topicKeywords 可返回 [\"樱花\"]。\n");
-        sb.append("5. 不确定时返回 unknown。\n");
-        sb.append("6. 只返回 JSON：{\"analysisType\":\"...\",\"topicKeywords\":[],\"confidence\":0.0}\n");
-        sb.append("当前本地路由最高分: ").append(localBestScore).append("\n");
-        if (candidates != null && !candidates.tags.isEmpty()) {
-            sb.append("候选标签示例: ");
-            sb.append(candidates.tags.stream().limit(12).map(Tag::getName).collect(Collectors.joining("、")));
-            sb.append("\n");
-        }
-        return sb.toString();
-    }
-
-    private String mapAiAnalysisType(String type) {
-        switch (type) {
-            case "theme":
-            case "location":
-            case "album":
-            case "month":
-            case "count":
-            case "day":
-            case "tag":
-            case "yearcompare":
-            case "year_compare":
-                return "yearcompare".equals(type) ? "year_compare" : type;
-            default:
-                return "";
         }
     }
 
@@ -1225,54 +2939,38 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildThemeOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildThemeOverviewIntent(query, candidates),
+            () -> themeOverviewAiSearchPlanner.plan(query),
+            "theme_overview_metrics",
+            this::extractThemeCounts,
+            4,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
+        );
+    }
 
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-        Map<String, Long> themeCounts = summarizeThemes(photoSearch.allMatchedPhotos, albums);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildThemeOverviewAnswer(intent, photoSearch, themeCounts));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+    private Map<String, Long> extractThemeCounts(AiSearchExecutionResult executionResult) {
+        return extractStringLongCounts(executionResult, "theme_counts", "theme");
     }
 
     private AiSearchIntent buildThemeOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括拍摄主题的高频分布");
-        intent.setExplanation("统计指定时间范围内拍摄较多的主题（基于相册名与标签）");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括拍摄主题的高频分布",
+            "统计指定时间范围内拍摄较多的主题（基于相册名与标签）"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         if (intent.getKeywords().isEmpty() && intent.getTagIds().isEmpty() && intent.getAlbumIds().isEmpty()) {
             intent.setExplanation("统计指定时间范围内拍摄较多的主题");
         }
@@ -1292,54 +2990,38 @@ public class AiSearchService {
                                                            int page,
                                                            int size,
                                                            String queryMode) {
-        AiSearchIntent intent = buildLocationOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildLocationOverviewIntent(query, candidates),
+            () -> locationOverviewAiSearchPlanner.plan(query),
+            "location_overview_metrics",
+            this::extractLocationCounts,
+            4,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
+        );
+    }
 
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-        Map<String, Long> locationCounts = summarizeLocations(photoSearch.allMatchedPhotos, albums);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildLocationOverviewAnswer(intent, photoSearch, locationCounts));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+    private Map<String, Long> extractLocationCounts(AiSearchExecutionResult executionResult) {
+        return extractStringLongCounts(executionResult, "location_counts", "location");
     }
 
     private AiSearchIntent buildLocationOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括主要拍摄地点");
-        intent.setExplanation("统计指定时间范围内相关主题主要拍摄于哪些地点（基于相册名与路径）");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括主要拍摄地点",
+            "统计指定时间范围内相关主题主要拍摄于哪些地点（基于相册名与路径）"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         return intent;
     }
 
@@ -1356,54 +3038,36 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildAlbumOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        Map<Long, Long> albumCounts = summarizeAlbumCounts(photoSearch.allMatchedPhotos);
-        List<AlbumDTO> albums = fetchAlbumsByCount(albumCounts, 6);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildAlbumOverviewAnswer(intent, photoSearch, albumCounts, albums));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+        return aiSearchOverviewResponseSupport.buildAlbumOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildAlbumOverviewIntent(query, candidates),
+            () -> albumOverviewAiSearchPlanner.plan(query),
+            "album_overview_metrics",
+            this::extractAlbumCounts,
+            this::fetchAlbumsByCount,
+            6,
+            4,
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            albumId -> nullToDefault(null, "相册#" + albumId)
+        );
     }
 
     private AiSearchIntent buildAlbumOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括照片最多的相册");
-        intent.setExplanation("统计指定时间范围内照片较多的相册");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括照片最多的相册",
+            "统计指定时间范围内照片较多的相册"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         return intent;
     }
 
@@ -1420,54 +3084,38 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildMonthOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildMonthOverviewIntent(query, candidates),
+            () -> monthOverviewAiSearchPlanner.plan(query),
+            "month_overview_metrics",
+            this::extractMonthCounts,
+            4,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
+        );
+    }
 
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        Map<String, Long> monthCounts = summarizeMonthCounts(photoSearch.allMatchedPhotos);
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildMonthOverviewAnswer(intent, photoSearch, monthCounts));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+    private Map<String, Long> extractMonthCounts(AiSearchExecutionResult executionResult) {
+        return extractStringLongCounts(executionResult, "month_counts", "month");
     }
 
     private AiSearchIntent buildMonthOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括拍摄高峰月份");
-        intent.setExplanation("统计指定时间范围内拍摄较多的月份");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括拍摄高峰月份",
+            "统计指定时间范围内拍摄较多的月份"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         return intent;
     }
 
@@ -1484,55 +3132,122 @@ public class AiSearchService {
                                                         int page,
                                                         int size,
                                                         String queryMode) {
-        AiSearchIntent intent = buildCountOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
+        return aiSearchOverviewResponseSupport.buildCountOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildCountOverviewIntent(query, candidates),
+            () -> countOverviewAiSearchPlanner.plan(query),
+            "count_overview_metrics",
+            this::extractAlbumCounts,
+            this::fetchAlbumsByCount,
+            4,
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
+        );
+    }
 
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        Map<Long, Long> albumCounts = summarizeAlbumCounts(photoSearch.allMatchedPhotos);
-        List<AlbumDTO> albums = fetchAlbumsByCount(albumCounts, 4);
+    private AiSearchResponse buildPersonOverviewResponse(String query,
+                                                         CandidateContext candidates,
+                                                         int page,
+                                                         int size,
+                                                         String queryMode) {
+        return aiSearchPersonResponseSupport.buildPersonOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildPersonOverviewIntent(query, candidates),
+            () -> personOverviewAiSearchPlanner.plan(query, page * size, size),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            currentPhotoSearch -> fetchTopAlbumsForMatchedPhotos(currentPhotoSearch.allMatchedPhotos, 6),
+            this::extractPersonSummaries,
+            this::extractPersonAggregates
+        );
+    }
 
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildCountOverviewAnswer(intent, photoSearch, albumCounts));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+    private Map<Long, Long> extractAlbumCounts(AiSearchExecutionResult executionResult) {
+        return extractLongLongCounts(executionResult, "album_counts", "albumId");
     }
 
     private AiSearchIntent buildCountOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("给出公开照片数量");
-        intent.setExplanation("统计指定条件下公开照片数量");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "给出公开照片数量",
+            "统计指定条件下公开照片数量"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         return intent;
+    }
+
+    private AiSearchIntent buildPersonOverviewIntent(String query, CandidateContext candidates) {
+        List<String> topicKeywords = extractAnalysisKeywords(query);
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("persons", "photos", "albums"),
+            "概括当前条件下出现的人物",
+            "统计指定时间范围和主题条件下出现的人物"
+        );
+        applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
+        return intent;
+    }
+
+    private AiSearchResponse buildPersonCooccurrenceResponse(String query,
+                                                             CandidateContext candidates,
+                                                             int page,
+                                                             int size,
+                                                             String queryMode) {
+        return aiSearchPersonResponseSupport.buildPersonCooccurrenceResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildPersonCooccurrenceIntent(query, candidates),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            (currentQuery, anchorPersonId, offset, currentSize) ->
+                personCooccurrenceAiSearchPlanner.plan(currentQuery, anchorPersonId, offset, currentSize),
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            currentPhotoSearch -> fetchTopAlbumsForMatchedPhotos(currentPhotoSearch.allMatchedPhotos, 6),
+            this::extractPersonSummaries,
+            this::extractPersonAggregates,
+            this::resolvePersonName,
+            this::buildEmptyAnalysisResponse
+        );
+    }
+
+    private AiSearchResponse buildPersonPairCooccurrenceResponse(String query,
+                                                                 CandidateContext candidates,
+                                                                 int page,
+                                                                 int size,
+                                                                 String queryMode) {
+        return aiSearchPersonResponseSupport.buildPersonPairCooccurrenceResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildPersonPairCooccurrenceIntent(query, candidates),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary,
+            currentPhotoSearch -> fetchTopAlbumsForMatchedPhotos(currentPhotoSearch.allMatchedPhotos, 6),
+            () -> personPairCooccurrenceAiSearchPlanner.plan(query, page * size, size),
+            this::extractPersonPairAggregates
+        );
     }
 
     private AiSearchResponse buildDayOverviewResponse(String query,
@@ -1540,54 +3255,63 @@ public class AiSearchService {
                                                       int page,
                                                       int size,
                                                       String queryMode) {
-        AiSearchIntent intent = buildDayOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
-
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        Map<String, Long> dayCounts = summarizeDayCounts(photoSearch.allMatchedPhotos);
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
-
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildDayOverviewAnswer(intent, photoSearch, dayCounts));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
-        return response;
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildDayOverviewIntent(query, candidates),
+            () -> dayOverviewAiSearchPlanner.plan(query),
+            "day_overview_metrics",
+            this::extractDayCounts,
+            5,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
+        );
     }
 
     private AiSearchIntent buildDayOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括拍摄较集中的日期");
-        intent.setExplanation("统计指定时间范围内拍摄较集中的日期");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括拍摄较集中的日期",
+            "统计指定时间范围内拍摄较集中的日期"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
+        return intent;
+    }
+
+    private AiSearchIntent buildPersonCooccurrenceIntent(String query, CandidateContext candidates) {
+        List<String> topicKeywords = extractAnalysisKeywords(query);
+        Set<String> tokens = generateTokens(query);
+        List<Long> anchorPersonIds = rankPersonMatches(candidates, query, tokens, 1);
+        String anchorPersonName = anchorPersonIds.isEmpty() ? null : resolvePersonName(anchorPersonIds.get(0));
+
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("persons", "photos", "albums"),
+            "概括与指定人物共同出现频率较高的人物",
+            "统计指定人物在当前筛选条件下经常一起出现的人物"
+        );
+        intent.setPersonIds(new ArrayList<>(anchorPersonIds));
+
+        applyAnalysisTopicKeywords(intent, candidates, filterAnalysisKeywordsExcludingPerson(topicKeywords, anchorPersonName));
+        return intent;
+    }
+
+    private AiSearchIntent buildPersonPairCooccurrenceIntent(String query, CandidateContext candidates) {
+        List<String> topicKeywords = extractAnalysisKeywords(query);
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括当前条件下共同出现频率较高的人物组合",
+            "统计当前筛选条件下经常共同出现的人物组合"
+        );
+        applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         return intent;
     }
 
@@ -1596,54 +3320,328 @@ public class AiSearchService {
                                                       int page,
                                                       int size,
                                                       String queryMode) {
-        AiSearchIntent intent = buildTagOverviewIntent(query, candidates);
-        normalizeIntent(query, intent, true);
+        return aiSearchOverviewResponseSupport.buildSummaryOverviewResponse(
+            query,
+            page,
+            size,
+            queryMode,
+            () -> buildTagOverviewIntent(query, candidates),
+            () -> tagOverviewAiSearchPlanner.plan(query),
+            "tag_overview_metrics",
+            this::extractTagCounts,
+            5,
+            (photoSearch, result) -> fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6),
+            this::normalizeIntent,
+            this::executePhotoQuery,
+            this::executeMatchedPhotoOverviewPlan,
+            this::buildPlannedAnalysisResponse,
+            this::buildTimeRangeSummary
+        );
+    }
 
-        PhotoSearchExecution photoSearch = executePhotoQuery(intent, page, size);
-        Map<String, Long> tagCounts = summarizeTagCounts(photoSearch.allMatchedPhotos);
-        List<AlbumDTO> albums = fetchTopAlbumsForMatchedPhotos(photoSearch.allMatchedPhotos, 6);
+    private AiSearchExecutionResult executeMatchedPhotoOverviewPlan(String query,
+                                                                    AiSearchPlan plan,
+                                                                    PhotoSearchExecution photoSearch,
+                                                                    String metricsKey,
+                                                                    Function<AiSearchExecutionResult, Map<String, Object>> metricsBuilder) {
+        return aiSearchExecutionResultSupport.executeMatchedPhotoOverviewPlan(
+            aiSearchPlanExecutor,
+            query,
+            plan,
+            photoSearch.allMatchedPhotos.stream()
+                .map(Photo::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(ArrayList::new)),
+            metricsKey,
+            metricsBuilder
+        );
+    }
 
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(intent);
-        response.setExplanation(intent.getExplanation());
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(photoSearch.relaxed);
-        response.setRelaxedReason(photoSearch.relaxedReason);
-        response.setAnswer(buildTagOverviewAnswer(intent, photoSearch, tagCounts));
+    private AiSearchResponse buildPlannedAnalysisResponse(String queryMode,
+                                                          AiSearchIntent intent,
+                                                          PhotoSearchExecution photoSearch,
+                                                          List<AlbumDTO> albums,
+                                                          AiSearchPlan plan,
+                                                          AiSearchExecutionResult executionResult) {
+        return buildPlannedAnalysisResponse(
+            queryMode,
+            intent,
+            photoSearch,
+            albums,
+            Collections.emptyList(),
+            photoSearch.totalMatched,
+            plan,
+            executionResult
+        );
+    }
 
+    private AiSearchResponse buildPlannedAnalysisResponse(String queryMode,
+                                                          AiSearchIntent intent,
+                                                          PhotoSearchExecution photoSearch,
+                                                          List<AlbumDTO> albums,
+                                                          List<PersonSummaryDTO> persons,
+                                                          long totalElements,
+                                                          AiSearchPlan plan,
+                                                          AiSearchExecutionResult executionResult) {
+        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
         List<AiSearchSuggestionAction> suggestionActions =
             buildSuggestionActions(intent, photoSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
+        return aiSearchAnalysisResponseAssembler.assembleResolved(
+            queryMode,
+            intent,
+            intent.getExplanation(),
+            photoSearch.pagedPhotoDtos,
+            totalElements,
+            albums,
+            persons,
+            photoSearch.relaxed,
+            photoSearch.relaxedReason,
+            aiSearchResolver.resolve(evidenceBundle),
+            buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true),
+            suggestionActions
+        );
+    }
+
+    private AiSearchResponse buildStandardAnalysisResponse(String queryMode,
+                                                           AiSearchIntent intent,
+                                                           String explanation,
+                                                           PhotoSearchExecution photoSearch,
+                                                           long totalElements,
+                                                           List<AlbumDTO> albums,
+                                                           List<PersonSummaryDTO> persons,
+                                                           AiSearchPlan plan,
+                                                           AiSearchExecutionResult executionResult,
+                                                           AiSearchEvidenceBundle evidenceBundle) {
+        List<AiSearchSuggestionAction> suggestionActions = buildSuggestionActions(
+            intent,
+            photoSearch == null ? emptyPhotoSearchExecution() : photoSearch,
+            albums == null ? Collections.emptyList() : albums,
+            Collections.emptyList()
+        );
+        return aiSearchAnalysisResponseAssembler.assembleResolved(
+            queryMode,
+            intent,
+            explanation,
+            photoSearch == null ? Collections.emptyList() : photoSearch.pagedPhotoDtos,
+            totalElements,
+            albums,
+            persons,
+            photoSearch != null && photoSearch.relaxed,
+            photoSearch == null ? null : photoSearch.relaxedReason,
+            aiSearchResolver.resolve(evidenceBundle),
+            buildExecutionPlanSummary(plan, executionResult, evidenceBundle, true),
+            suggestionActions
+        );
+    }
+
+    private AiSearchResponse buildEmptyAnalysisResponse(String queryMode,
+                                                        AiSearchIntent intent,
+                                                        String explanation,
+                                                        String answer) {
+        return aiSearchAnalysisResponseAssembler.assembleEmpty(queryMode, intent, explanation, answer);
+    }
+
+    private Long firstPersonId(AiSearchIntent intent) {
+        return intent == null || intent.getPersonIds() == null || intent.getPersonIds().isEmpty()
+            ? null
+            : intent.getPersonIds().get(0);
+    }
+
+    private PhotoSearchExecution emptyPhotoSearchExecution() {
+        return PhotoSearchExecution.empty();
+    }
+
+    private Map<String, Long> extractTagCounts(AiSearchExecutionResult executionResult) {
+        return extractStringLongCounts(executionResult, "tag_counts", "tag");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildAnalysisDataFromMetrics(AiSearchExecutionResult executionResult,
+                                                             String metricsKey,
+                                                             String analysisType,
+                                                             String answer,
+                                                             Map<String, String> extraMetricMappings) {
+        Map<String, Object> metrics = (Map<String, Object>) executionResult.getFinalOutputs()
+            .getOrDefault(metricsKey, Collections.emptyMap());
+        Map<String, Object> analysisData = new LinkedHashMap<>();
+        analysisData.put("analysisType", analysisType);
+        analysisData.put("periodLabel", metrics.get("periodLabel"));
+        analysisData.put("totalEntities", metrics.get("totalMatched"));
+        analysisData.put("conclusion", answer);
+        analysisData.put("summaryItems", metrics.getOrDefault("summaryItems", Collections.emptyList()));
+        for (Map.Entry<String, String> entry : extraMetricMappings.entrySet()) {
+            analysisData.put(entry.getKey(), metrics.getOrDefault(entry.getValue(), Collections.emptyList()));
+        }
+        return analysisData;
+    }
+
+    private List<AiSearchPersonAggregate> extractPersonAggregates(AiSearchExecutionResult executionResult, String outputKey) {
+        return aiSearchExecutionResultSupport.extractPersonAggregates(executionResult, outputKey);
+    }
+
+    private List<PersonSummaryDTO> extractPersonSummaries(AiSearchExecutionResult executionResult, String outputKey) {
+        return aiSearchExecutionResultSupport.extractPersonAggregates(executionResult, outputKey).stream()
+            .map(this::toPersonSummaryFromAggregate)
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toList());
+    }
+
+    private List<AiSearchPersonPairAggregate> extractPersonPairAggregates(AiSearchExecutionResult executionResult, String outputKey) {
+        return aiSearchExecutionResultSupport.extractPersonPairAggregates(executionResult, outputKey);
+    }
+
+    private List<AiSearchPersonGrowthAggregate> extractPersonGrowthAggregates(AiSearchExecutionResult executionResult, String outputKey) {
+        return aiSearchExecutionResultSupport.extractPersonGrowthAggregates(executionResult, outputKey);
+    }
+
+    private Map<String, Object> extractMetrics(AiSearchExecutionResult executionResult, String metricsKey) {
+        return aiSearchExecutionResultSupport.extractMetrics(executionResult, metricsKey);
+    }
+
+    private Map<String, Object> buildRelativeNewPersonsThenPairCooccurrenceAnalysisData(AiSearchExecutionResult executionResult,
+                                                                                         String answer) {
+        List<AiSearchPersonPairAggregate> pairs = extractPersonPairAggregates(executionResult, "sorted_relative_new_person_pairs");
+        Map<String, Object> analysisData = new LinkedHashMap<>();
+        analysisData.put("analysisType", "relative_new_persons_then_pair_cooccurrence");
+        analysisData.put("totalEntities", pairs.size());
+        analysisData.put("topPairs", pairs.stream()
+            .limit(5)
+            .map(item -> Map.of(
+                "personAId", item.getPersonAId(),
+                "personAName", item.getPersonAName(),
+                "personBId", item.getPersonBId(),
+                "personBName", item.getPersonBName(),
+                "matchedPhotoCount", nullSafeCount(item.getMatchedPhotoCount())
+            ))
             .collect(Collectors.toList()));
-        return response;
+        analysisData.put("summaryItems", pairs.stream()
+            .limit(5)
+            .map(item -> item.getPersonAName() + " / " + item.getPersonBName()
+                + "(" + nullSafeCount(item.getMatchedPhotoCount()) + "张)")
+            .collect(Collectors.toList()));
+        analysisData.put("conclusion", answer);
+        return analysisData;
+    }
+
+    private Map<String, Object> buildRelativeScopedNewPersonsPairCooccurrenceAnalysisData(AiSearchExecutionResult executionResult,
+                                                                                           String answer) {
+        List<AiSearchPersonPairAggregate> pairs = extractPersonPairAggregates(executionResult, "sorted_relative_scoped_new_person_pairs");
+        Map<String, Object> analysisData = new LinkedHashMap<>();
+        analysisData.put("analysisType", "relative_new_persons_with_scoped_photos_then_pair_cooccurrence");
+        analysisData.put("totalEntities", pairs.size());
+        analysisData.put("topPairs", pairs.stream()
+            .limit(5)
+            .map(item -> Map.of(
+                "personAId", item.getPersonAId(),
+                "personAName", item.getPersonAName(),
+                "personBId", item.getPersonBId(),
+                "personBName", item.getPersonBName(),
+                "matchedPhotoCount", nullSafeCount(item.getMatchedPhotoCount())
+            ))
+            .collect(Collectors.toList()));
+        analysisData.put("summaryItems", pairs.stream()
+            .limit(5)
+            .map(item -> item.getPersonAName() + " / " + item.getPersonBName()
+                + "(" + nullSafeCount(item.getMatchedPhotoCount()) + "张)")
+            .collect(Collectors.toList()));
+        analysisData.put("conclusion", answer);
+        return analysisData;
+    }
+
+    private Map<String, Object> buildRelativeNewPersonsBodyChangeAnalysisData(AiSearchExecutionResult executionResult,
+                                                                              String answer) {
+        List<AiSearchPersonGrowthAggregate> persons = extractPersonGrowthAggregates(executionResult, "sorted_body_change_new_persons");
+        Map<String, Object> analysisData = new LinkedHashMap<>();
+        analysisData.put("analysisType", "relative_new_persons_body_change");
+        analysisData.put("totalEntities", persons.size());
+        analysisData.put("topPersons", persons.stream()
+            .limit(5)
+            .map(item -> Map.of(
+                "personId", item.getPersonId(),
+                "personName", item.getPersonName(),
+                "trend", item.getTrend() == null ? "" : item.getTrend(),
+                "changePercent", item.getChangePercent() == null ? 0D : item.getChangePercent()
+            ))
+            .collect(Collectors.toList()));
+        analysisData.put("summaryItems", persons.stream()
+            .limit(5)
+            .map(item -> item.getPersonName() + "("
+                + String.format(java.util.Locale.ROOT, "%.1f%%", item.getChangePercent() == null ? 0D : item.getChangePercent())
+                + ")")
+            .collect(Collectors.toList()));
+        analysisData.put("conclusion", answer);
+        return analysisData;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Long> extractStringLongCounts(AiSearchExecutionResult executionResult,
+                                                      String outputKey,
+                                                      String fieldName) {
+        Object output = executionResult.getFinalOutputs().get(outputKey);
+        if (!(output instanceof List<?>)) {
+            return Collections.emptyMap();
+        }
+        List<?> rows = (List<?>) output;
+
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (Object row : rows) {
+            if (!(row instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<?, ?> values = (Map<?, ?>) row;
+            Object dimensionValue = values.get(fieldName);
+            Long photoCount = toLong(values.get("photoCount"));
+            if (!(dimensionValue instanceof String)) {
+                continue;
+            }
+            String normalizedValue = ((String) dimensionValue).trim();
+            if (normalizedValue.isEmpty() || photoCount == null) {
+                continue;
+            }
+            counts.put(normalizedValue, photoCount);
+        }
+        return counts;
+    }
+
+    private Map<String, Long> extractDayCounts(AiSearchExecutionResult executionResult) {
+        return extractStringLongCounts(executionResult, "day_counts", "day");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, Long> extractLongLongCounts(AiSearchExecutionResult executionResult,
+                                                  String outputKey,
+                                                  String fieldName) {
+        Object output = executionResult.getFinalOutputs().get(outputKey);
+        if (!(output instanceof List<?>)) {
+            return Collections.emptyMap();
+        }
+        List<?> rows = (List<?>) output;
+
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (Object row : rows) {
+            if (!(row instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<?, ?> values = (Map<?, ?>) row;
+            Long dimensionValue = toLong(values.get(fieldName));
+            Long photoCount = toLong(values.get("photoCount"));
+            if (dimensionValue == null || photoCount == null) {
+                continue;
+            }
+            counts.put(dimensionValue, photoCount);
+        }
+        return counts;
     }
 
     private AiSearchIntent buildTagOverviewIntent(String query, CandidateContext candidates) {
         List<String> topicKeywords = extractAnalysisKeywords(query);
-        AiSearchIntent intent = new AiSearchIntent();
-        intent.setPersonIds(new ArrayList<>());
-        intent.setTagIds(new ArrayList<>());
-        intent.setAlbumIds(new ArrayList<>());
-        intent.setKeywords(new ArrayList<>());
-        intent.setFilenameKeywords(new ArrayList<>());
-        intent.setMust(new ArrayList<>());
-        intent.setShould(new ArrayList<>());
-        intent.setMustNot(new ArrayList<>());
-        intent.setResultTypes(new ArrayList<>(List.of("photos", "albums")));
-        intent.setIncludeHidden(false);
-        intent.setNeedAnswer(true);
-        intent.setAnswerPrompt("概括相关照片中出现较多的标签");
-        intent.setExplanation("统计指定时间范围内相关照片的高频标签");
+        AiSearchIntent intent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos", "albums"),
+            "概括相关照片中出现较多的标签",
+            "统计指定时间范围内相关照片的高频标签"
+        );
         applyAnalysisTopicKeywords(intent, candidates, topicKeywords);
+        ensureAnalysisScopeCondition(intent);
         return intent;
     }
 
@@ -1652,17 +3650,24 @@ public class AiSearchService {
                                                       int page,
                                                       int size,
                                                       String queryMode) {
-        YearComparison comparison = resolveYearComparison(query);
+        AiSearchYearCompareSupport.YearComparison comparison = resolveYearComparison(query);
         AiSearchIntent baseIntent = buildCountOverviewIntent(stripComparisonNoise(query), candidates);
         normalizeIntent(stripComparisonNoise(query), baseIntent, false);
 
         AiSearchIntent leftIntent = cloneIntent(baseIntent);
-        setYearRange(leftIntent, comparison.leftYear);
+        setYearRange(leftIntent, comparison.getLeftYear());
         AiSearchIntent rightIntent = cloneIntent(baseIntent);
-        setYearRange(rightIntent, comparison.rightYear);
+        setYearRange(rightIntent, comparison.getRightYear());
 
         PhotoSearchExecution leftSearch = executePhotoQuery(leftIntent, page, size);
         PhotoSearchExecution rightSearch = executePhotoQuery(rightIntent, page, size);
+        AiSearchPlan plan = yearCompareAiSearchPlanner.plan(
+            query,
+            comparison.getLeftYear(),
+            comparison.getRightYear(),
+            buildKeywordSummary(baseIntent)
+        );
+        AiSearchExecutionResult executionResult = executeYearComparePlan(plan, leftSearch, rightSearch);
 
         boolean leftDominant = leftSearch.totalMatched >= rightSearch.totalMatched;
         AiSearchIntent dominantIntent = leftDominant ? leftIntent : rightIntent;
@@ -1670,28 +3675,42 @@ public class AiSearchService {
         Map<Long, Long> dominantAlbumCounts = summarizeAlbumCounts(dominantSearch.allMatchedPhotos);
         List<AlbumDTO> albums = fetchAlbumsByCount(dominantAlbumCounts, 4);
 
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(dominantIntent);
-        response.setExplanation("对比 " + comparison.leftYear + " 年与 " + comparison.rightYear + " 年相关照片数量");
-        response.setPhotos(dominantSearch.pagedPhotoDtos);
-        response.setTotalElements(dominantSearch.totalMatched);
-        response.setAlbums(albums);
-        response.setPersons(Collections.emptyList());
-        response.setRelaxed(false);
-        response.setRelaxedReason(null);
-        response.setAnswer(buildYearCompareAnswer(baseIntent, comparison, leftSearch, rightSearch));
-
-        List<AiSearchSuggestionAction> suggestionActions =
-            buildSuggestionActions(dominantIntent, dominantSearch, albums, Collections.emptyList());
-        response.setSuggestionActions(suggestionActions);
-        response.setSuggestions(suggestionActions.stream()
-            .map(AiSearchSuggestionAction::getLabel)
-            .collect(Collectors.toList()));
+        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
+        AiSearchResponse response = buildStandardAnalysisResponse(
+            queryMode,
+            dominantIntent,
+            "对比 " + comparison.getLeftYear() + " 年与 " + comparison.getRightYear() + " 年相关照片数量",
+            dominantSearch,
+            dominantSearch.totalMatched,
+            albums,
+            Collections.emptyList(),
+            plan,
+            executionResult,
+            evidenceBundle
+        );
+        response.setAnalysisData(aiSearchYearCompareSupport.buildAnalysisData(comparison, executionResult, response.getAnswer()));
         return response;
+    }
+
+    private AiSearchExecutionResult executeYearComparePlan(AiSearchPlan plan,
+                                                           PhotoSearchExecution leftSearch,
+                                                           PhotoSearchExecution rightSearch) {
+        return aiSearchYearCompareSupport.executePlan(
+            aiSearchPlanExecutor,
+            plan,
+            extractPhotoIds(leftSearch),
+            extractPhotoIds(rightSearch)
+        );
+    }
+
+    private List<Long> extractPhotoIds(PhotoSearchExecution photoSearch) {
+        if (photoSearch == null || photoSearch.allMatchedPhotos == null) {
+            return Collections.emptyList();
+        }
+        return photoSearch.allMatchedPhotos.stream()
+            .map(Photo::getId)
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toCollection(ArrayList::new));
     }
 
     private AiSearchResponse buildBodyChangeResponse(String query,
@@ -1699,40 +3718,41 @@ public class AiSearchService {
                                                     int page,
                                                     int size,
                                                     String queryMode) {
-        // 解析人物和时间范围
-        BodyChangeAnalysis analysis = analyzeBodyChangeQuery(query, candidates);
-        
-        if (analysis.personId == null) {
-            AiSearchResponse response = new AiSearchResponse();
-            response.setAiSearchEnabled(true);
-            response.setQueryMode(queryMode);
-            response.setUsedAi(false);
-            response.setExplanation("未识别到具体人物，请明确说出一个相册中已确认的人物名称");
-            response.setPhotos(Collections.emptyList());
-            response.setTotalElements(0);
-            response.setAlbums(Collections.emptyList());
-            response.setPersons(Collections.emptyList());
-            response.setSuggestions(Collections.emptyList());
-            response.setSuggestionActions(Collections.emptyList());
-            return response;
+        AiSearchBodyChangeSupport.BodyChangeAnalysis analysis = analyzeBodyChangeQuery(query, candidates);
+
+        if (analysis.getPersonId() == null) {
+            return buildEmptyAnalysisResponse(
+                queryMode,
+                null,
+                "未识别到具体人物，请明确说出一个相册中已确认的人物名称",
+                null
+            );
         }
 
-        // 查询人脸数据
-        BodyChangeStats stats = calculateBodyChangeStats(analysis.personId, analysis.startYear, analysis.endYear);
-        
-        // 执行照片搜索
-        AiSearchIntent photoIntent = new AiSearchIntent();
-        photoIntent.setPersonIds(List.of(analysis.personId));
-        photoIntent.setStartDate(analysis.startYear + "-01-01");
-        photoIntent.setEndDate(analysis.endYear + "-12-31");
-        
+        AiSearchPlan plan = bodyChangeAiSearchPlanner.plan(
+            query,
+            analysis.getPersonId(),
+            analysis.getPersonName(),
+            analysis.getStartYear(),
+            analysis.getEndYear()
+        );
+        AiSearchExecutionResult executionResult = aiSearchPlanExecutor.execute(plan, new AiSearchExecutionContext());
+
+        AiSearchIntent photoIntent = aiSearchOverviewAnalysisSupport.createScopedAnalysisIntent(
+            List.of("photos"),
+            null,
+            analysis.getExplanation()
+        );
+        photoIntent.setPersonIds(List.of(analysis.getPersonId()));
+        photoIntent.setStartDate(analysis.getStartYear() + "-01-01");
+        photoIntent.setEndDate(analysis.getEndYear() + "-12-31");
+
         PhotoSearchExecution photoSearch = executePhotoQuery(photoIntent, page, size);
-        
-        // 获取人物信息
+
         List<PersonSummaryDTO> persons = new ArrayList<>();
-        if (analysis.personId != null) {
+        if (analysis.getPersonId() != null) {
             try {
-                Optional<PersonProfile> opt = personProfileRepository.findById(analysis.personId);
+                Optional<PersonProfile> opt = personProfileRepository.findById(analysis.getPersonId());
                 if (opt.isPresent()) {
                     persons.add(faceService.toSummaryDTO(opt.get()));
                 }
@@ -1741,300 +3761,36 @@ public class AiSearchService {
             }
         }
 
-        // 生成分析结论
-        String answer = buildBodyChangeAnswer(query, stats, analysis);
-        
-        AiSearchResponse response = new AiSearchResponse();
-        response.setAiSearchEnabled(true);
-        response.setQueryMode(queryMode);
-        response.setUsedAi(false);
-        response.setNeedAnswer(true);
-        response.setParsedIntent(photoIntent);
-        response.setExplanation(analysis.explanation);
-        response.setPhotos(photoSearch.pagedPhotoDtos);
-        response.setTotalElements(photoSearch.totalMatched);
-        response.setAlbums(Collections.emptyList());
-        response.setPersons(persons);
-        response.setRelaxed(false);
-        response.setRelaxedReason(null);
-        response.setAnswer(answer);
-        
-        // 添加分析数据到响应中，供前端展示图表
-        Map<String, Object> analysisData = new LinkedHashMap<>();
-        analysisData.put("personId", analysis.personId);
-        analysisData.put("personName", analysis.personName);
-        analysisData.put("startYear", analysis.startYear);
-        analysisData.put("endYear", analysis.endYear);
-        analysisData.put("totalPhotos", stats.totalPhotos);
-        analysisData.put("avgFaceArea", stats.avgFaceArea);
-        analysisData.put("avgFaceWidth", stats.avgFaceWidth);
-        analysisData.put("avgFaceHeight", stats.avgFaceHeight);
-        analysisData.put("avgAspectRatio", stats.avgAspectRatio);
-        // 将 yearlyStats 转换为 Map 列表以便 JSON 序列化
-        List<Map<String, Object>> yearlyStatsList = stats.yearlyStats.stream()
-            .map(ys -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("year", ys.year);
-                m.put("month", ys.month);
-                m.put("label", ys.label);
-                m.put("faceCount", ys.faceCount);
-                m.put("avgFaceArea", ys.avgFaceArea);
-                m.put("avgFaceWidth", ys.avgFaceWidth);
-                m.put("avgFaceHeight", ys.avgFaceHeight);
-                m.put("avgAspectRatio", ys.avgAspectRatio);
-                return m;
-            })
-            .collect(Collectors.toList());
-        analysisData.put("yearlyStats", yearlyStatsList);
-        analysisData.put("trend", stats.trend);
-        analysisData.put("conclusion", stats.conclusion);
-        analysisData.put("changePercent", stats.changePercent);
-        analysisData.put("firstPeriod", stats.firstPeriod);
-        analysisData.put("lastPeriod", stats.lastPeriod);
-        response.setAnalysisData(analysisData);
+        AiSearchEvidenceBundle evidenceBundle = aiSearchEvidenceReducer.reduce(plan, executionResult);
+        String answer = aiSearchResolver.resolve(evidenceBundle);
+
+        AiSearchResponse response = buildStandardAnalysisResponse(
+            queryMode,
+            photoIntent,
+            analysis.getExplanation(),
+            photoSearch,
+            photoSearch.totalMatched,
+            Collections.emptyList(),
+            persons,
+            plan,
+            executionResult,
+            evidenceBundle
+        );
+        response.setAnalysisData(aiSearchBodyChangeSupport.buildAnalysisData(analysis, executionResult, answer));
         response.setSuggestionActions(Collections.emptyList());
         response.setSuggestions(Collections.emptyList());
-
         return response;
     }
 
-    private BodyChangeAnalysis analyzeBodyChangeQuery(String query, CandidateContext candidates) {
-        BodyChangeAnalysis analysis = new BodyChangeAnalysis();
-        int currentYear = LocalDate.now().getYear();
-
-        // 默认时间范围：过去2年
-        analysis.endYear = currentYear;
-        analysis.startYear = currentYear - 2;
-
-        // 解析时间范围
-        if (query.contains("这两年") || query.contains("近两年")) {
-            analysis.startYear = currentYear - 2;
-            analysis.endYear = currentYear;
-        } else if (query.contains("这三年") || query.contains("近三年")) {
-            analysis.startYear = currentYear - 3;
-            analysis.endYear = currentYear;
-        } else if (query.contains("近五年") || query.contains("这五年")) {
-            analysis.startYear = currentYear - 5;
-            analysis.endYear = currentYear;
-        } else if (query.contains("近几年") || query.contains("近几年")) {
-            analysis.startYear = currentYear - 3;
-            analysis.endYear = currentYear;
-        } else if (query.contains("近一年") || query.contains("这一年")) {
-            analysis.startYear = currentYear - 1;
-            analysis.endYear = currentYear;
-        } else if (query.contains("去年")) {
-            analysis.startYear = currentYear - 1;
-            analysis.endYear = currentYear - 1;
-        } else if (query.contains("今年")) {
-            analysis.startYear = currentYear;
-            analysis.endYear = currentYear;
-        } else if (query.contains("前年")) {
-            analysis.startYear = currentYear - 2;
-            analysis.endYear = currentYear - 2;
-        }
-
-        // 解析具体年份（如"24年"、"2024年"）
-        if (query.contains("年")) {
-            String yearStr = query.replaceAll(".*?(\\d{2,4})年.*", "$1");
-            try {
-                int year;
-                if (yearStr.length() == 2) {
-                    year = 2000 + Integer.parseInt(yearStr);
-                } else {
-                    year = Integer.parseInt(yearStr);
-                }
-                if (year >= 2000 && year <= currentYear + 1) {
-                    analysis.startYear = year;
-                    analysis.endYear = year;
-                    // 如果同时有其他年份，尝试扩展范围
-                    String allYears = query.replaceAll("[^\\d]", " ");
-                    String[] parts = allYears.trim().split("\\s+");
-                    for (String p : parts) {
-                        if (p.length() >= 2) {
-                            try {
-                                int y = p.length() == 2 ? 2000 + Integer.parseInt(p) : Integer.parseInt(p);
-                                if (y >= 2000 && y <= currentYear + 1 && y != year) {
-                                    analysis.startYear = Math.min(year, y);
-                                    analysis.endYear = Math.max(year, y);
-                                }
-                            } catch (NumberFormatException ignored) {}
-                        }
-                    }
-                }
-            } catch (NumberFormatException ignored) {}
-        }
-
-        // 解析人物
+    private AiSearchBodyChangeSupport.BodyChangeAnalysis analyzeBodyChangeQuery(String query, CandidateContext candidates) {
+        Long personId = null;
+        String personName = null;
         if (candidates != null && !candidates.persons.isEmpty()) {
-            // 选择第一个匹配的人物
             PersonProfile person = candidates.persons.get(0);
-            analysis.personId = person.getId();
-            analysis.personName = person.getName();
+            personId = person.getId();
+            personName = person.getName();
         }
-
-        analysis.explanation = String.format("分析 %s 在 %d-%d 年间的体型/面部变化",
-            analysis.personName != null ? analysis.personName : "该人物",
-            analysis.startYear, analysis.endYear);
-
-        return analysis;
-    }
-
-    private BodyChangeStats calculateBodyChangeStats(Long personId, int startYear, int endYear) {
-        BodyChangeStats stats = new BodyChangeStats();
-
-        try {
-            // 查询该人物所有人脸数据
-            List<Face> faces = faceRepository.findByPersonId(personId);
-
-            // 过滤时间范围
-            List<Face> filteredFaces = faces.stream()
-                .filter(f -> f.getPhoto() != null && f.getPhoto().getTakenAt() != null)
-                .filter(f -> {
-                    int year = f.getPhoto().getTakenAt().getYear();
-                    return year >= startYear && year <= endYear;
-                })
-                .filter(f -> f.getWidth() != null && f.getHeight() != null && f.getWidth() > 0 && f.getHeight() > 0)
-                .collect(Collectors.toList());
-
-            stats.totalPhotos = filteredFaces.size();
-
-            if (stats.totalPhotos == 0) {
-                stats.conclusion = "该时间段内没有检测到人脸的照片，无法分析体型变化";
-                stats.trend = "unknown";
-                return stats;
-            }
-
-            // 计算总体统计
-            double totalArea = 0, totalWidth = 0, totalHeight = 0;
-            for (Face face : filteredFaces) {
-                double area = face.getWidth() * face.getHeight();
-                totalArea += area;
-                totalWidth += face.getWidth();
-                totalHeight += face.getHeight();
-            }
-            stats.avgFaceArea = totalArea / stats.totalPhotos;
-            stats.avgFaceWidth = totalWidth / stats.totalPhotos;
-            stats.avgFaceHeight = totalHeight / stats.totalPhotos;
-            stats.avgAspectRatio = stats.avgFaceHeight / stats.avgFaceWidth;
-
-            // 按 (年份, 月份) 分组统计
-            Map<String, List<Face>> byYearMonth = filteredFaces.stream()
-                .collect(Collectors.groupingBy(f -> {
-                    LocalDateTime takenAt = f.getPhoto().getTakenAt();
-                    return takenAt.getYear() + "-" + String.format("%02d", takenAt.getMonthValue());
-                }));
-
-            for (Map.Entry<String, List<Face>> entry : byYearMonth.entrySet()) {
-                String yearMonth = entry.getKey();
-                List<Face> monthFaces = entry.getValue();
-
-                double monthArea = monthFaces.stream()
-                    .mapToDouble(f -> f.getWidth() * f.getHeight())
-                    .average().orElse(0);
-                double monthWidth = monthFaces.stream()
-                    .mapToDouble(Face::getWidth)
-                    .average().orElse(0);
-                double monthHeight = monthFaces.stream()
-                    .mapToDouble(Face::getHeight)
-                    .average().orElse(0);
-
-                YearlyBodyStats monthStats = new YearlyBodyStats();
-                // 解析年月字符串
-                String[] parts = yearMonth.split("-");
-                monthStats.year = Integer.parseInt(parts[0]);
-                monthStats.month = Integer.parseInt(parts[1]);
-                monthStats.label = yearMonth; // 如 "2024-03"
-                monthStats.faceCount = monthFaces.size();
-                monthStats.avgFaceArea = monthArea;
-                monthStats.avgFaceWidth = monthWidth;
-                monthStats.avgFaceHeight = monthHeight;
-                monthStats.avgAspectRatio = monthHeight / monthWidth;
-
-                stats.yearlyStats.add(monthStats);
-            }
-
-            // 按时间排序
-            stats.yearlyStats.sort((a, b) -> {
-                int yearCompare = Integer.compare(a.year, b.year);
-                if (yearCompare != 0) return yearCompare;
-                return Integer.compare(a.month, b.month);
-            });
-
-            // 计算趋势：比较首尾两个时间点的宽高比
-            // 注意：宽高比更能反映体型变化，因为不受拍摄距离影响
-            // 宽高比增大 = 脸变圆 = 可能变胖
-            // 宽高比减小 = 脸变瘦长 = 可能变瘦
-            if (stats.yearlyStats.size() >= 2) {
-                double firstRatio = stats.yearlyStats.get(0).avgAspectRatio;
-                double lastRatio = stats.yearlyStats.get(stats.yearlyStats.size() - 1).avgAspectRatio;
-                String firstPeriod = stats.yearlyStats.get(0).label;
-                String lastPeriod = stats.yearlyStats.get(stats.yearlyStats.size() - 1).label;
-                // 宽高比变化百分比
-                double changePercent = ((lastRatio - firstRatio) / firstRatio) * 100;
-                stats.changePercent = changePercent;
-                stats.firstPeriod = firstPeriod;
-                stats.lastPeriod = lastPeriod;
-
-                // 使用宽高比判断：阈值调整为更敏感的2%
-                if (changePercent > 2) {
-                    stats.trend = "gained_weight";
-                    stats.conclusion = String.format("%s 至 %s 期间，面部宽高比从 %.3f 变为 %.3f（增加 %.1f%%），脸型看起来更圆了",
-                        firstPeriod, lastPeriod, firstRatio, lastRatio, changePercent);
-                } else if (changePercent < -2) {
-                    stats.trend = "lost_weight";
-                    stats.conclusion = String.format("%s 至 %s 期间，面部宽高比从 %.3f 变为 %.3f（减少 %.1f%%），脸型看起来更瘦长了",
-                        firstPeriod, lastPeriod, firstRatio, lastRatio, Math.abs(changePercent));
-                } else {
-                    stats.trend = "stable";
-                    stats.conclusion = String.format("%s 至 %s 期间，面部宽高比变化不大（%.1f%%），体型基本保持稳定",
-                        firstPeriod, lastPeriod, changePercent);
-                }
-            } else if (stats.yearlyStats.size() == 1) {
-                String period = stats.yearlyStats.get(0).label;
-                stats.trend = "single_period";
-                stats.conclusion = String.format("%s 期间共 %d 张照片，平均人脸面积 %.4f。由于只有单个月份数据，无法判断变化趋势。",
-                    period, stats.totalPhotos, stats.avgFaceArea);
-            } else {
-                stats.trend = "insufficient_data";
-                stats.conclusion = "数据不足，无法判断变化趋势";
-            }
-
-        } catch (Exception e) {
-            log.error("计算体型变化统计数据失败: {}", e.getMessage(), e);
-            stats.conclusion = "分析过程中出错：" + e.getMessage();
-            stats.trend = "error";
-        }
-
-        return stats;
-    }
-
-    private String buildBodyChangeAnswer(String query, BodyChangeStats stats, BodyChangeAnalysis analysis) {
-        StringBuilder sb = new StringBuilder();
-        String personName = analysis.personName != null ? analysis.personName : "该人物";
-        
-        sb.append(personName).append("在").append(analysis.startYear)
-          .append("-").append(analysis.endYear).append("年间的体型变化分析：\n\n");
-        
-        sb.append("📊 数据概览\n");
-        sb.append("- 有效人脸照片：").append(stats.totalPhotos).append(" 张\n");
-        sb.append("- 平均人脸面积：").append(String.format("%.4f", stats.avgFaceArea)).append("\n");
-        sb.append("- 平均宽高比：").append(String.format("%.2f", stats.avgAspectRatio)).append("\n\n");
-        
-        if (!stats.yearlyStats.isEmpty()) {
-            sb.append("📅 月度趋势\n");
-            for (YearlyBodyStats yearStats : stats.yearlyStats) {
-                sb.append("- ").append(yearStats.label).append("：")
-                  .append(yearStats.faceCount).append(" 张，")
-                  .append("宽高比 ").append(String.format("%.3f", yearStats.avgAspectRatio))
-                  .append("\n");
-            }
-            sb.append("\n");
-        }
-        
-        sb.append("📈 分析结论\n");
-        sb.append(stats.conclusion);
-        
-        return sb.toString();
+        return aiSearchBodyChangeSupport.analyze(query, personId, personName, LocalDate.now().getYear());
     }
 
     private AiSearchIntent callGpt(String query, CandidateContext candidates, String queryMode) {
@@ -2100,7 +3856,7 @@ public class AiSearchService {
             for (Album a : candidates.albums) {
                 sb.append("- id:").append(a.getId()).append(" \"").append(a.getName()).append("\"");
                 if (a.getPath() != null) {
-                    sb.append(" (").append(a.getPath()).append(")");
+                    sb.append(" (").append(normalizeTenantRelativePath(a.getPath())).append(")");
                 }
                 sb.append("\n");
             }
@@ -2148,6 +3904,8 @@ public class AiSearchService {
         sb.append("  \"needAnswer\": false,\n");
         sb.append("  \"answerPrompt\": null,\n");
         sb.append("  \"answerStyle\": null,\n");
+        sb.append("  \"analysisSpec\": null,\n");
+        sb.append("  \"analysisHint\": null,\n");
         sb.append("  \"explanation\": \"对本次搜索条件的简短中文说明\"\n");
         sb.append("}\n");
         sb.append("```\n\n");
@@ -2200,7 +3958,229 @@ public class AiSearchService {
         sb.append("15. explanation 要简短，偏检索解释，不要长篇回复。\n");
         sb.append("16. 兼容旧字段：personIds/tagIds/albumIds/startDate/endDate 等尽量同步填写，方便前端展示。\n");
         sb.append("17. 用户问\"怎么样/如何/好不好/是否\"这类问题时，needAnswer 设为 true，并用 answerPrompt 说明回答重点。\n");
-        sb.append("18. 只返回 JSON，不要额外解释。\n");
+        sb.append("18. 当用户在问\"谁/有谁/哪些人/哪些人物\"，但没有给出明确人名时，不要把抽象语义词（如 新认识、第一次出现、经常一起）机械塞进 keywords；优先保留稳定的时间/地点/器材/主题条件，并把 resultTypes 加上 persons，让后续系统根据候选人物统计继续判断。\n");
+        sb.append("19. 如果这是复杂分析型问题，优先填写 analysisSpec，而不是只写 analysisHint。\n");
+        sb.append("20. analysisSpec.subject.type 目前优先使用：relative_new_persons, temporal_person_set, filtered_scope。\n");
+        sb.append("21. analysisSpec.operation.type 目前允许：identity, still_active, activity_rank, body_change, cooccurrence, pair_cooccurrence, count_overview, person_overview, person_cooccurrence, person_pair_cooccurrence, album_overview, month_overview, location_overview, day_overview, tag_overview, theme_overview, year_compare。\n");
+        sb.append("22. analysisSpec.scope.type 可为：none, technical, scoped_photos。technical 用于纯器材范围；scoped_photos 用于器材+地点/主题关键词等联合范围。\n");
+        sb.append("23. relative_new_persons 至少需要 subject.targetYear；temporal_person_set 需要 absentYear/presentYear/missingAgainYear；filtered_scope 表示“先按当前 intent 过滤命中照片，再在该范围内做聚合或关系分析”。\n");
+        sb.append("24. still_active 需要 operation.activeYear；body_change 需要 operation.startYear/endYear 和 desiredTrend=gained_weight；cooccurrence/person_cooccurrence 可填写 anchorPersonIds/anchorPersonNames，若要表达“之后又没再出现”可填 operation.missingAgainYear。\n");
+        sb.append("25. 对“当前范围里有谁/多少张/谁和谁最常同框/某人经常和谁一起出现/哪个相册最多/哪个月最多/主要地点/标签/主要主题/去年和前年相比更多还是更少”这类问题，优先用 subject.type=filtered_scope，并在主 intent 里保留稳定筛选条件。\n");
+        sb.append("26. 如果 operation.type=year_compare，需要填写 operation.leftYear 与 operation.rightYear；operation.subject 可写成比较主体摘要，如“樱花”或“杭州旅行”。\n");
+        sb.append("27. analysisHint 仅作为兼容字段；如果已经填写 analysisSpec，analysisHint 可以保持 null。\n");
+        sb.append("28. 只有在你对结构化分析规格判断有把握时才填写 analysisSpec；否则保持 null。\n");
+        sb.append("29. 只返回 JSON，不要额外解释。\n");
+
+        sb.append("\n## analysisSpec 示例\n");
+        sb.append("示例1：用户问“去年有谁”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"persons\", \"photos\", \"albums\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"person_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例2：用户问“去年在杭州小明经常一起出现的是谁”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"persons\", \"photos\", \"albums\"],\n");
+        sb.append("  \"personIds\": [1],\n");
+        sb.append("  \"keywords\": [\"杭州\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"person\", \"ids\": [1]},\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"杭州\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\n");
+        sb.append("      \"type\": \"person_cooccurrence\",\n");
+        sb.append("      \"anchorPersonIds\": [1],\n");
+        sb.append("      \"anchorPersonNames\": [\"小明\"]\n");
+        sb.append("    },\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例3：用户问“谁和谁最常同框”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"person_pair_cooccurrence\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例4：用户问“去年和前年相比樱花拍得更多还是更少”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\n");
+        sb.append("      \"type\": \"year_compare\",\n");
+        sb.append("      \"leftYear\": ").append(currentYear - 1).append(",\n");
+        sb.append("      \"rightYear\": ").append(currentYear - 2).append(",\n");
+        sb.append("      \"subject\": \"樱花\"\n");
+        sb.append("    },\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例5：用户问“去年樱花有多少张”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"count_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例6：用户问“去年樱花主要在哪些相册”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"album_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例7：用户问“去年樱花主要是几月拍的”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"month_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例8：用户问“去年樱花主要拍在哪些地方”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"location_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例9：用户问“去年樱花集中在哪几天拍”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"day_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例10：用户问“去年樱花照片里高频标签有哪些”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"keywords\": [\"樱花\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"keyword\", \"values\": [\"樱花\"]},\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"tag_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+
+        sb.append("示例11：用户问“去年主要拍了什么主题”\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"resultTypes\": [\"photos\", \"albums\"],\n");
+        sb.append("  \"must\": [\n");
+        sb.append("    {\"type\": \"date_range\", \"startDate\": \"").append(currentYear - 1).append("-01-01\", \"endDate\": \"").append(currentYear - 1).append("-12-31\"}\n");
+        sb.append("  ],\n");
+        sb.append("  \"needAnswer\": true,\n");
+        sb.append("  \"analysisSpec\": {\n");
+        sb.append("    \"subjectType\": \"persons\",\n");
+        sb.append("    \"subject\": {\"type\": \"filtered_scope\"},\n");
+        sb.append("    \"operation\": {\"type\": \"theme_overview\"},\n");
+        sb.append("    \"scope\": {\"type\": \"none\"}\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
 
         return sb.toString();
     }
@@ -2239,6 +4219,8 @@ public class AiSearchService {
         sanitizeConditionListWithReplacement(objectNode, "must");
         sanitizeConditionListWithReplacement(objectNode, "should");
         sanitizeConditionListWithReplacement(objectNode, "mustNot");
+        sanitizeAnalysisSpec(objectNode);
+        sanitizeAnalysisHint(objectNode);
     }
 
     private void sanitizeIdField(ObjectNode objectNode, String fieldName) {
@@ -2264,6 +4246,135 @@ public class AiSearchService {
         objectNode.set(fieldName, sanitized);
     }
 
+    private void sanitizeStringArrayField(ObjectNode objectNode, String fieldName) {
+        JsonNode field = objectNode.get(fieldName);
+        if (!(field instanceof ArrayNode)) {
+            return;
+        }
+        ArrayNode arrayNode = (ArrayNode) field;
+        ArrayNode sanitized = objectMapper.createArrayNode();
+        for (JsonNode item : arrayNode) {
+            if (item != null && item.isTextual() && !item.asText().isBlank()) {
+                sanitized.add(item.asText());
+            }
+        }
+        objectNode.set(fieldName, sanitized);
+    }
+
+    private void sanitizeAnalysisSpec(ObjectNode objectNode) {
+        JsonNode specNode = objectNode.get("analysisSpec");
+        if (!(specNode instanceof ObjectNode)) {
+            return;
+        }
+        ObjectNode specObject = (ObjectNode) specNode;
+        JsonNode scopeNode = specObject.get("scope");
+        if (scopeNode instanceof ObjectNode) {
+            ObjectNode scopeObject = (ObjectNode) scopeNode;
+            sanitizeStringArrayField(scopeObject, "cameraModels");
+            sanitizeStringArrayField(scopeObject, "lensModels");
+            sanitizeStringArrayField(scopeObject, "scopeKeywords");
+        }
+        JsonNode operationNode = specObject.get("operation");
+        if (operationNode instanceof ObjectNode) {
+            ObjectNode operationObject = (ObjectNode) operationNode;
+            sanitizeStringField(operationObject, "subject");
+            sanitizeIdArrayField(operationObject, "anchorPersonIds");
+            sanitizeStringArrayField(operationObject, "anchorPersonNames");
+        }
+    }
+
+    private void sanitizeStringField(ObjectNode objectNode, String fieldName) {
+        JsonNode field = objectNode.get(fieldName);
+        if (field == null || field.isNull()) {
+            return;
+        }
+        if (field.isTextual()) {
+            String text = field.asText().trim();
+            if (text.isEmpty()) {
+                objectNode.putNull(fieldName);
+            } else {
+                objectNode.put(fieldName, text);
+            }
+            return;
+        }
+        objectNode.putNull(fieldName);
+    }
+
+    private void sanitizeAnalysisHint(ObjectNode objectNode) {
+        JsonNode hintNode = objectNode.get("analysisHint");
+        if (!(hintNode instanceof ObjectNode)) {
+            return;
+        }
+        ObjectNode hintObject = (ObjectNode) hintNode;
+        sanitizeIdArrayField(hintObject, "anchorPersonIds");
+        sanitizeStringArrayField(hintObject, "cameraModels");
+        sanitizeStringArrayField(hintObject, "lensModels");
+        sanitizeStringArrayField(hintObject, "scopeKeywords");
+        sanitizeStringArrayField(hintObject, "anchorPersonNames");
+    }
+
+    private AiSearchAnalysisSpec convertLegacyAnalysisHint(AiSearchAnalysisHint hint) {
+        if (hint == null || hint.getCapability() == null || hint.getCapability().isBlank()) {
+            return null;
+        }
+
+        AiSearchAnalysisSpec spec = new AiSearchAnalysisSpec();
+        spec.setSubjectType("persons");
+
+        AiSearchAnalysisSubject subject = new AiSearchAnalysisSubject();
+        AiSearchAnalysisOperation operation = new AiSearchAnalysisOperation();
+        AiSearchAnalysisScope scope = new AiSearchAnalysisScope();
+        scope.setType("none");
+        scope.setCameraModels(hint.getCameraModels());
+        scope.setLensModels(hint.getLensModels());
+        scope.setScopeKeywords(hint.getScopeKeywords());
+
+        switch (hint.getCapability()) {
+            case "relative_new_persons":
+                subject.setType("relative_new_persons");
+                subject.setTargetYear(hint.getTargetYear());
+                operation.setType("identity");
+                break;
+            case "relative_new_persons_still_active":
+                subject.setType("relative_new_persons");
+                subject.setTargetYear(hint.getTargetYear());
+                operation.setType("still_active");
+                operation.setActiveYear(hint.getActiveYear());
+                break;
+            case "relative_new_persons_body_change":
+                subject.setType("relative_new_persons");
+                subject.setTargetYear(hint.getTargetYear());
+                operation.setType("body_change");
+                operation.setStartYear(hint.getStartYear());
+                operation.setEndYear(hint.getEndYear());
+                operation.setDesiredTrend(hint.getDesiredTrend() == null ? "gained_weight" : hint.getDesiredTrend());
+                break;
+            case "temporal_person_set":
+                subject.setType("temporal_person_set");
+                subject.setAbsentYear(hint.getAbsentYear());
+                subject.setPresentYear(hint.getPresentYear());
+                subject.setMissingAgainYear(hint.getMissingAgainYear());
+                operation.setType("identity");
+                break;
+            default:
+                return null;
+        }
+
+        if (scope.getScopeKeywords() != null && !scope.getScopeKeywords().isEmpty()) {
+            scope.setType("scoped_photos");
+        } else if ((scope.getCameraModels() != null && !scope.getCameraModels().isEmpty())
+            || (scope.getLensModels() != null && !scope.getLensModels().isEmpty())) {
+            scope.setType("technical");
+        }
+        operation.setAnchorPersonIds(hint.getAnchorPersonIds());
+        operation.setAnchorPersonNames(hint.getAnchorPersonNames());
+
+        spec.setSubject(subject);
+        spec.setOperation(operation);
+        spec.setScope(scope);
+        return spec;
+    }
+
     private void sanitizeConditionListWithReplacement(ObjectNode parentNode, String fieldName) {
         JsonNode node = parentNode.get(fieldName);
         if (!(node instanceof ArrayNode)) {
@@ -2286,11 +4397,50 @@ public class AiSearchService {
                 sanitized.add(condition);
             } else if (item instanceof ObjectNode) {
                 ObjectNode condition = (ObjectNode) item;
+                condition = upgradeLegacyConditionObject(condition);
                 sanitizeIdArrayField(condition, "ids");
                 sanitized.add(condition);
             }
         }
         parentNode.set(fieldName, sanitized);
+    }
+
+    private ObjectNode upgradeLegacyConditionObject(ObjectNode condition) {
+        if (condition == null || (condition.hasNonNull("type") && !condition.path("type").asText("").isBlank())) {
+            return condition;
+        }
+
+        if (condition.hasNonNull("cameraModel")) {
+            ObjectNode upgraded = objectMapper.createObjectNode();
+            upgraded.put("type", "camera_model");
+            upgraded.put("value", condition.path("cameraModel").asText());
+            return upgraded;
+        }
+        if (condition.hasNonNull("lensModel")) {
+            ObjectNode upgraded = objectMapper.createObjectNode();
+            upgraded.put("type", "lens_model");
+            upgraded.put("value", condition.path("lensModel").asText());
+            return upgraded;
+        }
+        if (condition.hasNonNull("startDate") || condition.hasNonNull("endDate")) {
+            ObjectNode upgraded = objectMapper.createObjectNode();
+            upgraded.put("type", "date_range");
+            if (condition.hasNonNull("startDate")) {
+                upgraded.put("startDate", condition.path("startDate").asText());
+            }
+            if (condition.hasNonNull("endDate")) {
+                upgraded.put("endDate", condition.path("endDate").asText());
+            }
+            return upgraded;
+        }
+        if (condition.hasNonNull("keywords") && condition.path("keywords").isArray()) {
+            ObjectNode upgraded = objectMapper.createObjectNode();
+            upgraded.put("type", "keyword");
+            upgraded.set("values", condition.path("keywords"));
+            return upgraded;
+        }
+
+        return condition;
     }
 
     private void normalizeIntent(String query, AiSearchIntent intent, boolean applyRelativeYearRange) {
@@ -2337,6 +4487,7 @@ public class AiSearchService {
             normalizeRelativeYearRange(query, intent);
         }
         reconcileAlbumConditions(intent);
+        normalizeAnalysisSpec(query, intent);
 
         intent.setIncludeHidden(false);
         if (intent.getNeedAnswer() == null) {
@@ -2345,6 +4496,42 @@ public class AiSearchService {
         if (intent.getResultTypes() == null) {
             intent.setResultTypes(new ArrayList<>());
         }
+        ensureOpenQuestionResultTypes(query, intent);
+    }
+
+    private void normalizeAnalysisSpec(String query, AiSearchIntent intent) {
+        aiSearchAnalysisSpecNormalizer.normalize(intent);
+    }
+
+    private void ensureOpenQuestionResultTypes(String query, AiSearchIntent intent) {
+        String normalized = normalizeLooseText(query);
+        if (normalized.isBlank()) {
+            return;
+        }
+
+        LinkedHashSet<String> resultTypes = new LinkedHashSet<>(normalizeResultTypes(intent));
+        if (asksForPersons(normalized) && collectPositiveConditionIds(intent, "person").isEmpty()) {
+            resultTypes.add("persons");
+        }
+        if (asksForAlbums(normalized) && collectPositiveConditionIds(intent, "album").isEmpty()) {
+            resultTypes.add("albums");
+        }
+        intent.setResultTypes(new ArrayList<>(resultTypes));
+    }
+
+    private boolean asksForPersons(String normalizedQuery) {
+        return normalizedQuery.contains("有谁")
+            || normalizedQuery.contains("哪些人")
+            || normalizedQuery.contains("哪些人物")
+            || normalizedQuery.contains("哪位")
+            || normalizedQuery.contains("哪几位")
+            || normalizedQuery.contains("人物");
+    }
+
+    private boolean asksForAlbums(String normalizedQuery) {
+        return normalizedQuery.contains("哪些相册")
+            || normalizedQuery.contains("哪个相册")
+            || normalizedQuery.contains("相册");
     }
 
     // 安全打印 AiSearchIntent，避免 toString() 栈溢出
@@ -2881,6 +5068,7 @@ public class AiSearchService {
             case "color":
             case "quality":
             case "date_range":
+            case "match_all":
                 return photoIdsForMetadataCondition(condition, includeHidden);
             default:
                 log.debug("忽略未知AI搜索条件类型: {}", type);
@@ -3071,6 +5259,8 @@ public class AiSearchService {
         LocalDateTime endDate = null;
 
         switch (type) {
+            case "match_all":
+                return getAllPhotoIds(includeHidden);
             case "camera_model":
                 cameraModel = firstTextValue(condition);
                 break;
@@ -3239,7 +5429,8 @@ public class AiSearchService {
                                   AiSearchIntent intent,
                                   PhotoSearchExecution photoSearch,
                                   List<AlbumDTO> albums,
-                                  List<PersonSummaryDTO> persons) {
+                                  List<PersonSummaryDTO> persons,
+                                  Map<Long, PersonAppearanceStats> derivedPersonStats) {
         if (photoSearch.totalMatched == 0 && albums.isEmpty() && persons.isEmpty()) {
             return "检索结论：图库中未找到可用于判断的相关结果。";
         }
@@ -3252,7 +5443,7 @@ public class AiSearchService {
         }
 
         String endpoint = getChatEndpoint(apiUrl);
-        String summary = buildAnswerSummary(intent, photoSearch, albums, persons);
+        String summary = buildAnswerSummary(intent, photoSearch, albums, persons, derivedPersonStats);
 
         Map<String, Object> requestBody = new LinkedHashMap<>();
         requestBody.put("model", model);
@@ -3287,7 +5478,8 @@ public class AiSearchService {
     private String buildAnswerSummary(AiSearchIntent intent,
                                       PhotoSearchExecution photoSearch,
                                       List<AlbumDTO> albums,
-                                      List<PersonSummaryDTO> persons) {
+                                      List<PersonSummaryDTO> persons,
+                                      Map<Long, PersonAppearanceStats> derivedPersonStats) {
         StringBuilder sb = new StringBuilder();
         sb.append("- 搜索说明: ").append(nullToDefault(intent.getExplanation(), "无")).append("\n");
         sb.append("- 匹配照片数: ").append(photoSearch.totalMatched).append("\n");
@@ -3396,6 +5588,22 @@ public class AiSearchService {
                     .map(person -> person.getName() + "(" + nullSafeCount(person.getFaceCount()) + "张)")
                     .collect(Collectors.joining("，")))
                 .append("\n");
+        }
+
+        if (!derivedPersonStats.isEmpty()) {
+            sb.append("- 人物候选明细:\n");
+            derivedPersonStats.values().stream()
+                .sorted((left, right) -> Integer.compare(right.matchedPhotoCount, left.matchedPhotoCount))
+                .limit(10)
+                .forEach(stats -> sb.append("  - ")
+                    .append(nullToDefault(stats.personName, "未知人物"))
+                    .append(" | id=").append(stats.personId)
+                    .append(" | 命中照片=").append(stats.matchedPhotoCount)
+                    .append(" | 本次首次=").append(formatLocalDate(stats.matchedFirstSeen))
+                    .append(" | 本次最近=").append(formatLocalDate(stats.matchedLastSeen))
+                    .append(" | 全库首次=").append(formatLocalDate(stats.globalFirstSeen))
+                    .append(" | 全库最近=").append(formatLocalDate(stats.globalLastSeen))
+                    .append("\n"));
         }
 
         if (!albums.isEmpty()) {
@@ -3569,105 +5777,8 @@ public class AiSearchService {
             draft.evidenceStatus = blankToNull(answerNode.path("evidenceStatus").asText(""));
             return draft;
         } catch (Exception e) {
-            throw new RuntimeException("解析回答失败: " + e.getMessage(), e);
+            throw new RuntimeException("解析回答失败: " + userPathService.sanitizeVisibleText(e.getMessage()), e);
         }
-    }
-
-    private String buildThemeOverviewAnswer(AiSearchIntent intent,
-                                            PhotoSearchExecution photoSearch,
-                                            Map<String, Long> themeCounts) {
-        String periodLabel = buildTimeRangeSummary(intent);
-        if (photoSearch.totalMatched == 0) {
-            return "检索结论：" + periodLabel + "未找到可统计的公开照片。";
-        }
-        if (themeCounts.isEmpty()) {
-            return "检索结论：" + periodLabel + "共找到 " + photoSearch.totalMatched
-                + " 张公开照片，但暂时难以仅根据相册名和标签归纳出明显主题。";
-        }
-
-        String summary = themeCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.joining("、"));
-        return "检索结论：" + periodLabel + "拍得较多的主题有：" + summary + "。统计主要基于相册名与照片标签，属于粗略归纳。";
-    }
-
-    private String buildLocationOverviewAnswer(AiSearchIntent intent,
-                                               PhotoSearchExecution photoSearch,
-                                               Map<String, Long> locationCounts) {
-        String periodLabel = buildTimeRangeSummary(intent);
-        if (photoSearch.totalMatched == 0) {
-            return "检索结论：" + periodLabel + "未找到可统计地点的公开照片。";
-        }
-        if (locationCounts.isEmpty()) {
-            return "检索结论：" + periodLabel + "共找到 " + photoSearch.totalMatched
-                + " 张公开照片，但暂时难以仅根据相册名和路径稳定归纳出拍摄地点。";
-        }
-
-        String summary = locationCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.joining("、"));
-        return "检索结论：" + periodLabel + "相关内容主要拍摄于：" + summary + "。地点主要依据相册名与路径推断，属于粗略归纳。";
-    }
-
-    private String buildAlbumOverviewAnswer(AiSearchIntent intent,
-                                            PhotoSearchExecution photoSearch,
-                                            Map<Long, Long> albumCounts,
-                                            List<AlbumDTO> albums) {
-        String periodLabel = buildTimeRangeSummary(intent);
-        if (photoSearch.totalMatched == 0 || albumCounts.isEmpty()) {
-            return "检索结论：" + periodLabel + "未找到可统计的公开相册结果。";
-        }
-
-        Map<Long, String> albumNames = albums.stream()
-            .filter(album -> album.getId() != null)
-            .collect(Collectors.toMap(AlbumDTO::getId, AlbumDTO::getName, (left, right) -> left, LinkedHashMap::new));
-        String summary = albumCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> nullToDefault(albumNames.get(entry.getKey()), "相册#" + entry.getKey()) + "(" + entry.getValue() + "张)")
-            .collect(Collectors.joining("、"));
-        return "检索结论：" + periodLabel + "拍得较多的相册有：" + summary + "。";
-    }
-
-    private String buildMonthOverviewAnswer(AiSearchIntent intent,
-                                            PhotoSearchExecution photoSearch,
-                                            Map<String, Long> monthCounts) {
-        String periodLabel = buildTimeRangeSummary(intent);
-        if (photoSearch.totalMatched == 0 || monthCounts.isEmpty()) {
-            return "检索结论：" + periodLabel + "未找到可统计月份的公开照片。";
-        }
-        String summary = monthCounts.entrySet().stream()
-            .limit(4)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.joining("、"));
-        return "检索结论：" + periodLabel + "拍摄较集中的月份有：" + summary + "。";
-    }
-
-    private String buildCountOverviewAnswer(AiSearchIntent intent,
-                                            PhotoSearchExecution photoSearch,
-                                            Map<Long, Long> albumCounts) {
-        String periodLabel = buildTimeRangeSummary(intent);
-        if (photoSearch.totalMatched == 0) {
-            return "检索结论：" + periodLabel + "未找到相关公开照片。";
-        }
-        int albumSize = albumCounts.size();
-        return "检索结论：" + periodLabel + "共找到 " + photoSearch.totalMatched + " 张相关公开照片，分布在 "
-            + albumSize + " 个相册中。";
-    }
-
-    private String buildDayOverviewAnswer(AiSearchIntent intent,
-                                          PhotoSearchExecution photoSearch,
-                                          Map<String, Long> dayCounts) {
-        String periodLabel = buildTimeRangeSummary(intent);
-        if (photoSearch.totalMatched == 0 || dayCounts.isEmpty()) {
-            return "检索结论：" + periodLabel + "未找到可统计具体日期的公开照片。";
-        }
-        String summary = dayCounts.entrySet().stream()
-            .limit(5)
-            .map(entry -> entry.getKey() + "(" + entry.getValue() + "张)")
-            .collect(Collectors.joining("、"));
-        return "检索结论：" + periodLabel + "拍摄主要集中在：" + summary + "。";
     }
 
     private String buildTagOverviewAnswer(AiSearchIntent intent,
@@ -3685,29 +5796,29 @@ public class AiSearchService {
     }
 
     private String buildYearCompareAnswer(AiSearchIntent baseIntent,
-                                          YearComparison comparison,
+                                          AiSearchYearCompareSupport.YearComparison comparison,
                                           PhotoSearchExecution leftSearch,
                                           PhotoSearchExecution rightSearch) {
         long leftCount = leftSearch.totalMatched;
         long rightCount = rightSearch.totalMatched;
         String subject = buildKeywordSummary(baseIntent);
         if (leftCount == 0 && rightCount == 0) {
-            return "检索结论：" + comparison.leftYear + " 年和 " + comparison.rightYear + " 年都未找到相关公开照片。";
+            return "检索结论：" + comparison.getLeftYear() + " 年和 " + comparison.getRightYear() + " 年都未找到相关公开照片。";
         }
         if (leftCount == rightCount) {
-            return "检索结论：" + comparison.leftYear + " 年与 " + comparison.rightYear + " 年关于 " + subject
+            return "检索结论：" + comparison.getLeftYear() + " 年与 " + comparison.getRightYear() + " 年关于 " + subject
                 + " 的公开照片数量相同，都是 " + leftCount + " 张。";
         }
 
         boolean leftMore = leftCount > rightCount;
         long more = leftMore ? leftCount : rightCount;
         long less = leftMore ? rightCount : leftCount;
-        int moreYear = leftMore ? comparison.leftYear : comparison.rightYear;
-        int lessYear = leftMore ? comparison.rightYear : comparison.leftYear;
+        int moreYear = leftMore ? comparison.getLeftYear() : comparison.getRightYear();
+        int lessYear = leftMore ? comparison.getRightYear() : comparison.getLeftYear();
         String ratioText = less == 0 ? "明显更多" : String.format(Locale.ROOT, "约 %.1f 倍", (double) more / (double) less);
 
-        return "检索结论：" + comparison.leftYear + " 年找到 " + leftCount + " 张，"
-            + comparison.rightYear + " 年找到 " + rightCount + " 张；"
+        return "检索结论：" + comparison.getLeftYear() + " 年找到 " + leftCount + " 张，"
+            + comparison.getRightYear() + " 年找到 " + rightCount + " 张；"
             + moreYear + " 年关于 " + subject + " 的拍摄更多，相比 " + lessYear + " 年" + ratioText + "。";
     }
 
@@ -3725,23 +5836,8 @@ public class AiSearchService {
         return nullToDefault(startDate, "开始时间未知") + " 到 " + nullToDefault(endDate, "现在");
     }
 
-    private YearComparison resolveYearComparison(String query) {
-        int currentYear = LocalDate.now().getYear();
-        if (query != null) {
-            if (query.contains("今年") && query.contains("去年")) {
-                return new YearComparison(currentYear, currentYear - 1);
-            }
-            if (query.contains("去年") && query.contains("前年")) {
-                return new YearComparison(currentYear - 1, currentYear - 2);
-            }
-            if (query.contains("今年") && query.contains("前年")) {
-                return new YearComparison(currentYear, currentYear - 2);
-            }
-            if (query.contains("去年")) {
-                return new YearComparison(currentYear - 1, currentYear - 2);
-            }
-        }
-        return new YearComparison(currentYear, currentYear - 1);
+    private AiSearchYearCompareSupport.YearComparison resolveYearComparison(String query) {
+        return aiSearchYearCompareSupport.resolveComparison(query, LocalDate.now().getYear());
     }
 
     private void setYearRange(AiSearchIntent intent, int year) {
@@ -3776,6 +5872,26 @@ public class AiSearchService {
         intent.setKeywords(new ArrayList<>(topicKeywords));
     }
 
+    private void ensureAnalysisScopeCondition(AiSearchIntent intent) {
+        if (intent == null) {
+            return;
+        }
+        boolean hasScopedFilters =
+            !getEffectivePersonIds(intent).isEmpty()
+                || (intent.getTagIds() != null && !intent.getTagIds().isEmpty())
+                || (intent.getAlbumIds() != null && !intent.getAlbumIds().isEmpty())
+                || (intent.getKeywords() != null && !intent.getKeywords().isEmpty())
+                || (intent.getFilenameKeywords() != null && !intent.getFilenameKeywords().isEmpty())
+                || !isBlank(intent.getStartDate())
+                || !isBlank(intent.getEndDate())
+                || !safeList(intent.getMust()).isEmpty()
+                || !safeList(intent.getShould()).isEmpty();
+        if (hasScopedFilters || hasPositiveConditionType(intent, "match_all")) {
+            return;
+        }
+        intent.getMust().add(valueCondition("match_all", "visible"));
+    }
+
     private List<String> extractAnalysisKeywords(String query) {
         String text = stripAnalysisNoise(query);
         if (text.isBlank()) {
@@ -3796,6 +5912,54 @@ public class AiSearchService {
             }
         }
         return new ArrayList<>(keywords);
+    }
+
+    private List<String> filterAnalysisKeywordsExcludingPerson(List<String> keywords, String personName) {
+        if (keywords == null || keywords.isEmpty() || isBlank(personName)) {
+            return keywords == null ? Collections.emptyList() : keywords;
+        }
+        String normalizedPersonName = normalizeLooseText(personName);
+        return keywords.stream()
+            .filter(keyword -> {
+                String normalizedKeyword = normalizeLooseText(keyword);
+                return normalizedKeyword.isBlank()
+                    || (!normalizedKeyword.equals(normalizedPersonName)
+                    && !normalizedPersonName.contains(normalizedKeyword)
+                    && !normalizedKeyword.contains(normalizedPersonName));
+            })
+            .collect(Collectors.toList());
+    }
+
+    private String resolvePersonName(Long personId) {
+        if (personId == null) {
+            return "";
+        }
+        return personProfileRepository.findById(personId)
+            .map(PersonProfile::getName)
+            .orElse("");
+    }
+
+    private List<Long> resolveDistinctAnchorPersonIds(List<Long> rankedAnchorPersonIds) {
+        if (rankedAnchorPersonIds == null || rankedAnchorPersonIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LinkedHashSet<Long> unique = new LinkedHashSet<>();
+        for (Long personId : rankedAnchorPersonIds) {
+            if (personId != null) {
+                unique.add(personId);
+            }
+            if (unique.size() >= 3) {
+                break;
+            }
+        }
+        return new ArrayList<>(unique);
+    }
+
+    private boolean hasExplicitAnchorPerson(String query, CandidateContext candidates) {
+        if (query == null || query.isBlank() || candidates == null) {
+            return false;
+        }
+        return !rankPersonMatches(candidates, query, generateTokens(query), 1).isEmpty();
     }
 
     private List<AlbumDTO> fetchTopAlbumsForMatchedPhotos(List<Photo> photos, int limit) {
@@ -3826,115 +5990,6 @@ public class AiSearchService {
             })
             .filter(java.util.Objects::nonNull)
             .collect(Collectors.toList());
-    }
-
-    private Map<String, Long> summarizeThemes(List<Photo> photos, List<AlbumDTO> albums) {
-        if (photos == null || photos.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
-        Map<Long, List<String>> albumThemes = new HashMap<>();
-        Map<String, Integer> albumThemeFrequency = new HashMap<>();
-        if (albums != null) {
-            for (AlbumDTO album : albums) {
-                if (album != null && album.getId() != null) {
-                    List<String> themes = extractAlbumThemeCandidates(album);
-                    albumThemes.put(album.getId(), themes);
-                    themes.forEach(theme -> albumThemeFrequency.merge(theme, 1, Integer::sum));
-                }
-            }
-        }
-
-        Map<String, Long> counts = new LinkedHashMap<>();
-        Set<String> tagThemes = new HashSet<>();
-        for (Photo photo : photos) {
-            if (photo.getTags() != null) {
-                for (Tag tag : photo.getTags()) {
-                    for (String theme : extractThemeCandidates(tag == null ? null : tag.getName())) {
-                        counts.merge(theme, 1L, Long::sum);
-                        tagThemes.add(theme);
-                    }
-                }
-            }
-
-            List<String> themes = albumThemes.get(photo.getAlbumId());
-            if (themes == null || themes.isEmpty()) {
-                themes = albumRepository.findById(photo.getAlbumId())
-                    .map(this::extractAlbumThemeCandidates)
-                    .orElse(Collections.emptyList());
-                albumThemes.put(photo.getAlbumId(), themes);
-                themes.forEach(theme -> albumThemeFrequency.merge(theme, 1, Integer::sum));
-            }
-            for (String theme : themes) {
-                if (!tagThemes.contains(theme) && albumThemeFrequency.getOrDefault(theme, 0) < 2) {
-                    continue;
-                }
-                counts.merge(theme, 2L, Long::sum);
-            }
-        }
-
-        return counts.entrySet().stream()
-            .filter(entry -> entry.getValue() >= 2)
-            .sorted((left, right) -> {
-                int byCount = Long.compare(right.getValue(), left.getValue());
-                if (byCount != 0) {
-                    return byCount;
-                }
-                return left.getKey().compareTo(right.getKey());
-            })
-            .limit(8)
-            .collect(Collectors.toMap(
-                Map.Entry::getKey,
-                Map.Entry::getValue,
-                (left, right) -> left,
-                LinkedHashMap::new
-            ));
-    }
-
-    private Map<String, Long> summarizeLocations(List<Photo> photos, List<AlbumDTO> albums) {
-        if (photos == null || photos.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
-        Map<Long, List<String>> albumLocations = new HashMap<>();
-        if (albums != null) {
-            for (AlbumDTO album : albums) {
-                if (album != null && album.getId() != null) {
-                    albumLocations.put(album.getId(), extractAlbumLocationCandidates(album));
-                }
-            }
-        }
-
-        Map<String, Long> counts = new LinkedHashMap<>();
-        for (Photo photo : photos) {
-            List<String> locations = albumLocations.get(photo.getAlbumId());
-            if (locations == null || locations.isEmpty()) {
-                locations = albumRepository.findById(photo.getAlbumId())
-                    .map(this::extractAlbumLocationCandidates)
-                    .orElse(Collections.emptyList());
-                albumLocations.put(photo.getAlbumId(), locations);
-            }
-            for (String location : locations) {
-                counts.merge(location, 1L, Long::sum);
-            }
-        }
-
-        return counts.entrySet().stream()
-            .filter(entry -> entry.getValue() >= 2)
-            .sorted((left, right) -> {
-                int byCount = Long.compare(right.getValue(), left.getValue());
-                if (byCount != 0) {
-                    return byCount;
-                }
-                return left.getKey().compareTo(right.getKey());
-            })
-            .limit(8)
-            .collect(Collectors.toMap(
-                Map.Entry::getKey,
-                Map.Entry::getValue,
-                (left, right) -> left,
-                LinkedHashMap::new
-            ));
     }
 
     private Map<Long, Long> summarizeAlbumCounts(List<Photo> photos) {
@@ -4047,142 +6102,17 @@ public class AiSearchService {
             ));
     }
 
-    private List<String> extractAlbumThemeCandidates(AlbumDTO album) {
-        if (album == null) {
-            return Collections.emptyList();
+    private String normalizeTenantRelativePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
         }
-        LinkedHashSet<String> themes = new LinkedHashSet<>();
-        themes.addAll(extractThemeCandidates(album.getName()));
-        themes.addAll(extractThemeCandidates(album.getDisplayTitle()));
-        themes.addAll(extractPathThemeCandidates(album.getPath()));
-        themes.addAll(extractPathThemeCandidates(album.getRelativePath()));
-        return new ArrayList<>(themes);
-    }
-
-    private List<String> extractAlbumLocationCandidates(AlbumDTO album) {
-        if (album == null) {
-            return Collections.emptyList();
-        }
-        LinkedHashSet<String> locations = new LinkedHashSet<>();
-        locations.addAll(extractLocationCandidates(album.getName()));
-        locations.addAll(extractLocationCandidates(album.getDisplayTitle()));
-        locations.addAll(extractPathLocationCandidates(album.getPath()));
-        locations.addAll(extractPathLocationCandidates(album.getRelativePath()));
-        return new ArrayList<>(locations);
-    }
-
-    private List<String> extractAlbumThemeCandidates(Album album) {
-        if (album == null) {
-            return Collections.emptyList();
-        }
-        LinkedHashSet<String> themes = new LinkedHashSet<>();
-        themes.addAll(extractThemeCandidates(album.getName()));
-        themes.addAll(extractPathThemeCandidates(album.getPath()));
-        return new ArrayList<>(themes);
-    }
-
-    private List<String> extractAlbumLocationCandidates(Album album) {
-        if (album == null) {
-            return Collections.emptyList();
-        }
-        LinkedHashSet<String> locations = new LinkedHashSet<>();
-        locations.addAll(extractLocationCandidates(album.getName()));
-        locations.addAll(extractPathLocationCandidates(album.getPath()));
-        return new ArrayList<>(locations);
-    }
-
-    private List<String> extractPathThemeCandidates(String path) {
-        if (isBlank(path)) {
-            return Collections.emptyList();
+        String relativePath = userPathService.extractTenantRelativePhotoPath(path);
+        if (relativePath != null && !relativePath.isBlank()) {
+            return relativePath.replace('\\', '/');
         }
         String normalized = path.replace('\\', '/');
-        int markerIndex = normalized.indexOf("/data/photos/");
-        if (markerIndex >= 0) {
-            normalized = normalized.substring(markerIndex + "/data/photos/".length());
-        }
-        LinkedHashSet<String> themes = new LinkedHashSet<>();
-        for (String segment : normalized.split("/")) {
-            themes.addAll(extractThemeCandidates(segment));
-        }
-        return new ArrayList<>(themes);
-    }
-
-    private List<String> extractPathLocationCandidates(String path) {
-        if (isBlank(path)) {
-            return Collections.emptyList();
-        }
-        String normalized = path.replace('\\', '/');
-        int markerIndex = normalized.indexOf("/data/photos/");
-        if (markerIndex >= 0) {
-            normalized = normalized.substring(markerIndex + "/data/photos/".length());
-        }
-        LinkedHashSet<String> locations = new LinkedHashSet<>();
-        for (String segment : normalized.split("/")) {
-            locations.addAll(extractLocationCandidates(segment));
-        }
-        return new ArrayList<>(locations);
-    }
-
-    private List<String> extractThemeCandidates(String rawText) {
-        if (isBlank(rawText)) {
-            return Collections.emptyList();
-        }
-
-        String normalized = rawText
-            .replaceAll("^\\d{4}[._-]\\d{1,2}[._-]\\d{1,2}\\s*", "")
-            .replaceAll("[()（）\\[\\]【】,，.。_/-]+", " ")
-            .replaceAll("\\s+", " ")
-            .trim();
-        if (normalized.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        LinkedHashSet<String> themes = new LinkedHashSet<>();
-        if (!normalized.contains(" ")) {
-            addThemeCandidate(themes, normalized);
-        }
-        for (String part : normalized.split(" ")) {
-            addThemeCandidate(themes, part);
-        }
-        return new ArrayList<>(themes);
-    }
-
-    private List<String> extractLocationCandidates(String rawText) {
-        if (isBlank(rawText)) {
-            return Collections.emptyList();
-        }
-
-        String normalized = rawText
-            .replaceAll("^\\d{4}[._-]\\d{1,2}[._-]\\d{1,2}\\s*", "")
-            .replaceAll("[()（）\\[\\]【】,，.。_/]+", " ")
-            .replaceAll("\\s+", " ")
-            .trim();
-        if (normalized.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        LinkedHashSet<String> locations = new LinkedHashSet<>();
-        if (!normalized.contains(" ")) {
-            addLocationCandidate(locations, normalized);
-        }
-        for (String part : normalized.split("[\\s-]+")) {
-            addLocationCandidate(locations, part);
-        }
-        return new ArrayList<>(locations);
-    }
-
-    private void addThemeCandidate(Set<String> themes, String candidate) {
-        String theme = normalizeThemeCandidate(candidate);
-        if (!theme.isEmpty()) {
-            themes.add(theme);
-        }
-    }
-
-    private void addLocationCandidate(Set<String> locations, String candidate) {
-        String location = normalizeLocationCandidate(candidate);
-        if (!location.isEmpty()) {
-            locations.add(location);
-        }
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     private String normalizeAnalysisKeywordCandidate(String candidate) {
@@ -4193,6 +6123,7 @@ public class AiSearchService {
         if (keyword.isEmpty()) {
             return "";
         }
+        keyword = keyword.replaceAll("^(在|于)", "");
         keyword = keyword.replaceAll("^(关于|有关|拍的|拍了|拍)", "");
         keyword = keyword.replaceAll("(拍得|拍过|拍)$", "");
         keyword = keyword.replaceAll("(照片|图片|相片|相册|合集|记录|主题|题材)$", "");
@@ -4207,85 +6138,6 @@ public class AiSearchService {
             return "";
         }
         return keyword;
-    }
-
-    private String normalizeThemeCandidate(String candidate) {
-        if (candidate == null) {
-            return "";
-        }
-        String theme = candidate.trim();
-        if (theme.isEmpty()) {
-            return "";
-        }
-        theme = theme.replaceAll("^(关于|有关|拍的|拍了|拍)", "");
-        theme = theme.replaceAll("(拍得|拍过|拍)$", "");
-        theme = theme.replaceAll("(照片|图片|相片|相册|合集|记录|主题|题材)$", "");
-        if (theme.length() > 2) {
-            theme = theme.replaceAll("(之旅|旅行|游玩|随拍|日常|生活)$", "");
-        }
-        if (theme.length() > 2) {
-            theme = theme.replaceAll("(季)$", "");
-        }
-        theme = theme.trim();
-        if (theme.length() < 2 || theme.length() > 12) {
-            return "";
-        }
-        if (theme.chars().allMatch(Character::isDigit)) {
-            return "";
-        }
-        if (THEME_STOP_WORDS.contains(theme) || TECHNICAL_THEME_STOP_WORDS.contains(theme)) {
-            return "";
-        }
-        String lower = theme.toLowerCase(Locale.ROOT);
-        if (lower.contains("iso") || theme.contains("光圈") || theme.contains("分辨率") || theme.contains("构图")) {
-            return "";
-        }
-        for (String suffix : LOCATION_HINT_SUFFIXES) {
-            if (theme.endsWith(suffix)) {
-                return "";
-            }
-        }
-        if (theme.contains("杭州") || theme.contains("上海") || theme.contains("北京") || theme.contains("苏州")) {
-            return "";
-        }
-        return theme;
-    }
-
-    private String normalizeLocationCandidate(String candidate) {
-        if (candidate == null) {
-            return "";
-        }
-        String location = candidate.trim();
-        if (location.isEmpty()) {
-            return "";
-        }
-        location = location.replaceAll("^(在|去|到)", "");
-        location = location.replaceAll("(照片|图片|相片|相册|合集|记录)$", "");
-        location = location.trim();
-        if (location.length() < 2 || location.length() > 12) {
-            return "";
-        }
-        if (LOCATION_STOP_WORDS.contains(location) || THEME_STOP_WORDS.contains(location)) {
-            return "";
-        }
-        if (location.chars().allMatch(Character::isDigit)) {
-            return "";
-        }
-        if (location.contains("樱") || location.contains("花")) {
-            return "";
-        }
-        if (location.contains("ISO") || location.toLowerCase(Locale.ROOT).contains("iso")) {
-            return "";
-        }
-        for (String suffix : LOCATION_HINT_SUFFIXES) {
-            if (location.endsWith(suffix)) {
-                return location;
-            }
-        }
-        if (location.contains("杭州") || location.contains("上海") || location.contains("北京") || location.contains("苏州")) {
-            return location;
-        }
-        return "";
     }
 
     private Map<Long, String> resolveAlbumNames(List<Photo> photos) {
@@ -4330,7 +6182,7 @@ public class AiSearchService {
             }
             return message.get("content").asText();
         } catch (Exception e) {
-            throw new RuntimeException("解析回答失败: " + e.getMessage(), e);
+            throw new RuntimeException("解析回答失败: " + userPathService.sanitizeVisibleText(e.getMessage()), e);
         }
     }
 
@@ -4738,7 +6590,8 @@ public class AiSearchService {
 
     private List<Long> rankAlbumMatches(CandidateContext candidates, String subject, Set<String> tokens, int limit) {
         return candidates.albums.stream()
-            .map(album -> Map.entry(album.getId(), scoreCandidate(List.of(album.getName(), album.getPath()), subject, tokens)))
+            .map(album -> Map.entry(album.getId(),
+                scoreCandidate(List.of(album.getName(), normalizeTenantRelativePath(album.getPath())), subject, tokens)))
             .filter(entry -> entry.getValue() > 1)
             .sorted((left, right) -> Integer.compare(right.getValue(), left.getValue()))
             .limit(limit)
@@ -4847,21 +6700,7 @@ public class AiSearchService {
     }
 
     private String stripComparisonNoise(String query) {
-        if (query == null) {
-            return "";
-        }
-        String result = query
-            .replace("去年和前年相比", " ")
-            .replace("今年和去年相比", " ")
-            .replace("和前年相比", " ")
-            .replace("和去年相比", " ")
-            .replace("相比", " ")
-            .replace("对比", " ")
-            .replace("比较", " ")
-            .replace("更多还是更少", " ")
-            .replace("更少还是更多", " ")
-            .replace("更多还是少", " ");
-        return stripAnalysisNoise(result);
+        return aiSearchYearCompareSupport.stripComparisonNoise(query, this::stripAnalysisNoise);
     }
 
     private String stripAnalysisNoise(String query) {
@@ -4907,6 +6746,13 @@ public class AiSearchService {
             .replace("在哪里拍的", " ")
             .replace("哪儿拍过", " ")
             .replace("在哪拍过", " ")
+            .replace("谁和谁", " ")
+            .replace("和谁", " ")
+            .replace("同框", " ")
+            .replace("一起出现", " ")
+            .replace("经常一起", " ")
+            .replace("经常", " ")
+            .replace("是谁", " ")
             .replace("拍得最多", " ")
             .replace("最多", " ")
             .replace("比较多", " ")
@@ -4989,8 +6835,46 @@ public class AiSearchService {
         return value == null ? null : value.doubleValue();
     }
 
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private Integer toInteger(Double value) {
         return value == null ? null : value.intValue();
+    }
+
+    private LocalDateTime toLocalDateTime(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        }
+        if (value instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) value).toLocalDateTime();
+        }
+        if (value instanceof java.util.Date) {
+            return new java.sql.Timestamp(((java.util.Date) value).getTime()).toLocalDateTime();
+        }
+        try {
+            return LocalDateTime.parse(String.valueOf(value).replace(' ', 'T'));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String formatLocalDate(LocalDateTime value) {
+        return value == null ? "未知" : value.toLocalDate().toString();
     }
 
     private int nullSafeCount(Number number) {
@@ -5019,6 +6903,16 @@ public class AiSearchService {
             this.cameraModels = cameraModels;
             this.lensModels = lensModels;
         }
+    }
+
+    static class PersonAppearanceStats {
+        Long personId;
+        String personName;
+        int matchedPhotoCount;
+        LocalDateTime matchedFirstSeen;
+        LocalDateTime matchedLastSeen;
+        LocalDateTime globalFirstSeen;
+        LocalDateTime globalLastSeen;
     }
 
     static class PhotoSearchExecution {
@@ -5075,73 +6969,66 @@ public class AiSearchService {
         String evidenceStatus;
     }
 
+    enum AnalysisRouteType {
+        THEME("theme"),
+        LOCATION("location"),
+        ALBUM("album"),
+        MONTH("month"),
+        COUNT("count"),
+        PERSON_COOCCURRENCE("person_cooccurrence"),
+        PERSON_PAIR_COOCCURRENCE("person_pair_cooccurrence"),
+        PERSON("person"),
+        DAY("day"),
+        TAG("tag"),
+        YEAR_COMPARE("year_compare"),
+        BODY_CHANGE("body_change");
+
+        final String externalValue;
+
+        AnalysisRouteType(String externalValue) {
+            this.externalValue = externalValue;
+        }
+
+        static AnalysisRouteType fromExternalValue(String value) {
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            for (AnalysisRouteType type : values()) {
+                if (type.externalValue.equals(value)) {
+                    return type;
+                }
+            }
+            return null;
+        }
+    }
+
     static class AnalysisRouting {
-        final String type;
+        final AnalysisRouteType type;
         final String resolvedQuery;
         final boolean usedAi;
+        final AiSearchAnalysisFallbackRequest fallbackRequest;
 
-        AnalysisRouting(String type, String resolvedQuery, boolean usedAi) {
+        AnalysisRouting(AnalysisRouteType type,
+                        String resolvedQuery,
+                        boolean usedAi,
+                        AiSearchAnalysisFallbackRequest fallbackRequest) {
             this.type = type;
             this.resolvedQuery = resolvedQuery;
             this.usedAi = usedAi;
+            this.fallbackRequest = fallbackRequest;
         }
 
         boolean isResolved() {
-            return type != null && !type.isBlank();
+            return type != null;
         }
 
         static AnalysisRouting none() {
-            return new AnalysisRouting(null, null, false);
+            return new AnalysisRouting(null, null, false, null);
         }
 
         static AnalysisRouting aiAttempted() {
-            return new AnalysisRouting(null, null, true);
+            return new AnalysisRouting(null, null, true, null);
         }
     }
 
-    static class YearComparison {
-        final int leftYear;
-        final int rightYear;
-
-        YearComparison(int leftYear, int rightYear) {
-            this.leftYear = leftYear;
-            this.rightYear = rightYear;
-        }
-    }
-
-    static class BodyChangeAnalysis {
-        Long personId;
-        String personName;
-        int startYear;
-        int endYear;
-        String explanation;
-    }
-
-    static class BodyChangeStats {
-        int totalPhotos;
-        double avgFaceArea;
-        double avgFaceWidth;
-        double avgFaceHeight;
-        double avgAspectRatio;
-        double changePercent;
-        String trend; // gained_weight, lost_weight, stable, unknown, error, single_period
-        String conclusion;
-        String firstPeriod; // 如 "2024-03"
-        String lastPeriod; // 如 "2024-09"
-        List<YearlyBodyStats> yearlyStats = new ArrayList<>();
-    }
-
-    static class YearlyBodyStats {
-        int year;
-        int month; // 新增：月份
-        String label; // 如 "2024-03"
-        int faceCount;
-        double avgFaceArea;
-        double avgFaceWidth;
-        double avgFaceHeight;
-        double avgAspectRatio;
-    }
-
-    // BodyChangeStats 新增字段
-    // 需要在 calculateBodyChangeStats 方法中设置 firstPeriod 和 lastPeriod
 }

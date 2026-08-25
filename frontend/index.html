@@ -2,13 +2,86 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8">
-    <link rel="icon" type="image/svg+xml" href="/vite.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aurellic Memoriq</title>
+    <style>
+      html, body, #app {
+        min-height: 100%;
+      }
+      html {
+        background: #020617;
+      }
+      body {
+        margin: 0;
+        background: #020617;
+      }
+    </style>
+    <script>
+      (function () {
+        var doc = document.documentElement;
+        var themeKey = localStorage.getItem('pe-theme-key') || 'default';
+        var colorMode = localStorage.getItem('theme');
+        var lastRaw = localStorage.getItem('pe-admin-theme-last');
+        var last = null;
+        try {
+          last = lastRaw ? JSON.parse(lastRaw) : null;
+        } catch (e) {
+          last = null;
+        }
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDark = colorMode ? colorMode === 'dark' : (last && last.colorMode ? last.colorMode !== 'light' : prefersDark);
+        var styleFamily = (last && last.styleFamily) || 'material';
+        var resolvedThemeKey = (last && last.themeKey) || themeKey;
+        var themeMap = {
+          default: { primary: '#7dd3fc', secondary: '#cbd5e1', base: '#0f172a' },
+          ocean: { primary: '#38bdf8', secondary: '#67e8f9', base: '#082f49' },
+          aurora: { primary: '#22c55e', secondary: '#a78bfa', base: '#111827' },
+          midnight: { primary: '#818cf8', secondary: '#38bdf8', base: '#020617' },
+          nebula: { primary: '#e879f9', secondary: '#60a5fa', base: '#111827' },
+          steel: { primary: '#94a3b8', secondary: '#e2e8f0', base: '#0f172a' },
+          studio: { primary: '#f59e0b', secondary: '#fda4af', base: '#1f2937' },
+          arcade: { primary: '#22d3ee', secondary: '#f472b6', base: '#111827' },
+          ink: { primary: '#334155', secondary: '#94a3b8', base: '#0f172a' },
+          vermilion: { primary: '#ef4444', secondary: '#f59e0b', base: '#3f1d1d' },
+          celadon: { primary: '#34d399', secondary: '#a7f3d0', base: '#0f2f2a' },
+          imperial: { primary: '#d4af37', secondary: '#f5deb3', base: '#2b2113' },
+          bamboo: { primary: '#65a30d', secondary: '#bef264', base: '#1a2e05' },
+          peony: { primary: '#fb7185', secondary: '#f9a8d4', base: '#3f1d2e' },
+          jadeite: { primary: '#10b981', secondary: '#5eead4', base: '#032b22' },
+          lotus: { primary: '#f472b6', secondary: '#fde68a', base: '#3b1f2b' },
+          rosewood: { primary: '#b45309', secondary: '#fbbf24', base: '#2c1810' },
+          baroque: { primary: '#a855f7', secondary: '#f59e0b', base: '#24122f' },
+          cathedral: { primary: '#60a5fa', secondary: '#c4b5fd', base: '#111827' },
+          manor: { primary: '#92400e', secondary: '#d6d3d1', base: '#292524' },
+          noir: { primary: '#e5e7eb', secondary: '#9ca3af', base: '#030712' },
+          parchment: { primary: '#b08968', secondary: '#e7d7c9', base: '#f5efe6' },
+          velvet: { primary: '#7c3aed', secondary: '#f472b6', base: '#1f1130' },
+          cocoa: { primary: '#a16207', secondary: '#facc15', base: '#2a1b12' },
+          forest: { primary: '#22c55e', secondary: '#86efac', base: '#052e16' },
+          mint: { primary: '#2dd4bf', secondary: '#99f6e4', base: '#083344' },
+          desert: { primary: '#f59e0b', secondary: '#fdba74', base: '#422006' },
+          harvest: { primary: '#ea580c', secondary: '#fcd34d', base: '#431407' },
+          matcha: { primary: '#84cc16', secondary: '#d9f99d', base: '#1a2e05' },
+          coral: { primary: '#fb7185', secondary: '#fdba74', base: '#43121c' },
+          snowridge: { primary: '#e2e8f0', secondary: '#93c5fd', base: '#0f172a' },
+          sunset: { primary: '#f97316', secondary: '#f472b6', base: '#3b0a2a' }
+        };
+        var theme = themeMap[resolvedThemeKey] || themeMap.default;
+        var darkBg = 'radial-gradient(circle at 12% 14%, color-mix(in srgb, ' + theme.primary + ' 24%, transparent), transparent 28%), radial-gradient(circle at 88% 12%, color-mix(in srgb, ' + theme.secondary + ' 20%, transparent), transparent 34%), linear-gradient(145deg, color-mix(in srgb, ' + theme.base + ' 88%, #020617), #020617)';
+        var lightBg = 'radial-gradient(circle at 10% 10%, color-mix(in srgb, ' + theme.primary + ' 18%, white), transparent 26%), radial-gradient(circle at 90% 8%, color-mix(in srgb, ' + theme.secondary + ' 16%, white), transparent 30%), linear-gradient(145deg, color-mix(in srgb, ' + theme.base + ' 14%, white), white)';
+        if (isDark) doc.classList.add('dark');
+        else doc.classList.remove('dark');
+        doc.dataset.adminStyle = styleFamily;
+        doc.style.setProperty('--pe-theme-primary', theme.primary);
+        doc.style.setProperty('--pe-theme-secondary', theme.secondary);
+        doc.style.setProperty('--pe-theme-base', theme.base);
+        doc.style.setProperty('--pe-admin-bg', isDark ? darkBg : lightBg);
+        doc.style.background = isDark ? '#020617' : '#f8fafc';
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-

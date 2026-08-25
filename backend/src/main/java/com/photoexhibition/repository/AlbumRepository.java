@@ -16,6 +16,20 @@ import java.util.Optional;
 public interface AlbumRepository extends JpaRepository<Album, Long> {
     Optional<Album> findByPath(String path);
 
+    List<Album> findByUserIdIsNull();
+
+    List<Album> findByUserIdIsNotNull();
+
+    List<Album> findByUserId(Long userId);
+
+    Page<Album> findByUserId(Long userId, Pageable pageable);
+
+    long countByUserId(Long userId);
+
+    List<Album> findByPhotoCountGreaterThan(Integer minPhotoCount);
+
+    List<Album> findByUserIdAndPhotoCountGreaterThan(Long userId, Integer minPhotoCount);
+
     @Query("SELECT DISTINCT a FROM Album a JOIN a.tags t WHERE t.id IN :tagIds")
     Page<Album> findByTagIds(@Param("tagIds") List<Long> tagIds, Pageable pageable);
 
@@ -57,6 +71,9 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT a FROM Album a WHERE (REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('/', CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%')))")
     List<Album> findByPathStartingWithNormalized(@Param("pathPrefix") String pathPrefix);
+
+    @Query("SELECT a FROM Album a WHERE a.userId = :userId AND (REPLACE(a.path, '\\\\', '/') LIKE CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%') OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('/', CONCAT(REPLACE(:pathPrefix, '\\\\', '/'), '%')))")
+    List<Album> findByUserIdAndPathStartingWithNormalized(@Param("userId") Long userId, @Param("pathPrefix") String pathPrefix);
 
     /**
      * 删除路径前缀匹配的相册
@@ -134,5 +151,26 @@ public interface AlbumRepository extends JpaRepository<Album, Long> {
      */
     @Query("SELECT a FROM Album a WHERE a.path LIKE :pathPrefix% AND a.photoCount > :minPhotoCount")
     List<Album> findByPathPrefixWithPhotos(@Param("pathPrefix") String pathPrefix, @Param("minPhotoCount") int minPhotoCount);
-}
 
+    @Query(value = "SELECT * FROM album a " +
+            "WHERE a.user_id = :userId " +
+            "AND (REPLACE(a.path, '\\\\', '/') LIKE CONCAT('%/', :userId, '/', :category, '/%') " +
+            "OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('%/', :userId, '/', :category))",
+           nativeQuery = true)
+    List<Album> findByUserIdAndTopLevelCategory(@Param("userId") Long userId, @Param("category") String category);
+
+    @Query(value = "SELECT * FROM album a " +
+            "WHERE (" +
+            "  a.user_id IS NOT NULL AND (" +
+            "    REPLACE(a.path, '\\\\', '/') LIKE CONCAT('%/', a.user_id, '/', :category, '/%') " +
+            "    OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('%/', a.user_id, '/', :category)" +
+            "  )" +
+            ") OR (" +
+            "  a.user_id IS NULL AND (" +
+            "    REPLACE(a.path, '\\\\', '/') LIKE CONCAT('%/', :category, '/%') " +
+            "    OR REPLACE(a.path, '\\\\', '/') LIKE CONCAT('%/', :category)" +
+            "  )" +
+            ")",
+           nativeQuery = true)
+    List<Album> findByTopLevelCategory(@Param("category") String category);
+}

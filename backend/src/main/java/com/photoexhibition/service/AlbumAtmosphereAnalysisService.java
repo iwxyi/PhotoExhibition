@@ -71,16 +71,21 @@ public class AlbumAtmosphereAnalysisService {
      */
     @Transactional
     public void analyzeAllAlbumsAtmosphere() {
-        List<Album> albums = albumRepository.findAll();
+        analyzeAllAlbumsAtmosphere(null);
+    }
+
+    @Transactional
+    public void analyzeAllAlbumsAtmosphere(Long userId) {
+        List<Album> albums = userId == null
+            ? albumRepository.findByPhotoCountGreaterThan(0)
+            : albumRepository.findByUserIdAndPhotoCountGreaterThan(userId, 0);
         log.info("开始批量分析 {} 个相册的氛围", albums.size());
 
         int processed = 0;
         for (Album album : albums) {
             try {
-                if (album.getPhotoCount() != null && album.getPhotoCount() > 0) {
-                    analyzeAlbumAtmosphere(album.getId());
-                    processed++;
-                }
+                analyzeAlbumAtmosphere(album.getId());
+                processed++;
             } catch (Exception e) {
                 log.warn("分析相册 {} 氛围失败: {}", album.getName(), e.getMessage());
             }

@@ -84,11 +84,20 @@ public class FaceEmbeddingService implements AutoCloseable {
         try {
             env = OrtEnvironment.getEnvironment();
             session = env.createSession(modelPath, new OrtSession.SessionOptions());
-            log.info("人脸特征模型已加载: {}", modelPath);
+            log.info("人脸特征模型已加载: {}", sanitizePath(modelPath));
         } catch (Exception e) {
-            log.warn("加载人脸特征模型失败: {}", modelPath, e);
+            log.warn("加载人脸特征模型失败: {}", sanitizePath(modelPath), e);
             session = null;
         }
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     private BufferedImage cropFace(BufferedImage img, Face face) {
@@ -277,5 +286,29 @@ public class FaceEmbeddingService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        session = null;
+        env = null;
+    }
+
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return session != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (session != null) {
+                session.close();
+            }
+        } catch (Exception ignored) {
+        }
+        session = null;
+        env = null;
+        ensureSession();
+        return session != null;
     }
 }

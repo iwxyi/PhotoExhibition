@@ -27,4 +27,5 @@ public class AiSearchResponse {
     private List<PersonSummaryDTO> persons;
     private boolean cached; // 是否来自缓存
     private Map<String, Object> analysisData; // 包含体型变化等分析数据
+    private Map<String, Object> executionPlan; // V2 计划摘要，供渐进迁移与调试使用
 }

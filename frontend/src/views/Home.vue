@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-white dark:bg-gray-900">
+  <div class="min-h-screen bg-stone-50 dark:bg-[#111111]">
     <!-- 导航栏 -->
     <nav
       class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
@@ -9,9 +9,9 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-12">
           <AppHeader :show-nav-links="!isMobile" />
-          <div class="flex items-center space-x-4">
+          <div class="flex items-center space-x-3">
             <SearchSpotlight />
-            <SettingsMenu />
+            <PublicAccountMenu />
           </div>
         </div>
       </div>
@@ -19,39 +19,90 @@
 
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12" style="contain: layout style paint; will-change: transform;">
-      <!-- 分类 Tabs -->
-      <CategoryTabs
-        :selected-category="activeCategory"
-        :categories="categories"
-        @category-changed="selectCategory"
-      />
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 pb-14 md:pt-8 md:pb-16">
+      <template v-if="showPublicPortal">
+        <section class="py-10 md:py-14">
+          <div class="max-w-4xl">
+            <p class="text-xs uppercase tracking-[0.28em] text-sky-500/80 mb-3">Multi Site Portal</p>
+            <h1 class="text-3xl md:text-5xl font-light text-gray-900 dark:text-white tracking-tight">选择要进入的公开站点</h1>
+            <p class="mt-4 max-w-2xl text-sm md:text-base text-gray-500 dark:text-gray-400 leading-7">
+              当前已开启多用户模式。请选择一个公开站点进入，后续页面都会使用 `/{slug}` 前缀隔离访问范围。
+            </p>
+          </div>
 
-      <div v-if="loading && albums.length === 0" class="flex justify-center items-center h-96">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
-      </div>
+          <div v-if="loadingPublicUsers" class="flex justify-center items-center h-72">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
+          </div>
 
-      <div
-        v-if="albums.length > 0"
-        :class="coverGridClass"
-        style="contain: layout style; will-change: auto;"
-      >
-        <AlbumCard
-          v-for="album in albums"
-          :key="album.id"
-          :album="album"
-          :size="coverSize"
-          @click="goToAlbum(album.id)"
+          <div v-else-if="publicUsers.length > 0" class="mt-10 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+            <button
+              v-for="user in publicUsers"
+              :key="user.userId"
+              type="button"
+              class="group text-left rounded-3xl border border-gray-200/80 dark:border-gray-800 bg-gradient-to-br from-white to-slate-50 dark:from-gray-900 dark:to-gray-950 p-5 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all"
+              @click="enterPublicSite(user.slug)"
+            >
+              <div class="flex items-center gap-4">
+                <div class="h-14 w-14 rounded-2xl overflow-hidden bg-sky-100 dark:bg-sky-950/60 flex items-center justify-center text-sky-700 dark:text-sky-200 font-semibold text-lg">
+                  <img v-if="user.avatarPath" :src="user.avatarPath" alt="avatar" class="h-full w-full object-cover" />
+                  <span v-else>{{ (user.nickname || user.projectNameZh || user.projectNameEn || user.username || 'U').slice(0, 1).toUpperCase() }}</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-lg text-gray-900 dark:text-white truncate">{{ user.projectNameZh || user.projectNameEn || user.nickname || user.username }}</div>
+                  <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">/{{ user.slug }}</div>
+                </div>
+              </div>
+              <div class="mt-5 text-sm text-gray-600 dark:text-gray-300 line-clamp-2 min-h-[40px]">
+                {{ user.projectNameEn || user.nickname || `进入 ${user.username} 的公开相册站点` }}
+              </div>
+              <div class="mt-6 inline-flex items-center gap-2 text-sm text-sky-600 dark:text-sky-300">
+                <span>进入站点</span>
+                <span class="transition-transform group-hover:translate-x-1">→</span>
+              </div>
+            </button>
+          </div>
+
+          <div v-else class="mt-10 rounded-3xl border border-dashed border-gray-300 dark:border-gray-700 px-6 py-14 text-center text-gray-500 dark:text-gray-400">
+            当前还没有可公开访问的用户站点
+          </div>
+        </section>
+      </template>
+
+      <template v-else>
+        <!-- 分类 Tabs -->
+        <CategoryTabs
+          :selected-category="activeCategory"
+          :categories="categories"
+          @category-changed="selectCategory"
         />
-      </div>
 
-      <!-- 加载状态 -->
-      <div v-if="isLoadingMore && albums.length > 0" class="mt-12 text-center">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
-      </div>
-      <div v-if="!hasMore && albums.length > 0" class="mt-12 text-center text-gray-500 dark:text-gray-400">
-        <p>已加载全部相册</p>
-      </div>
+        <div v-if="loading && albums.length === 0" class="flex justify-center items-center h-96">
+          <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
+        </div>
+
+        <section v-if="albums.length > 0" class="pt-1 md:pt-2">
+        <div
+          :class="coverGridClass"
+          style="contain: layout style; will-change: auto;"
+        >
+          <AlbumCard
+            v-for="album in albums"
+            :key="album.id"
+            :album="album"
+            :size="coverSize"
+            @click="goToAlbum(album.id)"
+          />
+        </div>
+        </section>
+
+        <!-- 加载状态 -->
+        <div v-if="isLoadingMore && albums.length > 0" class="mt-12 text-center">
+          <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
+        </div>
+        <div v-if="!hasMore && albums.length > 0" class="mt-12 text-center text-gray-500 dark:text-gray-400">
+          <p>已加载全部相册</p>
+        </div>
+      </template>
     </main>
 
     <!-- 移动端底部导航栏 -->
@@ -62,14 +113,16 @@
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { useAuthStore } from '@/stores/auth'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
-import { api } from '@/api'
+import { api, publicUserApi, type PublicUserProfile } from '@/api'
 import AlbumCard from '@/components/AlbumCard.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
-import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 import SearchSpotlight from '@/components/SearchSpotlight.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
@@ -77,6 +130,8 @@ import { useNavAutoHide } from '@/composables/useNavAutoHide'
 import { sortCategories, loadCategorySortOrder } from '@/composables/useCategorySorting'
 
 const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
 import NavLinks from '@/components/NavLinks.vue'
@@ -96,6 +151,11 @@ const albumSortOrder = ref('name_asc')
 const { coverSize } = useUiSettings()
 const { isMobile } = useMobileNav()
 const { isHidden: navHidden } = useNavAutoHide()
+const publicMultiUserEnabled = ref(false)
+const loadingPublicUsers = ref(false)
+const publicUsers = ref<PublicUserProfile[]>([])
+const currentUserSlug = computed(() => typeof route.params.userSlug === 'string' ? route.params.userSlug : null)
+const showPublicPortal = computed(() => publicMultiUserEnabled.value && !currentUserSlug.value)
 
 // 预加载缓冲区状态
 const preloadBuffer = ref<any[]>([])
@@ -129,7 +189,7 @@ const coverGridClass = computed(() => {
   }
   if (coverSize.value === 'lg') {
     // 大尺寸：较少列数（适合大封面）
-    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6'
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5'
   }
   return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
 })
@@ -202,7 +262,11 @@ const goToAlbum = (id: number) => {
   // 设置导航标志和时间戳，确保只有立即导航才能检测到
   sessionStorage.setItem('album-navigation-active', Date.now().toString())
   // 使用短路由 /a/ID
-  router.push(`/a/${id}`)
+  router.push(buildPublicPath(`/a/${id}`))
+}
+
+const enterPublicSite = (slug: string) => {
+  router.push(`/${slug}`)
 }
 
 // 从相册详情返回时，让三张封面原图在列表页缩回到封面
@@ -433,6 +497,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
 
 // 预加载下一页数据到缓冲区
 const preloadNextPage = async () => {
+  if (showPublicPortal.value) return
   if (isPreloading.value || !hasMore.value || preloadBuffer.value.length > 0) return
 
   try {
@@ -459,6 +524,7 @@ const preloadNextPage = async () => {
 }
 
 const loadMore = async () => {
+  if (showPublicPortal.value) return
   // 防止重复加载
   if (loading.value || isLoadingMore.value || !hasMore.value) return
 
@@ -510,50 +576,42 @@ const loadMore = async () => {
   }
 }
 
-// 优化滚动处理，减少顿卡感
-let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
-let lastScrollCheck = 0
-let isScrollInProgress = false
-const SCROLL_THROTTLE_MS = 16 // ~60fps
+// 优化滚动处理：触摸板会产生高频 scroll，避免每帧写 sessionStorage。
+let scrollRafId: number | null = null
+let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null
 const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载，增加缓冲区
 const PRELOAD_THRESHOLD = 2000 // 距离底部2000px时开始预加载
 
 const handleScroll = () => {
-  const now = Date.now()
+  if (showPublicPortal.value) return
 
-  // 如果正在处理滚动或节流时间内，跳过
-  if (isScrollInProgress || now - lastScrollCheck < SCROLL_THROTTLE_MS) return
-  lastScrollCheck = now
-  isScrollInProgress = true
+  if (scrollRafId !== null) return
 
-  // 清除之前的定时器
-  if (scrollThrottleTimer) {
-    clearTimeout(scrollThrottleTimer)
-  }
-
-  // 使用 requestAnimationFrame 优化滚动检测
-  requestAnimationFrame(() => {
-  scrollThrottleTimer = setTimeout(() => {
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
 
-      // 保存滚动位置到 sessionStorage 和 ref
-      savedScrollTop.value = scrollTop
-      sessionStorage.setItem('home-scroll-position', String(scrollTop))
+    savedScrollTop.value = scrollTop
 
-      // 距离底部PRELOAD_THRESHOLD像素时开始预加载
-      if (scrollTop + windowHeight >= documentHeight - PRELOAD_THRESHOLD) {
-        preloadNextPage()
-      }
+    if (scrollSaveTimer) {
+      clearTimeout(scrollSaveTimer)
+    }
+    scrollSaveTimer = setTimeout(() => {
+      sessionStorage.setItem('home-scroll-position', String(savedScrollTop.value))
+      scrollSaveTimer = null
+    }, 180)
+
+    // 距离底部PRELOAD_THRESHOLD像素时开始预加载
+    if (scrollTop + windowHeight >= documentHeight - PRELOAD_THRESHOLD) {
+      preloadNextPage()
+    }
 
     // 距离底部LOAD_THRESHOLD像素时开始加载
     if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
       loadMore()
     }
-
-      isScrollInProgress = false
-  }, 0)
   })
 }
 
@@ -588,6 +646,26 @@ onMounted(async () => {
   }
 
   try {
+    const publicSettings = await authStore.fetchPublicSettings().catch((error) => {
+      console.error('加载公开设置失败:', error)
+      return null
+    })
+    publicMultiUserEnabled.value = !!publicSettings?.multiUserEnabled
+
+    if (showPublicPortal.value) {
+      loadingPublicUsers.value = true
+      try {
+        const { data } = await publicUserApi.listUsers()
+        publicUsers.value = data.users || []
+      } finally {
+        loadingPublicUsers.value = false
+      }
+      photoStore.albums = []
+      hasMore.value = false
+      isInitialized.value = true
+      return
+    }
+
     await Promise.all([
       photoStore.fetchCategories(),
       loadAlbumSortOrder(),
@@ -615,10 +693,24 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
-  if (scrollThrottleTimer) clearTimeout(scrollThrottleTimer)
+  if (scrollRafId !== null) cancelAnimationFrame(scrollRafId)
+  if (scrollSaveTimer) clearTimeout(scrollSaveTimer)
 })
 
 onActivated(() => {
+  if (showPublicPortal.value) {
+    if (!loadingPublicUsers.value && publicUsers.value.length === 0) {
+      loadingPublicUsers.value = true
+      publicUserApi.listUsers()
+        .then(({ data }) => {
+          publicUsers.value = data.users || []
+        })
+        .finally(() => {
+          loadingPublicUsers.value = false
+        })
+    }
+    return
+  }
   // 恢复滚动位置 - 直接从 sessionStorage 读取
   const savedPos = sessionStorage.getItem('home-scroll-position')
   const scrollY = savedPos ? parseInt(savedPos, 10) : savedScrollTop.value
@@ -637,6 +729,10 @@ onActivated(() => {
 })
 
 onDeactivated(() => {
+  if (showPublicPortal.value) {
+    window.removeEventListener('scroll', handleScroll)
+    return
+  }
   // 保存滚动位置到 sessionStorage 和 ref
   const scrollY = window.scrollY || 0
   const existingPos = sessionStorage.getItem('home-scroll-position')
@@ -646,9 +742,18 @@ onDeactivated(() => {
     sessionStorage.setItem('home-scroll-position', String(scrollY))
   }
   window.removeEventListener('scroll', handleScroll)
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
+  if (scrollSaveTimer) {
+    clearTimeout(scrollSaveTimer)
+    scrollSaveTimer = null
+  }
 })
 
 const selectCategory = async (c: string) => {
+  if (showPublicPortal.value) return
   activeCategory.value = c
   currentPage.value = 0
   hasMore.value = true
@@ -662,5 +767,3 @@ const selectCategory = async (c: string) => {
   window.scrollTo({ top: 0, behavior: 'instant' })
 }
 </script>
-
-

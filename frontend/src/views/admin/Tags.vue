@@ -1,50 +1,52 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-2xl font-light">标签管理</h1>
-        <div class="space-x-3">
-          <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
+  <div class="min-h-screen admin-shell admin-tags-page">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
+      <div class="admin-page-actions">
+        <div class="admin-page-actions__group">
+          <button @click="load" :disabled="loading" class="admin-button-primary disabled:opacity-50 px-4 py-2 rounded-lg">刷新</button>
         </div>
       </div>
 
-      <div class="glass-panel p-4 flex flex-col max-h-[calc(100vh-140px)]">
+      <div class="glass-panel p-3 flex flex-col max-h-[calc(100vh-120px)] admin-tags-panel">
         <!-- 顶部操作栏 -->
-        <div class="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0">
-          <div class="flex flex-wrap items-center gap-3">
-            <input
-              v-model="keyword"
-              placeholder="搜索标签"
-              class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+        <div class="admin-query-toolbar admin-tags-toolbar">
+          <div class="admin-query-toolbar__fields">
+            <label class="admin-query-field">
+              <span>搜索标签</span>
+              <input
+                v-model="keyword"
+                placeholder="输入标签名称关键词"
+                class="admin-field"
+                @keyup.enter="load"
+              />
+            </label>
             <button
               @click="load"
               :disabled="loading"
-              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50"
+              class="admin-button-soft admin-query-toolbar__button disabled:opacity-50"
             >
               查询
             </button>
           </div>
-          <div class="ml-auto">
+          <div class="admin-query-toolbar__actions">
             <button
               @click="selectAll"
               :disabled="loading || filteredTags.length === 0"
-              class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-40 mr-2"
+              class="admin-button-soft px-3 py-1.5 rounded text-xs disabled:opacity-40 mr-2"
             >
               全选
             </button>
             <button
               @click="invertSelection"
               :disabled="loading || filteredTags.length === 0"
-              class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-40 mr-3"
+              class="admin-button-soft px-3 py-1.5 rounded text-xs disabled:opacity-40 mr-3"
             >
               反选
             </button>
             <button
               @click="deleteSelected"
               :disabled="selectedIds.length === 0 || loading"
-              class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50"
+              class="admin-button-danger px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               删除 ({{ selectedIds.length }})
             </button>
@@ -64,8 +66,8 @@
           <div
             v-for="(t, idx) in filteredTags"
             :key="t.id"
-            class="tag-item bg-gray-700/70 rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer transition-colors select-none"
-            :class="isSelected(t.id) ? 'ring-2 ring-blue-400 bg-gray-700' : 'hover:bg-gray-700'"
+            class="tag-item admin-tag-item rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer transition-colors select-none"
+            :class="isSelected(t.id) ? 'admin-tag-item--selected ring-2 ring-blue-400' : 'hover:bg-white/10'"
             :ref="el => setTagItemRef(el, idx)"
             @click="handleItemClick($event, t, idx)"
             @dblclick.stop="openTag(t)"
@@ -73,22 +75,22 @@
             <div class="flex items-center gap-2">
               <div>
                 <div class="text-xs font-semibold flex items-center gap-2">
-                  <span class="truncate max-w-[9rem] text-gray-100">
+                  <span class="truncate max-w-[9rem] admin-tag-name">
                     {{ t.name }}
                   </span>
-                  <span class="text-[11px] text-gray-300 whitespace-nowrap">({{ t.photoCount ?? 0 }})</span>
+                  <span class="text-[11px] admin-tag-meta whitespace-nowrap">({{ t.photoCount ?? 0 }})</span>
                 </div>
-                <div class="text-[11px] text-gray-400">ID: {{ t.id }}</div>
+                <div class="text-[11px] admin-tag-meta">ID: {{ t.id }}</div>
               </div>
             </div>
             <div class="flex items-center gap-2">
               <div
                 v-if="t.color"
-                class="w-5 h-5 rounded-full border border-white/30"
+                class="w-5 h-5 rounded-full border admin-tag-swatch"
                 :style="{ background: t.color }"
               ></div>
               <button
-                class="p-1 rounded hover:bg-amber-500/10 text-amber-300"
+                class="p-1 rounded admin-tag-edit"
                 @click.stop="editOne(t)"
                 title="编辑标签"
               >
@@ -114,6 +116,9 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const tags = ref<any[]>([])
 const loading = ref(false)
@@ -121,6 +126,8 @@ const keyword = ref('')
 const selectedIds = ref<number[]>([])
 const lastClickedIndex = ref<number | null>(null)
 const router = useRouter()
+const authStore = useAuthStore()
+const { confirm, prompt } = useAdminFeedback()
 const listContainer = ref<HTMLElement | null>(null)
 const tagItemEls = ref<HTMLElement[]>([])
 
@@ -312,16 +319,16 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 }
 
 const editOne = async (t: any) => {
-  const newName = window.prompt('修改标签名称', t.name)
+  const newName = await prompt({ title: '修改标签名称', initialValue: t.name, confirmLabel: '保存' })
   if (newName === null || newName.trim() === '') return
-  const newColor = window.prompt('修改颜色(可选)', t.color || '')
+  const newColor = await prompt({ title: '修改标签颜色', message: '可留空。', initialValue: t.color || '', confirmLabel: '保存' })
   await api.put(`/tags/${t.id}`, { name: newName.trim(), color: newColor || null })
   await load()
 }
 
 const deleteSelected = async () => {
   if (selectedIds.value.length === 0) return
-  if (!window.confirm(`确定删除选中的 ${selectedIds.value.length} 个标签？`)) return
+  if (!await confirm({ title: `删除 ${selectedIds.value.length} 个标签`, message: '此操作不可撤销。', confirmLabel: '删除标签', tone: 'danger' })) return
   for (const id of selectedIds.value) {
     await api.delete(`/tags/${id}`)
   }
@@ -331,7 +338,10 @@ const deleteSelected = async () => {
 
 const openTag = (tag: any) => {
   if (!tag?.id) return
-  const route = router.resolve({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  const route = router.resolve({
+    path: buildPublicPath('/wall', authStore.slug ? `/${authStore.slug}` : undefined),
+    query: { tagId: tag.id, tagName: tag.name }
+  })
   window.open(route.href, '_blank')
 }
 
@@ -344,5 +354,3 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
-
-

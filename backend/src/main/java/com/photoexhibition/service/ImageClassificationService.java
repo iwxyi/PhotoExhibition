@@ -123,7 +123,7 @@ public class ImageClassificationService implements AutoCloseable {
         try {
             java.io.File modelFile = new java.io.File(modelPath);
             if (!modelFile.exists()) {
-                log.debug("图像分类模型文件不存在: {}，将使用基于规则的方法", modelPath);
+                log.debug("图像分类模型文件不存在: {}，将使用基于规则的方法", sanitizePath(modelPath));
                 return;
             }
 
@@ -154,7 +154,7 @@ public class ImageClassificationService implements AutoCloseable {
                 loadChineseLabelMap();
             }
             
-            log.info("图像分类模型已加载: {} (语言: {})", modelPath, language);
+            log.info("图像分类模型已加载: {} (语言: {})", sanitizePath(modelPath), language);
         } catch (NoClassDefFoundError e) {
             log.warn("ONNX Runtime类初始化失败，图像分类功能将被禁用。错误: {}", e.getMessage());
             log.warn("请检查: 1) ONNX Runtime JAR文件是否完整, 2) Java版本是否兼容 (>=11), 3) 系统权限是否足够");
@@ -172,7 +172,7 @@ public class ImageClassificationService implements AutoCloseable {
             log.warn("详细错误信息: ", e);
             session = null;
         } catch (Exception e) {
-            log.debug("加载图像分类模型失败: {}，将使用基于规则的方法。错误: {}", modelPath, e.getMessage());
+            log.debug("加载图像分类模型失败: {}，将使用基于规则的方法。错误: {}", sanitizePath(modelPath), e.getMessage());
             log.warn("详细错误信息: ", e);
             session = null;
         }
@@ -461,11 +461,20 @@ public class ImageClassificationService implements AutoCloseable {
                         });
                 log.info("已加载中文标签映射: {} 个类别", chineseLabelMap.size());
             } else {
-                log.warn("中文标签映射文件不存在: {}，将使用英文标签", zhLabelsFile.getPath());
+                log.warn("中文标签映射文件不存在: {}，将使用英文标签", sanitizePath(zhLabelsFile.getPath()));
             }
         } catch (Exception e) {
             log.warn("加载中文标签映射失败: {}", e.getMessage());
         }
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     /**
@@ -590,5 +599,30 @@ public class ImageClassificationService implements AutoCloseable {
             return confidence;
         }
     }
-}
 
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return enabled && session != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        if (session != null) {
+            try {
+                session.close();
+            } catch (Exception ignored) {
+            }
+            session = null;
+        }
+        env = null;
+        ensureSession();
+        return enabled && session != null;
+    }
+}

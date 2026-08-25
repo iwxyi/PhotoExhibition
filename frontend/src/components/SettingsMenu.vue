@@ -226,6 +226,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useLanguageStore } from '@/stores/language'
 import { useThemeStore } from '@/stores/theme'
+import { stripPublicSlug } from '@/utils/publicRoute'
 
 const router = useRouter()
 const route = useRoute()
@@ -241,7 +242,7 @@ const { language, setLanguage } = useLanguageStore()
 const themeStore = useThemeStore()
 
 // 判断是否在图墙页面
-const isPhotoWall = computed(() => route.path === '/wall')
+const isPhotoWall = computed(() => stripPublicSlug(route.path) === '/wall')
 
 const coverOptions = [
   { value: 'sm', label: '小' },
@@ -381,4 +382,3 @@ onUnmounted(() => {
   }
 }
 </style>
-

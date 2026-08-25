@@ -11,7 +11,7 @@
           <div class="flex items-center space-x-4">
             <SearchSpotlight />
             <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
-            <SettingsMenu />
+            <PublicAccountMenu />
           </div>
         </div>
       </div>
@@ -115,6 +115,7 @@ import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } fro
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
+import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -125,8 +126,8 @@ import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import SearchSpotlight from '@/components/SearchSpotlight.vue'
-import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
@@ -157,19 +158,7 @@ const likedIds = ref<Set<number>>(new Set())
 const likesMap = ref<Map<number, number>>(new Map())
 
 const getImageUrl = (photo: any) => {
-  // 优先使用中缩略图（用于瀑布流显示）
-  if (photo.mediumThumbPath) {
-    return `/api/files${photo.mediumThumbPath}`
-  }
-  // 回退到webp
-  if (photo.webpPath) {
-    return `/api/files${photo.webpPath}`
-  }
-  // 最后回退到小缩略图或原图
-  if (photo.thumbnailPath) {
-    return `/api/files${photo.thumbnailPath}`
-  }
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'medium') || ''
 }
 
 const viewerVisible = ref(false)
@@ -957,4 +946,3 @@ onDeactivated(() => {
   margin-left: auto;
 }
 </style>
-

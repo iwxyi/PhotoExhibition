@@ -19,7 +19,7 @@
             maxlength="50"
             :class="`w-full px-3 py-2 bg-white/10 dark:bg-white/5 backdrop-blur-sm border rounded-md focus:outline-none focus:border-blue-500 placeholder-white/70 ${getTextColorClass()}`"
             :style="{ borderColor: inputBorderColor }"
-            placeholder="所有人可见"
+            placeholder="评论区展示的昵称"
           />
         </div>
         <div>
@@ -33,7 +33,7 @@
             maxlength="100"
             :class="`w-full px-3 py-2 bg-white/10 dark:bg-white/5 backdrop-blur-sm border rounded-md focus:outline-none focus:border-blue-500 placeholder-white/70 ${getTextColorClass()}`"
             :style="{ borderColor: inputBorderColor }"
-            placeholder="隐藏，用于接收被回复的通知"
+            placeholder="不会公开显示，仅用于回复通知"
           />
         </div>
       </div>
@@ -51,7 +51,7 @@
           rows="4"
           :class="`w-full px-3 py-2 bg-white/10 dark:bg-white/5 backdrop-blur-sm border rounded-md focus:outline-none focus:border-blue-500 resize-none placeholder-white/70 ${getTextColorClass()}`"
           :style="{ borderColor: inputBorderColor }"
-          placeholder="请输入评论内容..."
+          placeholder="输入评论内容"
         ></textarea>
         <div :class="`text-right text-sm mt-1 ${props.isDarkMode ? 'text-white/70' : 'text-gray-600'}`">
           {{ formData.content.length }}/1000

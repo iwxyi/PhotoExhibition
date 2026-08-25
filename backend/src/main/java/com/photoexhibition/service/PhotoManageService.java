@@ -3,11 +3,15 @@ package com.photoexhibition.service;
 import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.Tag;
+import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.repository.PhotoAssignmentRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +39,8 @@ public class PhotoManageService {
     private final FaceRepository faceRepository;
     private final PhotoAIScoringRepository photoAIScoringRepository;
     private final PhotoAssignmentRepository photoAssignmentRepository;
+    private final TagRepository tagRepository;
+    private final UserPathService userPathService;
 
     @Value("${photo.scan.base-path}")
     private String basePath;
@@ -43,11 +49,12 @@ public class PhotoManageService {
      * Get available move targets for photos in an album.
      * Returns parent directory and sibling directories (other albums at the same level).
      */
-    public Map<String, Object> getMoveTargets(Long albumId) {
+    public Map<String, Object> getMoveTargets(UserAccount currentUser, Long albumId) {
         Album album = albumRepository.findById(albumId)
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
+        ensureAlbumAccess(currentUser, album);
 
-        Path albumPath = Paths.get(album.getPath()).toAbsolutePath().normalize();
+        Path albumPath = resolveLocalDirectoryPath(album.getPath());
         Path parentDir = albumPath.getParent();
         Map<String, Object> result = new HashMap<>();
 
@@ -57,7 +64,7 @@ public class PhotoManageService {
             if (grandParent != null) {
                 result.put("parentDir", Map.of(
                         "name", parentDir.getFileName().toString(),
-                        "path", parentDir.toString()
+                        "path", toClientPath(parentDir)
                 ));
             }
         }
@@ -73,7 +80,7 @@ public class PhotoManageService {
                       .forEach(p -> {
                           Map<String, String> dir = new HashMap<>();
                           dir.put("name", p.getFileName().toString());
-                          dir.put("path", p.toString());
+                          dir.put("path", toClientPath(p));
                           siblings.add(dir);
                       });
             } catch (IOException e) {
@@ -92,7 +99,7 @@ public class PhotoManageService {
                       .forEach(p -> {
                           Map<String, String> dir = new HashMap<>();
                           dir.put("name", p.getFileName().toString());
-                          dir.put("path", p.toString());
+                          dir.put("path", toClientPath(p));
                           children.add(dir);
                       });
             } catch (IOException e) {
@@ -109,7 +116,7 @@ public class PhotoManageService {
      * @param conflictResolution null = detect conflicts first; "overwrite" / "rename" / "skip"
      */
     @Transactional
-    public Map<String, Object> movePhotos(List<Long> photoIds, String targetDirPath, String conflictResolution) {
+    public Map<String, Object> movePhotos(UserAccount currentUser, List<Long> photoIds, String targetDirPath, String conflictResolution) {
         Map<String, Object> result = new HashMap<>();
 
         if (photoIds == null || photoIds.isEmpty()) {
@@ -118,13 +125,13 @@ public class PhotoManageService {
             return result;
         }
 
-        Path targetDir = Paths.get(targetDirPath).toAbsolutePath().normalize();
+        Path targetDir = resolveLocalDirectoryPath(targetDirPath);
 
         try {
             Files.createDirectories(targetDir);
         } catch (IOException e) {
             result.put("success", false);
-            result.put("message", "创建目标目录失败: " + e.getMessage());
+            result.put("message", "创建目标目录失败: " + toClientPath(e.getMessage()));
             return result;
         }
 
@@ -134,14 +141,19 @@ public class PhotoManageService {
             result.put("message", "未找到指定照片");
             return result;
         }
+        ensurePhotoAccess(currentUser, photos);
 
         // Detect filename conflicts
         List<String> conflictFiles = new ArrayList<>();
         for (Photo photo : photos) {
-            Path sourceFile = Paths.get(photo.getOriginalPath()).toAbsolutePath().normalize();
-            Path targetFile = targetDir.resolve(sourceFile.getFileName());
-            if (Files.exists(targetFile) && !targetFile.equals(sourceFile)) {
-                conflictFiles.add(photo.getFilename());
+            try {
+                Path sourceFile = resolveStoredPath(photo.getOriginalPath());
+                Path targetFile = targetDir.resolve(sourceFile.getFileName());
+                if (Files.exists(targetFile) && !targetFile.equals(sourceFile)) {
+                    conflictFiles.add(photo.getFilename());
+                }
+            } catch (IOException e) {
+                log.warn("检测移动冲突时解析照片路径失败: photoId={}, path={}", photo.getId(), toClientPath(photo.getOriginalPath()), e);
             }
         }
 
@@ -163,7 +175,8 @@ public class PhotoManageService {
                 .map(Photo::getAlbumId)
                 .collect(Collectors.toSet());
 
-        Album targetAlbum = findOrCreateAlbumForPath(targetDir.toString());
+        Long ownerUserId = resolveOwnerUserId(currentUser, photos);
+        Album targetAlbum = findOrCreateAlbumForPath(targetDir.toString(), ownerUserId);
 
         int movedCount = 0;
         List<String> errors = new ArrayList<>();
@@ -173,7 +186,7 @@ public class PhotoManageService {
                 movePhotoToDir(photo, targetDir, targetAlbum, conflictResolution);
                 movedCount++;
             } catch (Exception e) {
-                log.error("移动照片失败: {} -> {}", photo.getOriginalPath(), targetDir, e);
+                log.error("移动照片失败: {} -> {}", toClientPath(photo.getOriginalPath()), toClientPath(targetDir), e);
                 errors.add(photo.getFilename() + ": " + e.getMessage());
             }
         }
@@ -210,7 +223,7 @@ public class PhotoManageService {
      * Batch delete photos (files + DB records).
      */
     @Transactional
-    public Map<String, Object> deletePhotos(List<Long> photoIds) {
+    public Map<String, Object> deletePhotos(UserAccount currentUser, List<Long> photoIds) {
         Map<String, Object> result = new HashMap<>();
 
         if (photoIds == null || photoIds.isEmpty()) {
@@ -225,6 +238,7 @@ public class PhotoManageService {
             result.put("message", "未找到指定照片");
             return result;
         }
+        ensurePhotoAccess(currentUser, photos);
 
         Set<Long> affectedAlbumIds = photos.stream()
                 .map(Photo::getAlbumId)
@@ -239,7 +253,7 @@ public class PhotoManageService {
                 deletePhotoDbRecords(photo);
                 deletedCount++;
             } catch (Exception e) {
-                log.error("删除照片失败: {}", photo.getOriginalPath(), e);
+                log.error("删除照片失败: {}", toClientPath(photo.getOriginalPath()), e);
                 errors.add(photo.getFilename() + ": " + e.getMessage());
             }
         }
@@ -283,7 +297,7 @@ public class PhotoManageService {
                 deletePhotoDbRecords(photo);
                 count++;
             } catch (Exception e) {
-                log.error("删除照片失败: {}", photo.getOriginalPath(), e);
+                log.error("删除照片失败: {}", toClientPath(photo.getOriginalPath()), e);
             }
         }
 
@@ -302,12 +316,74 @@ public class PhotoManageService {
         return count;
     }
 
+    @Transactional
+    public Map<String, Object> setPhotoHidden(UserAccount currentUser, Long photoId, boolean hidden) {
+        Map<String, Object> result = new HashMap<>();
+        Photo photo = photoRepository.findById(photoId)
+                .orElseThrow(() -> new RuntimeException("照片不存在"));
+        ensurePhotoAccess(currentUser, List.of(photo));
+        photo.setIsHidden(hidden);
+        photoRepository.save(photo);
+        result.put("success", true);
+        result.put("photoId", photo.getId());
+        result.put("isHidden", Boolean.TRUE.equals(photo.getIsHidden()));
+        result.put("message", hidden ? "已隐藏图片" : "已恢复公开显示");
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> addPhotoTag(UserAccount currentUser, Long photoId, String tagName) {
+        Map<String, Object> result = new HashMap<>();
+        Photo photo = photoRepository.findById(photoId)
+                .orElseThrow(() -> new RuntimeException("照片不存在"));
+        ensurePhotoAccess(currentUser, List.of(photo));
+        Long userId = requireOwnerUserId(currentUser);
+        String normalizedName = normalizeTagName(tagName);
+        Tag tag = tagRepository.findByNameAndUserId(normalizedName, userId).orElseGet(() -> {
+            Tag created = new Tag();
+            created.setUserId(userId);
+            created.setName(normalizedName);
+            return tagRepository.save(created);
+        });
+        photo.getTags().add(tag);
+        photoRepository.save(photo);
+        result.put("success", true);
+        result.put("photoId", photo.getId());
+        result.put("tags", photo.getTags().stream()
+                .sorted(Comparator.comparing(Tag::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(this::toTagMap)
+                .collect(Collectors.toList()));
+        result.put("message", "已添加标签");
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> removePhotoTag(UserAccount currentUser, Long photoId, Long tagId) {
+        Map<String, Object> result = new HashMap<>();
+        Photo photo = photoRepository.findById(photoId)
+                .orElseThrow(() -> new RuntimeException("照片不存在"));
+        ensurePhotoAccess(currentUser, List.of(photo));
+        Long userId = requireOwnerUserId(currentUser);
+        Tag tag = tagRepository.findByIdAndUserId(tagId, userId)
+                .orElseThrow(() -> new RuntimeException("标签不存在"));
+        photo.getTags().removeIf(item -> Objects.equals(item.getId(), tag.getId()));
+        photoRepository.save(photo);
+        result.put("success", true);
+        result.put("photoId", photo.getId());
+        result.put("tags", photo.getTags().stream()
+                .sorted(Comparator.comparing(Tag::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(this::toTagMap)
+                .collect(Collectors.toList()));
+        result.put("message", "已移除标签");
+        return result;
+    }
+
     // ======================== Internal methods ========================
 
     private void movePhotoToDir(Photo photo, Path targetDir, Album targetAlbum, String conflictResolution) throws IOException {
-        Path sourceFile = Paths.get(photo.getOriginalPath()).toAbsolutePath().normalize();
+        Path sourceFile = resolveStoredPath(photo.getOriginalPath());
         if (!Files.exists(sourceFile)) {
-            throw new IOException("源文件不存在: " + sourceFile);
+            throw new IOException("源文件不存在: " + toClientPath(sourceFile));
         }
 
         String filename = sourceFile.getFileName().toString();
@@ -315,7 +391,7 @@ public class PhotoManageService {
 
         if (Files.exists(targetFile) && !targetFile.equals(sourceFile)) {
             if ("overwrite".equals(conflictResolution)) {
-                cleanupOverwrittenPhoto(targetFile.toString());
+                cleanupOverwrittenPhoto(toStoredPath(targetFile, photo.getUserId()));
                 Files.deleteIfExists(targetFile);
             } else if ("rename".equals(conflictResolution)) {
                 filename = findUniqueFilename(targetDir, filename);
@@ -331,27 +407,66 @@ public class PhotoManageService {
             Files.move(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
         }
 
-        String oldOriginal = photo.getOriginalPath();
-        Path oldParent = Paths.get(oldOriginal).getParent();
+        String oldThumbnailPath = photo.getThumbnailPath();
+        String oldWebpPath = photo.getWebpPath();
+        String oldSmallThumbPath = photo.getSmallThumbPath();
+        String oldMediumThumbPath = photo.getMediumThumbPath();
+        String oldLargeThumbPath = photo.getLargeThumbPath();
+        String oldBackgroundRemovedPath = photo.getBackgroundRemovedPath();
+
+        Path oldParent = sourceFile.getParent();
         Path newParent = targetFile.getParent();
 
-        photo.setOriginalPath(targetFile.toString());
-        photo.setPathHash(computeSha256(targetFile.toString()));
+        String storedOriginalPath = toStoredPath(targetFile, photo.getUserId());
+        photo.setOriginalPath(storedOriginalPath);
+        photo.setPathHash(computeSha256(storedOriginalPath));
         photo.setFilename(filename);
         photo.setAlbumId(targetAlbum.getId());
 
         if (oldParent != null && newParent != null) {
-            String oldPrefix = oldParent.toString();
-            String newPrefix = newParent.toString();
-            photo.setThumbnailPath(replacePrefix(photo.getThumbnailPath(), oldPrefix, newPrefix));
-            photo.setWebpPath(replacePrefix(photo.getWebpPath(), oldPrefix, newPrefix));
-            photo.setSmallThumbPath(replacePrefix(photo.getSmallThumbPath(), oldPrefix, newPrefix));
-            photo.setMediumThumbPath(replacePrefix(photo.getMediumThumbPath(), oldPrefix, newPrefix));
-            photo.setLargeThumbPath(replacePrefix(photo.getLargeThumbPath(), oldPrefix, newPrefix));
-            photo.setBackgroundRemovedPath(replacePrefix(photo.getBackgroundRemovedPath(), oldPrefix, newPrefix));
+            String newThumbnailPath = rewriteStoredPathForMove(oldThumbnailPath, oldParent, newParent, photo.getUserId());
+            String newWebpPath = rewriteStoredPathForMove(oldWebpPath, oldParent, newParent, photo.getUserId());
+            String newSmallThumbPath = rewriteStoredPathForMove(oldSmallThumbPath, oldParent, newParent, photo.getUserId());
+            String newMediumThumbPath = rewriteStoredPathForMove(oldMediumThumbPath, oldParent, newParent, photo.getUserId());
+            String newLargeThumbPath = rewriteStoredPathForMove(oldLargeThumbPath, oldParent, newParent, photo.getUserId());
+            String newBackgroundRemovedPath = rewriteStoredPathForMove(oldBackgroundRemovedPath, oldParent, newParent, photo.getUserId());
 
-            moveThumbnailFiles(photo, oldPrefix, newPrefix);
+            photo.setThumbnailPath(newThumbnailPath);
+            photo.setWebpPath(newWebpPath);
+            photo.setSmallThumbPath(newSmallThumbPath);
+            photo.setMediumThumbPath(newMediumThumbPath);
+            photo.setLargeThumbPath(newLargeThumbPath);
+            photo.setBackgroundRemovedPath(newBackgroundRemovedPath);
+
+            moveStoredFile(oldThumbnailPath, newThumbnailPath);
+            moveStoredFile(oldWebpPath, newWebpPath);
+            moveStoredFile(oldSmallThumbPath, newSmallThumbPath);
+            moveStoredFile(oldMediumThumbPath, newMediumThumbPath);
+            moveStoredFile(oldLargeThumbPath, newLargeThumbPath);
+            moveStoredFile(oldBackgroundRemovedPath, newBackgroundRemovedPath);
         }
+    }
+
+    private Map<String, Object> toTagMap(Tag tag) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", tag.getId());
+        item.put("name", tag.getName());
+        item.put("color", tag.getColor());
+        return item;
+    }
+
+    private Long requireOwnerUserId(UserAccount currentUser) {
+        if (currentUser == null || currentUser.getId() == null) {
+            throw new RuntimeException("未授权，请先登录");
+        }
+        return currentUser.getId();
+    }
+
+    private String normalizeTagName(String tagName) {
+        if (tagName == null || tagName.trim().isEmpty()) {
+            throw new RuntimeException("标签名称不能为空");
+        }
+        return tagName.trim();
     }
 
     /**
@@ -359,7 +474,7 @@ public class PhotoManageService {
      * Deletes its DB records (faces, assignments, AI scoring) and thumbnail files.
      */
     private void cleanupOverwrittenPhoto(String originalPath) {
-        Optional<Photo> existing = photoRepository.findByOriginalPath(originalPath);
+        Optional<Photo> existing = findPhotoByOriginalPath(originalPath);
         if (existing.isEmpty()) return;
 
         Photo victim = existing.get();
@@ -389,6 +504,31 @@ public class PhotoManageService {
         photoRepository.flush();
     }
 
+    private Optional<Photo> findPhotoByOriginalPath(String originalPath) {
+        if (originalPath == null || originalPath.isBlank()) {
+            return Optional.empty();
+        }
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        candidates.add(originalPath);
+        Long userId = userPathService.extractUserIdFromPath(originalPath);
+        userPathService.tryBuildStoragePathReference(originalPath, userId).ifPresent(candidates::add);
+
+        for (String candidate : candidates) {
+            try {
+                Optional<Photo> matched = photoRepository.findByOriginalPath(candidate);
+                if (matched.isPresent()) {
+                    return matched;
+                }
+            } catch (Exception ignored) {
+                List<Photo> photos = photoRepository.findAllByOriginalPath(candidate);
+                if (!photos.isEmpty()) {
+                    return photos.stream().max(Comparator.comparingLong(Photo::getId));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     private void moveThumbnailFiles(Photo photo, String oldPrefix, String newPrefix) {
         // Move each thumbnail file if it exists
         String[] thumbPaths = {
@@ -401,16 +541,85 @@ public class PhotoManageService {
             // The old path would have been with oldPrefix, so compute it
             String oldThumbPath = replacePrefix(thumbPath, newPrefix, oldPrefix);
             if (oldThumbPath == null) continue;
-            Path oldFile = Paths.get(oldThumbPath);
-            Path newFile = Paths.get(thumbPath);
+            Optional<Path> oldFileOpt = tryResolveMutableLocalPath(oldThumbPath);
+            Optional<Path> newFileOpt = tryResolveMutableLocalPath(thumbPath);
+            if (oldFileOpt.isEmpty() || newFileOpt.isEmpty()) {
+                continue;
+            }
+            Path oldFile = oldFileOpt.get();
+            Path newFile = newFileOpt.get();
             if (Files.exists(oldFile) && !oldFile.equals(newFile)) {
                 try {
                     Files.createDirectories(newFile.getParent());
                     Files.move(oldFile, newFile, StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e) {
-                    log.warn("移动缩略图失败: {} -> {}: {}", oldFile, newFile, e.getMessage());
+                    log.warn("移动缩略图失败: {} -> {}: {}", toClientPath(oldFile), toClientPath(newFile), e.getMessage());
                 }
             }
+        }
+    }
+
+    private String toStoredPath(Path path, Long userId) {
+        String absolute = path.toAbsolutePath().normalize().toString();
+        return userPathService.tryBuildStoragePathReference(absolute, userId).orElse(absolute);
+    }
+
+    private String toClientPath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        return userPathService.toDisplayPath(path.toAbsolutePath().normalize().toString(), true);
+    }
+
+    private String toClientPath(String storedOrAbsolutePath) {
+        if (storedOrAbsolutePath == null || storedOrAbsolutePath.isBlank()) {
+            return storedOrAbsolutePath;
+        }
+        try {
+            return userPathService.toDisplayPath(storedOrAbsolutePath, true);
+        } catch (Exception e) {
+            String normalized = storedOrAbsolutePath.replace('\\', '/');
+            int index = normalized.lastIndexOf('/');
+            return index >= 0 ? normalized.substring(index + 1) : normalized;
+        }
+    }
+
+    private String rewriteStoredPathForMove(String currentPath, Path oldParent, Path newParent, Long userId) {
+        if (currentPath == null || currentPath.isBlank() || oldParent == null || newParent == null) {
+            return currentPath;
+        }
+        try {
+            Path currentAbsolute = resolveStoredPath(currentPath);
+            if (!currentAbsolute.startsWith(oldParent)) {
+                return currentPath;
+            }
+            Path relative = oldParent.relativize(currentAbsolute);
+            Path targetAbsolute = newParent.resolve(relative).normalize();
+            return toStoredPath(targetAbsolute, userId);
+        } catch (IOException e) {
+            return currentPath;
+        }
+    }
+
+    private void moveStoredFile(String oldStoredPath, String newStoredPath) {
+        if (oldStoredPath == null || newStoredPath == null || oldStoredPath.equals(newStoredPath)) {
+            return;
+        }
+        Optional<Path> oldFileOpt = tryResolveMutableLocalPath(oldStoredPath);
+        Optional<Path> newFileOpt = tryResolveMutableLocalPath(newStoredPath);
+        if (oldFileOpt.isEmpty() || newFileOpt.isEmpty()) {
+            return;
+        }
+        Path oldFile = oldFileOpt.get();
+        Path newFile = newFileOpt.get();
+        if (!Files.exists(oldFile) || oldFile.equals(newFile)) {
+            return;
+        }
+        try {
+            Files.createDirectories(newFile.getParent());
+            Files.move(oldFile, newFile, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            log.warn("移动派生文件失败: {} -> {}: {}", oldFile, newFile, e.getMessage());
         }
     }
 
@@ -428,8 +637,13 @@ public class PhotoManageService {
 
     private void deleteFileIfExists(String path) {
         if (path == null) return;
+        Optional<Path> localPath = tryResolveMutableLocalPath(path);
+        if (localPath.isEmpty()) {
+            log.debug("跳过非本地文件删除: {}", path);
+            return;
+        }
         try {
-            Files.deleteIfExists(Paths.get(path));
+            Files.deleteIfExists(localPath.get());
         } catch (IOException e) {
             log.warn("删除文件失败: {}: {}", path, e.getMessage());
         }
@@ -470,6 +684,21 @@ public class PhotoManageService {
         return count;
     }
 
+    @Transactional
+    public int hidePhotos(UserAccount currentUser, List<Long> photoIds) {
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        ensurePhotoAccess(currentUser, photos);
+        int count = 0;
+        for (Photo photo : photos) {
+            if (photo.getIsHidden() == null || !photo.getIsHidden()) {
+                photo.setIsHidden(true);
+                photoRepository.save(photo);
+                count++;
+            }
+        }
+        return count;
+    }
+
     /**
      * 批量显示照片（取消隐藏）
      */
@@ -490,61 +719,212 @@ public class PhotoManageService {
         return count;
     }
 
+    @Transactional
+    public int showPhotos(UserAccount currentUser, List<Long> photoIds) {
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        ensurePhotoAccess(currentUser, photos);
+        int count = 0;
+        for (Photo photo : photos) {
+            if (photo.getIsHidden() != null && photo.getIsHidden()) {
+                photo.setIsHidden(false);
+                photoRepository.save(photo);
+                count++;
+            }
+        }
+        return count;
+    }
+
     private void deletePhotoFile(Photo photo) throws IOException {
         // Delete original file
         if (photo.getOriginalPath() != null) {
-            Path originalPath = Paths.get(photo.getOriginalPath());
+            Path originalPath = resolveStoredPath(photo.getOriginalPath());
             if (Files.exists(originalPath)) {
                 Files.delete(originalPath);
             }
         }
         // Delete thumbnails
         if (photo.getThumbnailPath() != null) {
-            Files.deleteIfExists(Paths.get(photo.getThumbnailPath()));
+            Files.deleteIfExists(resolveStoredPath(photo.getThumbnailPath()));
         }
         if (photo.getSmallThumbPath() != null) {
-            Files.deleteIfExists(Paths.get(photo.getSmallThumbPath()));
+            Files.deleteIfExists(resolveStoredPath(photo.getSmallThumbPath()));
         }
         if (photo.getMediumThumbPath() != null) {
-            Files.deleteIfExists(Paths.get(photo.getMediumThumbPath()));
+            Files.deleteIfExists(resolveStoredPath(photo.getMediumThumbPath()));
         }
         if (photo.getLargeThumbPath() != null) {
-            Files.deleteIfExists(Paths.get(photo.getLargeThumbPath()));
+            Files.deleteIfExists(resolveStoredPath(photo.getLargeThumbPath()));
         }
         if (photo.getWebpPath() != null) {
-            Files.deleteIfExists(Paths.get(photo.getWebpPath()));
+            Files.deleteIfExists(resolveStoredPath(photo.getWebpPath()));
         }
         if (photo.getBackgroundRemovedPath() != null) {
-            Files.deleteIfExists(Paths.get(photo.getBackgroundRemovedPath()));
+            Files.deleteIfExists(resolveStoredPath(photo.getBackgroundRemovedPath()));
         }
     }
 
-    private Album findOrCreateAlbumForPath(String dirPath) {
-        String normalizedPath = dirPath.replace("\\", "/");
-        Optional<Album> existing = albumRepository.findByPath(normalizedPath);
-        if (existing.isEmpty()) {
-            existing = albumRepository.findByPath(dirPath);
+    private Path resolveStoredPath(String path) throws IOException {
+        if (path == null || path.isBlank()) {
+            throw new IOException("路径为空");
         }
+        try {
+            return userPathService.resolveStoredPhotoPath(path);
+        } catch (Exception e) {
+            throw new IOException("解析存储路径失败: " + path, e);
+        }
+    }
+
+    private Path resolveLocalDirectoryPath(String path) {
+        if (path == null || path.isBlank()) {
+            throw new RuntimeException("目录路径为空");
+        }
+        Optional<Path> localPath = tryResolveMutableLocalPath(path);
+        if (localPath.isPresent()) {
+            return localPath.get();
+        }
+        if (userPathService.isStoragePathReference(path)) {
+            throw new RuntimeException("当前目录引用指向非本地存储，无法执行本地文件操作");
+        }
+        return Paths.get(path).toAbsolutePath().normalize();
+    }
+
+    private Album findOrCreateAlbumForPath(String dirPath, Long userId) {
+        String normalizedPath = null;
+        String storedPath;
+        String albumName;
+
+        if (userPathService.isStoragePathReference(dirPath)) {
+            storedPath = dirPath.replace("\\", "/");
+            albumName = deriveAlbumNameFromStoredPath(storedPath);
+            Optional<Path> localDirectory = userPathService.tryResolveLocalStoredPhotoPath(storedPath);
+            if (localDirectory.isPresent()) {
+                normalizedPath = localDirectory.get().toAbsolutePath().normalize().toString().replace("\\", "/");
+            }
+        } else {
+            Path directory = Paths.get(dirPath).toAbsolutePath().normalize();
+            normalizedPath = directory.toString().replace("\\", "/");
+            storedPath = toStoredPath(directory, userId);
+            albumName = directory.getFileName().toString();
+        }
+
+        Optional<Album> existing = findAlbumByManagedPath(storedPath, normalizedPath, dirPath);
         if (existing.isPresent()) {
             return existing.get();
         }
 
         // Create new album
-        Path dir = Paths.get(dirPath);
         Album album = new Album();
-        album.setName(dir.getFileName().toString());
-        album.setPath(normalizedPath);
-        album.setPathHash(computeSha256(normalizedPath));
+        album.setName(albumName);
+        album.setPath(storedPath);
+        album.setPathHash(computeSha256(storedPath));
         album.setPhotoCount(0);
+        album.setUserId(userId);
 
         // Parse date from directory name for sorting
-        album.setAlbumNameDate(parseDateFromAlbumPath(normalizedPath));
+        album.setAlbumNameDate(parseDateFromAlbumPath(storedPath));
 
         return albumRepository.save(album);
     }
 
+    private Optional<Album> findAlbumByManagedPath(String storedPath, String normalizedPath, String originalPath) {
+        java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<>();
+        if (storedPath != null && !storedPath.isBlank()) {
+            candidates.add(storedPath);
+        }
+        if (normalizedPath != null && !normalizedPath.isBlank()) {
+            candidates.add(normalizedPath);
+        }
+        if (originalPath != null && !originalPath.isBlank()) {
+            candidates.add(originalPath);
+        }
+        for (String candidate : candidates) {
+            Optional<Album> existing = albumRepository.findByPath(candidate);
+            if (existing.isPresent()) {
+                return existing;
+            }
+            String pathHash = computeSha256(candidate);
+            if (pathHash != null) {
+                existing = albumRepository.findByPathHash(pathHash);
+                if (existing.isPresent()) {
+                    return existing;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private String deriveAlbumNameFromStoredPath(String storedPath) {
+        String tenantRelativePath = userPathService.extractTenantRelativePhotoPath(storedPath);
+        if (tenantRelativePath == null || tenantRelativePath.isBlank()) {
+            return storedPath;
+        }
+        Path relative = Paths.get(tenantRelativePath).normalize();
+        if (relative.getFileName() == null) {
+            return tenantRelativePath;
+        }
+        return relative.getFileName().toString();
+    }
+
+    private Optional<Path> tryResolveMutableLocalPath(String path) {
+        if (path == null || path.isBlank()) {
+            return Optional.empty();
+        }
+        if (userPathService.isStoragePathReference(path)) {
+            return userPathService.tryResolveLocalStoredPhotoPath(path);
+        }
+        try {
+            return Optional.of(Paths.get(path).toAbsolutePath().normalize());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private void ensureAlbumAccess(UserAccount currentUser, Album album) {
+        if (currentUser == null || album == null) {
+            throw new RuntimeException("无权访问相册");
+        }
+        if (currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return;
+        }
+        if (!Objects.equals(album.getUserId(), currentUser.getId())) {
+            throw new RuntimeException("无权访问其他用户的相册");
+        }
+    }
+
+    private void ensurePhotoAccess(UserAccount currentUser, List<Photo> photos) {
+        if (currentUser == null) {
+            throw new RuntimeException("未登录");
+        }
+        if (currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return;
+        }
+        boolean hasForeignPhoto = photos.stream().anyMatch(photo -> !Objects.equals(photo.getUserId(), currentUser.getId()));
+        if (hasForeignPhoto) {
+            throw new RuntimeException("无权操作其他用户的照片");
+        }
+    }
+
+    private Long resolveOwnerUserId(UserAccount currentUser, List<Photo> photos) {
+        if (photos == null || photos.isEmpty()) {
+            return currentUser == null ? null : currentUser.getId();
+        }
+        Long ownerUserId = photos.stream()
+            .map(Photo::getUserId)
+            .filter(Objects::nonNull)
+            .findFirst()
+            .orElse(currentUser == null ? null : currentUser.getId());
+        if (currentUser != null && currentUser.getRole() != UserRole.SUPER_ADMIN && !Objects.equals(ownerUserId, currentUser.getId())) {
+            throw new RuntimeException("无权操作其他用户的照片");
+        }
+        return ownerUserId;
+    }
+
     private LocalDateTime parseDateFromAlbumPath(String path) {
-        String dirName = Paths.get(path).getFileName().toString();
+        String tenantRelative = userPathService.extractTenantRelativePhotoPath(path);
+        String normalizedPath = tenantRelative == null || tenantRelative.isBlank()
+            ? path
+            : tenantRelative;
+        String dirName = Paths.get(normalizedPath).getFileName().toString();
         Pattern datePattern = Pattern.compile("(\\d{4})[.\\-/](\\d{1,2})[.\\-/](\\d{1,2})");
         Matcher matcher = datePattern.matcher(dirName);
         if (matcher.find()) {

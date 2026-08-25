@@ -1,19 +1,19 @@
 package com.photoexhibition.config;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.photoexhibition.service.UserPathService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.io.File;
-import java.nio.file.Paths;
 
 @Configuration
+@RequiredArgsConstructor
 public class WebConfig implements WebMvcConfigurer {
 
-    @Value("${photo.scan.base-path}")
-    private String photoBasePath;
+    private final UserPathService userPathService;
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
@@ -26,24 +26,15 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 处理图片路径配置
-        String basePath = photoBasePath;
-        
-        // 如果是相对路径，转换为绝对路径
-        if (!Paths.get(basePath).isAbsolute()) {
-            String projectRoot = System.getProperty("user.dir");
-            if (projectRoot.endsWith("backend")) {
-                projectRoot = new File(projectRoot).getParent();
-            }
-            String cleanPath = basePath.startsWith("./") 
-                ? basePath.substring(2) 
-                : basePath;
-            basePath = new File(projectRoot, cleanPath).getAbsolutePath();
-        }
+        String basePath = userPathService.resolvePhotoBasePath().toString();
+        String userDataPath = userPathService.resolveUserDataBasePath().toString();
         
         // 确保路径以/结尾（macOS/Linux）或\结尾（Windows）
         if (!basePath.endsWith("/") && !basePath.endsWith(File.separator)) {
             basePath += File.separator;
+        }
+        if (!userDataPath.endsWith("/") && !userDataPath.endsWith(File.separator)) {
+            userDataPath += File.separator;
         }
         
         // 配置静态资源访问
@@ -61,6 +52,10 @@ public class WebConfig implements WebMvcConfigurer {
         // 这些路径相对于context-path /api
         registry.addResourceHandler("/人像/**", "/游玩/**", "/风景/**", "/活动/**", "/扫街/**", "/其他/**")
             .addResourceLocations("file:" + basePath)
+            .setCachePeriod(3600);
+
+        registry.addResourceHandler("/user-files/**")
+            .addResourceLocations("file:" + userDataPath)
             .setCachePeriod(3600);
     }
 }

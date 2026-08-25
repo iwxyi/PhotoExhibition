@@ -1,124 +1,117 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { api } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
-type ThemeKey = 'default' | 'ocean' | 'forest' | 'sunset' | 'mono'
+type AdminColorMode = 'light' | 'dark' | 'system'
 
-interface ThemeDefinition {
-  name: string
-  accentHue: number
-  accentSaturation: string
-  accentLightness: string
-  glassBlur: string
-  radius: string
-}
-
-const THEME_KEY_STORAGE = 'pe-theme-key'
 const COLOR_MODE_STORAGE = 'theme'
+const ADMIN_COLOR_MODE_STORAGE = 'pe-admin-color-mode'
+const canUseWindow = typeof window !== 'undefined'
 
-const themes: Record<ThemeKey, ThemeDefinition> = {
-  default: {
-    name: '默认',
-    accentHue: 222,
-    accentSaturation: '84%',
-    accentLightness: '56%',
-    glassBlur: '18px',
-    radius: '16px'
-  },
-  ocean: {
-    name: '海蓝',
-    accentHue: 199,
-    accentSaturation: '89%',
-    accentLightness: '55%',
-    glassBlur: '22px',
-    radius: '18px'
-  },
-  forest: {
-    name: '森林',
-    accentHue: 142,
-    accentSaturation: '72%',
-    accentLightness: '42%',
-    glassBlur: '16px',
-    radius: '14px'
-  },
-  sunset: {
-    name: '日落',
-    accentHue: 18,
-    accentSaturation: '92%',
-    accentLightness: '60%',
-    glassBlur: '20px',
-    radius: '18px'
-  },
-  mono: {
-    name: '黑白',
-    accentHue: 0,
-    accentSaturation: '0%',
-    accentLightness: '90%',
-    glassBlur: '12px',
-    radius: '12px'
-  }
+const normalizeAdminColorMode = (value: unknown): AdminColorMode => {
+  return value === 'light' || value === 'dark' || value === 'system' ? value : 'dark'
 }
 
 export const useThemeStore = defineStore('theme', () => {
+  const authStore = useAuthStore()
   const storedMode = localStorage.getItem(COLOR_MODE_STORAGE)
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const prefersDark = canUseWindow && window.matchMedia('(prefers-color-scheme: dark)').matches
 
+  // Public pages keep their existing light/dark preference independently of admin appearance.
   const isDark = ref(storedMode === 'dark' || (!storedMode && prefersDark))
-  const currentThemeKey = ref<ThemeKey>(
-    (localStorage.getItem(THEME_KEY_STORAGE) as ThemeKey) || 'default'
+  const adminColorMode = ref<AdminColorMode>(
+    normalizeAdminColorMode(localStorage.getItem(ADMIN_COLOR_MODE_STORAGE) || 'dark')
+  )
+  const loading = ref(false)
+  const saving = ref(false)
+  const errorMessage = ref('')
+
+  const applyPublicColorMode = () => {
+    document.documentElement.classList.toggle('dark', isDark.value)
+    document.documentElement.style.setProperty('--pe-theme-primary', '#2563eb')
+    document.documentElement.style.setProperty('--pe-theme-secondary', '#94a3b8')
+    document.documentElement.style.setProperty('--pe-theme-base', '#0f172a')
+    document.documentElement.style.setProperty('--pe-accent-h', '217')
+    document.documentElement.style.setProperty('--pe-accent-s', '91%')
+    document.documentElement.style.setProperty('--pe-accent-l', '60%')
+    document.documentElement.style.setProperty('--pe-glass-blur', '14px')
+    document.documentElement.style.setProperty('--pe-radius-lg', '18px')
+  }
+
+  const applyAdminColorMode = () => {
+    const resolved = adminColorMode.value === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : adminColorMode.value
+    document.documentElement.dataset.adminColorMode = resolved
+    localStorage.setItem(ADMIN_COLOR_MODE_STORAGE, adminColorMode.value)
+  }
+
+  const setColorMode = async (dark: boolean) => {
+    isDark.value = dark
+    localStorage.setItem(COLOR_MODE_STORAGE, dark ? 'dark' : 'light')
+    applyPublicColorMode()
+  }
+
+  const toggleTheme = async () => setColorMode(!isDark.value)
+
+  const syncAdminColorMode = async () => {
+    if (!authStore.token || !authStore.userId) return
+    loading.value = true
+    errorMessage.value = ''
+    try {
+      const { data } = await api.get('/admin/config/admin-theme')
+      adminColorMode.value = normalizeAdminColorMode(data?.colorMode)
+      applyAdminColorMode()
+    } catch (error: any) {
+      errorMessage.value = error?.response?.data?.error || error?.message || '加载后台颜色模式失败'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const setAdminColorMode = async (mode: AdminColorMode) => {
+    adminColorMode.value = mode
+    applyAdminColorMode()
+    if (!authStore.token || !authStore.userId) return
+    saving.value = true
+    errorMessage.value = ''
+    try {
+      await api.put('/admin/config/admin-theme', { colorMode: mode })
+    } catch (error: any) {
+      errorMessage.value = error?.response?.data?.error || error?.message || '保存后台颜色模式失败'
+    } finally {
+      saving.value = false
+    }
+  }
+
+  applyPublicColorMode()
+  applyAdminColorMode()
+
+  watch(isDark, applyPublicColorMode)
+  watch(
+    () => [authStore.userId, authStore.token] as const,
+    ([userId, token]) => {
+      if (userId && token) void syncAdminColorMode()
+    },
+    { immediate: true }
   )
 
-  const setColorMode = (dark: boolean) => {
-    isDark.value = dark
-    updateDom()
+  if (canUseWindow) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (adminColorMode.value === 'system') applyAdminColorMode()
+    })
   }
-
-  const toggleTheme = () => {
-    setColorMode(!isDark.value)
-  }
-
-  const setThemeKey = (key: ThemeKey) => {
-    if (!themes[key]) return
-    currentThemeKey.value = key
-    localStorage.setItem(THEME_KEY_STORAGE, key)
-    applyThemeVariables()
-  }
-
-  const applyThemeVariables = () => {
-    const theme = themes[currentThemeKey.value]
-    const root = document.documentElement
-
-    root.style.setProperty('--pe-accent-h', String(theme.accentHue))
-    root.style.setProperty('--pe-accent-s', theme.accentSaturation)
-    root.style.setProperty('--pe-accent-l', theme.accentLightness)
-    root.style.setProperty('--pe-glass-blur', theme.glassBlur)
-    root.style.setProperty('--pe-radius-lg', theme.radius)
-  }
-
-  const updateDom = () => {
-    if (isDark.value) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem(COLOR_MODE_STORAGE, 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem(COLOR_MODE_STORAGE, 'light')
-    }
-    applyThemeVariables()
-  }
-
-  // 初始化主题
-  updateDom()
-
-  // 监听变化
-  watch(isDark, () => {
-    updateDom()
-  })
 
   return {
     isDark,
-    currentThemeKey,
-    themes,
+    adminColorMode,
+    loading,
+    saving,
+    errorMessage,
     toggleTheme,
-    setThemeKey
+    setColorMode,
+    setAdminColorMode,
+    syncAdminColorMode
   }
 })
-

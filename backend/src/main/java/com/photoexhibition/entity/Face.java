@@ -26,6 +26,9 @@ public class Face {
     @JoinColumn(name = "person_id")
     private PersonProfile person;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Column(name = "x", precision = 6, scale = 3)
     private Double x; // 左上角X（0-1）
 
@@ -64,4 +67,3 @@ public class Face {
         updatedAt = LocalDateTime.now();
     }
 }
-

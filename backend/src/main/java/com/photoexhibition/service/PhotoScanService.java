@@ -10,9 +10,14 @@ import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.Face;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.ProcessingStatus;
+import com.photoexhibition.entity.StorageProvider;
+import com.photoexhibition.entity.StorageType;
 import com.photoexhibition.entity.Tag;
+import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.StorageProviderRepository;
 import com.photoexhibition.repository.TagRepository;
 import com.photoexhibition.service.FilterOptionService;
 import lombok.extern.slf4j.Slf4j;
@@ -22,9 +27,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -53,14 +62,83 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.security.MessageDigest;
 import java.security.DigestInputStream;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
 public class PhotoScanService {
 
+    public enum ScanControlAction {
+        CONTINUE,
+        PAUSE,
+        CANCEL
+    }
+
+    public static class ScanInterruptedException extends RuntimeException {
+        private final ScanControlAction action;
+        private final String path;
+
+        public ScanInterruptedException(ScanControlAction action, String path) {
+            super(action == ScanControlAction.PAUSE ? "扫描任务已暂停" : "扫描任务已取消");
+            this.action = action;
+            this.path = path;
+        }
+
+        public ScanControlAction getAction() {
+            return action;
+        }
+
+        public String getPath() {
+            return path;
+        }
+    }
+
+    public interface ScanProgressListener {
+        default void onScanPrepared(String rootPath, boolean force, int totalItems) {}
+
+        default void onFileProcessed(String absolutePath, int current, int total) {}
+
+        default void onPathProcessed(String absolutePath, String pathType, int current, int total) {
+            onFileProcessed(absolutePath, current, total);
+        }
+
+        default void onFileSkipped(String absolutePath, String reason, String detail, int current, int total) {}
+
+        default void onPathSkipped(String absolutePath, String pathType, String reason, String detail, int current, int total) {
+            onFileSkipped(absolutePath, reason, detail, current, total);
+        }
+
+        default void onFileFailed(String absolutePath, String errorMessage, int current, int total) {}
+
+        default void onPathFailed(String absolutePath, String pathType, String errorMessage, int current, int total) {
+            onFileFailed(absolutePath, errorMessage, current, total);
+        }
+
+        default void onScanCompleted(int processed, int total, int skipped, int failed) {}
+
+        default void onScanFailed(Exception exception, int processed, int total) {}
+
+        default ScanControlAction getControlAction() {
+            return ScanControlAction.CONTINUE;
+        }
+
+        default String getResumeFromPath() {
+            return null;
+        }
+
+        default String getResumeFromType() {
+            return null;
+        }
+
+        default int getInitialProcessedItems() {
+            return 0;
+        }
+    }
+
     // 简单的任务状态记录结构（用于后台异步任务的进度与日志查询）
     private static class TaskStatus {
         public String taskId;
+        public String taskName;
         public String status;
         public final List<String> logs = Collections.synchronizedList(new ArrayList<>());
         public int current = 0;
@@ -74,17 +152,21 @@ public class PhotoScanService {
     // 跳过文件记录（扫描进度差异详情）
     public static class SkippedFileRecord {
         public int index;
+        public Long userId;
         public String relativePath;
         public String reason;
         public String detail;
         public long fileSizeBytes;
+        public LocalDateTime recordedAt;
 
-        public SkippedFileRecord(int index, String relativePath, String reason, String detail, long fileSizeBytes) {
+        public SkippedFileRecord(int index, Long userId, String relativePath, String reason, String detail, long fileSizeBytes, LocalDateTime recordedAt) {
             this.index = index;
+            this.userId = userId;
             this.relativePath = relativePath;
             this.reason = reason;
             this.detail = detail;
             this.fileSizeBytes = fileSizeBytes;
+            this.recordedAt = recordedAt;
         }
     }
 
@@ -155,6 +237,10 @@ public class PhotoScanService {
     private final FilterOptionService filterOptionService;
     private final PhotoAIScoringService aiScoringService;
     private final BackgroundRemovalService backgroundRemovalService;
+    private final UserPathService userPathService;
+    private final StorageProviderRepository storageProviderRepository;
+    private final StorageUploadService storageUploadService;
+    private final PlatformTransactionManager transactionManager;
     private final AtomicInteger activeScanCount = new AtomicInteger(0);
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
@@ -166,6 +252,14 @@ public class PhotoScanService {
     private final Set<String> processedFiles = ConcurrentHashMap.newKeySet(); // 跟踪已处理的文件的路径
     private volatile LocalDateTime lastScanStart = null;
     private volatile LocalDateTime lastScanEnd = null;
+    private final ThreadLocal<ScanProgressListener> currentScanProgressListener = new ThreadLocal<>();
+    private final ThreadLocal<String> currentResumeAnchor = new ThreadLocal<>();
+    private final ThreadLocal<String> currentResumeAnchorType = new ThreadLocal<>();
+    private final ThreadLocal<Boolean> currentResumeAnchorReached = new ThreadLocal<>();
+    private final ThreadLocal<String> currentResumeSkipSubtree = new ThreadLocal<>();
+    private final ThreadLocal<Long> currentStorageProviderId = new ThreadLocal<>();
+    private final ThreadLocal<Path> currentStorageProviderBasePath = new ThreadLocal<>();
+    private final ThreadLocal<Long> currentStorageUserId = new ThreadLocal<>();
 
     private final ObjectMapper objectMapper;
 
@@ -183,6 +277,10 @@ public class PhotoScanService {
                            FilterOptionService filterOptionService,
                            PhotoAIScoringService aiScoringService,
                            BackgroundRemovalService backgroundRemovalService,
+                           UserPathService userPathService,
+                           StorageProviderRepository storageProviderRepository,
+                           StorageUploadService storageUploadService,
+                           PlatformTransactionManager transactionManager,
                            ObjectMapper objectMapper) {
         this.albumRepository = albumRepository;
         this.photoRepository = photoRepository;
@@ -198,23 +296,137 @@ public class PhotoScanService {
         this.filterOptionService = filterOptionService;
         this.aiScoringService = aiScoringService;
         this.backgroundRemovalService = backgroundRemovalService;
+        this.userPathService = userPathService;
+        this.storageProviderRepository = storageProviderRepository;
+        this.storageUploadService = storageUploadService;
+        this.transactionManager = transactionManager;
         this.objectMapper = objectMapper;
     }
     
     private void createTask(String taskId, String initialMessage) {
+        createTask(taskId, initialMessage, resolveTaskName(taskId));
+    }
+
+    private void createTask(String taskId, String initialMessage, String taskName) {
         TaskStatus ts = new TaskStatus();
         ts.taskId = taskId;
+        ts.taskName = taskName;
         ts.status = "running";
         ts.startTime = LocalDateTime.now();
         if (initialMessage != null) ts.logs.add(LocalDateTime.now().toString() + " " + initialMessage);
         tasks.put(taskId, ts);
     }
 
+    private String resolveTaskName(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return "后台异步任务";
+        }
+        String normalized = taskId.toLowerCase(Locale.ROOT);
+        if (normalized.contains("face")) {
+            return "人脸重建任务";
+        }
+        if (normalized.contains("exif")) {
+            return "EXIF 修复任务";
+        }
+        if (normalized.contains("color")) {
+            return "颜色分析任务";
+        }
+        return "后台异步任务";
+    }
+
+    public void runWithStorageContext(Long storageProviderId, Runnable action) {
+        runWithStorageContext(storageProviderId, null, action);
+    }
+
+    public void runWithStorageContext(Long storageProviderId, Long storageUserId, Runnable action) {
+        Long previousProviderId = currentStorageProviderId.get();
+        Path previousBasePath = currentStorageProviderBasePath.get();
+        Long previousStorageUserId = currentStorageUserId.get();
+        try {
+            currentStorageProviderId.set(storageProviderId);
+            currentStorageProviderBasePath.set(resolveStorageProviderBasePath(storageProviderId));
+            currentStorageUserId.set(storageUserId);
+            action.run();
+        } finally {
+            if (previousProviderId == null) {
+                currentStorageProviderId.remove();
+            } else {
+                currentStorageProviderId.set(previousProviderId);
+            }
+            if (previousBasePath == null) {
+                currentStorageProviderBasePath.remove();
+            } else {
+                currentStorageProviderBasePath.set(previousBasePath);
+            }
+            if (previousStorageUserId == null) {
+                currentStorageUserId.remove();
+            } else {
+                currentStorageUserId.set(previousStorageUserId);
+            }
+        }
+    }
+
+    private File resolveOriginalFile(Photo photo) throws IOException {
+        if (photo == null || photo.getOriginalPath() == null || photo.getOriginalPath().isBlank()) {
+            throw new IOException("照片原始路径为空");
+        }
+        var resolved = userPathService.tryResolveLocalStoredPhotoPath(photo.getOriginalPath());
+        if (resolved.isEmpty()) {
+            throw new IOException("照片路径不是可映射到本地磁盘的存储路径: " + toRelativePath(photo.getOriginalPath()));
+        }
+        return resolved.get().toFile();
+    }
+
+    private File resolveStoredPathSafely(String storedPath) throws IOException {
+        if (storedPath == null || storedPath.isBlank()) {
+            throw new IOException("路径为空");
+        }
+        var resolved = userPathService.tryResolveLocalStoredPhotoPath(storedPath);
+        if (resolved.isEmpty()) {
+            throw new IOException("路径不是可映射到本地磁盘的存储路径: " + toRelativePath(storedPath));
+        }
+        return resolved.get().toFile();
+    }
+
+    private Path resolveStorageProviderBasePath(Long storageProviderId) {
+        if (storageProviderId == null) {
+            return null;
+        }
+        StorageProvider provider = storageProviderRepository.findById(storageProviderId).orElse(null);
+        if (provider == null || provider.getType() != StorageType.LOCAL) {
+            return null;
+        }
+        return userPathService.resolveStorageProviderBaseDirectory(provider);
+    }
+
+    private String toStoredManagedPath(String absolutePath, Long userId) {
+        if (absolutePath == null || absolutePath.isBlank()) {
+            return absolutePath;
+        }
+        Long storageProviderId = currentStorageProviderId.get();
+        Path providerBasePath = currentStorageProviderBasePath.get();
+        if (storageProviderId == null || providerBasePath == null) {
+            return absolutePath;
+        }
+        try {
+            Path fullPath = Paths.get(absolutePath).toAbsolutePath().normalize();
+            Path scopedRoot = userId != null ? providerBasePath.resolve(String.valueOf(userId)).normalize() : providerBasePath;
+            if (!fullPath.startsWith(scopedRoot)) {
+                return absolutePath;
+            }
+            Path relativePath = scopedRoot.relativize(fullPath);
+            return userPathService.buildStoragePathReference(storageProviderId, userId, relativePath.toString());
+        } catch (Exception e) {
+            log.debug("转换存储路径引用失败，回退绝对路径: {}", absolutePath, e);
+            return absolutePath;
+        }
+    }
+
     private void appendTaskLog(String taskId, String msg) {
         if (taskId == null) return;
         TaskStatus ts = tasks.get(taskId);
         if (ts != null) {
-            ts.logs.add(LocalDateTime.now().toString() + " " + msg);
+            ts.logs.add(LocalDateTime.now().toString() + " " + sanitizeVisibleMessage(msg));
         }
     }
 
@@ -234,7 +446,7 @@ public class PhotoScanService {
             ts.complete = true;
             ts.status = "completed";
             ts.endTime = LocalDateTime.now();
-            if (finalMessage != null) ts.logs.add(LocalDateTime.now().toString() + " " + finalMessage);
+            if (finalMessage != null) ts.logs.add(LocalDateTime.now().toString() + " " + sanitizeVisibleMessage(finalMessage));
         }
     }
     
@@ -250,20 +462,19 @@ public class PhotoScanService {
     @Async
     public void initializeProcessingStatusAsync() {
         try {
-            List<Photo> photos = photoRepository.findAll();
-            log.info("开始初始化照片处理状态，总计 {} 张", photos.size());
-            int updatedCount = 0;
+            int total = countPhotosForCurrentScope();
+            AtomicInteger updatedCount = new AtomicInteger();
+            log.info("开始初始化照片处理状态，总计 {} 张", total);
 
-            for (Photo photo : photos) {
+            forEachPhotoInCurrentScope(photo -> {
                 if (photo.getProcessingStatus() == ProcessingStatus.PENDING) {
-                    // 对于没有处理状态的照片，假设它们已经完成处理
                     photo.setProcessingStatus(ProcessingStatus.COMPLETED);
                     photoRepository.save(photo);
-                    updatedCount++;
+                    updatedCount.incrementAndGet();
                 }
-            }
+            });
 
-            log.info("初始化照片处理状态完成，更新了 {} 张照片", updatedCount);
+            log.info("初始化照片处理状态完成，更新了 {} 张照片", updatedCount.get());
         } catch (Exception e) {
             log.error("初始化照片处理状态失败", e);
         }
@@ -275,25 +486,28 @@ public class PhotoScanService {
     @Async
     public void backfillHashesAsync() {
         try {
-            List<Photo> photos = photoRepository.findAll();
-            log.info("开始回填哈希，总计 {} 张", photos.size());
-            for (Photo photo : photos) {
+            int total = countPhotosForCurrentScope();
+            log.info("开始回填哈希，总计 {} 张", total);
+            forEachPhotoInCurrentScope(photo -> {
                 try {
-                    if (photo.getContentHash() != null && !photo.getContentHash().isEmpty()) {
-                        continue;
+                    if (photo.getCanonicalPhotoId() != null) {
+                        return;
                     }
-                    File file = new File(photo.getOriginalPath());
+                    if (photo.getContentHash() != null && !photo.getContentHash().isEmpty()) {
+                        return;
+                    }
+                    File file = resolveOriginalFile(photo);
                     if (!file.exists()) {
-                        log.warn("文件不存在，跳过哈希回填: {}", photo.getOriginalPath());
-                        continue;
+                        log.warn("文件不存在，跳过哈希回填: {}", toRelativePath(photo.getOriginalPath()));
+                        return;
                     }
                     String hash = calculateSha256(file);
                     photo.setContentHash(hash);
                     photoRepository.save(photo);
                 } catch (Exception e) {
-                    log.warn("回填哈希失败: {}", photo.getOriginalPath(), e);
+                    log.warn("回填哈希失败: {}", toRelativePath(photo.getOriginalPath()), e);
                 }
-            }
+            });
             log.info("哈希回填完成");
         } catch (Exception e) {
             log.error("回填哈希任务失败", e);
@@ -315,61 +529,86 @@ public class PhotoScanService {
         try {
             log.info("开始清空抠图缓存...");
             ts.logs.add("开始清空抠图缓存...");
-            
-            // 获取所有有背景移除路径的照片
-            List<Photo> photosWithBg = photoRepository.findAll().stream()
-                .filter(p -> p.getBackgroundRemovedPath() != null && !p.getBackgroundRemovedPath().isEmpty())
-                .collect(Collectors.toList());
-            
-            ts.total = photosWithBg.size();
+
+            ts.total = countPhotosWithBackgroundForCurrentScope();
             ts.logs.add("共找到 " + ts.total + " 个抠图文件");
-            
-            int totalCleared = 0;
-            int totalErrors = 0;
-            
-            for (int i = 0; i < photosWithBg.size(); i++) {
-                Photo photo = photosWithBg.get(i);
-                ts.current = i + 1;
-                
+
+            AtomicInteger totalCleared = new AtomicInteger();
+            AtomicInteger totalErrors = new AtomicInteger();
+            AtomicInteger processed = new AtomicInteger();
+
+            forEachPhotoWithBackgroundInCurrentScope(photo -> {
+                int current = processed.incrementAndGet();
+                ts.current = current;
                 String bgRemovedPath = photo.getBackgroundRemovedPath();
-                File bgFile = new File(bgRemovedPath);
-                if (bgFile.exists()) {
-                    try {
+                try {
+                    File bgFile = resolveStoredPathSafely(bgRemovedPath);
+                    if (bgFile.exists()) {
                         if (bgFile.delete()) {
-                            totalCleared++;
+                            totalCleared.incrementAndGet();
                         } else {
-                            totalErrors++;
+                            totalErrors.incrementAndGet();
                             log.warn("无法删除文件: {}", bgRemovedPath);
                         }
-                    } catch (Exception e) {
-                        totalErrors++;
-                        log.warn("删除文件失败: {} - {}", bgRemovedPath, e.getMessage());
                     }
+                } catch (Exception e) {
+                    totalErrors.incrementAndGet();
+                    log.warn("删除文件失败: {} - {}", bgRemovedPath, e.getMessage());
                 }
-                
-                // 每处理10张输出一次日志
-                if ((i + 1) % 10 == 0) {
-                    ts.logs.add("已处理 " + (i + 1) + " / " + ts.total);
+
+                if (current % 10 == 0) {
+                    ts.logs.add("已处理 " + current + " / " + ts.total);
                 }
-            }
+            });
             
-            // 批量清除数据库中的路径记录
             int updatedCount = photoRepository.clearAllBackgroundRemovedPath();
             log.info("已清除 {} 条背景移除路径记录", updatedCount);
             ts.logs.add("已清除数据库记录: " + updatedCount + " 条");
             
-            ts.logs.add("清空完成: 清除 " + totalCleared + " 个文件, 错误 " + totalErrors + " 个");
-            log.info("清空抠图缓存完成: 清除 {} 个文件, 错误 {} 个", totalCleared, totalErrors);
+            ts.logs.add("清空完成: 清除 " + totalCleared.get() + " 个文件, 错误 " + totalErrors.get() + " 个");
+            log.info("清空抠图缓存完成: 清除 {} 个文件, 错误 {} 个", totalCleared.get(), totalErrors.get());
             
             ts.complete = true;
             ts.status = "completed";
         } catch (Exception e) {
             log.error("清空抠图缓存失败", e);
             ts.status = "failed";
-            ts.logs.add("失败: " + e.getMessage());
+            ts.logs.add("失败: " + sanitizeVisibleMessage(e.getMessage()));
         } finally {
             ts.endTime = LocalDateTime.now();
         }
+    }
+
+    @Transactional
+    public Map<String, Object> clearBackgroundCache() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            AtomicInteger totalCleared = new AtomicInteger();
+            AtomicInteger totalErrors = new AtomicInteger();
+            forEachPhotoWithBackgroundInCurrentScope(photo -> {
+                String bgRemovedPath = photo.getBackgroundRemovedPath();
+                try {
+                    File bgFile = resolveStoredPathSafely(bgRemovedPath);
+                    if (bgFile.exists() && !bgFile.delete()) {
+                        totalErrors.incrementAndGet();
+                        return;
+                    }
+                    totalCleared.incrementAndGet();
+                } catch (Exception e) {
+                    totalErrors.incrementAndGet();
+                }
+            });
+            int updatedCount = photoRepository.clearAllBackgroundRemovedPath();
+            result.put("success", true);
+            result.put("deletedFiles", totalCleared.get());
+            result.put("updatedRows", updatedCount);
+            result.put("errors", totalErrors.get());
+            result.put("message", "抠图缓存已清空");
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "清空抠图缓存失败: " + sanitizeVisibleMessage(e.getMessage()));
+        }
+        return result;
     }
 
     /**
@@ -381,6 +620,12 @@ public class PhotoScanService {
      */
     @Async
     public void batchBackgroundRemovalAsync(String taskId, Long albumId, int batchSize, boolean saveToPhoto, boolean force) {
+        batchBackgroundRemovalAsync(taskId, albumId, batchSize, saveToPhoto, force, null);
+    }
+
+    @Async
+    public void batchBackgroundRemovalAsync(String taskId, Long albumId, int batchSize, boolean saveToPhoto, boolean force, Long scopedUserId) {
+        Long previousUserId = currentStorageUserId.get();
         TaskStatus ts = tasks.get(taskId);
         if (ts == null) {
             ts = new TaskStatus();
@@ -391,6 +636,9 @@ public class PhotoScanService {
         }
         
         try {
+            if (scopedUserId != null) {
+                currentStorageUserId.set(scopedUserId);
+            }
             if (!backgroundRemovalService.isModelAvailable()) {
                 ts.status = "failed";
                 ts.logs.add("背景移除功能未启用或模型未加载");
@@ -406,7 +654,8 @@ public class PhotoScanService {
                 totalPhotos = photoRepository.countByAlbumId(albumId);
                 ts.logs.add("处理相册 " + albumId + " 的照片，共 " + totalPhotos + " 张");
             } else {
-                totalPhotos = photoRepository.count();
+                Long userId = resolveCurrentScanUserId();
+                totalPhotos = userId == null ? photoRepository.count() : photoRepository.countByUserId(userId);
                 ts.logs.add("处理所有照片，共 " + totalPhotos + " 张");
             }
             ts.total = (int) totalPhotos;
@@ -436,6 +685,8 @@ public class PhotoScanService {
                 Page<Photo> photoPage;
                 if (albumId != null) {
                     photoPage = photoRepository.findByAlbumId(albumId, PageRequest.of(pageNum, batchSize));
+                } else if (resolveCurrentScanUserId() != null) {
+                    photoPage = photoRepository.findByUserId(resolveCurrentScanUserId(), PageRequest.of(pageNum, batchSize));
                 } else {
                     photoPage = photoRepository.findAll(PageRequest.of(pageNum, batchSize));
                 }
@@ -451,7 +702,7 @@ public class PhotoScanService {
                     try {
                         // 检查是否已有缓存（除非force=true）
                         if (!force && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isEmpty()) {
-                            File existingFile = new File(photo.getBackgroundRemovedPath());
+                            File existingFile = resolveStoredPathSafely(photo.getBackgroundRemovedPath());
                             if (existingFile.exists()) {
                                 skipCount++;
                                 processedCount++;
@@ -459,7 +710,7 @@ public class PhotoScanService {
                             }
                         }
                         
-                        File sourceFile = new File(photo.getOriginalPath());
+                        File sourceFile = resolveOriginalFile(photo);
                         if (!sourceFile.exists()) {
                             failCount++;
                             processedCount++;
@@ -476,7 +727,7 @@ public class PhotoScanService {
                         
                         if (backgroundRemovalService.removeBackground(sourceFile, outputFile)) {
                             if (saveToPhoto) {
-                                photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                                photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
                                 photoRepository.save(photo);
                             }
                             successCount++;
@@ -508,8 +759,13 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.error("批量背景移除失败", e);
             ts.status = "failed";
-            ts.logs.add("失败: " + e.getMessage());
+            ts.logs.add("失败: " + sanitizeVisibleMessage(e.getMessage()));
         } finally {
+            if (previousUserId == null) {
+                currentStorageUserId.remove();
+            } else {
+                currentStorageUserId.set(previousUserId);
+            }
             ts.endTime = LocalDateTime.now();
         }
     }
@@ -518,26 +774,8 @@ public class PhotoScanService {
      * 定时扫描文件夹
      * initialDelay设置为扫描间隔时间，确保应用启动后不会立即执行第一次扫描
      */
-    @Scheduled(fixedDelayString = "${photo.scan.scan-interval}000", initialDelayString = "${photo.scan.scan-interval}000")
-    @Async
     public void scheduledScan() {
-        // 检查是否已有扫描在进行
-        if (isScanning.get() || activeScanCount.get() > 0) {
-            log.info("定时扫描跳过：已有扫描任务正在执行 (activeScanCount={}, isScanning={})",
-                    activeScanCount.get(), isScanning.get());
-            return;
-        }
-
-        log.info("定时扫描: {}", basePath);
-
-        // 先处理未完成的照片（确保之前跳过的照片能被重新处理）
-        int processedCount = processIncompletePhotosFirst();
-        if (processedCount > 0) {
-            log.info("定时扫描前已处理 {} 张未完成的照片", processedCount);
-        }
-
-        // 再执行完整的目录扫描
-        scanDirectory(basePath);
+        log.debug("定时扫描已迁移到 ScanTaskService.enqueueScheduledScan");
     }
     
     /**
@@ -565,9 +803,9 @@ public class PhotoScanService {
                         continue;
                     }
 
-                    File imageFile = new File(photo.getOriginalPath());
+                    File imageFile = resolveOriginalFile(photo);
                     if (!imageFile.exists()) {
-                        log.warn("照片文件不存在: {}", photo.getOriginalPath());
+                        log.warn("照片文件不存在: {}", toRelativePath(photo.getOriginalPath()));
                         // 标记为失败，但不删除记录（文件可能被移动）
                         photo.setProcessingStatus(ProcessingStatus.FAILED);
                         photo.addProcessingError("文件不存在");
@@ -626,7 +864,10 @@ public class PhotoScanService {
      */
     private long countPhotosInFilesystem() {
         try {
-            Path basePath = resolveBasePath();
+            Path basePath = resolveCurrentFilesystemScopeRoot();
+            if (basePath == null) {
+                return 0;
+            }
             if (!Files.exists(basePath) || !Files.isDirectory(basePath)) {
                 return 0;
             }
@@ -663,7 +904,8 @@ public class PhotoScanService {
 
         try {
             long filesystemTotal = countPhotosInFilesystem();
-            long databaseTotal = photoRepository.count();
+            Long userId = resolveCurrentScanUserId();
+            long databaseTotal = userId == null ? photoRepository.count() : photoRepository.countByUserId(userId);
 
             result.put("filesystemTotal", filesystemTotal);
             result.put("databaseTotal", databaseTotal);
@@ -678,7 +920,7 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.error("分析未扫描文件失败", e);
             result.put("success", false);
-            result.put("error", e.getMessage());
+            result.put("error", sanitizeVisibleMessage(e.getMessage()));
         }
 
         return result;
@@ -694,11 +936,7 @@ public class PhotoScanService {
             // 获取文件系统中的所有照片路径
             Set<String> filesystemPaths = getAllFilesystemPhotoPaths();
 
-            // 获取数据库中的所有照片路径
-            List<Photo> allPhotos = photoRepository.findAll();
-            Set<String> databasePaths = allPhotos.stream()
-                .map(Photo::getOriginalPath)
-                .collect(Collectors.toSet());
+            Set<String> databasePaths = getAllDatabasePhotoPathsForCurrentScope();
 
             // 找出未扫描的文件
             Set<String> unscannedPaths = new HashSet<>(filesystemPaths);
@@ -724,7 +962,7 @@ public class PhotoScanService {
 
         } catch (Exception e) {
             log.error("分析扫描差距失败", e);
-            analysis.put("error", e.getMessage());
+            analysis.put("error", sanitizeVisibleMessage(e.getMessage()));
         }
 
         return analysis;
@@ -737,7 +975,10 @@ public class PhotoScanService {
         Set<String> paths = new HashSet<>();
 
         try {
-            Path basePath = resolveBasePath();
+            Path basePath = resolveCurrentFilesystemScopeRoot();
+            if (basePath == null) {
+                return paths;
+            }
             if (!Files.exists(basePath) || !Files.isDirectory(basePath)) {
                 return paths;
             }
@@ -879,7 +1120,7 @@ public class PhotoScanService {
                 appendTaskLog(taskId, "筛选选项更新完成");
             } catch (Exception e) {
                 log.error("更新筛选选项失败", e);
-                appendTaskLog(taskId, "筛选选项更新失败: " + e.getMessage());
+                appendTaskLog(taskId, "筛选选项更新失败: " + sanitizeVisibleMessage(e.getMessage()));
                 // 不抛出异常，避免影响整体任务
             }
             completeTask(taskId, "已完成");
@@ -929,13 +1170,13 @@ public class PhotoScanService {
                 appendTaskLog(taskId, "筛选选项更新完成");
             } catch (Exception e) {
                 log.error("更新筛选选项失败", e);
-                appendTaskLog(taskId, "筛选选项更新失败: " + e.getMessage());
+                appendTaskLog(taskId, "筛选选项更新失败: " + sanitizeVisibleMessage(e.getMessage()));
                 // 不抛出异常，避免影响整体任务
             }
             completeTask(taskId, "已完成");
             log.info("异步任务 {}: 更新完成", taskId);
         } catch (Exception e) {
-            appendTaskLog(taskId, "发生异常: " + e.getMessage());
+            appendTaskLog(taskId, "发生异常: " + sanitizeVisibleMessage(e.getMessage()));
             completeTask(taskId, "已失败");
             log.error("异步任务 {}: 更新 EXIF 数值字段失败", taskId, e);
         } finally {
@@ -949,7 +1190,7 @@ public class PhotoScanService {
      */
     @PostConstruct
     public void init() {
-        log.info("扫描服务初始化: {}", basePath);
+        log.info("扫描服务初始化，默认扫描根目录: {}", resolveBasePath());
 
         // 初始化现有照片的处理状态
         initializeProcessingStatusAsync();
@@ -962,7 +1203,7 @@ public class PhotoScanService {
             long albumCount = albumRepository.count();
             if (albumCount == 0) {
                 log.info("数据库中没有任何相册，执行初始化扫描");
-                scanDirectoryAsync(basePath);
+                scanDirectoryAsync(null);
             } else {
                 log.info("数据库中已有 {} 个相册，跳过初始化扫描", albumCount);
             }
@@ -976,8 +1217,9 @@ public class PhotoScanService {
      */
     private void checkAndRetryIncompletePhotos() {
         try {
-            long failedCount = photoRepository.countFailedPhotos();
-            long incompleteCount = photoRepository.countIncompletePhotos();
+            Long userId = resolveCurrentScanUserId();
+            long failedCount = userId == null ? photoRepository.countFailedPhotos() : photoRepository.countFailedPhotosByUserId(userId);
+            long incompleteCount = userId == null ? photoRepository.countIncompletePhotos() : photoRepository.countIncompletePhotosByUserId(userId);
 
             if (failedCount > 0 || incompleteCount > 0) {
                 log.info("发现需要重新处理的照片 - 失败: {} 张，未完成: {} 张", failedCount, incompleteCount);
@@ -1005,7 +1247,12 @@ public class PhotoScanService {
      */
     @Transactional
     public void scanDirectory(String directoryPath) {
-        scanDirectoryInternal(directoryPath, false);
+        scanDirectory(directoryPath, null);
+    }
+
+    @Transactional
+    public void scanDirectory(String directoryPath, ScanProgressListener listener) {
+        executeWithScanProgressListener(listener, () -> scanDirectoryInternal(directoryPath, false));
     }
 
     /**
@@ -1013,7 +1260,12 @@ public class PhotoScanService {
      */
     @Transactional
     public void rescanDirectory(String directoryPath) {
-        scanDirectoryInternal(directoryPath, true);
+        rescanDirectory(directoryPath, null);
+    }
+
+    @Transactional
+    public void rescanDirectory(String directoryPath, ScanProgressListener listener) {
+        executeWithScanProgressListener(listener, () -> scanDirectoryInternal(directoryPath, true));
     }
 
     /**
@@ -1033,9 +1285,15 @@ public class PhotoScanService {
             result.put("error", "原始路径为空，无法定位文件");
             return result;
         }
-        File imageFile = new File(photo.getOriginalPath());
+        File imageFile;
+        try {
+            imageFile = resolveOriginalFile(photo);
+        } catch (IOException e) {
+            result.put("error", "解析原始文件路径失败: " + toRelativePath(e.getMessage()));
+            return result;
+        }
         if (!imageFile.exists()) {
-            result.put("error", "文件不存在: " + photo.getOriginalPath());
+            result.put("error", "文件不存在: " + userPathService.toDisplayPath(photo.getOriginalPath(), true));
             return result;
         }
         // 调用现有人脸检测流程（单张重建时开启详细日志）
@@ -1084,9 +1342,15 @@ public class PhotoScanService {
             return result;
         }
 
-        File imageFile = new File(photo.getOriginalPath());
+        File imageFile;
+        try {
+            imageFile = resolveOriginalFile(photo);
+        } catch (IOException e) {
+            result.put("error", "解析原始文件路径失败: " + toRelativePath(e.getMessage()));
+            return result;
+        }
         if (!imageFile.exists()) {
-            result.put("error", "文件不存在: " + photo.getOriginalPath());
+            result.put("error", "文件不存在: " + userPathService.toDisplayPath(photo.getOriginalPath(), true));
             return result;
         }
 
@@ -1097,11 +1361,93 @@ public class PhotoScanService {
         return result;
     }
 
+    @Transactional
+    public Map<String, Object> removeBackgroundForPhoto(Long photoId, boolean forceRebuild) {
+        Map<String, Object> result = new HashMap<>();
+        Optional<Photo> opt = photoRepository.findById(photoId);
+        if (opt.isEmpty()) {
+            result.put("error", "照片不存在");
+            return result;
+        }
+        if (!backgroundRemovalService.isModelAvailable()) {
+            result.put("error", "背景移除功能未启用或模型未加载");
+            return result;
+        }
+        Photo photo = opt.get();
+        try {
+            if (!forceRebuild && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank()) {
+                File existingFile = resolveStoredPathSafely(photo.getBackgroundRemovedPath());
+                if (existingFile.exists()) {
+                    result.put("message", "已有抠图缓存，跳过");
+                    result.put("skipped", true);
+                    return result;
+                }
+            }
+            File sourceFile = resolveOriginalFile(photo);
+            if (!sourceFile.exists()) {
+                result.put("error", "源文件不存在");
+                return result;
+            }
+            File parentDir = sourceFile.getParentFile();
+            File cacheDir = new File(parentDir, ".thumbnails");
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs();
+            }
+            File outputFile = new File(cacheDir, "bg_removed_" + photo.getId() + ".png");
+            if (backgroundRemovalService.removeBackground(sourceFile, outputFile)) {
+                photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
+                photoRepository.save(photo);
+                result.put("success", true);
+                result.put("message", "背景移除完成");
+                result.put("photoId", photoId);
+                return result;
+            }
+            result.put("error", "背景移除失败");
+            return result;
+        } catch (Exception e) {
+            result.put("error", "背景移除失败: " + sanitizeVisibleMessage(e.getMessage()));
+            return result;
+        }
+    }
+
     /**
      * 获取本次扫描跳过的文件列表（进度差异详情）
      */
-    public List<SkippedFileRecord> getSkippedFileRecords() {
-        return new ArrayList<>(skippedFileRecords);
+    public List<SkippedFileRecord> getSkippedFileRecords(UserAccount currentUser) {
+        if (currentUser == null) {
+            return List.of();
+        }
+        if (currentUser.getRole() == UserRole.SUPER_ADMIN) {
+            return new ArrayList<>(skippedFileRecords);
+        }
+        return skippedFileRecords.stream()
+            .filter(record -> Objects.equals(record.userId, currentUser.getId()))
+            .collect(Collectors.toList());
+    }
+
+    public Map<String, Object> clearSkippedFileRecords(UserAccount currentUser) {
+        Map<String, Object> result = new HashMap<>();
+        if (currentUser == null) {
+            result.put("success", false);
+            result.put("message", "未找到当前用户");
+            return result;
+        }
+
+        int removed;
+        synchronized (skippedFileRecords) {
+            if (currentUser.getRole() == UserRole.SUPER_ADMIN) {
+                removed = skippedFileRecords.size();
+                skippedFileRecords.clear();
+            } else {
+                int before = skippedFileRecords.size();
+                skippedFileRecords.removeIf(record -> Objects.equals(record.userId, currentUser.getId()));
+                removed = before - skippedFileRecords.size();
+            }
+        }
+        result.put("success", true);
+        result.put("removed", removed);
+        result.put("message", removed > 0 ? "失败文件记录已清理" : "当前没有可清理的失败文件记录");
+        return result;
     }
 
     /**
@@ -1129,9 +1475,12 @@ public class PhotoScanService {
 
         // 添加处理状态统计和文件系统统计
         try {
-            long totalPhotos = photoRepository.count();
-            long failedCount = photoRepository.countFailedPhotos();
-            long completedCount = photoRepository.countPhotosByProcessingStatus(ProcessingStatus.COMPLETED);
+            Long userId = resolveCurrentScanUserId();
+            long totalPhotos = userId == null ? photoRepository.count() : photoRepository.countByUserId(userId);
+            long failedCount = userId == null ? photoRepository.countFailedPhotos() : photoRepository.countFailedPhotosByUserId(userId);
+            long completedCount = userId == null
+                ? photoRepository.countPhotosByProcessingStatus(ProcessingStatus.COMPLETED)
+                : photoRepository.countPhotosByProcessingStatusAndUserId(ProcessingStatus.COMPLETED, userId);
             long incompleteCount = totalPhotos - failedCount - completedCount;
 
             // 确保计数不为负数（处理可能的计算误差）
@@ -1147,13 +1496,15 @@ public class PhotoScanService {
             // 添加文件系统中的实际照片数量统计，并设置扫描进度
             try {
                 long filesystemTotal = countPhotosInFilesystem();
+                int displayCurrent;
 
                 // 根据扫描状态设置进度显示
                 boolean isCurrentlyScanning = isScanning.get() || activeScanCount.get() > 0;
                 if (isCurrentlyScanning) {
                     // 扫描进行中：显示本次遍历的照片数量 / 文件系统总照片数量
                     int traversedThisScan = scanCurrent.get();  // 本次扫描已遍历的照片数量
-                    status.put("current", traversedThisScan);
+                    displayCurrent = Math.min(traversedThisScan, (int) filesystemTotal);
+                    status.put("current", displayCurrent);
                     status.put("total", filesystemTotal);
                     status.put("scanMode", "scanning"); // 表示正在扫描文件
                 } else {
@@ -1161,19 +1512,28 @@ public class PhotoScanService {
                     int lastScanCurrent = scanCurrent.get();
                     if (lastScanCurrent > 0 && lastScanCurrent >= totalPhotos) {
                         // 扫描已完成，显示实际遍历数/总数（可能 >= total，因为包含空文件和去重文件的计数）
-                        status.put("current", Math.min(lastScanCurrent, (int) filesystemTotal));
+                        displayCurrent = Math.min(lastScanCurrent, (int) filesystemTotal);
                     } else {
                         // 未扫描过或计数异常，显示数据库记录数
-                        status.put("current", totalPhotos);
+                        displayCurrent = (int) Math.min(totalPhotos, filesystemTotal);
                     }
+                    status.put("current", displayCurrent);
                     status.put("total", filesystemTotal);
                     status.put("scanMode", "completed"); // 表示扫描已完成
                 }
+
+                long waitingCount = Math.max(filesystemTotal - displayCurrent, 0);
 
                 status.put("filesystemStats", Map.of(
                     "total", filesystemTotal,
                     "scanned", totalPhotos,
                     "unscanned", Math.max(0, filesystemTotal - totalPhotos)
+                ));
+                status.put("scanSummary", Map.of(
+                    "total", filesystemTotal,
+                    "scanned", displayCurrent,
+                    "failed", failedCount,
+                    "waiting", waitingCount
                 ));
             } catch (Exception e) {
                 log.debug("统计文件系统照片数量失败", e);
@@ -1182,6 +1542,12 @@ public class PhotoScanService {
                 status.put("total", totalPhotos); // fallback：已扫描数量作为总数
                 status.put("scanMode", "fallback");
                 status.put("filesystemStats", Map.of("error", "无法获取文件系统统计"));
+                status.put("scanSummary", Map.of(
+                    "total", totalPhotos,
+                    "scanned", totalPhotos,
+                    "failed", failedCount,
+                    "waiting", 0
+                ));
             }
         } catch (Exception e) {
             log.warn("获取处理状态统计失败", e);
@@ -1199,7 +1565,8 @@ public class PhotoScanService {
     public void retryFailedPhotosAsync() {
         log.info("开始重试失败的照片处理");
         try {
-            List<Photo> failedPhotos = photoRepository.findFailedPhotos();
+            Long userId = resolveCurrentScanUserId();
+            List<Photo> failedPhotos = userId == null ? photoRepository.findFailedPhotos() : photoRepository.findFailedPhotosByUserId(userId);
             log.info("发现 {} 张处理失败的照片", failedPhotos.size());
 
             int retrySuccessCount = 0;
@@ -1217,9 +1584,9 @@ public class PhotoScanService {
                         continue;
                     }
 
-                    File imageFile = new File(photo.getOriginalPath());
+                    File imageFile = resolveOriginalFile(photo);
                     if (!imageFile.exists()) {
-                        log.warn("照片文件不存在，标记为失败: {}", photo.getOriginalPath());
+                        log.warn("照片文件不存在，标记为失败: {}", toRelativePath(photo.getOriginalPath()));
                         photo.setProcessingStatus(ProcessingStatus.FAILED);
                         photo.addProcessingError("文件不存在");
                         photoRepository.save(photo);
@@ -1240,10 +1607,10 @@ public class PhotoScanService {
 
                     if (photo.getProcessingStatus() == ProcessingStatus.COMPLETED) {
                         retrySuccessCount++;
-                        log.info("重试成功: {}", photo.getOriginalPath());
+                        log.info("重试成功: {}", toRelativePath(photo.getOriginalPath()));
                     } else {
                         retryFailCount++;
-                        log.warn("重试仍然失败: {}", photo.getOriginalPath());
+                        log.warn("重试仍然失败: {}", toRelativePath(photo.getOriginalPath()));
                     }
 
                 } catch (Exception e) {
@@ -1267,8 +1634,9 @@ public class PhotoScanService {
     public void reanalyzeAllAtmosphere() {
         log.info("开始重新分析所有相册的氛围信息");
         try {
-            atmosphereAnalysisService.analyzeAllAlbumsAtmosphere();
-            atmosphereEffectsService.analyzeAllAlbumsEffects();
+            Long userId = resolveCurrentScanUserId();
+            atmosphereAnalysisService.analyzeAllAlbumsAtmosphere(userId);
+            atmosphereEffectsService.analyzeAllAlbumsEffects(userId);
             log.info("所有相册氛围信息重新分析完成");
         } catch (Exception e) {
             log.error("重新分析氛围信息失败", e);
@@ -1339,7 +1707,7 @@ public class PhotoScanService {
 
         } catch (Exception e) {
             log.error("设置相册 {} 特效失败", albumId, e);
-            throw new RuntimeException("设置特效失败: " + e.getMessage());
+            throw new RuntimeException("设置特效失败: " + sanitizeVisibleMessage(e.getMessage()));
         }
 
         return result;
@@ -1371,23 +1739,30 @@ public class PhotoScanService {
 
         } catch (Exception e) {
             log.error("获取相册 {} 特效配置失败", albumId, e);
-            throw new RuntimeException("获取特效配置失败: " + e.getMessage());
+            throw new RuntimeException("获取特效配置失败: " + sanitizeVisibleMessage(e.getMessage()));
         }
 
         return result;
     }
 
     private void scanDirectoryInternal(String directoryPath, boolean force) {
-        if (directoryPath == null || directoryPath.isEmpty()) {
-            directoryPath = basePath;
+        StorageProvider currentProvider = resolveCurrentStorageProvider();
+        if (currentProvider != null && currentProvider.getType() != StorageType.LOCAL) {
+            scanRemoteDirectoryInternal(directoryPath, force, currentProvider);
+            return;
         }
+        Path path = resolveRequestedFilesystemPath(directoryPath);
+        String scanRootLabel = path.toString();
+        ensureScanCanContinue(scanRootLabel);
         activeScanCount.incrementAndGet();
         final Set<String> allExpectedPaths = new java.util.LinkedHashSet<>();
+        Exception scanFailure = null;
         try {
             // 只有在没有其他扫描进行时才重置计数器和设置扫描状态
             if (activeScanCount.get() == 1) {
                 isScanning.set(true);
-                scanCurrent.set(0);
+                ScanProgressListener listener = currentScanProgressListener.get();
+                scanCurrent.set(listener != null ? Math.max(0, listener.getInitialProcessedItems()) : 0);
                 scanTotal.set(0);
                 lastScanStart = LocalDateTime.now();
             } else {
@@ -1396,49 +1771,6 @@ public class PhotoScanService {
                 log.warn("检测到并发扫描 (activeScanCount={}), 进度显示可能不准确", activeScanCount.get());
             }
 
-            Path path;
-            if (directoryPath == null || directoryPath.isEmpty() || directoryPath.equals(basePath)) {
-                // 使用默认基础路径
-                path = resolveBasePath();
-            } else {
-                // 处理自定义路径
-                path = Paths.get(directoryPath);
-            
-            // 处理相对路径：如果是相对路径，转换为绝对路径
-            if (!path.isAbsolute()) {
-                // 获取项目根目录
-                // 方法1: 从当前工作目录推断
-                String projectRoot = System.getProperty("user.dir");
-                
-                // 如果当前在backend目录，需要回到项目根目录
-                if (projectRoot.endsWith("backend")) {
-                    projectRoot = new File(projectRoot).getParent();
-                }
-                
-                // 方法2: 尝试从类路径推断项目根目录（更可靠）
-                // 如果方法1失败，可以尝试这个方法
-                if (projectRoot == null || projectRoot.isEmpty()) {
-                    try {
-                        String classPath = PhotoScanService.class.getProtectionDomain()
-                            .getCodeSource().getLocation().getPath();
-                        // 从target/classes或jar文件推断项目根目录
-                        if (classPath.contains("target/classes")) {
-                            projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
-                        }
-                    } catch (Exception e) {
-                        log.warn("无法从类路径推断项目根目录", e);
-                    }
-                }
-                
-                // 处理以 ./ 开头的相对路径
-                String cleanPath = directoryPath.startsWith("./") 
-                    ? directoryPath.substring(2) 
-                    : directoryPath;
-                
-                path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
-                }
-            }
-            
             if (!Files.exists(path)) {
                 throw new IllegalArgumentException("目录不存在: " + path);
             }
@@ -1451,7 +1783,8 @@ public class PhotoScanService {
 
             // 重置扫描计数器
             if (activeScanCount.get() == 1) {
-                scanCurrent.set(0);
+                ScanProgressListener listener = currentScanProgressListener.get();
+                scanCurrent.set(listener != null ? Math.max(0, listener.getInitialProcessedItems()) : 0);
                 scanTotal.set(0);
                 processedFiles.clear();
                 skippedFileRecords.clear();
@@ -1477,24 +1810,31 @@ public class PhotoScanService {
                     .forEach(allExpectedPaths::add);
 
                 int total = allExpectedPaths.size();
+                ScanProgressListener listener = currentScanProgressListener.get();
+                int initialProcessed = listener != null ? Math.max(0, listener.getInitialProcessedItems()) : 0;
                 // 设置扫描总数（只有第一个扫描任务才设置）
                 if (activeScanCount.get() == 1) {
                     scanTotal.set(total);
-                    scanCurrent.set(0); // 从0开始计数
+                    scanCurrent.set(initialProcessed);
                 } else {
                     scanTotal.addAndGet(total);
                 }
 
                 log.info("预统计待扫描图片数量: {}", total);
+                notifyScanPrepared(path.toString(), force, total);
             } catch (Exception e) {
                 log.warn("统计待扫描图片数量失败: {}", e.getMessage());
+                ScanProgressListener listener = currentScanProgressListener.get();
+                int initialProcessed = listener != null ? Math.max(0, listener.getInitialProcessedItems()) : 0;
                 if (activeScanCount.get() == 1) {
                     scanTotal.set(0);
-                    scanCurrent.set(0);
+                    scanCurrent.set(initialProcessed);
                 }
+                notifyScanPrepared(path.toString(), force, 0);
             }
 
             // 先处理根目录本身（如果它包含图片文件）
+            ensureScanCanContinue(path.toString());
             processAlbumDirectory(path, force);
 
             // 扫描所有子文件夹，跳过.thumbnails目录
@@ -1504,11 +1844,19 @@ public class PhotoScanService {
                 paths.filter(Files::isDirectory)
                     .filter(p -> !p.getFileName().toString().equals(".thumbnails"))  // 跳过.thumbnails目录
                     .filter(p -> !p.equals(rootPath))  // 避免重复处理根目录
-                    .forEach(p -> processAlbumDirectory(p, finalForce));
+                    .forEach(p -> {
+                        ensureScanCanContinue(p.toString());
+                        processAlbumDirectory(p, finalForce);
+                    });
             }
         } catch (Exception e) {
-            log.error("扫描目录失败: {}", directoryPath, e);
-            throw new RuntimeException("扫描目录失败: " + (e.getMessage() == null ? directoryPath : e.getMessage()), e);
+            scanFailure = e;
+            if (e instanceof ScanInterruptedException) {
+                log.info("{}: {}", e.getMessage(), toRelativePath(((ScanInterruptedException) e).getPath()));
+                throw (ScanInterruptedException) e;
+            }
+            log.error("扫描目录失败: {}", scanRootLabel, e);
+            throw new RuntimeException("扫描目录失败: " + (e.getMessage() == null ? scanRootLabel : e.getMessage()), e);
         } finally {
             lastScanEnd = LocalDateTime.now();
             if (activeScanCount.decrementAndGet() <= 0) {
@@ -1542,11 +1890,9 @@ public class PhotoScanService {
                                     : "未被扫描到";
                                 String detail = "该文件在扫描遍历中未被处理，可能因上级目录处理时发生异常";
                                 log.debug("补录未遍历文件: {} (原因: {}, absPath: {})", relPath, reason, absPath);
-                                skippedFileRecords.add(new SkippedFileRecord(
-                                    skippedFileIndex.incrementAndGet(),
-                                    relPath, reason, detail, f.length()
-                                ));
+                                skippedFileRecords.add(buildSkippedFileRecord(absPath, reason, detail, f.length()));
                                 scanCurrent.incrementAndGet();
+                                notifyScanSkip(absPath, "FILE", reason, detail, scanCurrent.get(), scanTotal.get());
                                 missedCount++;
                             }
                         }
@@ -1558,8 +1904,820 @@ public class PhotoScanService {
                 } catch (Exception e) {
                     log.warn("补录未遍历文件失败", e);
                 }
+
+                if (scanFailure != null) {
+                    notifyScanFailed(scanFailure);
+                } else {
+                    notifyScanCompleted();
+                }
             }
         }
+    }
+
+    private void scanRemoteDirectoryInternal(String directoryPath, boolean force, StorageProvider provider) {
+        ensureScanCanContinue(directoryPath);
+        activeScanCount.incrementAndGet();
+        Exception scanFailure = null;
+        try {
+            if (activeScanCount.get() == 1) {
+                isScanning.set(true);
+                ScanProgressListener listener = currentScanProgressListener.get();
+                scanCurrent.set(listener != null ? Math.max(0, listener.getInitialProcessedItems()) : 0);
+                scanTotal.set(0);
+                lastScanStart = LocalDateTime.now();
+                processedFiles.clear();
+                skippedFileRecords.clear();
+                skippedFileIndex.set(0);
+            }
+
+            Path remoteRoot = resolveRemoteScanRoot(directoryPath, provider);
+            RemoteScanStats stats = collectRemoteScanStats(provider, remoteRoot);
+            ScanProgressListener listener = currentScanProgressListener.get();
+            int initialProcessed = listener != null ? Math.max(0, listener.getInitialProcessedItems()) : 0;
+            if (activeScanCount.get() == 1) {
+                scanTotal.set(stats.totalItems);
+                scanCurrent.set(initialProcessed);
+            } else {
+                scanTotal.addAndGet(stats.totalItems);
+            }
+            notifyScanPrepared(remoteRoot.toString(), force, stats.totalItems);
+            processRemoteDirectory(provider, remoteRoot, force);
+        } catch (Exception e) {
+            scanFailure = e;
+            if (e instanceof ScanInterruptedException) {
+                log.info("{}: {}", e.getMessage(), toRelativePath(((ScanInterruptedException) e).getPath()));
+                throw (ScanInterruptedException) e;
+            }
+            log.error("远端扫描目录失败: provider={}, path={}", provider.getName(), directoryPath, e);
+            throw new RuntimeException("远端扫描目录失败: " + (e.getMessage() == null ? directoryPath : e.getMessage()), e);
+        } finally {
+            lastScanEnd = LocalDateTime.now();
+            if (activeScanCount.decrementAndGet() <= 0) {
+                isScanning.set(false);
+                if (scanFailure != null) {
+                    notifyScanFailed(scanFailure);
+                } else {
+                    notifyScanCompleted();
+                }
+            }
+        }
+    }
+
+    private StorageProvider resolveCurrentStorageProvider() {
+        Long storageProviderId = currentStorageProviderId.get();
+        if (storageProviderId == null) {
+            return null;
+        }
+        return storageProviderRepository.findById(storageProviderId).orElse(null);
+    }
+
+    private Path resolveRemoteScanRoot(String directoryPath, StorageProvider provider) {
+        Path base = resolveRemoteScopedRoot(provider);
+        if (directoryPath == null || directoryPath.isBlank()) {
+            return base;
+        }
+        Path candidate = Paths.get(directoryPath.trim()).normalize();
+        if (!candidate.isAbsolute()) {
+            String clean = directoryPath.startsWith("./") ? directoryPath.substring(2) : directoryPath;
+            Path relative = Paths.get(clean).normalize();
+            Long storageUserId = currentStorageUserId.get();
+            if (storageUserId != null) {
+                relative = userPathService.stripLeadingUserSegment(relative, storageUserId);
+            }
+            candidate = base.resolve(relative).normalize();
+        }
+        if (!candidate.startsWith(base)) {
+            throw new IllegalArgumentException("远端扫描路径超出当前用户存储范围");
+        }
+        return candidate;
+    }
+
+    private Path resolveRemoteScopedRoot(StorageProvider provider) {
+        String baseDirectory = provider.getBaseDirectory();
+        if (baseDirectory == null || baseDirectory.isBlank()) {
+            baseDirectory = provider.getBucketName();
+        }
+        Path base = (baseDirectory == null || baseDirectory.isBlank())
+            ? Paths.get("/")
+            : Paths.get(baseDirectory.startsWith("/") ? baseDirectory : "/" + baseDirectory).normalize();
+        Long storageUserId = currentStorageUserId.get();
+        if (storageUserId != null && systemConfigService.isMultiUserEnabled()) {
+            return base.resolve(String.valueOf(storageUserId)).normalize();
+        }
+        return base;
+    }
+
+    private RemoteScanStats collectRemoteScanStats(StorageProvider provider, Path remoteRoot) throws Exception {
+        RemoteScanStats stats = new RemoteScanStats();
+        collectRemoteScanStats(provider, remoteRoot, stats);
+        return stats;
+    }
+
+    private void collectRemoteScanStats(StorageProvider provider, Path remotePath, RemoteScanStats stats) throws Exception {
+        ensureScanCanContinue(remotePath.toString());
+        stats.totalItems++;
+        Map<String, Object> listing = storageUploadService.listDirectory(provider, buildStorageContextUser(), toProviderRelativeRemotePath(provider, remotePath));
+        List<Map<String, Object>> directories = castDirectoryItems(listing.get("directories"));
+        List<Map<String, Object>> files = castDirectoryItems(listing.get("files"));
+        for (Map<String, Object> file : files) {
+            String name = stringValue(file.get("name"));
+            if (isSupportedRemoteImage(name)) {
+                stats.totalItems++;
+            }
+        }
+        for (Map<String, Object> directory : directories) {
+            String name = stringValue(directory.get("name"));
+            if (name == null || ".thumbnails".equals(name)) {
+                continue;
+            }
+            collectRemoteScanStats(provider, remotePath.resolve(name).normalize(), stats);
+        }
+    }
+
+    private void processRemoteDirectory(StorageProvider provider, Path remoteDirectory, boolean force) throws Exception {
+        if (isShuttingDown.get()) {
+            return;
+        }
+        ensureScanCanContinue(remoteDirectory.toString());
+        if (shouldSkipForResume(remoteDirectory.toString(), true)) {
+            return;
+        }
+        String directoryKey = remoteDirectory.normalize().toString() + "/";
+        if (!processedFiles.add(directoryKey)) {
+            return;
+        }
+
+        int directoryCurrent = scanCurrent.incrementAndGet();
+        notifyScanProgress(remoteDirectory.toString(), "DIRECTORY", directoryCurrent, scanTotal.get());
+
+        Album album = findOrCreateRemoteAlbum(provider, remoteDirectory);
+        Map<String, Object> listing = storageUploadService.listDirectory(provider, buildStorageContextUser(), toProviderRelativeRemotePath(provider, remoteDirectory));
+        List<Map<String, Object>> files = castDirectoryItems(listing.get("files"));
+        int photoCount = 0;
+        for (Map<String, Object> file : files) {
+            String name = stringValue(file.get("name"));
+            if (!isSupportedRemoteImage(name)) {
+                continue;
+            }
+            photoCount++;
+            try {
+                processRemotePhotoInNewTransaction(provider, remoteDirectory.resolve(name).normalize(), album, file, force);
+            } catch (Exception e) {
+                String detail = sanitizeVisibleMessage(e.getMessage());
+                log.warn("远端照片处理失败，跳过当前文件: {} - {}", remoteDirectory.resolve(name).normalize(), detail);
+            }
+        }
+        album.setPhotoCount(photoCount);
+        albumRepository.save(album);
+
+        List<Map<String, Object>> directories = castDirectoryItems(listing.get("directories"));
+        for (Map<String, Object> directory : directories) {
+            String name = stringValue(directory.get("name"));
+            if (name == null || ".thumbnails".equals(name)) {
+                continue;
+            }
+            processRemoteDirectory(provider, remoteDirectory.resolve(name).normalize(), force);
+        }
+    }
+
+    private void processRemotePhotoInNewTransaction(StorageProvider provider,
+                                                    Path remoteFilePath,
+                                                    Album album,
+                                                    Map<String, Object> remoteFile,
+                                                    boolean force) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        try {
+            template.executeWithoutResult(status -> processRemotePhoto(provider, remoteFilePath, album, remoteFile, force));
+        } catch (UnexpectedRollbackException e) {
+            throw new RuntimeException("远端照片事务回滚: " + sanitizeVisibleMessage(e.getMessage()), e);
+        }
+    }
+
+    private Album findOrCreateRemoteAlbum(StorageProvider provider, Path remoteDirectory) {
+        String albumPath = remoteDirectory.normalize().toString();
+        Long userId = resolveCurrentScanUserId();
+        String storedAlbumPath = userPathService.buildStoragePathReference(
+            provider.getId(),
+            userId,
+            toProviderRelativeRemotePath(provider, remoteDirectory).toString()
+        );
+        String albumPathHash = calculateSha256(storedAlbumPath);
+        return albumRepository.findByPathHash(albumPathHash)
+            .orElseGet(() -> {
+                Album album = new Album();
+                album.setName(remoteDirectory.getFileName() != null ? remoteDirectory.getFileName().toString() : albumPath);
+                album.setPath(storedAlbumPath);
+                album.setPathHash(albumPathHash);
+                album.setUserId(userId);
+                LocalDateTime albumNameDate = parseDateFromAlbumPath(storedAlbumPath);
+                if (albumNameDate == null && remoteDirectory.getFileName() != null) {
+                    albumNameDate = parseDateFromFolderName(remoteDirectory.getFileName().toString());
+                }
+                album.setAlbumNameDate(albumNameDate);
+                album.setPhotoCount(0);
+                return albumRepository.save(album);
+            });
+    }
+
+    private void processRemotePhoto(StorageProvider provider,
+                                    Path remoteFilePath,
+                                    Album album,
+                                    Map<String, Object> remoteFile,
+                                    boolean force) {
+        ensureScanCanContinue(remoteFilePath.toString());
+        if (shouldSkipForResume(remoteFilePath.toString(), false)) {
+            return;
+        }
+
+        String traversalPath = remoteFilePath.normalize().toString();
+        if (!processedFiles.add(traversalPath)) {
+            return;
+        }
+
+        int currentCount = scanCurrent.incrementAndGet();
+        notifyScanProgress(traversalPath, "FILE", currentCount, scanTotal.get());
+
+        String storedPath = userPathService.buildStoragePathReference(
+            provider.getId(),
+            album.getUserId(),
+            toProviderRelativeRemotePath(provider, remoteFilePath).toString()
+        );
+        String pathHash = calculateSha256(storedPath);
+        Photo photo = new Photo();
+        try {
+            File cachedFile = prepareRemoteLocalCacheFile(provider, remoteFilePath, remoteFile, album.getUserId());
+            String contentHash = calculateSha256(cachedFile);
+
+            Optional<Photo> photoByHash = contentHash == null ? Optional.empty() : photoRepository.findByContentHash(contentHash);
+            Optional<Photo> photoByPathHash = photoRepository.findByPathHash(pathHash);
+            Optional<Photo> photoByPath = findPhotoByOriginalPath(storedPath);
+            photo = resolvePhotoRecordForScan(photoByHash, photoByPathHash, photoByPath);
+
+            if (!force && photo.getId() != null && !photo.needsContinuation(false)) {
+                return;
+            }
+
+            processRemotePhotoWithLocalCache(photo, album, remoteFile, cachedFile, storedPath, pathHash, contentHash, force);
+        } catch (Exception e) {
+            String detail = sanitizeVisibleMessage(e.getMessage());
+            photo.setAlbumId(album.getId());
+            photo.setUserId(album.getUserId());
+            photo.setFilename(stringValue(remoteFile.get("name")));
+            photo.setOriginalPath(storedPath);
+            photo.setPathHash(pathHash);
+            photo.setFileSize(longValue(remoteFile.get("size")));
+            photo.setFormat(FilenameUtils.getExtension(photo.getFilename()).toLowerCase(Locale.ROOT));
+            photo.markProcessingFailed("远端缓存处理失败: " + detail);
+            photoRepository.save(photo);
+            notifyScanFailure(traversalPath, "FILE", detail, currentCount, scanTotal.get());
+        }
+    }
+
+    private void processRemotePhotoWithLocalCache(Photo photo,
+                                                  Album album,
+                                                  Map<String, Object> remoteFile,
+                                                  File cachedFile,
+                                                  String storedPath,
+                                                  String pathHash,
+                                                  String contentHash,
+                                                  boolean force) throws IOException {
+        ProcessingStatus currentStatus = photo.getProcessingStatus();
+        boolean needsReprocessing = photo.getId() == null || force || currentStatus == null
+            || currentStatus == ProcessingStatus.PENDING
+            || currentStatus == ProcessingStatus.FAILED
+            || photo.getExifData() == null
+            || photo.getExifData().isBlank()
+            || photo.getThumbnailPath() == null
+            || photo.getThumbnailPath().isBlank();
+
+        photo.setAlbumId(album.getId());
+        photo.setUserId(album.getUserId());
+        photo.setFilename(stringValue(remoteFile.get("name")));
+        photo.setOriginalPath(storedPath);
+        photo.setPathHash(pathHash);
+        photo.setContentHash(contentHash);
+        photo.setFileSize(longValue(remoteFile.get("size")) != null ? longValue(remoteFile.get("size")) : cachedFile.length());
+        photo.setFormat(FilenameUtils.getExtension(photo.getFilename()).toLowerCase(Locale.ROOT));
+
+        if (!needsReprocessing) {
+            photoRepository.save(photo);
+            return;
+        }
+
+        if (currentStatus == null || currentStatus == ProcessingStatus.PENDING || currentStatus == ProcessingStatus.FAILED || force) {
+            photo.setProcessingStatus(ProcessingStatus.BASIC_INFO_DONE);
+        }
+        photoRepository.save(photo);
+
+        if (photo.getProcessingStatus() == ProcessingStatus.BASIC_INFO_DONE || force) {
+            try {
+                extractExifData(cachedFile, photo);
+                photo.setProcessingStatus(ProcessingStatus.BASIC_INFO_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                photo.markProcessingFailed("远端 EXIF 提取失败: " + sanitizeVisibleMessage(e.getMessage()));
+                photoRepository.save(photo);
+                throw e;
+            }
+        }
+
+        if (photo.getProcessingStatus() == ProcessingStatus.BASIC_INFO_DONE
+            || photo.getProcessingStatus() == ProcessingStatus.THUMBNAILS_DONE
+            || force) {
+            try {
+                runWithinDerivativeStorageContext(album.getUserId(), () -> {
+                    try {
+                        generateThumbnailAndWebP(cachedFile, photo);
+                        regenerateMissingThumbnails(cachedFile, photo);
+                    } catch (IOException ioException) {
+                        throw new RuntimeException(ioException);
+                    }
+                });
+                photo.setProcessingStatus(ProcessingStatus.THUMBNAILS_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                Throwable cause = e instanceof RuntimeException && e.getCause() != null ? e.getCause() : e;
+                photo.markProcessingFailed("远端缩略图生成失败: " + sanitizeVisibleMessage(cause.getMessage()));
+                photoRepository.save(photo);
+                throw cause instanceof IOException ? (IOException) cause : new IOException(cause);
+            }
+        }
+
+        if (photo.getProcessingStatus() == ProcessingStatus.THUMBNAILS_DONE
+            || photo.getProcessingStatus() == ProcessingStatus.ANALYSIS_DONE
+            || force) {
+            try {
+                colorAnalysisService.analyzeColor(cachedFile, photo);
+                calculateQualityScore(photo);
+                photo.setProcessingStatus(ProcessingStatus.ANALYSIS_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                photo.markProcessingFailed("远端基础分析失败: " + sanitizeVisibleMessage(e.getMessage()));
+                photoRepository.save(photo);
+                throw new IOException(e);
+            }
+        }
+
+        List<Face> faces = new ArrayList<>();
+        if (photo.getProcessingStatus() == ProcessingStatus.ANALYSIS_DONE
+            || photo.getProcessingStatus() == ProcessingStatus.FACES_DONE
+            || force) {
+            try {
+                faces = processFaces(cachedFile, photo, force, false);
+                photo.setProcessingStatus(ProcessingStatus.FACES_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                String errorMsg = e.getMessage() != null ? e.getMessage() : "";
+                if (errorMsg.contains("ONNX") || errorMsg.contains("onnxruntime")
+                    || errorMsg.contains("NoClassDefFound") || errorMsg.contains("UnsatisfiedLinkError")) {
+                    log.warn("远端人脸检测因ONNX Runtime问题跳过，继续处理其他步骤: {}", errorMsg);
+                    photo.setProcessingStatus(ProcessingStatus.FACES_DONE);
+                    photoRepository.save(photo);
+                } else {
+                    photo.markProcessingFailed("远端人脸检测失败: " + sanitizeVisibleMessage(e.getMessage()));
+                    photoRepository.save(photo);
+                    throw new IOException(e);
+                }
+            }
+        } else if (photo.getProcessingStatus().ordinal() >= ProcessingStatus.FACES_DONE.ordinal()) {
+            faces = faceService.getFacesByPhoto(photo.getId());
+        }
+
+        if (photo.getProcessingStatus() == ProcessingStatus.FACES_DONE
+            || photo.getProcessingStatus() == ProcessingStatus.SUBJECT_DONE
+            || force) {
+            try {
+                subjectDetectionService.detectSubject(cachedFile, photo, faces);
+                photo.setProcessingStatus(ProcessingStatus.SUBJECT_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                photo.markProcessingFailed("远端主体检测失败: " + sanitizeVisibleMessage(e.getMessage()));
+                photoRepository.save(photo);
+                throw new IOException(e);
+            }
+        }
+
+        if (photo.getProcessingStatus() == ProcessingStatus.SUBJECT_DONE
+            || photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE
+            || force) {
+            try {
+                processTags(photo, album, cachedFile, faces.size(), force);
+                photo.setProcessingStatus(ProcessingStatus.TAGS_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                photo.markProcessingFailed("远端标签处理失败: " + sanitizeVisibleMessage(e.getMessage()));
+                photoRepository.save(photo);
+                throw new IOException(e);
+            }
+        }
+
+        if (photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE
+            || photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE
+            || force) {
+            try {
+                aiScoringService.scorePhoto(photo);
+                photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE);
+                photoRepository.save(photo);
+            } catch (Exception e) {
+                log.warn("远端 AI 评分失败，但继续处理: {}", e.getMessage());
+                photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE);
+                photoRepository.save(photo);
+            }
+        }
+
+        if (autoBackgroundRemoval && backgroundRemovalService.isModelAvailable()
+            && (photo.getBackgroundRemovedPath() == null || photo.getBackgroundRemovedPath().isEmpty())) {
+            try {
+                runWithinDerivativeStorageContext(album.getUserId(), () -> {
+                    try {
+                        String thumbnailDir = new File(cachedFile.getParent(), ".thumbnails").getAbsolutePath();
+                        File outputFile = new File(thumbnailDir, "bg_removed_" + photo.getId() + ".png");
+                        BufferedImage img = ImageIO.read(cachedFile);
+                        if (img == null) {
+                            return;
+                        }
+                        final int imgWidth = img.getWidth();
+                        final int imgHeight = img.getHeight();
+                        List<Rectangle> faceRegions = null;
+                        try {
+                            List<Face> existingFaces = faceService.getFacesByPhoto(photo.getId());
+                            if (existingFaces != null && !existingFaces.isEmpty()) {
+                                faceRegions = existingFaces.stream()
+                                    .map(face -> new Rectangle(
+                                        (int) (face.getX() * imgWidth),
+                                        (int) (face.getY() * imgHeight),
+                                        (int) (face.getWidth() * imgWidth),
+                                        (int) (face.getHeight() * imgHeight)))
+                                    .collect(Collectors.toList());
+                            }
+                        } catch (Exception e) {
+                            log.debug("获取远端缓存人脸信息失败，跳过人脸优化: {}", e.getMessage());
+                        }
+                        if (backgroundRemovalService.removeBackground(cachedFile, outputFile, faceRegions)) {
+                            photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
+                            photoRepository.save(photo);
+                        }
+                    } catch (IOException ioException) {
+                        throw new RuntimeException(ioException);
+                    }
+                });
+            } catch (Exception e) {
+                Throwable cause = e instanceof RuntimeException && e.getCause() != null ? e.getCause() : e;
+                log.warn("远端自动背景移除失败: {} - {}", photo.getId(), sanitizeVisibleMessage(cause.getMessage()));
+            }
+        }
+
+        if (photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE) {
+            photo.setProcessingStatus(ProcessingStatus.COMPLETED);
+            photoRepository.save(photo);
+        }
+    }
+
+    private File prepareRemoteLocalCacheFile(StorageProvider provider,
+                                             Path remoteFilePath,
+                                             Map<String, Object> remoteFile,
+                                             Long userId) throws Exception {
+        Path cacheRoot = buildRemoteCacheRoot(provider, userId);
+        Path relativeRemotePath = toProviderRelativeRemotePath(provider, remoteFilePath);
+        Path localCachePath = cacheRoot.resolve(relativeRemotePath).normalize();
+        Files.createDirectories(localCachePath.getParent());
+        Long remoteSize = longValue(remoteFile.get("size"));
+        Long remoteLastModified = longValue(remoteFile.get("lastModified"));
+        boolean needsDownload = !Files.exists(localCachePath)
+            || !Files.isRegularFile(localCachePath)
+            || (remoteSize != null && Files.size(localCachePath) != remoteSize)
+            || hasRemoteFileChanged(localCachePath, remoteLastModified);
+        if (needsDownload) {
+            StorageUploadService.DownloadedFile downloadedFile = storageUploadService.downloadFile(
+                provider,
+                buildStorageContextUser(),
+                relativeRemotePath
+            );
+            Files.write(localCachePath, downloadedFile.getBytes());
+            if (remoteLastModified != null && remoteLastModified > 0) {
+                Files.setLastModifiedTime(localCachePath, java.nio.file.attribute.FileTime.fromMillis(remoteLastModified));
+            }
+        }
+        return localCachePath.toFile();
+    }
+
+    private boolean hasRemoteFileChanged(Path localCachePath, Long remoteLastModified) throws IOException {
+        if (remoteLastModified == null || remoteLastModified <= 0 || !Files.exists(localCachePath) || !Files.isRegularFile(localCachePath)) {
+            return false;
+        }
+        long localLastModified = Files.getLastModifiedTime(localCachePath).toMillis();
+        return Math.abs(localLastModified - remoteLastModified) > 1000L;
+    }
+
+    private Path buildRemoteCacheRoot(StorageProvider provider, Long userId) {
+        Path scopedRoot = userId == null ? resolveBasePath() : userPathService.getOwnedPhotoRoot(userId);
+        return scopedRoot.resolve(".remote-cache")
+            .resolve(provider.getId() == null ? "unknown" : String.valueOf(provider.getId()))
+            .normalize();
+    }
+
+    private void runWithinDerivativeStorageContext(Long userId, Runnable runnable) {
+        StorageProvider localProvider = resolvePreferredLocalDerivativeProvider();
+        if (localProvider == null || localProvider.getId() == null) {
+            log.warn("未找到本地存储提供者，跳过远端文件派生资源落盘");
+            runnable.run();
+            return;
+        }
+        runWithStorageContext(localProvider.getId(), userId, runnable);
+    }
+
+    private StorageProvider resolvePreferredLocalDerivativeProvider() {
+        return storageProviderRepository.findByTypeOrderByPriorityAscIdAsc(StorageType.LOCAL).stream()
+            .findFirst()
+            .orElse(null);
+    }
+
+    private Path toProviderRelativeRemotePath(StorageProvider provider, Path remotePath) {
+        Path scopedRoot = resolveRemoteScopedRoot(provider);
+        Path normalizedRemotePath = remotePath.normalize();
+        if (!normalizedRemotePath.startsWith(scopedRoot)) {
+            throw new IllegalArgumentException("远端路径超出当前存储根目录");
+        }
+        return scopedRoot.relativize(normalizedRemotePath);
+    }
+
+    private Long resolveManagedUserId(String path, Long fallbackUserId) {
+        if (fallbackUserId != null) {
+            return fallbackUserId;
+        }
+        Long currentUserId = resolveCurrentScanUserId();
+        if (currentUserId != null) {
+            return currentUserId;
+        }
+        return userPathService.extractUserIdFromPath(path);
+    }
+
+    private List<String> buildAlbumPathLookupCandidates(Path albumPath, Long userId) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        if (albumPath == null) {
+            return new ArrayList<>();
+        }
+        String absolutePath = albumPath.toAbsolutePath().normalize().toString();
+        candidates.add(absolutePath);
+        String storedPath = toStoredManagedPath(absolutePath, userId);
+        if (storedPath != null && !storedPath.isBlank()) {
+            candidates.add(storedPath);
+        }
+        return new ArrayList<>(candidates);
+    }
+
+    private Optional<Album> findAlbumByManagedPath(Path albumPath, Long userId) {
+        for (String candidatePath : buildAlbumPathLookupCandidates(albumPath, userId)) {
+            String candidateHash = calculateSha256(candidatePath);
+            if (candidateHash != null) {
+                Optional<Album> byHash = albumRepository.findByPathHash(candidateHash);
+                if (byHash.isPresent()) {
+                    return byHash;
+                }
+            }
+            Optional<Album> byPath = albumRepository.findByPath(candidatePath);
+            if (byPath.isPresent()) {
+                return byPath;
+            }
+        }
+        return Optional.empty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> castDirectoryItems(Object value) {
+        if (!(value instanceof List)) {
+            return List.of();
+        }
+        return ((List<?>) value).stream()
+            .filter(Map.class::isInstance)
+            .map(item -> (Map<String, Object>) item)
+            .collect(Collectors.toList());
+    }
+
+    private boolean isSupportedRemoteImage(String name) {
+        if (name == null || name.isBlank() || name.contains("_thumb")) {
+            return false;
+        }
+        String extension = FilenameUtils.getExtension(name).toLowerCase(Locale.ROOT);
+        if (extension.isBlank()) {
+            return false;
+        }
+        return Arrays.stream(supportedFormats.split(","))
+            .map(String::trim)
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .anyMatch(extension::equals);
+    }
+
+    public int estimateScannableFileCount(String rootPath) {
+        if (rootPath == null || rootPath.isBlank()) {
+            return 0;
+        }
+        Path directory;
+        try {
+            directory = Paths.get(rootPath).normalize();
+        } catch (Exception e) {
+            return 0;
+        }
+        if (!Files.exists(directory)) {
+            return 0;
+        }
+        Set<String> supportedSet = Arrays.stream(supportedFormats.split(","))
+            .map(String::trim)
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+        try (Stream<Path> paths = Files.walk(directory)) {
+            return (int) paths
+                .filter(Files::isRegularFile)
+                .filter(path -> {
+                    String fileName = path.getFileName() != null ? path.getFileName().toString() : "";
+                    if (fileName.contains("_thumb")) {
+                        return false;
+                    }
+                    String extension = FilenameUtils.getExtension(fileName).toLowerCase(Locale.ROOT);
+                    return !extension.isBlank() && supportedSet.contains(extension);
+                })
+                .count();
+        } catch (Exception e) {
+            log.debug("估算扫描文件数量失败: {}", rootPath, e);
+            return 0;
+        }
+    }
+
+    private Long resolveCurrentScanUserId() {
+        Long userId = currentStorageUserId.get();
+        if (userId != null) {
+            return userId;
+        }
+        return null;
+    }
+
+    private UserAccount buildStorageContextUser() {
+        Long userId = resolveCurrentScanUserId();
+        if (userId == null) {
+            return null;
+        }
+        UserAccount user = new UserAccount();
+        user.setId(userId);
+        return user;
+    }
+
+    private int countPhotosForCurrentScope() {
+        Long userId = resolveCurrentScanUserId();
+        long total = userId == null ? photoRepository.count() : photoRepository.countByUserId(userId);
+        return Math.toIntExact(total);
+    }
+
+    private int countAlbumsForCurrentScope() {
+        Long userId = resolveCurrentScanUserId();
+        long total = userId == null ? albumRepository.count() : albumRepository.countByUserId(userId);
+        return Math.toIntExact(total);
+    }
+
+    private int countPhotosWithBackgroundForCurrentScope() {
+        Long userId = resolveCurrentScanUserId();
+        long total = userId == null
+            ? photoRepository.countByBackgroundRemovedPathPresent()
+            : photoRepository.countByUserIdAndBackgroundRemovedPathPresent(userId);
+        return Math.toIntExact(total);
+    }
+
+    private void forEachPhotoInCurrentScope(Consumer<Photo> consumer) {
+        forEachPhotoPageInCurrentScope(consumer, 200);
+    }
+
+    private void forEachPhotoPageInCurrentScope(Consumer<Photo> consumer, int pageSize) {
+        Long userId = resolveCurrentScanUserId();
+        int pageNumber = 0;
+        Page<Photo> page;
+        do {
+            PageRequest request = PageRequest.of(pageNumber, pageSize);
+            page = userId == null ? photoRepository.findAll(request) : photoRepository.findByUserId(userId, request);
+            page.forEach(consumer);
+            pageNumber++;
+        } while (page.hasNext());
+    }
+
+    private void forEachPhotoWithBackgroundInCurrentScope(Consumer<Photo> consumer) {
+        Long userId = resolveCurrentScanUserId();
+        int pageNumber = 0;
+        Page<Photo> page;
+        do {
+            PageRequest request = PageRequest.of(pageNumber, 200);
+            page = userId == null
+                ? photoRepository.findByBackgroundRemovedPathPresent(request)
+                : photoRepository.findByUserIdAndBackgroundRemovedPathPresent(userId, request);
+            page.forEach(consumer);
+            pageNumber++;
+        } while (page.hasNext());
+    }
+
+    private void forEachAlbumInCurrentScope(Consumer<Album> consumer) {
+        Long userId = resolveCurrentScanUserId();
+        int pageNumber = 0;
+        Page<Album> page;
+        do {
+            PageRequest request = PageRequest.of(pageNumber, 200);
+            page = userId == null ? albumRepository.findAll(request) : albumRepository.findByUserId(userId, request);
+            page.forEach(consumer);
+            pageNumber++;
+        } while (page.hasNext());
+    }
+
+    private Set<String> getAllDatabasePhotoPathsForCurrentScope() {
+        Set<String> paths = new HashSet<>();
+        Long userId = resolveCurrentScanUserId();
+        int pageNumber = 0;
+        Page<String> page;
+        do {
+            PageRequest request = PageRequest.of(pageNumber, 500);
+            page = userId == null ? photoRepository.findAllOriginalPaths(request) : photoRepository.findOriginalPathsByUserId(userId, request);
+            page.forEach(paths::add);
+            pageNumber++;
+        } while (page.hasNext());
+        return paths;
+    }
+
+    private Path resolveCurrentFilesystemScopeRoot() {
+        Long userId = resolveCurrentScanUserId();
+        Long storageProviderId = currentStorageProviderId.get();
+        Path providerBasePath = currentStorageProviderBasePath.get();
+        if (storageProviderId != null && providerBasePath == null) {
+            return null;
+        }
+        Path base = providerBasePath != null ? providerBasePath : resolveBasePath();
+        if (userId != null) {
+            return base.resolve(String.valueOf(userId)).normalize();
+        }
+        return base;
+    }
+
+    private Path resolveRequestedFilesystemPath(String directoryPath) {
+        Path scopedRoot = resolveCurrentFilesystemScopeRoot();
+        if (scopedRoot == null) {
+            throw new IllegalStateException("当前存储上下文不是本地文件系统");
+        }
+        if (isDefaultFilesystemScanRequest(directoryPath)) {
+            return scopedRoot;
+        }
+        Path requested = Paths.get(directoryPath.trim());
+        if (requested.isAbsolute()) {
+            return requested.toAbsolutePath().normalize();
+        }
+        String clean = normalizeRelativeFilesystemRequest(directoryPath);
+        return scopedRoot.resolve(clean).toAbsolutePath().normalize();
+    }
+
+    private boolean isDefaultFilesystemScanRequest(String directoryPath) {
+        if (directoryPath == null || directoryPath.isBlank()) {
+            return true;
+        }
+        return matchesFilesystemPath(directoryPath, resolveBasePath())
+            || matchesFilesystemPath(directoryPath, resolveCurrentFilesystemScopeRoot())
+            || (basePath != null && directoryPath.trim().equals(basePath.trim()));
+    }
+
+    private String normalizeRelativeFilesystemRequest(String directoryPath) {
+        String clean = directoryPath.startsWith("./") ? directoryPath.substring(2) : directoryPath;
+        Path relative = Paths.get(clean.trim()).normalize();
+        Long userId = resolveCurrentScanUserId();
+        if (userId != null) {
+            relative = userPathService.stripLeadingUserSegment(relative, userId);
+        }
+        return relative.toString();
+    }
+
+    private boolean matchesFilesystemPath(String rawPath, Path expectedPath) {
+        if (expectedPath == null || rawPath == null || rawPath.isBlank()) {
+            return false;
+        }
+        try {
+            return Paths.get(rawPath.trim()).toAbsolutePath().normalize().equals(expectedPath.toAbsolutePath().normalize());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Long longValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static class RemoteScanStats {
+        private int totalItems;
     }
 
     /**
@@ -1581,6 +2739,10 @@ public class PhotoScanService {
             log.debug("应用正在关闭，跳过处理: {}", toRelativePath(albumPath.toString()));
             return;
         }
+        ensureScanCanContinue(albumPath.toString());
+        if (shouldSkipForResume(albumPath.toString(), true)) {
+            return;
+        }
         
         try {
             // 跳过.thumbnails目录
@@ -1598,10 +2760,10 @@ public class PhotoScanService {
                 Album effectiveParent = parentAlbum;
                 if (effectiveParent == null) {
                     Path ancestor = albumPath.getParent();
-                    Path basePth = resolveBasePath();
+                    Path basePth = resolveCurrentFilesystemScopeRoot();
                     while (ancestor != null && ancestor.startsWith(basePth)) {
-                        String ancestorHash = calculateSha256(ancestor.toString());
-                        Optional<Album> ancestorAlbum = albumRepository.findByPathHash(ancestorHash);
+                        Long ancestorUserId = resolveManagedUserId(ancestor.toString(), null);
+                        Optional<Album> ancestorAlbum = findAlbumByManagedPath(ancestor, ancestorUserId);
                         if (ancestorAlbum.isPresent()) {
                             effectiveParent = ancestorAlbum.get();
                             log.info("目录 {} 超过最大层级，找到祖先相册: {}", toRelativePath(albumPath.toString()), effectiveParent.getName());
@@ -1615,9 +2777,8 @@ public class PhotoScanService {
                 }
 
                 // 查找是否已存在该目录的相册记录，如果存在则删除
-                String albumPathStr = albumPath.toString();
-                String albumPathHash = calculateSha256(albumPathStr);
-                Optional<Album> existingAlbum = albumRepository.findByPathHash(albumPathHash);
+                Long scopedUserId = resolveManagedUserId(albumPath.toString(), null);
+                Optional<Album> existingAlbum = findAlbumByManagedPath(albumPath, scopedUserId);
 
                 if (existingAlbum.isPresent()) {
                     Album albumToDelete = existingAlbum.get();
@@ -1667,9 +2828,11 @@ public class PhotoScanService {
                 return;
             }
             
-            String albumPathStr = albumPath.toString();
-            String albumPathHash = calculateSha256(albumPathStr);
-            Album album = albumRepository.findByPathHash(albumPathHash)
+            String albumPathStr = albumPath.toAbsolutePath().normalize().toString();
+            Long scopedUserId = resolveManagedUserId(albumPathStr, null);
+            String storedAlbumPath = toStoredManagedPath(albumPathStr, scopedUserId);
+            String albumPathHash = calculateSha256(storedAlbumPath != null ? storedAlbumPath : albumPathStr);
+            Album album = findAlbumByManagedPath(albumPath, scopedUserId)
                 .orElseGet(() -> {
                     // 再次检查是否关闭
                     if (isShuttingDown.get()) {
@@ -1677,8 +2840,9 @@ public class PhotoScanService {
                     }
                     Album newAlbum = new Album();
                     newAlbum.setName(albumPath.getFileName().toString());
-                    newAlbum.setPath(albumPathStr);
+                    newAlbum.setPath(storedAlbumPath);
                     newAlbum.setPathHash(albumPathHash);
+                    newAlbum.setUserId(scopedUserId);
                     // 从路径中解析相册名日期（用于排序）- 优先当前文件夹名，如果没有则向上查找父目录
                     LocalDateTime albumNameDate = parseDateFromAlbumPath(albumPathStr);
                     if (albumNameDate == null) {
@@ -1709,19 +2873,24 @@ public class PhotoScanService {
             int skippedCount = 0;
             for (File imageFile : imageFiles) {
                 try {
+                    ensureScanCanContinue(imageFile.getAbsolutePath());
+                    if (shouldSkipForResume(imageFile.getAbsolutePath(), false)) {
+                        continue;
+                    }
                     processPhotoFile(imageFile, album, force);
                     processedCount++;
                 } catch (Exception e) {
+                    if (e instanceof ScanInterruptedException) {
+                        throw e;
+                    }
                     log.warn("处理文件失败，跳过: {} - {}", imageFile.getName(), e.getMessage());
                     skippedCount++;
                     String relPath = toRelativePath(imageFile.getAbsolutePath());
                     String shortMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     // 截断过长的错误信息
                     String detail = shortMsg.length() > 200 ? shortMsg.substring(0, 200) + "…" : shortMsg;
-                    skippedFileRecords.add(new SkippedFileRecord(
-                        skippedFileIndex.incrementAndGet(),
-                        relPath, "处理失败", detail, imageFile.length()
-                    ));
+                    skippedFileRecords.add(buildSkippedFileRecord(imageFile.getAbsolutePath(), "处理失败", detail, imageFile.length()));
+                    notifyScanFailure(imageFile.getAbsolutePath(), "FILE", detail, scanCurrent.get(), scanTotal.get());
                 }
             }
 
@@ -1760,6 +2929,8 @@ public class PhotoScanService {
                 log.warn("相册 {} 氛围分析失败: {}", album.getName(), e.getMessage());
             }
 
+            notifyScanProgress(albumPath.toString(), "DIRECTORY", scanCurrent.get(), scanTotal.get());
+
         } catch (IllegalStateException e) {
             // 应用关闭时的异常，静默处理
             if (e.getMessage() != null && e.getMessage().contains("关闭")) {
@@ -1770,6 +2941,8 @@ public class PhotoScanService {
         } catch (org.springframework.context.ApplicationContextException e) {
             // Spring上下文异常，应用可能正在关闭
             log.debug("应用上下文异常，停止处理相册: {}", toRelativePath(albumPath.toString()));
+        } catch (ScanInterruptedException e) {
+            throw e;
         } catch (Exception e) {
             // 检查是否是应用关闭相关的异常
             String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
@@ -1786,21 +2959,36 @@ public class PhotoScanService {
      * 根据原始路径查找照片，处理可能存在的重复记录情况
      */
     private Optional<Photo> findPhotoByOriginalPath(String filePath) {
-        try {
-            return photoRepository.findByOriginalPath(filePath);
-        } catch (Exception e) {
-            // 如果有多个记录，选择最新的一个（ID最大的）
-            List<Photo> photos = photoRepository.findAllByOriginalPath(filePath);
-            if (!photos.isEmpty()) {
-                Photo latestPhoto = photos.stream()
-                    .max((p1, p2) -> Long.compare(p1.getId(), p2.getId()))
-                    .orElse(photos.get(0));
-                log.warn("发现 {} 条重复记录使用相同路径 {}, 选择最新的记录 ID={}",
-                    photos.size(), filePath, latestPhoto.getId());
-                return Optional.of(latestPhoto);
+        for (String candidatePath : buildPhotoPathLookupCandidates(filePath)) {
+            try {
+                Optional<Photo> matched = photoRepository.findByOriginalPath(candidatePath);
+                if (matched.isPresent()) {
+                    return matched;
+                }
+            } catch (Exception e) {
+                List<Photo> photos = photoRepository.findAllByOriginalPath(candidatePath);
+                if (!photos.isEmpty()) {
+                    Photo latestPhoto = photos.stream()
+                        .max((p1, p2) -> Long.compare(p1.getId(), p2.getId()))
+                        .orElse(photos.get(0));
+                    log.warn("发现 {} 条重复记录使用相同路径 {}, 选择最新的记录 ID={}",
+                        photos.size(), candidatePath, latestPhoto.getId());
+                    return Optional.of(latestPhoto);
+                }
             }
-            return Optional.empty();
         }
+        return Optional.empty();
+    }
+
+    private List<String> buildPhotoPathLookupCandidates(String filePath) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        if (filePath == null || filePath.isBlank()) {
+            return new ArrayList<>();
+        }
+        candidates.add(filePath);
+        Long userId = resolveManagedUserId(filePath, null);
+        userPathService.tryBuildStoragePathReference(filePath, userId).ifPresent(candidates::add);
+        return new ArrayList<>(candidates);
     }
 
     /**
@@ -1822,6 +3010,10 @@ public class PhotoScanService {
         if (files != null) {
             for (File file : files) {
                 try {
+                    ensureScanCanContinue(file.getAbsolutePath());
+                    if (shouldSkipForResume(file.getAbsolutePath(), file.isDirectory())) {
+                        continue;
+                    }
                     // 跳过.thumbnails目录
                     if (file.isDirectory() && file.getName().equals(".thumbnails")) {
                         continue;
@@ -1856,19 +3048,20 @@ public class PhotoScanService {
                                 processedFiles.add(file.getAbsolutePath());
                                 // 记录跳过详情
                                 String relPath = toRelativePath(file.getAbsolutePath());
-                                skippedFileRecords.add(new SkippedFileRecord(
-                                    skippedFileIndex.incrementAndGet(),
-                                    relPath, reason, detail, file.length()
-                                ));
+                                skippedFileRecords.add(buildSkippedFileRecord(file.getAbsolutePath(), reason, detail, file.length()));
+                                notifyScanSkip(file.getAbsolutePath(), file.isDirectory() ? "DIRECTORY" : "FILE", reason, detail, scanCurrent.get(), scanTotal.get());
                             }
                         }
                     }
                 } catch (Exception e) {
+                    if (e instanceof ScanInterruptedException) {
+                        throw e;
+                    }
                     log.warn("检查文件时出错，跳过: {} - {}", file.getName(), e.getMessage());
                 }
             }
         } else {
-            log.warn("无法读取目录内容: {}", directory.getAbsolutePath());
+            log.warn("无法读取目录内容: {}", toRelativePath(directory.getAbsolutePath()));
         }
         return imageFiles;
     }
@@ -1883,9 +3076,11 @@ public class PhotoScanService {
             log.debug("应用关闭，跳过文件: {}", imageFile.getName());
             return;
         }
+        ensureScanCanContinue(imageFile.getAbsolutePath());
 
         String filePath = imageFile.getAbsolutePath();
-        String pathHash = calculateSha256(filePath);
+        String storedFilePath = toStoredManagedPath(filePath, album != null ? album.getUserId() : null);
+        String pathHash = calculateSha256(storedFilePath != null ? storedFilePath : filePath);
 
         // 添加文件处理锁，防止同一文件被并发处理
         synchronized (filePath.intern()) {
@@ -1899,6 +3094,7 @@ public class PhotoScanService {
             processedFiles.add(filePath);
 
             try {
+                ensureScanCanContinue(filePath);
                 // 跳过.thumbnails目录下的文件
                 if (filePath.contains("/.thumbnails/") || filePath.contains("\\.thumbnails\\")) {
                     return;
@@ -1913,7 +3109,7 @@ public class PhotoScanService {
 
             // 检查文件是否存在
             if (!imageFile.exists()) {
-                log.warn("文件不存在，跳过处理: {}", imageFile.getAbsolutePath());
+                log.warn("文件不存在，跳过处理: {}", toRelativePath(imageFile.getAbsolutePath()));
                 return;
             }
 
@@ -1937,23 +3133,29 @@ public class PhotoScanService {
                 return;
             }
 
-            // 优先按内容哈希查找（支持复制图片复用数据），再按路径哈希，最后按原路径兜底
+            // 优先按内容哈希查找（为后续去重存储保留规范源），再按路径哈希，最后按原路径兜底
             Optional<Photo> photoByHash = contentHash == null ? Optional.empty() : photoRepository.findByContentHash(contentHash);
             Optional<Photo> photoByPathHash = pathHash == null ? Optional.empty() : photoRepository.findByPathHash(pathHash);
+            if (photoByPathHash.isEmpty() && storedFilePath != null && !storedFilePath.equals(filePath)) {
+                photoByPathHash = photoRepository.findByPathHash(calculateSha256(filePath));
+            }
+            Optional<Photo> resolvedPhotoByPathHash = photoByPathHash;
 
             // 处理可能存在重复originalPath的情况
             Optional<Photo> photoByPath = findPhotoByOriginalPath(filePath);
 
-            // 优先使用contentHash找到的照片（支持复制图片复用）
-            Photo photo = photoByHash
-                .orElseGet(() -> photoByPathHash
-                .orElseGet(() -> photoByPath.orElseGet(Photo::new)));
+            Photo photo = resolvePhotoRecordForScan(photoByHash, resolvedPhotoByPathHash, photoByPath);
 
-            // 记录是否通过contentHash找到的（已存在且内容相同）
-            boolean foundByContentHash = photoByHash.isPresent() && photo.getId() != null;
+            boolean foundByContentHash = photoByHash.isPresent()
+                && photo.getId() != null
+                && resolvedPhotoByPathHash.isEmpty()
+                && photoByPath.isEmpty()
+                && photo.getCanonicalPhotoId() == null;
+            boolean createdFromCanonicalPhoto = photo.getId() == null && photo.getCanonicalPhotoId() != null;
 
             // 所有到达这里的照片都算已遍历（无论是否需要处理）
             int currentCount = scanCurrent.incrementAndGet();
+            notifyScanProgress(filePath, "FILE", currentCount, scanTotal.get());
 
             // 仅在实际处理时记录日志，输出相对路径
             String relativePath = toRelativePath(filePath);
@@ -1964,13 +3166,28 @@ public class PhotoScanService {
                 String existingPath = photo.getOriginalPath();
                 if (existingPath != null && !existingPath.equals(filePath)) {
                     String existingRelPath = toRelativePath(existingPath);
-                    skippedFileRecords.add(new SkippedFileRecord(
-                        skippedFileIndex.incrementAndGet(),
-                        relativePath != null ? relativePath : filePath,
+                    skippedFileRecords.add(buildSkippedFileRecord(
+                        imageFile.getAbsolutePath(),
                         "内容重复",
                         "与已有照片内容相同: " + (existingRelPath != null ? existingRelPath : existingPath),
                         imageFile.length()
                     ));
+                    notifyScanSkip(
+                        filePath,
+                        "FILE",
+                        "内容重复",
+                        "与已有照片内容相同: " + (existingRelPath != null ? existingRelPath : existingPath),
+                        currentCount,
+                        scanTotal.get()
+                    );
+                }
+            } else if (createdFromCanonicalPhoto && !force) {
+                Photo canonicalPhoto = photoByHash.orElse(null);
+                String canonicalPath = canonicalPhoto == null ? null : canonicalPhoto.getOriginalPath();
+                String canonicalRelPath = canonicalPath == null ? null : toRelativePath(canonicalPath);
+                log.info("{}/{} 处理重复内容副本: {}", currentCount, scanTotal.get(), relativePath != null ? relativePath : filePath);
+                if (canonicalPath != null) {
+                    log.info("重复内容将保留独立照片记录，并关联到规范源: {}", canonicalRelPath != null ? canonicalRelPath : canonicalPath);
                 }
             } else {
                 log.info("{}/{} 处理: {}", currentCount, scanTotal.get(), relativePath != null ? relativePath : filePath);
@@ -1986,7 +3203,7 @@ public class PhotoScanService {
             if (e.getMessage() != null && e.getMessage().contains("关闭")) {
                 log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
             } else {
-                log.warn("处理图片失败（应用状态异常）: {}", imageFile.getAbsolutePath(), e);
+                log.warn("处理图片失败（应用状态异常）: {}", toRelativePath(imageFile.getAbsolutePath()), e);
             }
         } catch (org.springframework.context.ApplicationContextException e) {
             // Spring上下文异常，应用可能正在关闭
@@ -1998,17 +3215,161 @@ public class PhotoScanService {
                 (errorMsg.contains("context") && errorMsg.contains("close"))) {
                 log.debug("应用关闭，停止处理图片: {}", imageFile.getName());
             } else {
-                log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+                log.error("处理图片失败: {}", toRelativePath(imageFile.getAbsolutePath()), e);
                 String relPath = toRelativePath(imageFile.getAbsolutePath());
                 String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 String detail = msg.length() > 200 ? msg.substring(0, 200) + "…" : msg;
-                skippedFileRecords.add(new SkippedFileRecord(
-                    skippedFileIndex.incrementAndGet(),
-                    relPath, "处理异常", detail, imageFile.length()
-                ));
+                skippedFileRecords.add(buildSkippedFileRecord(imageFile.getAbsolutePath(), "处理异常", detail, imageFile.length()));
+                notifyScanFailure(imageFile.getAbsolutePath(), "FILE", detail, scanCurrent.get(), scanTotal.get());
             }
         }
         } // end synchronized block
+    }
+
+    private SkippedFileRecord buildSkippedFileRecord(String absolutePath, String reason, String detail, long fileSizeBytes) {
+        String relPath = toRelativePath(absolutePath);
+        Long userId = resolveSkippedRecordUserId(absolutePath);
+        return new SkippedFileRecord(
+            skippedFileIndex.incrementAndGet(),
+            userId,
+            relPath,
+            reason,
+            detail,
+            fileSizeBytes,
+            LocalDateTime.now()
+        );
+    }
+
+    private Long resolveSkippedRecordUserId(String absolutePath) {
+        Long storageUserId = currentStorageUserId.get();
+        if (storageUserId != null) {
+            return storageUserId;
+        }
+        if (absolutePath == null || absolutePath.isBlank()) {
+            return null;
+        }
+        return userPathService.extractUserIdFromPath(absolutePath);
+    }
+
+    private void executeWithScanProgressListener(ScanProgressListener listener, Runnable runnable) {
+        if (listener == null) {
+            runnable.run();
+            return;
+        }
+
+        currentScanProgressListener.set(listener);
+        currentResumeAnchor.set(listener.getResumeFromPath());
+        currentResumeAnchorType.set(listener.getResumeFromType());
+        currentResumeAnchorReached.set(listener.getResumeFromPath() == null || listener.getResumeFromPath().isBlank());
+        currentResumeSkipSubtree.remove();
+        try {
+            runnable.run();
+        } finally {
+            currentScanProgressListener.remove();
+            currentResumeAnchor.remove();
+            currentResumeAnchorType.remove();
+            currentResumeAnchorReached.remove();
+            currentResumeSkipSubtree.remove();
+        }
+    }
+
+    private void notifyScanPrepared(String rootPath, boolean force, int total) {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener != null) {
+            listener.onScanPrepared(rootPath, force, total);
+        }
+    }
+
+    private void notifyScanProgress(String absolutePath, String pathType, int current, int total) {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener != null) {
+            listener.onPathProcessed(absolutePath, pathType, current, total);
+        }
+    }
+
+    private void notifyScanSkip(String absolutePath, String pathType, String reason, String detail, int current, int total) {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener != null) {
+            listener.onPathSkipped(absolutePath, pathType, reason, detail, current, total);
+        }
+    }
+
+    private void notifyScanFailure(String absolutePath, String pathType, String errorMessage, int current, int total) {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener != null) {
+            listener.onPathFailed(absolutePath, pathType, errorMessage, current, total);
+        }
+    }
+
+    private void notifyScanCompleted() {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener != null) {
+            listener.onScanCompleted(scanCurrent.get(), scanTotal.get(), skippedFileRecords.size(), 0);
+        }
+    }
+
+    private void notifyScanFailed(Exception exception) {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener != null) {
+            listener.onScanFailed(exception, scanCurrent.get(), scanTotal.get());
+        }
+    }
+
+    private void ensureScanCanContinue(String path) {
+        ScanProgressListener listener = currentScanProgressListener.get();
+        if (listener == null) {
+            return;
+        }
+        ScanControlAction action = listener.getControlAction();
+        if (action == ScanControlAction.PAUSE || action == ScanControlAction.CANCEL) {
+            throw new ScanInterruptedException(action, path);
+        }
+    }
+
+    private boolean shouldSkipForResume(String path, boolean directory) {
+        String anchor = currentResumeAnchor.get();
+        if (anchor == null || anchor.isBlank()) {
+            return false;
+        }
+        String anchorType = currentResumeAnchorType.get();
+
+        String normalizedPath = new File(path).toPath().toAbsolutePath().normalize().toString();
+        String normalizedAnchor = new File(anchor).toPath().toAbsolutePath().normalize().toString();
+        String skipSubtree = currentResumeSkipSubtree.get();
+        if (skipSubtree != null && !skipSubtree.isBlank()) {
+            String normalizedSkipSubtree = new File(skipSubtree).toPath().toAbsolutePath().normalize().toString();
+            String subtreePrefix = normalizedSkipSubtree.endsWith(File.separator)
+                ? normalizedSkipSubtree
+                : normalizedSkipSubtree + File.separator;
+            if (normalizedPath.equals(normalizedSkipSubtree) || normalizedPath.startsWith(subtreePrefix)) {
+                return true;
+            }
+            currentResumeSkipSubtree.remove();
+        }
+
+        Boolean reached = currentResumeAnchorReached.get();
+        if (Boolean.TRUE.equals(reached)) {
+            return false;
+        }
+
+        if (normalizedPath.equals(normalizedAnchor)) {
+            currentResumeAnchorReached.set(true);
+            log.info("续扫断点已命中，从下一项继续: {}", normalizedPath);
+            if ("DIRECTORY".equalsIgnoreCase(anchorType)) {
+                currentResumeSkipSubtree.set(normalizedAnchor);
+                return true;
+            }
+            return !directory;
+        }
+
+        if (directory) {
+            String prefix = normalizedPath.endsWith(File.separator) ? normalizedPath : normalizedPath + File.separator;
+            if (normalizedAnchor.startsWith(prefix)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -2018,6 +3379,7 @@ public class PhotoScanService {
                                        String pathHash, boolean force, boolean needsReprocessing,
                                        boolean foundByContentHash) {
         try {
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             // 步骤1: 设置基础信息
             if (photo.getProcessingStatus() == ProcessingStatus.PENDING || needsReprocessing) {
                 processBasicInfo(photo, album, contentHash, pathHash, imageFile);
@@ -2026,26 +3388,36 @@ public class PhotoScanService {
             }
 
             // 步骤2: 确保相册标签已初始化
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             Album albumWithTags = albumRepository.findByIdWithTags(album.getId()).orElse(album);
             if (albumWithTags.getTags() == null) {
                 albumWithTags.setTags(new ArrayList<>());
             }
             album = albumWithTags;
 
+            // 对于内容重复副本，优先复用规范源已生成的基础元数据和派生资源，
+            // 避免每次都重新跑 EXIF/缩略图/色彩分析。
+            ensureScanCanContinue(imageFile.getAbsolutePath());
+            if (!force && tryReuseCanonicalPhotoAssets(photo)) {
+                photoRepository.save(photo);
+            }
+
             // 步骤3: 提取EXIF信息
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.BASIC_INFO_DONE || needsReprocessing) {
                 try {
                     extractExifData(imageFile, photo);
                     photo.advanceProcessingStatus();
                     photoRepository.save(photo);
                 } catch (Exception e) {
-                    photo.markProcessingFailed("EXIF提取失败: " + e.getMessage());
+                    photo.markProcessingFailed("EXIF提取失败: " + sanitizeVisibleMessage(e.getMessage()));
                     photoRepository.save(photo);
                     throw e;
                 }
             }
 
             // 步骤4: 生成缩略图
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.BASIC_INFO_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.THUMBNAILS_DONE || needsReprocessing) {
                 try {
@@ -2054,13 +3426,14 @@ public class PhotoScanService {
                     photo.setProcessingStatus(ProcessingStatus.THUMBNAILS_DONE);
                     photoRepository.save(photo);
                 } catch (Exception e) {
-                    photo.markProcessingFailed("缩略图生成失败: " + e.getMessage());
+                    photo.markProcessingFailed("缩略图生成失败: " + sanitizeVisibleMessage(e.getMessage()));
                     photoRepository.save(photo);
                     throw e;
                 }
             }
 
             // 步骤5: 分析色彩和质量评分
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.THUMBNAILS_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.ANALYSIS_DONE || needsReprocessing) {
                 try {
@@ -2069,7 +3442,7 @@ public class PhotoScanService {
                     photo.setProcessingStatus(ProcessingStatus.ANALYSIS_DONE);
                     photoRepository.save(photo);
                 } catch (Exception e) {
-                    photo.markProcessingFailed("色彩分析失败: " + e.getMessage());
+                    photo.markProcessingFailed("色彩分析失败: " + sanitizeVisibleMessage(e.getMessage()));
                     photoRepository.save(photo);
                     throw e;
                 }
@@ -2077,6 +3450,7 @@ public class PhotoScanService {
 
             // 步骤6: 人脸检测
             List<Face> faces = new ArrayList<>();
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.ANALYSIS_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.FACES_DONE || needsReprocessing) {
                 try {
@@ -2094,7 +3468,7 @@ public class PhotoScanService {
                         photo.setProcessingStatus(ProcessingStatus.FACES_DONE); // 标记为已完成（跳过）
                         photoRepository.save(photo);
                     } else {
-                        photo.markProcessingFailed("人脸检测失败: " + e.getMessage());
+                        photo.markProcessingFailed("人脸检测失败: " + sanitizeVisibleMessage(e.getMessage()));
                         photoRepository.save(photo);
                         throw e;
                     }
@@ -2105,6 +3479,7 @@ public class PhotoScanService {
             }
 
             // 步骤7: 主体检测
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.FACES_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.SUBJECT_DONE || needsReprocessing) {
                 try {
@@ -2112,13 +3487,14 @@ public class PhotoScanService {
                     photo.setProcessingStatus(ProcessingStatus.SUBJECT_DONE);
                     photoRepository.save(photo);
                 } catch (Exception e) {
-                    photo.markProcessingFailed("主体检测失败: " + e.getMessage());
+                    photo.markProcessingFailed("主体检测失败: " + sanitizeVisibleMessage(e.getMessage()));
                     photoRepository.save(photo);
                     throw e;
                 }
             }
 
             // 步骤8: 智能标签
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.SUBJECT_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE || needsReprocessing) {
                 try {
@@ -2126,13 +3502,14 @@ public class PhotoScanService {
                     photo.setProcessingStatus(ProcessingStatus.TAGS_DONE);
                     photoRepository.save(photo);
                 } catch (Exception e) {
-                    photo.markProcessingFailed("标签处理失败: " + e.getMessage());
+                    photo.markProcessingFailed("标签处理失败: " + sanitizeVisibleMessage(e.getMessage()));
                     photoRepository.save(photo);
                     throw e;
                 }
             }
 
             // 步骤9: AI评分
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (photo.getProcessingStatus() == ProcessingStatus.TAGS_DONE ||
                 photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE || needsReprocessing) {
                 try {
@@ -2143,7 +3520,7 @@ public class PhotoScanService {
                 } catch (Exception e) {
                     // AI评分失败不应该阻止图片完成处理，只是记录警告
                     log.warn("AI评分失败，但继续处理: {}", e.getMessage());
-                    log.warn("AI评分失败详情 - Photo ID: {}, File: {}", photo.getId(), photo.getOriginalPath());
+                    log.warn("AI评分失败详情 - Photo ID: {}, File: {}", photo.getId(), toRelativePath(photo.getOriginalPath()));
                     log.warn("完整错误堆栈:", e);
                     photo.setProcessingStatus(ProcessingStatus.AI_SCORING_DONE); // 仍标记为完成，避免重复尝试
                     photoRepository.save(photo);
@@ -2151,6 +3528,7 @@ public class PhotoScanService {
             }
 
             // 步骤10: 自动背景移除（如果开启）
+            ensureScanCanContinue(imageFile.getAbsolutePath());
             if (autoBackgroundRemoval && backgroundRemovalService.isModelAvailable()) {
                 if (photo.getBackgroundRemovedPath() == null || photo.getBackgroundRemovedPath().isEmpty()) {
                     try {
@@ -2182,7 +3560,7 @@ public class PhotoScanService {
                         }
                         
                         if (backgroundRemovalService.removeBackground(imageFile, outputFile, faceRegions)) {
-                            photo.setBackgroundRemovedPath(outputFile.getAbsolutePath());
+                            photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
                             photoRepository.save(photo);
                             log.debug("自动背景移除完成: {}", photo.getId());
                         }
@@ -2202,10 +3580,10 @@ public class PhotoScanService {
         } catch (Exception e) {
             // 如果是处理失败，记录错误但不抛出异常，确保其他图片能继续处理
             if (photo.getProcessingStatus() != ProcessingStatus.FAILED) {
-                photo.markProcessingFailed("未知处理错误: " + e.getMessage());
+                photo.markProcessingFailed("未知处理错误: " + sanitizeVisibleMessage(e.getMessage()));
                 photoRepository.save(photo);
             }
-            log.error("处理图片失败: {}", imageFile.getAbsolutePath(), e);
+            log.error("处理图片失败: {}", toRelativePath(imageFile.getAbsolutePath()), e);
         }
     }
 
@@ -2213,21 +3591,117 @@ public class PhotoScanService {
      * 处理照片基础信息
      */
     private void processBasicInfo(Photo photo, Album album, String contentHash, String pathHash, File imageFile) {
-        // 设置哈希值（只有新创建的照片才设置，避免重复）
-        if (photo.getId() == null) {
-            // 新照片，设置所有哈希值
+        // 规范源照片保留内容哈希；重复内容副本通过 canonicalPhotoId 指向规范源，避免唯一索引冲突。
+        if (photo.getCanonicalPhotoId() == null && photo.getId() == null) {
             photo.setContentHash(contentHash);
-            photo.setPathHash(pathHash);
-        } else if (photo.getContentHash() == null || photo.getContentHash().isEmpty()) {
-            // 哈希值为空时，更新哈希值
+        } else if (photo.getCanonicalPhotoId() == null && (photo.getContentHash() == null || photo.getContentHash().isEmpty())) {
             photo.setContentHash(contentHash);
-            photo.setPathHash(pathHash);
         }
         photo.setAlbumId(album.getId());
+        photo.setUserId(album.getUserId());
         photo.setFilename(imageFile.getName());
-        photo.setOriginalPath(imageFile.getAbsolutePath());
+        String storedOriginalPath = toStoredManagedPath(imageFile.getAbsolutePath(), album.getUserId());
+        photo.setOriginalPath(storedOriginalPath);
+        photo.setPathHash(calculateSha256(storedOriginalPath));
         photo.setFileSize(imageFile.length());
         photo.setProcessingStatus(ProcessingStatus.BASIC_INFO_DONE);
+    }
+
+    private Photo resolvePhotoRecordForScan(Optional<Photo> photoByHash,
+                                            Optional<Photo> photoByPathHash,
+                                            Optional<Photo> photoByPath) {
+        if (photoByPathHash.isPresent()) {
+            return photoByPathHash.get();
+        }
+        if (photoByPath.isPresent()) {
+            return photoByPath.get();
+        }
+        if (photoByHash.isPresent()) {
+            Photo canonicalPhoto = photoByHash.get();
+            if (canonicalPhoto.getId() != null) {
+                Photo duplicatePhoto = new Photo();
+                duplicatePhoto.setCanonicalPhotoId(canonicalPhoto.getId());
+                return duplicatePhoto;
+            }
+            return canonicalPhoto;
+        }
+        return new Photo();
+    }
+
+    private boolean tryReuseCanonicalPhotoAssets(Photo photo) {
+        if (photo == null || photo.getCanonicalPhotoId() == null) {
+            return false;
+        }
+        if (photo.getProcessingStatus() != ProcessingStatus.BASIC_INFO_DONE
+            && photo.getProcessingStatus() != ProcessingStatus.PENDING
+            && photo.getProcessingStatus() != ProcessingStatus.FAILED) {
+            return false;
+        }
+        Photo canonicalPhoto = photoRepository.findById(photo.getCanonicalPhotoId()).orElse(null);
+        if (canonicalPhoto == null) {
+            return false;
+        }
+        boolean reused = copyReusableFieldsFromCanonical(photo, canonicalPhoto);
+        if (reused) {
+            photo.setProcessingStatus(ProcessingStatus.ANALYSIS_DONE);
+        }
+        return reused;
+    }
+
+    private boolean copyReusableFieldsFromCanonical(Photo target, Photo canonical) {
+        if (target == null || canonical == null) {
+            return false;
+        }
+        boolean reusableAssetsPresent = hasText(canonical.getThumbnailPath())
+            || hasText(canonical.getWebpPath())
+            || hasText(canonical.getSmallThumbPath())
+            || hasText(canonical.getMediumThumbPath())
+            || hasText(canonical.getLargeThumbPath());
+        boolean reusableMetadataPresent = canonical.getWidth() != null
+            || canonical.getHeight() != null
+            || hasText(canonical.getFormat())
+            || hasText(canonical.getExifData())
+            || canonical.getTakenAt() != null
+            || canonical.getQualityScore() != null
+            || hasText(canonical.getDominantColor())
+            || hasText(canonical.getColorCategory())
+            || hasText(canonical.getColorPalette());
+        if (!reusableAssetsPresent && !reusableMetadataPresent) {
+            return false;
+        }
+
+        target.setWidth(canonical.getWidth());
+        target.setHeight(canonical.getHeight());
+        target.setFormat(canonical.getFormat());
+        target.setExifData(canonical.getExifData());
+        target.setCameraMake(canonical.getCameraMake());
+        target.setCameraModel(canonical.getCameraModel());
+        target.setLensModel(canonical.getLensModel());
+        target.setFocalLength(canonical.getFocalLength());
+        target.setAperture(canonical.getAperture());
+        target.setShutterSpeed(canonical.getShutterSpeed());
+        target.setIso(canonical.getIso());
+        target.setShutterSpeedSeconds(canonical.getShutterSpeedSeconds());
+        target.setFocalLengthMm(canonical.getFocalLengthMm());
+        target.setApertureValue(canonical.getApertureValue());
+        target.setTakenAt(canonical.getTakenAt());
+        target.setQualityScore(canonical.getQualityScore());
+        target.setFocusX(canonical.getFocusX());
+        target.setFocusY(canonical.getFocusY());
+        target.setDominantColor(canonical.getDominantColor());
+        target.setColorCategory(canonical.getColorCategory());
+        target.setColorPalette(canonical.getColorPalette());
+        target.setThumbnailPath(canonical.getThumbnailPath());
+        target.setWebpPath(canonical.getWebpPath());
+        target.setSmallThumbPath(canonical.getSmallThumbPath());
+        target.setMediumThumbPath(canonical.getMediumThumbPath());
+        target.setLargeThumbPath(canonical.getLargeThumbPath());
+        target.setBackgroundRemovedPath(canonical.getBackgroundRemovedPath());
+        return true;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**
@@ -2474,16 +3948,15 @@ public class PhotoScanService {
     @Transactional
     public void updateAllExifNumericFields() {
         log.info("开始批量更新所有照片的 EXIF 字段...");
-        Iterable<Photo> all = photoRepository.findAll();
-        int total = (int) photoRepository.count();
-        int count = 0;
-        int processed = 0;
+        int total = countPhotosForCurrentScope();
+        AtomicInteger count = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
         String tid = currentTaskId.get();
         if (tid != null) {
             setTaskProgress(tid, 0, total);
             appendTaskLog(tid, "开始遍历 " + total + " 张照片");
         }
-        for (Photo photo : all) {
+        forEachPhotoInCurrentScope(photo -> {
             boolean changed = false;
             // try use existing string fields first
             if (photo.getShutterSpeedSeconds() == null) {
@@ -2610,20 +4083,19 @@ public class PhotoScanService {
 
             if (changed) {
                 photoRepository.save(photo);
-                count++;
+                count.incrementAndGet();
             }
-            // 进度上报（每10张汇报一次）
-            processed++;
-            if (tid != null && (processed % 10 == 0 || processed == total)) {
-                setTaskProgress(tid, processed, total);
-                appendTaskLog(tid, "已处理 " + processed + " / " + total + " 张");
+            int current = processed.incrementAndGet();
+            if (tid != null && (current % 10 == 0 || current == total)) {
+                setTaskProgress(tid, current, total);
+                appendTaskLog(tid, "已处理 " + current + " / " + total + " 张");
             }
-        }
+        });
         if (tid != null) {
-            setTaskProgress(tid, processed, total);
-            appendTaskLog(tid, "处理结束, 共有 " + count + " 张照片被更新");
+            setTaskProgress(tid, processed.get(), total);
+            appendTaskLog(tid, "处理结束, 共有 " + count.get() + " 张照片被更新");
         }
-        log.info("EXIF 字段更新完成, 更新 {} 张照片", count);
+        log.info("EXIF 字段更新完成, 更新 {} 张照片", count.get());
     }
 
     /**
@@ -2631,22 +4103,21 @@ public class PhotoScanService {
      */
     public void recalculateAllPhotoColors() {
         log.info("开始重新计算所有照片的颜色相关属性...");
-        Iterable<Photo> all = photoRepository.findAll();
-        int total = (int) photoRepository.count();
-        int count = 0;
-        int processed = 0;
+        int total = countPhotosForCurrentScope();
+        AtomicInteger count = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
         String tid = currentTaskId.get();
         if (tid != null) {
             setTaskProgress(tid, 0, total);
             appendTaskLog(tid, "开始遍历 " + total + " 张照片");
         }
 
-        for (Photo photo : all) {
+        forEachPhotoInCurrentScope(photo -> {
             boolean changed = false;
 
             // 重新分析照片颜色
             try {
-                File imageFile = new File(photo.getOriginalPath());
+                File imageFile = resolveOriginalFile(photo);
                 if (imageFile.exists()) {
                     // 清除现有的颜色数据
                     photo.setDominantColor(null);
@@ -2664,7 +4135,7 @@ public class PhotoScanService {
 
                     changed = true;
                 } else {
-                    log.warn("照片文件不存在: {}", photo.getOriginalPath());
+                    log.warn("照片文件不存在: {}", toRelativePath(photo.getOriginalPath()));
                 }
             } catch (Exception e) {
                 log.warn("重新分析照片 {} 的颜色失败: {}", photo.getId(), e.getMessage());
@@ -2672,19 +4143,18 @@ public class PhotoScanService {
 
             if (changed) {
                 photoRepository.save(photo);
-                count++;
+                count.incrementAndGet();
             }
 
-            // 进度上报（每10张汇报一次）
-            processed++;
-            if (tid != null && (processed % 10 == 0 || processed == total)) {
-                setTaskProgress(tid, processed, total);
-                appendTaskLog(tid, "已处理 " + processed + " / " + total + " 张");
+            int current = processed.incrementAndGet();
+            if (tid != null && (current % 10 == 0 || current == total)) {
+                setTaskProgress(tid, current, total);
+                appendTaskLog(tid, "已处理 " + current + " / " + total + " 张");
             }
-        }
+        });
 
         if (tid != null) {
-            setTaskProgress(tid, processed, total);
+            setTaskProgress(tid, processed.get(), total);
             appendTaskLog(tid, "照片颜色重新计算完成，开始更新相册氛围");
         }
 
@@ -2697,11 +4167,11 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.error("更新相册氛围失败", e);
             if (tid != null) {
-                appendTaskLog(tid, "相册氛围更新失败: " + e.getMessage());
+                appendTaskLog(tid, "相册氛围更新失败: " + sanitizeVisibleMessage(e.getMessage()));
             }
         }
 
-        log.info("颜色重新计算完成, 更新 {} 张照片", count);
+        log.info("颜色重新计算完成, 更新 {} 张照片", count.get());
     }
 
     /**
@@ -2709,19 +4179,17 @@ public class PhotoScanService {
      */
     private void updateAllAlbumAtmospheres() {
         log.info("开始更新所有相册的氛围...");
-        Iterable<Album> allAlbums = albumRepository.findAll();
-        int albumCount = 0;
-
-        for (Album album : allAlbums) {
+        AtomicInteger albumCount = new AtomicInteger();
+        forEachAlbumInCurrentScope(album -> {
             try {
                 atmosphereAnalysisService.analyzeAlbumAtmosphere(album.getId());
-                albumCount++;
+                albumCount.incrementAndGet();
             } catch (Exception e) {
                 log.warn("更新相册 {} 的氛围失败: {}", album.getId(), e.getMessage());
             }
-        }
+        });
 
-        log.info("相册氛围更新完成, 更新了 {} 个相册", albumCount);
+        log.info("相册氛围更新完成, 更新了 {} 个相册", albumCount.get());
     }
 
     /**
@@ -2729,17 +4197,16 @@ public class PhotoScanService {
      */
     public void updateAllColorCategories() {
         log.info("开始批量更新所有照片的颜色分类...");
-        Iterable<Photo> all = photoRepository.findAll();
-        int total = (int) photoRepository.count();
-        int count = 0;
-        int processed = 0;
+        int total = countPhotosForCurrentScope();
+        AtomicInteger count = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
         String tid = currentTaskId.get();
         if (tid != null) {
             setTaskProgress(tid, 0, total);
             appendTaskLog(tid, "开始遍历 " + total + " 张照片");
         }
 
-        for (Photo photo : all) {
+        forEachPhotoInCurrentScope(photo -> {
             boolean changed = false;
 
             // 为有主色调但没有颜色分类的照片设置颜色分类
@@ -2755,22 +4222,21 @@ public class PhotoScanService {
 
             if (changed) {
                 photoRepository.save(photo);
-                count++;
+                count.incrementAndGet();
             }
 
-            // 进度上报（每10张汇报一次）
-            processed++;
-            if (tid != null && (processed % 10 == 0 || processed == total)) {
-                setTaskProgress(tid, processed, total);
-                appendTaskLog(tid, "已处理 " + processed + " / " + total + " 张");
+            int current = processed.incrementAndGet();
+            if (tid != null && (current % 10 == 0 || current == total)) {
+                setTaskProgress(tid, current, total);
+                appendTaskLog(tid, "已处理 " + current + " / " + total + " 张");
             }
-        }
+        });
 
         if (tid != null) {
-            setTaskProgress(tid, processed, total);
-            appendTaskLog(tid, "处理结束, 共有 " + count + " 张照片被更新");
+            setTaskProgress(tid, processed.get(), total);
+            appendTaskLog(tid, "处理结束, 共有 " + count.get() + " 张照片被更新");
         }
-        log.info("颜色分类更新完成, 更新 {} 张照片", count);
+        log.info("颜色分类更新完成, 更新 {} 张照片", count.get());
     }
 
     /**
@@ -2815,13 +4281,13 @@ public class PhotoScanService {
         // 1. 生成小缩略图（用于封面和缩略图列表）
         File smallThumbFile = new File(baseDir, baseName + "_small.jpg");
         generateThumbnailWithQuality(originalImage, smallThumbFile, smallThumbnailWidth, smallThumbnailHeight, smallThumbnailQuality);
-        photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+        photo.setSmallThumbPath(toStoredManagedPath(smallThumbFile.getAbsolutePath(), photo.getUserId()));
         long smallSizeKB = smallThumbFile.length() / 1024;
 
         // 2. 生成中缩略图（用于瀑布流显示）
         File mediumThumbFile = new File(baseDir, baseName + "_medium.jpg");
         generateThumbnailWithQuality(originalImage, mediumThumbFile, mediumThumbnailWidth, mediumThumbnailHeight, mediumThumbnailQuality);
-        photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+        photo.setMediumThumbPath(toStoredManagedPath(mediumThumbFile.getAbsolutePath(), photo.getUserId()));
         long mediumSizeKB = mediumThumbFile.length() / 1024;
 
         // 3. 生成大缩略图（用于PhotoViewer大图显示）
@@ -2832,7 +4298,7 @@ public class PhotoScanService {
         String largeInfo;
         if (shouldGenerateLargeThumb) {
             generateThumbnailWithQuality(originalImage, largeThumbFile, largeThumbnailWidth, largeThumbnailHeight, largeThumbnailQuality);
-            photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+            photo.setLargeThumbPath(toStoredManagedPath(largeThumbFile.getAbsolutePath(), photo.getUserId()));
             long largeSizeKB = largeThumbFile.length() / 1024;
             largeInfo = largeSizeKB + "KB";
         } else {
@@ -2846,7 +4312,7 @@ public class PhotoScanService {
             smallSizeKB, mediumSizeKB, largeInfo, imageFile.getName());
 
         // 兼容性：设置原有thumbnailPath为小缩略图路径
-        photo.setThumbnailPath(smallThumbFile.getAbsolutePath());
+        photo.setThumbnailPath(toStoredManagedPath(smallThumbFile.getAbsolutePath(), photo.getUserId()));
     }
 
     /**
@@ -2931,10 +4397,10 @@ public class PhotoScanService {
                     BufferedImage originalImage = ImageIO.read(imageFile);
                     if (originalImage != null) {
                         generateThumbnailWithQuality(originalImage, smallThumbFile, smallThumbnailWidth, smallThumbnailHeight, smallThumbnailQuality);
-                        photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+                        photo.setSmallThumbPath(toStoredManagedPath(smallThumbFile.getAbsolutePath(), photo.getUserId()));
                     }
                 } else {
-                    photo.setSmallThumbPath(smallThumbFile.getAbsolutePath());
+                    photo.setSmallThumbPath(toStoredManagedPath(smallThumbFile.getAbsolutePath(), photo.getUserId()));
                 }
             }
 
@@ -2946,10 +4412,10 @@ public class PhotoScanService {
                     BufferedImage originalImage = ImageIO.read(imageFile);
                     if (originalImage != null) {
                         generateThumbnailWithQuality(originalImage, mediumThumbFile, mediumThumbnailWidth, mediumThumbnailHeight, mediumThumbnailQuality);
-                        photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+                        photo.setMediumThumbPath(toStoredManagedPath(mediumThumbFile.getAbsolutePath(), photo.getUserId()));
                     }
                 } else {
-                    photo.setMediumThumbPath(mediumThumbFile.getAbsolutePath());
+                    photo.setMediumThumbPath(toStoredManagedPath(mediumThumbFile.getAbsolutePath(), photo.getUserId()));
                 }
             }
 
@@ -2961,13 +4427,13 @@ public class PhotoScanService {
                     BufferedImage originalImage = ImageIO.read(imageFile);
                     if (originalImage != null && shouldGenerateLargeThumbnail(originalImage, largeThumbnailWidth, largeThumbnailHeight, imageFile.length())) {
                         generateThumbnailWithQuality(originalImage, largeThumbFile, largeThumbnailWidth, largeThumbnailHeight, largeThumbnailQuality);
-                        photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+                        photo.setLargeThumbPath(toStoredManagedPath(largeThumbFile.getAbsolutePath(), photo.getUserId()));
                     } else {
                         // 如果不应该生成，设置为空（表示使用原图）
                         photo.setLargeThumbPath(null);
                     }
                 } else {
-                    photo.setLargeThumbPath(largeThumbFile.getAbsolutePath());
+                    photo.setLargeThumbPath(toStoredManagedPath(largeThumbFile.getAbsolutePath(), photo.getUserId()));
                 }
             }
 
@@ -2983,10 +4449,10 @@ public class PhotoScanService {
                         BufferedImage originalImage = ImageIO.read(imageFile);
                         if (originalImage != null) {
                             generateThumbnailWithQuality(originalImage, thumbFile, thumbnailWidth, thumbnailHeight, 0.85f);
-                            photo.setThumbnailPath(thumbFile.getAbsolutePath());
+                            photo.setThumbnailPath(toStoredManagedPath(thumbFile.getAbsolutePath(), photo.getUserId()));
                         }
                     } else {
-                        photo.setThumbnailPath(thumbFile.getAbsolutePath());
+                        photo.setThumbnailPath(toStoredManagedPath(thumbFile.getAbsolutePath(), photo.getUserId()));
                     }
                 }
             }
@@ -3024,13 +4490,13 @@ public class PhotoScanService {
      */
     private String calculateSha256(File file) {
         if (!file.exists()) {
-            throw new IllegalArgumentException("文件不存在: " + file.getAbsolutePath());
+            throw new IllegalArgumentException("文件不存在: " + toRelativePath(file.getAbsolutePath()));
         }
         if (!file.isFile()) {
-            throw new IllegalArgumentException("不是文件: " + file.getAbsolutePath());
+            throw new IllegalArgumentException("不是文件: " + toRelativePath(file.getAbsolutePath()));
         }
         if (!file.canRead()) {
-            throw new IllegalArgumentException("文件无法读取: " + file.getAbsolutePath());
+            throw new IllegalArgumentException("文件无法读取: " + toRelativePath(file.getAbsolutePath()));
         }
 
         try (InputStream is = Files.newInputStream(file.toPath());
@@ -3076,28 +4542,26 @@ public class PhotoScanService {
     private String toRelativePath(String absolutePath) {
         if (absolutePath == null || absolutePath.isEmpty()) return absolutePath;
         try {
-            String base = basePath;
-            if (!Paths.get(base).isAbsolute()) {
-                String projectRoot = System.getProperty("user.dir");
-                if (projectRoot.endsWith("backend")) {
-                    projectRoot = new File(projectRoot).getParent();
-                }
-                String cleanPath = base.startsWith("./") ? base.substring(2) : base;
-                base = new File(projectRoot, cleanPath).getAbsolutePath();
+            String displayPath = userPathService.toDisplayPath(absolutePath, true);
+            if (!absolutePath.equals(displayPath)) {
+                return displayPath;
             }
-            base = Paths.get(base).normalize().toString();
-            String normalized = Paths.get(absolutePath).normalize().toString();
-            if (!normalized.startsWith(base)) {
-                return absolutePath;
-            }
-            String rel = normalized.substring(base.length());
-            if (!rel.startsWith(File.separator)) {
-                rel = File.separator + rel;
-            }
-            return rel.replace("\\", "/");
         } catch (Exception e) {
-            return absolutePath;
         }
+        String normalized = absolutePath.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
+    }
+
+    private String sanitizeVisibleMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "系统异常";
+        }
+        String sanitized = userPathService.toDisplayPath(message, true);
+        if (!message.equals(sanitized)) {
+            return sanitized;
+        }
+        return toRelativePath(message);
     }
 
     /**
@@ -3107,30 +4571,7 @@ public class PhotoScanService {
      */
     private int calculateAlbumDepth(Path albumPath) {
         try {
-            // 获取base-path的绝对路径
-            Path basePathResolved = Paths.get(basePath);
-            if (!basePathResolved.isAbsolute()) {
-                String projectRoot = System.getProperty("user.dir");
-                if (projectRoot.endsWith("backend")) {
-                    projectRoot = new File(projectRoot).getParent();
-                }
-                String cleanPath = basePath.startsWith("./") ? basePath.substring(2) : basePath;
-                basePathResolved = Paths.get(new File(projectRoot, cleanPath).getAbsolutePath());
-            }
-            basePathResolved = basePathResolved.normalize();
-
-            // 如果当前路径不在base-path下，返回0
-            if (!albumPath.startsWith(basePathResolved)) {
-                return 0;
-            }
-
-            // 计算相对路径的层级数
-            Path relative = basePathResolved.relativize(albumPath);
-            int nameCount = relative.getNameCount();
-
-            // 深度 = 层级数 - 2（减去base-path和第一级分类目录）
-            // 例如：base-path/分类/顶级相册名/1级层级 -> 深度为1
-            return Math.max(0, nameCount - 2);
+            return userPathService.calculateLogicalAlbumDepth(albumPath.toString());
         } catch (Exception e) {
             log.warn("计算相册深度失败: {}", toRelativePath(albumPath.toString()), e);
             return 0;
@@ -3143,6 +4584,10 @@ public class PhotoScanService {
     private void processAlbumImagesRecursively(Path directory, Album album, boolean force) {
         // 检查应用是否正在关闭
         if (isShuttingDown.get()) {
+            return;
+        }
+        ensureScanCanContinue(directory.toString());
+        if (shouldSkipForResume(directory.toString(), true)) {
             return;
         }
 
@@ -3158,6 +4603,10 @@ public class PhotoScanService {
             // 处理当前目录的图片
             List<File> imageFiles = findImageFiles(directory.toFile());
             for (File imageFile : imageFiles) {
+                ensureScanCanContinue(imageFile.getAbsolutePath());
+                if (shouldSkipForResume(imageFile.getAbsolutePath(), false)) {
+                    continue;
+                }
                 processPhotoFile(imageFile, album, force);
             }
 
@@ -3165,9 +4614,16 @@ public class PhotoScanService {
             try (Stream<Path> subPaths = Files.list(directory)) {
                 subPaths.filter(Files::isDirectory)
                     .filter(p -> !p.getFileName().toString().equals(".thumbnails"))
-                    .forEach(p -> processAlbumImagesRecursively(p, album, force));
+                    .forEach(p -> {
+                        ensureScanCanContinue(p.toString());
+                        processAlbumImagesRecursively(p, album, force);
+                    });
             }
+            notifyScanProgress(directory.toString(), "DIRECTORY", scanCurrent.get(), scanTotal.get());
         } catch (Exception e) {
+            if (e instanceof ScanInterruptedException) {
+                throw (ScanInterruptedException) e;
+            }
             log.warn("递归处理目录图片失败: {}", directory, e);
         }
     }
@@ -3176,43 +4632,7 @@ public class PhotoScanService {
      * 解析基础路径为绝对路径
      */
     private Path resolveBasePath() {
-        Path path = Paths.get(basePath);
-
-        // 处理相对路径：如果是相对路径，转换为绝对路径
-        if (!path.isAbsolute()) {
-            // 获取项目根目录
-            // 方法1: 从当前工作目录推断
-            String projectRoot = System.getProperty("user.dir");
-
-            // 如果当前在backend目录，需要回到项目根目录
-            if (projectRoot.endsWith("backend")) {
-                projectRoot = new File(projectRoot).getParent();
-            }
-
-            // 方法2: 尝试从类路径推断项目根目录（更可靠）
-            // 如果方法1失败，可以尝试这个方法
-            if (projectRoot == null || projectRoot.isEmpty()) {
-                try {
-                    String classPath = PhotoScanService.class.getProtectionDomain()
-                        .getCodeSource().getLocation().getPath();
-                    // 从target/classes或jar文件推断项目根目录
-                    if (classPath.contains("target/classes")) {
-                        projectRoot = new File(classPath).getParentFile().getParentFile().getParent();
-                    }
-                } catch (Exception e) {
-                    log.warn("无法从类路径推断项目根目录", e);
-                }
-            }
-
-            // 处理以 ./ 开头的相对路径
-            String cleanPath = basePath.startsWith("./")
-                ? basePath.substring(2)
-                : basePath;
-
-            path = Paths.get(projectRoot, cleanPath).toAbsolutePath().normalize();
-        }
-
-        return path;
+        return userPathService.resolvePhotoBasePath();
     }
 
     /**
@@ -3222,9 +4642,14 @@ public class PhotoScanService {
     public Map<String, Object> clearAllThumbnails() {
         Map<String, Object> result = new HashMap<>();
         try {
-            Path basePathObj = resolveBasePath();
+            Path basePathObj = resolveCurrentFilesystemScopeRoot();
+            if (basePathObj == null) {
+                result.put("error", "当前存储上下文不是本地文件系统，无法清理缩略图");
+                return result;
+            }
             if (!Files.exists(basePathObj) || !Files.isDirectory(basePathObj)) {
-                result.put("error", "基础路径不存在或不是目录: " + basePathObj);
+                String displayPath = userPathService.toDisplayPath(basePathObj.toAbsolutePath().normalize().toString(), true);
+                result.put("error", "基础路径不存在或不是目录: " + displayPath);
                 return result;
             }
 
@@ -3240,7 +4665,7 @@ public class PhotoScanService {
             log.info("缩略图清理完成，共删除 {} 个缩略图文件", deletedFiles);
 
         } catch (Exception e) {
-            result.put("error", "清理缩略图失败: " + e.getMessage());
+            result.put("error", "清理缩略图失败: " + sanitizeVisibleMessage(e.getMessage()));
             result.put("success", false);
             log.error("清理缩略图失败", e);
         }
@@ -3265,7 +4690,7 @@ public class PhotoScanService {
             log.info("人脸数据清理完成");
 
         } catch (Exception e) {
-            result.put("error", "清理人脸数据失败: " + e.getMessage());
+            result.put("error", "清理人脸数据失败: " + sanitizeVisibleMessage(e.getMessage()));
             result.put("success", false);
             log.error("清理人脸数据失败", e);
         }
@@ -3287,7 +4712,7 @@ public class PhotoScanService {
             log.info("智能标签清理完成");
 
         } catch (Exception e) {
-            result.put("error", "清理智能标签失败: " + e.getMessage());
+            result.put("error", "清理智能标签失败: " + sanitizeVisibleMessage(e.getMessage()));
             result.put("success", false);
             log.error("清理智能标签失败", e);
         }
@@ -3305,33 +4730,35 @@ public class PhotoScanService {
             log.info("开始清理已删除文件的残留数据...");
 
             // 获取所有照片记录
-            List<Photo> allPhotos = photoRepository.findAll();
             List<Long> photosToDelete = new ArrayList<>();
-            List<Long> albumsToCheck = new ArrayList<>();
+            AtomicInteger processedCount = new AtomicInteger();
+            AtomicInteger orphanedCount = new AtomicInteger();
 
-            int processedCount = 0;
-            int orphanedCount = 0;
-
-            for (Photo photo : allPhotos) {
-                processedCount++;
+            forEachPhotoInCurrentScope(photo -> {
+                processedCount.incrementAndGet();
 
                 // 检查文件是否还存在
                 if (photo.getOriginalPath() == null || photo.getOriginalPath().isEmpty()) {
                     log.warn("照片记录原始路径为空，标记为孤儿记录: photoId={}", photo.getId());
                     photosToDelete.add(photo.getId());
-                    orphanedCount++;
-                    continue;
+                    orphanedCount.incrementAndGet();
+                    return;
                 }
 
-                File imageFile = new File(photo.getOriginalPath());
-                if (!imageFile.exists()) {
-                    log.info("图片文件不存在，标记为孤儿记录: {} (photoId={})",
-                        photo.getOriginalPath(), photo.getId());
+                try {
+                    File imageFile = resolveOriginalFile(photo);
+                    if (!imageFile.exists()) {
+                        log.info("图片文件不存在，标记为孤儿记录: {} (photoId={})",
+                            toRelativePath(photo.getOriginalPath()), photo.getId());
+                        photosToDelete.add(photo.getId());
+                        orphanedCount.incrementAndGet();
+                    }
+                } catch (IOException e) {
+                    log.warn("解析照片文件失败，标记为孤儿记录: photoId={}, error={}", photo.getId(), e.getMessage());
                     photosToDelete.add(photo.getId());
-                    albumsToCheck.add(photo.getAlbumId());
-                    orphanedCount++;
+                    orphanedCount.incrementAndGet();
                 }
-            }
+            });
 
             // 删除孤儿照片记录（级联删除会自动清理Face和Tag关联）
             if (!photosToDelete.isEmpty()) {
@@ -3346,50 +4773,52 @@ public class PhotoScanService {
             }
 
             // 检查并清理空的相册或路径不存在的相册
-            Set<Long> albumsToCheckSet = new HashSet<>(albumsToCheck);
-            int emptyAlbumsDeleted = 0;
-            int nonExistentPathAlbumsDeleted = 0;
+            AtomicInteger emptyAlbumsDeleted = new AtomicInteger();
+            AtomicInteger nonExistentPathAlbumsDeleted = new AtomicInteger();
 
-            // 首先检查所有相册（不仅仅是照片被删除的相册）
-            List<Album> allAlbums = albumRepository.findAll();
-            for (Album album : allAlbums) {
+            forEachAlbumInCurrentScope(album -> {
                 try {
-                    // 检查相册路径是否存在
                     if (album.getPath() != null && !album.getPath().isEmpty()) {
-                        File albumDir = new File(album.getPath());
-                        if (!albumDir.exists()) {
-                            log.info("相册文件夹不存在，删除相册记录: {} (albumId={})", album.getPath(), album.getId());
+                        Optional<Path> resolvedAlbumDir = userPathService.tryResolveLocalStoredPhotoPath(album.getPath());
+                        if (resolvedAlbumDir.isEmpty()) {
+                            try {
+                                resolvedAlbumDir = Optional.ofNullable(userPathService.normalizeAbsolutePath(album.getPath()));
+                            } catch (Exception ignored) {
+                                resolvedAlbumDir = Optional.empty();
+                            }
+                        }
+                        if (resolvedAlbumDir.isPresent() && !resolvedAlbumDir.get().toFile().exists()) {
+                            log.info("相册文件夹不存在，删除相册记录: {} (albumId={})", toRelativePath(album.getPath()), album.getId());
                             albumRepository.deleteById(album.getId());
-                            nonExistentPathAlbumsDeleted++;
-                            continue; // 跳过后续检查
+                            nonExistentPathAlbumsDeleted.incrementAndGet();
+                            return;
                         }
                     }
 
-                    // 检查相册是否有照片（只对路径存在的相册进行此检查）
                     long photoCount = photoRepository.countByAlbumId(album.getId());
                     if (photoCount == 0) {
                         log.info("相册 {} 已没有照片，删除相册记录", album.getId());
                         albumRepository.deleteById(album.getId());
-                        emptyAlbumsDeleted++;
+                        emptyAlbumsDeleted.incrementAndGet();
                     }
                 } catch (Exception e) {
                     log.warn("检查相册失败: albumId={}, error={}", album.getId(), e.getMessage());
                 }
-            }
+            });
 
             result.put("message", String.format("清理完成！处理了 %d 个照片记录，发现 %d 个孤儿记录，删除了 %d 个空相册和 %d 个路径不存在的相册",
-                processedCount, orphanedCount, emptyAlbumsDeleted, nonExistentPathAlbumsDeleted));
-            result.put("processedPhotos", processedCount);
-            result.put("orphanedPhotos", orphanedCount);
-            result.put("emptyAlbumsDeleted", emptyAlbumsDeleted);
-            result.put("nonExistentPathAlbumsDeleted", nonExistentPathAlbumsDeleted);
+                processedCount.get(), orphanedCount.get(), emptyAlbumsDeleted.get(), nonExistentPathAlbumsDeleted.get()));
+            result.put("processedPhotos", processedCount.get());
+            result.put("orphanedPhotos", orphanedCount.get());
+            result.put("emptyAlbumsDeleted", emptyAlbumsDeleted.get());
+            result.put("nonExistentPathAlbumsDeleted", nonExistentPathAlbumsDeleted.get());
             result.put("success", true);
 
             log.info("清理完成！处理了 {} 个照片记录，发现 {} 个孤儿记录，删除了 {} 个空相册和 {} 个路径不存在的相册",
-                processedCount, orphanedCount, emptyAlbumsDeleted, nonExistentPathAlbumsDeleted);
+                processedCount.get(), orphanedCount.get(), emptyAlbumsDeleted.get(), nonExistentPathAlbumsDeleted.get());
 
         } catch (Exception e) {
-            result.put("error", "清理残留数据失败: " + e.getMessage());
+            result.put("error", "清理残留数据失败: " + sanitizeVisibleMessage(e.getMessage()));
             result.put("success", false);
             log.error("清理残留数据失败", e);
         }
@@ -3436,26 +4865,31 @@ public class PhotoScanService {
     @Transactional
     public void updateAllPhotoTimesAsync() {
         log.info("开始批量更新所有照片的时间信息...");
-
-        List<Photo> allPhotos = photoRepository.findAll();
         AtomicInteger updatedCount = new AtomicInteger(0);
         AtomicInteger processedCount = new AtomicInteger(0);
 
-        for (Photo photo : allPhotos) {
+        forEachPhotoInCurrentScope(photo -> {
             try {
                 // 获取照片文件路径
                 String originalPath = photo.getOriginalPath();
                 if (originalPath == null || originalPath.isEmpty()) {
                     log.warn("照片 {} 没有原始路径，跳过", photo.getId());
                     processedCount.incrementAndGet();
-                    continue;
+                    return;
                 }
 
-                File imageFile = new File(originalPath);
+                var resolvedPath = userPathService.tryResolveLocalStoredPhotoPath(originalPath);
+                if (resolvedPath.isEmpty()) {
+                    log.warn("照片路径不是本地可解析路径，跳过更新时间: {}", originalPath);
+                    processedCount.incrementAndGet();
+                    return;
+                }
+
+                File imageFile = resolvedPath.get().toFile();
                 if (!imageFile.exists()) {
                     log.warn("照片文件不存在: {}", originalPath);
                     processedCount.incrementAndGet();
-                    continue;
+                    return;
                 }
 
                 // 提取EXIF信息并更新时间
@@ -3474,7 +4908,7 @@ public class PhotoScanService {
                 log.error("更新照片 {} 时间失败: {}", photo.getId(), e.getMessage());
                 processedCount.incrementAndGet();
             }
-        }
+        });
 
         log.info("批量更新照片时间完成，总共处理 {} 张照片，成功更新 {} 张", processedCount.get(), updatedCount.get());
     }
@@ -3492,6 +4926,7 @@ public class PhotoScanService {
         }
         resp.put("found", true);
         resp.put("taskId", ts.taskId);
+        resp.put("taskName", ts.taskName);
         resp.put("status", ts.status);
         resp.put("current", ts.current);
         resp.put("total", ts.total);
@@ -3500,6 +4935,58 @@ public class PhotoScanService {
         resp.put("endTime", ts.endTime != null ? ts.endTime.toString() : null);
         resp.put("logs", new ArrayList<>(ts.logs));
         return resp;
+    }
+
+    public Map<String, Object> getAsyncTaskOverview() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> recentTasks = tasks.values().stream()
+            .sorted((left, right) -> compareDateTimeDesc(left.endTime != null ? left.endTime : left.startTime, right.endTime != null ? right.endTime : right.startTime))
+            .limit(8)
+            .map(this::toAsyncTaskMap)
+            .collect(Collectors.toList());
+
+        long runningCount = tasks.values().stream()
+            .filter(task -> task != null && !task.complete && !"failed".equalsIgnoreCase(task.status) && !"stopped".equalsIgnoreCase(task.status))
+            .count();
+
+        Map<String, Object> scanStatus = getScanStatus();
+        result.put("threadType", "PHOTO_ASYNC");
+        result.put("label", "图片处理异步任务");
+        result.put("runningTaskCount", runningCount);
+        result.put("scanning", scanStatus.get("scanning"));
+        result.put("activeScanCount", activeScanCount.get());
+        result.put("scanStatus", scanStatus);
+        result.put("recentTasks", recentTasks);
+        return result;
+    }
+
+    private Map<String, Object> toAsyncTaskMap(TaskStatus task) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("taskId", task.taskId);
+        item.put("taskName", task.taskName);
+        item.put("status", task.status);
+        item.put("current", task.current);
+        item.put("total", task.total);
+        item.put("complete", task.complete);
+        item.put("stopped", task.stopped);
+        item.put("progressPercent", task.total > 0 ? Math.min(100, Math.max(0, (int) Math.round(task.current * 100.0 / task.total))) : (task.complete ? 100 : 0));
+        item.put("startTime", task.startTime);
+        item.put("endTime", task.endTime);
+        item.put("latestLog", task.logs.isEmpty() ? null : task.logs.get(task.logs.size() - 1));
+        return item;
+    }
+
+    private int compareDateTimeDesc(LocalDateTime left, LocalDateTime right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return right.compareTo(left);
     }
 
     /**
@@ -3531,52 +5018,56 @@ public class PhotoScanService {
     @Transactional
     public Map<String, Object> updateAllPhotoTimes() {
         log.info("开始批量更新所有照片的时间信息...");
+        AtomicInteger updatedCount = new AtomicInteger();
+        AtomicInteger processedCount = new AtomicInteger();
 
-        List<Photo> allPhotos = photoRepository.findAll();
-        int updatedCount = 0;
-        int processedCount = 0;
-
-        for (Photo photo : allPhotos) {
+        forEachPhotoInCurrentScope(photo -> {
             try {
                 // 获取照片文件路径
                 String originalPath = photo.getOriginalPath();
                 if (originalPath == null || originalPath.isEmpty()) {
                     log.warn("照片 {} 没有原始路径，跳过", photo.getId());
-                    processedCount++;
-                    continue;
+                    processedCount.incrementAndGet();
+                    return;
                 }
 
-                File imageFile = new File(originalPath);
+                var resolvedPath = userPathService.tryResolveLocalStoredPhotoPath(originalPath);
+                if (resolvedPath.isEmpty()) {
+                    log.warn("照片路径不是本地可解析路径，跳过更新时间: {}", originalPath);
+                    processedCount.incrementAndGet();
+                    return;
+                }
+
+                File imageFile = resolvedPath.get().toFile();
                 if (!imageFile.exists()) {
                     log.warn("照片文件不存在: {}", originalPath);
-                    processedCount++;
-                    continue;
+                    processedCount.incrementAndGet();
+                    return;
                 }
 
                 // 提取EXIF信息并更新时间
                 extractExifData(imageFile, photo);
                 photoRepository.save(photo);
 
-                updatedCount++;
-                processedCount++;
+                updatedCount.incrementAndGet();
+                int current = processedCount.incrementAndGet();
 
-                // 每处理100张照片记录一次日志
-                if (processedCount % 100 == 0) {
-                    log.info("已处理 {} 张照片，更新了 {} 张", processedCount, updatedCount);
+                if (current % 100 == 0) {
+                    log.info("已处理 {} 张照片，更新了 {} 张", current, updatedCount.get());
                 }
 
             } catch (Exception e) {
                 log.error("更新照片 {} 时间失败: {}", photo.getId(), e.getMessage());
-                processedCount++;
+                processedCount.incrementAndGet();
             }
-        }
+        });
 
-        log.info("批量更新照片时间完成，总共处理 {} 张照片，成功更新 {} 张", processedCount, updatedCount);
+        log.info("批量更新照片时间完成，总共处理 {} 张照片，成功更新 {} 张", processedCount.get(), updatedCount.get());
 
         Map<String, Object> result = new HashMap<>();
-        result.put("totalProcessed", processedCount);
-        result.put("totalUpdated", updatedCount);
-        result.put("message", String.format("成功处理 %d 张照片，更新了 %d 张照片的时间信息", processedCount, updatedCount));
+        result.put("totalProcessed", processedCount.get());
+        result.put("totalUpdated", updatedCount.get());
+        result.put("message", String.format("成功处理 %d 张照片，更新了 %d 张照片的时间信息", processedCount.get(), updatedCount.get()));
 
         return result;
     }
@@ -3700,36 +5191,10 @@ public class PhotoScanService {
             return null;
         }
 
-        // 尝试多种方式匹配base-path
-        String[] possibleBasePaths = {
-            basePath,  // 原始配置路径
-            Paths.get(basePath).toAbsolutePath().toString(),  // 绝对路径
-            Paths.get(System.getProperty("user.dir"), basePath).toString(),  // 相对于工作目录
-            Paths.get("./data/photos").toAbsolutePath().toString(),  // 硬编码绝对路径
-        };
-
-        for (String basePath : possibleBasePaths) {
-            if (fullPath.startsWith(basePath)) {
-                String relativePath = fullPath.substring(basePath.length());
-                // 移除开头的路径分隔符
-                if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
-                    relativePath = relativePath.substring(1);
-                }
-                return relativePath;
-            }
+        String tenantRelativePath = userPathService.extractTenantRelativePhotoPath(fullPath);
+        if (tenantRelativePath != null) {
+            return tenantRelativePath;
         }
-
-        // 如果都没有匹配，尝试从"data/photos"开始截取
-        String dataPhotosPath = "data" + File.separator + "photos";
-        int dataIndex = fullPath.indexOf(dataPhotosPath);
-        if (dataIndex >= 0) {
-            String relativePath = fullPath.substring(dataIndex + dataPhotosPath.length());
-            if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
-                relativePath = relativePath.substring(1);
-            }
-            return relativePath;
-        }
-
         return null;  // 如果都匹配失败，返回null
     }
 

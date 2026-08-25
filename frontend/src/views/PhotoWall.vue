@@ -11,7 +11,7 @@
           <div class="flex items-center space-x-4">
             <SearchSpotlight />
             <FilterPanel ref="filterPanelRef" v-model:show="showFilter" :categories="categories" :initial-filters="urlFilters" @reset="handleFilterReset" @update:selectedTags="updateSelectedTags" @filters-applied="handleFiltersApplied" />
-            <SettingsMenu />
+            <PublicAccountMenu />
           </div>
         </div>
       </div>
@@ -120,13 +120,15 @@ import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import SearchSpotlight from '@/components/SearchSpotlight.vue'
-import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useNavAutoHide } from '@/composables/useNavAutoHide'
 import { sortCategories, loadCategorySortOrder } from '@/composables/useCategorySorting'
 import { api } from '@/api'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
@@ -753,19 +755,7 @@ watch(parallaxEnabled, () => {
 })
 
 const getImageUrl = (photo: any) => {
-  // 优先使用中缩略图（用于瀑布流显示）
-  if (photo.mediumThumbPath) {
-    return `/api/files${photo.mediumThumbPath}`
-  }
-  // 回退到webp
-  if (photo.webpPath) {
-    return `/api/files${photo.webpPath}`
-  }
-  // 最后回退到小缩略图或原图
-  if (photo.thumbnailPath) {
-    return `/api/files${photo.thumbnailPath}`
-  }
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'medium') || ''
 }
 
 const openViewer = (idx: number, e: MouseEvent) => {
@@ -1263,7 +1253,7 @@ const hydrateFromRoute = async () => {
 
 const clearTag = async () => {
   await router.push({
-    path: '/wall',
+    path: buildPublicPath('/wall', route.path),
     query: {
       personId: activePersonId.value || undefined,
       personName: activePersonName.value || undefined
@@ -1506,4 +1496,3 @@ onDeactivated(() => {
   100% { transform: scale(1); }
 }
 </style>
-

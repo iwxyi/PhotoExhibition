@@ -1,31 +1,25 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-2xl font-light">人脸管理</h1>
-        </div>
-        <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
-      </div>
-
-      <div class="glass-panel p-4 mb-6">
-        <div class="flex flex-wrap gap-4 items-center">
-          <input
-            v-model="keyword"
-            placeholder="搜索姓名或文件名"
-            class="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
-            @keyup.enter="load"
-          />
-          <button @click="load" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50">
+  <div class="min-h-screen admin-shell admin-faces-page">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
+      <div class="glass-panel admin-faces-panel admin-query-toolbar">
+        <label class="admin-query-field">
+            <span>搜索人脸</span>
+            <input
+              v-model="keyword"
+              placeholder="按人物姓名或文件名搜索"
+              class="admin-field"
+              @keyup.enter="load"
+            />
+          </label>
+          <button @click="load" :disabled="loading" class="admin-button-primary admin-query-toolbar__button disabled:opacity-50">
             {{ loading ? '加载中...' : '搜索' }}
           </button>
-          <button @click="resetSearch" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">重置</button>
-        </div>
+          <button @click="resetSearch" class="admin-button-soft admin-query-toolbar__button">重置</button>
       </div>
 
-      <div class="glass-panel p-4">
+      <div class="glass-panel admin-faces-panel p-4">
         <div class="overflow-auto">
-          <table class="min-w-full text-sm">
+          <table class="min-w-full text-sm admin-data-table">
             <thead class="text-left text-gray-400">
               <tr>
                 <th class="py-2 pr-4">ID</th>
@@ -40,11 +34,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="face in faces" :key="face.id" class="border-t border-gray-700">
+              <tr v-for="face in faces" :key="face.id" class="admin-faces-row border-t border-gray-700">
                 <td class="py-3 pr-4">{{ face.id }}</td>
                 <td class="py-3 pr-4">
                   <div
-                    class="w-20 h-20 bg-gray-700 rounded overflow-hidden relative cursor-pointer group"
+                    class="admin-faces-thumb w-20 h-20 bg-gray-700 rounded overflow-hidden relative cursor-pointer group"
                     @click="face.photoId && openPhoto(face.photoId)"
                     @mouseenter="showPreview(face)"
                     @mousemove="movePreview"
@@ -52,7 +46,7 @@
                   >
                     <img
                       v-if="face.photoThumbnailPath"
-                      :src="getImageUrl(face.photoThumbnailPath)"
+                      :src="getImageUrl(face)"
                       :alt="face.photoFilename"
                       class="absolute"
                       :style="getFaceCropStyle(face)"
@@ -84,7 +78,7 @@
           </table>
         </div>
 
-        <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
+        <div class="admin-faces-pagination flex items-center justify-between mt-4 text-sm text-gray-300">
           <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
           <div class="flex items-center gap-2">
             <button @click="prev" :disabled="page === 0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50">上一页</button>
@@ -109,7 +103,7 @@
   <transition name="fade">
     <div
       v-if="previewVisible"
-      class="preview-float bg-gray-900"
+      class="preview-float admin-faces-preview bg-gray-900"
       :style="previewStyle"
       ref="previewContainer"
     >
@@ -134,8 +128,12 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { useAuthStore } from '@/stores/auth'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 interface FaceItem {
   id: number
@@ -214,9 +212,12 @@ const jumpTo = (p: number) => {
   load()
 }
 
-const getImageUrl = (path?: string) => {
-  if (!path) return ''
-  return path.startsWith('http') ? path : `/api/files${path}`
+const getImageUrl = (face?: FaceItem | null) => {
+  return buildPhotoAssetUrl({
+    id: face?.photoId,
+    thumbnailPath: face?.photoThumbnailPath,
+    originalPath: face?.photoOriginalPath
+  }, 'thumbnail') || ''
 }
 
 const formatConfidence = (v?: number) => {
@@ -301,11 +302,11 @@ const getPreviewBoxStyle = (face: FaceItem) => {
 }
 
 const openPhoto = (photoId: number) => {
-  window.open(`/photo/${photoId}`, '_blank')
+  window.open(buildPublicPath(`/photo/${photoId}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
 }
 
 const showPreview = (face: FaceItem) => {
-  previewUrl.value = getImageUrl(face.photoThumbnailPath || face.photoOriginalPath || '')
+  previewUrl.value = getImageUrl(face)
   previewVisible.value = !!previewUrl.value
   previewFace.value = face
 }
@@ -368,4 +369,3 @@ textarea {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 </style>
-

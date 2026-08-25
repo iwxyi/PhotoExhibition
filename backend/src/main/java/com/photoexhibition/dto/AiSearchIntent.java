@@ -38,4 +38,6 @@ public class AiSearchIntent {
     private Boolean needAnswer;
     private String answerPrompt;
     private String answerStyle;
+    private AiSearchAnalysisSpec analysisSpec;
+    private AiSearchAnalysisHint analysisHint;
 }

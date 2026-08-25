@@ -6,8 +6,6 @@ import lombok.AllArgsConstructor;
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-import java.time.LocalDateTime;
-
 @Entity
 @Table(name = "filter_option")
 @Data
@@ -18,6 +16,9 @@ public class FilterOption {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "user_id")
+    private Long userId;
 
     @Column(name = "option_type", nullable = false)
     private String optionType; // camera_models, lens_models, focal_length_range, etc.

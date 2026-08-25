@@ -27,7 +27,7 @@
     <!-- 右下角显示毛玻璃效果 -->
     <div
       v-if="photoCount > 0"
-      class="absolute bottom-1.5 right-1.5 bg-black/30 backdrop-blur-md px-2 py-0.5 rounded album-cover-overlay"
+      class="absolute bottom-1.5 right-1.5 bg-black/45 px-2 py-0.5 rounded album-cover-overlay"
     >
       <span class="text-xs text-white">共 {{ photoCount }} 张</span>
     </div>
@@ -36,6 +36,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Photo {
   id: number
@@ -293,14 +294,10 @@ const getPhotoUrl = (photo?: Photo): string => {
   const coverCount = displayPhotos.value.length
   const useMediumThumb = coverCount === 1
 
-  if (useMediumThumb && photo.mediumThumbPath) {
-    return `/api/files${photo.mediumThumbPath}`
+  if (useMediumThumb) {
+    return buildPhotoAssetUrl(photo, 'medium') || ''
   }
-  if (photo.smallThumbPath) return `/api/files${photo.smallThumbPath}`
-  if (photo.webpPath) return `/api/files${photo.webpPath}`
-  if (photo.mediumThumbPath) return `/api/files${photo.mediumThumbPath}`
-  if (photo.thumbnailPath) return `/api/files${photo.thumbnailPath}`
-  return `/api/files${photo.originalPath}`
+  return buildPhotoAssetUrl(photo, 'small') || ''
 }
 
 const handleError = (event: Event) => {

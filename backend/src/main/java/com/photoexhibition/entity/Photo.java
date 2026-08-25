@@ -22,6 +22,9 @@ public class Photo {
     @Column(name = "album_id", nullable = false)
     private Long albumId;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Column(nullable = false)
     private String filename;
 
@@ -57,6 +60,9 @@ public class Photo {
 
     @Column(name = "path_hash", length = 64, unique = true)
     private String pathHash;
+
+    @Column(name = "canonical_photo_id")
+    private Long canonicalPhotoId;
 
     private Integer width;
     private Integer height;
@@ -252,4 +258,3 @@ public class Photo {
         updatedAt = LocalDateTime.now();
     }
 }
-

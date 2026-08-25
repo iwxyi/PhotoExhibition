@@ -136,7 +136,14 @@ public class AtmosphereEffectsService {
      */
     @Transactional
     public void analyzeAllAlbumsEffects() {
-        List<Album> albums = albumRepository.findAll();
+        analyzeAllAlbumsEffects(null);
+    }
+
+    @Transactional
+    public void analyzeAllAlbumsEffects(Long userId) {
+        List<Album> albums = userId == null
+            ? albumRepository.findByPhotoCountGreaterThan(0)
+            : albumRepository.findByUserIdAndPhotoCountGreaterThan(userId, 0);
         log.info("开始批量分析 {} 个相册的特效", albums.size());
 
         int processed = 0;

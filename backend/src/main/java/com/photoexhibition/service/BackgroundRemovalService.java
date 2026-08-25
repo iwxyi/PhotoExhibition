@@ -1,12 +1,14 @@
 package com.photoexhibition.service;
 
 import ai.onnxruntime.*;
+import com.photoexhibition.repository.PhotoRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.imgscalr.Scalr;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
@@ -33,6 +35,14 @@ import java.util.List;
 @Slf4j
 @Service
 public class BackgroundRemovalService implements AutoCloseable {
+
+    private final PhotoRepository photoRepository;
+    private final UserPathService userPathService;
+
+    public BackgroundRemovalService(PhotoRepository photoRepository, UserPathService userPathService) {
+        this.photoRepository = photoRepository;
+        this.userPathService = userPathService;
+    }
 
     @Value("${background.removal.model-path:./models/briaai_rmbg.onnx}")
     private String modelPath;
@@ -77,6 +87,7 @@ public class BackgroundRemovalService implements AutoCloseable {
     
     // 追踪正在处理的任务，避免重复处理同一图片
     private final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Future<?>> inProgressTasks = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<Long, ProcessingSnapshot> processingSnapshots = new java.util.concurrent.ConcurrentHashMap<>();
 
     // 预处理的均值和标准差（根据模型训练配置）
     private static final float[] MEAN = new float[]{0.5f, 0.5f, 0.5f};
@@ -103,13 +114,13 @@ public class BackgroundRemovalService implements AutoCloseable {
         
         // 尝试解析模型路径
         String resolvedPath = resolveModelPath(modelPath);
-        log.info("解析后modelPath: {}", resolvedPath);
+        log.info("解析后modelPath: {}", sanitizeFilesystemPath(resolvedPath));
         
         // 检查模型文件是否存在
         File modelFile = new File(resolvedPath);
         if (!modelFile.exists()) {
             // 尝试从 classpath 查找
-            log.warn("模型文件不存在: {}，尝试从 classpath 查找", resolvedPath);
+            log.warn("模型文件不存在: {}，尝试从 classpath 查找", sanitizeFilesystemPath(resolvedPath));
         } else {
             log.info("模型文件存在，大小: {} bytes", modelFile.length());
         }
@@ -120,6 +131,13 @@ public class BackgroundRemovalService implements AutoCloseable {
             log.warn("背景移除功能未启用 (enabled=false)");
         }
         log.info("========== BackgroundRemovalService 初始化完成 ==========");
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (processingExecutor != null) {
+            processingExecutor.shutdownNow();
+        }
     }
 
     /**
@@ -172,11 +190,12 @@ public class BackgroundRemovalService implements AutoCloseable {
             }
             
             if (!modelFile.exists()) {
-                log.warn("背景移除模型文件不存在: {} (解析后: {})，功能将不可用", modelPath, resolvedPath);
+                log.warn("背景移除模型文件不存在: {} (解析后: {})，功能将不可用",
+                    sanitizeFilesystemPath(modelPath), sanitizeFilesystemPath(resolvedPath));
                 return;
             }
 
-            log.info("加载背景移除模型，路径: {}", modelFile.getAbsolutePath());
+            log.info("加载背景移除模型，路径: {}", sanitizeFilesystemPath(modelFile.getAbsolutePath()));
 
             // 检查 ONNX Runtime 是否可用
             try {
@@ -508,9 +527,19 @@ public class BackgroundRemovalService implements AutoCloseable {
             }
         }
 
+        ProcessingSnapshot snapshot = processingSnapshots.computeIfAbsent(photoId, id -> new ProcessingSnapshot(id));
+        snapshot.status = "QUEUED";
+        snapshot.photoName = sourceFile != null ? sourceFile.getName() : null;
+        snapshot.outputPath = outputFile != null ? sanitizeFilesystemPath(outputFile.getAbsolutePath()) : null;
+        snapshot.outputMaxSize = outputMaxSize;
+        snapshot.updatedAt = java.time.LocalDateTime.now();
+
         // 提交任务，不等待结果
         java.util.concurrent.Future<?> task = processingExecutor.submit(() -> {
             try {
+                snapshot.status = "RUNNING";
+                snapshot.startedAt = java.time.LocalDateTime.now();
+                snapshot.updatedAt = snapshot.startedAt;
                 log.info("开始处理抠图: photoId={}, file={}, outputMaxSize={}", photoId, sourceFile.getName(), outputMaxSize);
 
                 // 执行背景移除
@@ -522,17 +551,49 @@ public class BackgroundRemovalService implements AutoCloseable {
                         parentDir.mkdirs();
                     }
                     ImageIO.write(result, "PNG", outputFile);
+                    persistBackgroundRemovedPath(photoId, outputFile);
                     log.info("抠图完成并保存: photoId={}", photoId);
                 }
+                snapshot.status = "COMPLETED";
+                snapshot.message = result != null ? "抠图完成" : "抠图未生成结果";
             } catch (Exception e) {
+                snapshot.status = "FAILED";
+                snapshot.message = sanitizeVisibleMessage(e.getMessage());
                 log.error("抠图处理异常: photoId={}", photoId, e);
             } finally {
+                snapshot.finishedAt = java.time.LocalDateTime.now();
+                snapshot.updatedAt = snapshot.finishedAt;
                 inProgressTasks.remove(photoId);
             }
         });
 
         inProgressTasks.put(photoId, task);
         log.debug("抠图任务已提交: photoId={}", photoId);
+    }
+
+    public Map<String, Object> getProcessingOverview() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        java.util.concurrent.ThreadPoolExecutor executor = processingExecutor instanceof java.util.concurrent.ThreadPoolExecutor
+            ? (java.util.concurrent.ThreadPoolExecutor) processingExecutor
+            : null;
+
+        result.put("threadType", "BACKGROUND_REMOVAL");
+        result.put("label", "背景移除线程池");
+        result.put("enabled", enabled);
+        result.put("modelLoaded", modelLoaded);
+        result.put("configuredConcurrency", concurrentTasks);
+        result.put("activeTaskCount", inProgressTasks.size());
+        result.put("running", inProgressTasks.size() > 0);
+        result.put("poolSize", executor != null ? executor.getPoolSize() : 0);
+        result.put("activeThreads", executor != null ? executor.getActiveCount() : 0);
+        result.put("queuedTasks", executor != null ? executor.getQueue().size() : 0);
+        result.put("completedTaskCount", executor != null ? executor.getCompletedTaskCount() : 0L);
+        result.put("recentTasks", processingSnapshots.values().stream()
+            .sorted((left, right) -> compareDateTimeDesc(left.updatedAt, right.updatedAt))
+            .limit(8)
+            .map(ProcessingSnapshot::toMap)
+            .collect(java.util.stream.Collectors.toList()));
+        return result;
     }
 
     /**
@@ -598,6 +659,7 @@ public class BackgroundRemovalService implements AutoCloseable {
                         parentDir.mkdirs();
                     }
                     ImageIO.write(result, "PNG", outputFile);
+                    persistBackgroundRemovedPath(photoId, outputFile);
                     log.info("抠图完成并保存: photoId={}", photoId);
                 }
                 
@@ -633,6 +695,86 @@ public class BackgroundRemovalService implements AutoCloseable {
         }
     }
 
+    private void persistBackgroundRemovedPath(Long photoId, File outputFile) {
+        if (photoId == null || outputFile == null) {
+            return;
+        }
+        try {
+            photoRepository.findById(photoId).ifPresent(photo -> {
+                String storedPath = userPathService.tryBuildStoragePathReference(outputFile.getAbsolutePath(), photo.getUserId())
+                    .orElse(outputFile.getAbsolutePath());
+                photo.setBackgroundRemovedPath(storedPath);
+                photoRepository.save(photo);
+            });
+        } catch (Exception e) {
+            log.warn("回写抠图路径失败: photoId={}, output={}", photoId, sanitizeFilesystemPath(outputFile.getAbsolutePath()), e);
+        }
+    }
+
+    private int compareDateTimeDesc(java.time.LocalDateTime left, java.time.LocalDateTime right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return right.compareTo(left);
+    }
+
+    private String sanitizeVisibleMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "处理失败";
+        }
+        String normalized = message.replace('\n', ' ').replace('\r', ' ').trim();
+        return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
+    }
+
+    private static final class ProcessingSnapshot {
+        private final Long photoId;
+        private volatile String photoName;
+        private volatile String status = "QUEUED";
+        private volatile String message = "等待处理";
+        private volatile Integer outputMaxSize;
+        private volatile String outputPath;
+        private volatile java.time.LocalDateTime startedAt;
+        private volatile java.time.LocalDateTime finishedAt;
+        private volatile java.time.LocalDateTime updatedAt = java.time.LocalDateTime.now();
+
+        private ProcessingSnapshot(Long photoId) {
+            this.photoId = photoId;
+        }
+
+        private Map<String, Object> toMap() {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("photoId", photoId);
+            item.put("photoName", photoName);
+            item.put("status", status);
+            item.put("message", message);
+            item.put("outputMaxSize", outputMaxSize);
+            item.put("outputPath", outputPath);
+            item.put("startedAt", startedAt);
+            item.put("finishedAt", finishedAt);
+            item.put("updatedAt", updatedAt);
+            return item;
+        }
+    }
+
+    private String sanitizeFilesystemPath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String displayPath = userPathService.toDisplayPath(path, true);
+        if (!path.equals(displayPath)) {
+            return displayPath;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
+    }
+
     /**
      * 批量处理目录下的所有图片
      */
@@ -657,7 +799,7 @@ public class BackgroundRemovalService implements AutoCloseable {
         });
 
         if (files == null || files.length == 0) {
-            log.info("目录下没有找到需要处理的图片: {}", inputDir.getPath());
+            log.info("目录下没有找到需要处理的图片: {}", sanitizeFilesystemPath(inputDir.getPath()));
             return 0;
         }
 
@@ -1066,6 +1208,36 @@ public class BackgroundRemovalService implements AutoCloseable {
         return enabled && modelLoaded && session != null;
     }
 
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (session != null) {
+                session.close();
+            }
+        } catch (Exception ignored) {
+        }
+        session = null;
+        env = null;
+        modelLoaded = false;
+        ensureModelLoaded();
+        return isModelAvailable();
+    }
+
+    public int getActiveTaskCount() {
+        inProgressTasks.entrySet().removeIf(entry -> {
+            java.util.concurrent.Future<?> task = entry.getValue();
+            return task == null || task.isDone() || task.isCancelled();
+        });
+        return inProgressTasks.size();
+    }
+
     @Override
     public void close() {
         try {
@@ -1073,5 +1245,8 @@ public class BackgroundRemovalService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        session = null;
+        env = null;
+        modelLoaded = false;
     }
 }

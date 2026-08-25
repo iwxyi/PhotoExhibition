@@ -1,46 +1,47 @@
 <template>
-  <div class="min-h-screen admin-shell text-white">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-2xl font-light">图片管理</h1>
-        <div class="space-x-3">
-          <button @click="load" :disabled="loading" class="btn-primary disabled:opacity-50">刷新</button>
-          <router-link to="/admin" class="px-4 py-2 bg-gray-900/70 hover:bg-gray-700 rounded-lg border border-white/10 transition-colors">返回</router-link>
-        </div>
-      </div>
-
-      <div class="glass-panel p-4">
-        <div class="flex flex-wrap gap-4 mb-4">
-          <input v-model="keyword" placeholder="搜索文件名/相机/镜头" class="px-3 py-2 bg-gray-700 border border-gray-600 rounded w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button @click="load" :disabled="loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-50">查询</button>
-          <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50">删除</button>
+  <div class="min-h-screen admin-shell admin-photos-page">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
+      <div class="glass-panel admin-photos-panel">
+        <div class="admin-query-toolbar">
+          <div class="admin-query-toolbar__fields">
+            <input v-model="keyword" aria-label="搜索图片" placeholder="搜索图片" class="admin-field admin-query-toolbar__search" @keyup.enter="load" />
+            <button @click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__button disabled:opacity-50">查询</button>
+          </div>
+          <div class="admin-query-toolbar__actions">
+            <button @click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__button disabled:opacity-50">刷新</button>
+            <button @click="deleteSelected" :disabled="selectedIds.length === 0 || loading" class="admin-button-danger admin-query-toolbar__button disabled:opacity-50">删除</button>
+          </div>
         </div>
 
-        <div class="overflow-auto">
-          <table class="min-w-full text-sm">
-            <thead class="text-left text-gray-400">
+        <div class="admin-photos-list-meta">
+          <span>当前页 {{ photos.length }} 项</span>
+          <span v-if="selectedIds.length">已选 {{ selectedIds.length }} 项</span>
+        </div>
+
+        <div class="admin-photos-table-frame">
+          <table class="admin-photos-table">
+            <thead>
               <tr>
-                <th class="py-2 pr-4">
+                <th class="admin-photos-select-cell">
                   <input type="checkbox" class="accent-blue-500" :checked="allSelected" @change="toggleAll" />
                 </th>
-                <th class="py-2 pr-4">ID</th>
-                <th class="py-2 pr-4">缩略图</th>
-                <th class="py-2 pr-4">文件名</th>
-                <th class="py-2 pr-4">尺寸</th>
-                <th class="py-2 pr-4">格式</th>
-                <th class="py-2 pr-4">拍摄时间</th>
-                <th class="py-2 pr-4">操作</th>
+                <th class="admin-photos-preview-cell">照片</th>
+                <th class="admin-photos-file-cell">文件</th>
+                <th class="admin-photos-spec-cell">属性</th>
+                <th class="admin-photos-duplicate-cell">去重</th>
+                <th class="admin-photos-date-cell">拍摄时间</th>
+                <th class="admin-photos-action-cell">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in photos" :key="p.id" class="border-t border-gray-700 hover:bg-gray-700/60" :class="p.isHidden ? 'opacity-50' : ''">
-                <td class="py-2 pr-4">
+              <tr v-for="p in photos" :key="p.id" class="admin-photos-row" :class="{ 'admin-photos-row--hidden': p.isHidden }">
+                <td class="admin-photos-select-cell">
                   <input type="checkbox" class="accent-blue-500" v-model="selectedIds" :value="p.id" />
+                  <span class="admin-photos-row-id">#{{ p.id }}</span>
                 </td>
-                <td class="py-2 pr-4">{{ p.id }}</td>
-                <td class="py-2 pr-4">
+                <td class="admin-photos-preview-cell">
                   <div
-                    class="w-16 h-16 bg-gray-700 rounded overflow-hidden border border-gray-600 flex items-center justify-center cursor-pointer"
+                    class="admin-photos-thumb"
                     @click="openPhoto(p.id)"
                     @mouseenter="showPreview(p)"
                     @mousemove="movePreview"
@@ -53,17 +54,17 @@
                       class="w-full h-full object-cover"
                       loading="lazy"
                     />
-                    <span v-else class="text-xs text-gray-500">无图</span>
+                    <span v-else>无图</span>
                   </div>
                 </td>
-                <td class="py-2 pr-4 whitespace-nowrap">
-                  <div class="flex flex-col gap-1">
-                    <span>{{ p.filename }}</span>
-                    <div class="flex flex-wrap gap-1">
+                <td class="admin-photos-file-cell">
+                  <div class="admin-photos-file">
+                    <span class="admin-photos-filename" :title="p.filename">{{ p.filename }}</span>
+                    <div v-if="p.tags?.length" class="admin-photos-tags">
                       <span
                         v-for="t in p.tags || []"
                         :key="t.id"
-                        class="px-2 py-0.5 rounded-full text-xs cursor-pointer"
+                        class="admin-photos-tag"
                         :style="{ backgroundColor: t.color || 'rgba(59,130,246,0.1)', color: t.color ? '#fff' : '#93c5fd' }"
                         @click.stop="openTag(t)"
                       >
@@ -72,89 +73,116 @@
                     </div>
                   </div>
                 </td>
-                <td class="py-2 pr-4">{{ p.width }} x {{ p.height }}</td>
-                <td class="py-2 pr-4">{{ p.format }}</td>
-                <td class="py-2 pr-4 whitespace-nowrap">{{ formatDate(p.takenAt) }}</td>
-                <td class="py-2 pr-4 space-x-2">
-                  <button @click="openFaceDialog(p)" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">人脸</button>
+                <td class="admin-photos-spec-cell">
+                  <div class="admin-photos-spec">
+                    <span>{{ p.width }} x {{ p.height }}</span>
+                    <span>{{ p.format || '未知格式' }}</span>
+                  </div>
+                </td>
+                <td class="admin-photos-duplicate-cell">
+                  <div class="admin-photos-duplicate">
+                    <span
+                      class="admin-photos-duplicate-state"
+                      :class="p.duplicateContent ? 'border-amber-500/40 text-amber-300 bg-amber-500/10' : 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'"
+                    >
+                      {{ p.duplicateContent ? '重复副本' : '规范源' }}
+                    </span>
+                    <span v-if="p.canonicalPhotoId">源 #{{ p.canonicalPhotoId }}</span>
+                    <span v-else-if="p.contentHash" class="admin-photos-hash">{{ shortHash(p.contentHash) }}</span>
+                  </div>
+                </td>
+                <td class="admin-photos-date-cell">{{ formatDate(p.takenAt) || '-' }}</td>
+                <td class="admin-photos-action-cell">
+                  <button @click="openFaceDialog(p)" class="admin-button-soft admin-photos-face-button">人脸</button>
+                </td>
+              </tr>
+              <tr v-if="!loading && photos.length === 0">
+                <td colspan="7" class="admin-photos-empty">
+                  当前筛选条件下没有图片
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
+        <div class="admin-photos-pagination">
           <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
-          <div class="flex items-center gap-2">
-            <button @click="prev" :disabled="page===0 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">上一页</button>
-            <div class="flex items-center gap-1">
+          <div class="admin-photos-pagination-actions">
+            <button @click="prev" :disabled="page===0 || loading" class="admin-button-soft admin-photos-pagination-button">上一页</button>
+            <div class="admin-photos-page-numbers">
               <button
                 v-for="pnum in pageNumbers"
                 :key="pnum"
                 @click="jumpTo(pnum)"
                 :disabled="loading"
-                class="px-3 py-1 rounded border border-gray-700"
-                :class="pnum === page ? 'bg-blue-600 border-blue-500' : 'bg-gray-700 hover:bg-gray-600'"
+                class="admin-photos-page-btn"
+                :class="pnum === page ? 'admin-photos-page-btn--active' : 'admin-photos-page-btn--idle'"
               >
                 {{ pnum + 1 }}
               </button>
             </div>
-            <button @click="next" :disabled="page>=totalPages-1 || loading" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">下一页</button>
+            <button @click="next" :disabled="page>=totalPages-1 || loading" class="admin-button-soft admin-photos-pagination-button">下一页</button>
           </div>
         </div>
       </div>
     </div>
   <!-- 人脸标注弹窗 -->
-  <div v-if="showFaceDialog" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="closeFaceDialog">
-      <div class="glass-panel w-full max-w-3xl p-6 max-h-[80vh] overflow-y-auto">
+  <div v-if="showFaceDialog" class="fixed inset-0 admin-modal-backdrop flex items-center justify-center z-50" @click.self="closeFaceDialog">
+      <div class="glass-panel admin-photos-dialog w-full max-w-3xl p-6 max-h-[80vh] overflow-y-auto">
       <div class="flex items-center justify-between mb-4">
         <div>
           <h3 class="text-lg font-light">人脸标注 - {{ activePhoto?.filename }}</h3>
           <p class="text-sm text-gray-400">可为检测到的人脸设置姓名和说明</p>
         </div>
-        <button @click="closeFaceDialog" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">关闭</button>
+        <button @click="closeFaceDialog" class="admin-button-soft px-3 py-1 rounded text-sm">关闭</button>
       </div>
 
-      <div v-if="faceLoading" class="text-gray-400">加载中...</div>
-      <div v-else-if="!faces.length" class="text-gray-400">未检测到人脸</div>
+        <div v-if="faceLoading" class="admin-photos-note">加载中...</div>
+      <div v-else-if="!faces.length" class="admin-photos-note">未检测到人脸</div>
       <div v-else class="space-y-4">
-        <div v-for="face in faces" :key="face.id" class="border border-gray-700 rounded-lg p-4">
+        <div v-for="face in faces" :key="face.id" class="admin-photos-face-card rounded-lg p-4">
           <div class="flex items-start gap-4">
             <!-- 圆形人脸照片 - 更大尺寸，针对人脸居中放大裁切 -->
             <div class="flex-shrink-0">
               <div
                 v-if="getFaceImageUrl(face)"
-                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 overflow-hidden relative"
+                class="w-28 h-28 rounded-full admin-photos-avatar overflow-hidden relative"
                 :style="getFaceCropStyle(face)"
               >
               </div>
               <div
                 v-else
-                class="w-28 h-28 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center text-gray-500 text-xs"
+                class="w-28 h-28 rounded-full admin-photos-avatar flex items-center justify-center admin-photos-note text-xs"
               >
                 无图
               </div>
             </div>
             <!-- 名字和说明输入框 -->
             <div class="flex-1 min-w-0 flex flex-col gap-3">
-              <input
-                v-model="face.personName"
-                placeholder="输入姓名，留空则移除关联"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
-              <textarea
-                v-model="face.personDescription"
-                rows="2"
-                placeholder="备注（例如：家庭成员、朋友、客户等）"
-                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              ></textarea>
+              <label class="block space-y-1">
+                <span class="text-xs admin-photos-note">关联人物姓名</span>
+                <input
+                  v-model="face.personName"
+                  placeholder="留空则移除当前人物关联"
+                  class="admin-field w-full px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </label>
+              <label class="block space-y-1">
+                <span class="text-xs admin-photos-note">备注</span>
+                <textarea
+                  v-model="face.personDescription"
+                  rows="2"
+                  placeholder="例如：家庭成员、朋友、客户等"
+                  class="admin-field w-full px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                ></textarea>
+              </label>
               <!-- 位置、置信度信息 -->
-              <div class="text-xs text-gray-500">
+              <div class="text-xs admin-photos-note">
                 位置：X {{ formatPercent(face.x) }} / Y {{ formatPercent(face.y) }} / 宽 {{ formatPercent(face.width) }} / 高 {{ formatPercent(face.height) }}
                 <span class="ml-2">置信度：{{ (face.confidence * 100).toFixed(0) }}%</span>
               </div>
               <div class="text-right">
-                <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50">
+                <button @click="saveFace(face)" :disabled="savingFaceId===face.id" class="admin-button-primary px-3 py-1 rounded text-sm disabled:opacity-50">
                   {{ savingFaceId===face.id ? '保存中...' : '保存' }}
                 </button>
               </div>
@@ -164,13 +192,13 @@
       </div>
       <div class="mt-4 flex items-center justify-between">
         <button
-          class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm disabled:opacity-50"
+          class="admin-button-warning px-3 py-1 rounded text-sm disabled:opacity-50"
           :disabled="rescanLoading"
           @click="rescanFaces"
         >
           {{ rescanLoading ? '重建中...' : '重建人脸' }}
         </button>
-        <span class="text-xs text-gray-400" v-if="rescanMessage">{{ rescanMessage }}</span>
+        <span class="text-xs admin-photos-note" v-if="rescanMessage">{{ rescanMessage }}</span>
       </div>
     </div>
   </div>
@@ -191,8 +219,15 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { useAuthStore } from '@/stores/auth'
+import { buildPublicPath } from '@/utils/publicRoute'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
+const authStore = useAuthStore()
+const { notify, confirm } = useAdminFeedback()
+const alert = (message: unknown) => notify(String(message), /失败|错误|不能|无效/.test(String(message)) ? 'error' : 'info')
 
 const photos = ref<any[]>([])
 const loading = ref(false)
@@ -252,10 +287,7 @@ const formatDate = (val?: string) => {
 }
 
 const getThumbUrl = (p: any) => {
-  if (p.thumbnailPath) return `/api/files${p.thumbnailPath}`
-  if (p.webpPath) return `/api/files${p.webpPath}`
-  if (p.originalPath) return `/api/files${p.originalPath}`
-  return ''
+  return buildPhotoAssetUrl(p, 'thumbnail') || ''
 }
 
 const formatPercent = (val?: number) => {
@@ -263,18 +295,18 @@ const formatPercent = (val?: number) => {
   return `${(val * 100).toFixed(0)}%`
 }
 
+const shortHash = (value?: string | null) => {
+  if (!value) return '-'
+  return value.length <= 12 ? value : `${value.slice(0, 6)}...${value.slice(-6)}`
+}
+
 const getFaceImageUrl = (face: any) => {
-  const paths = [
-    face.photoThumbnailPath,
-    face.photoOriginalPath,
-    activePhoto.value?.thumbnailPath,
-    activePhoto.value?.webpPath,
-    activePhoto.value?.originalPath
-  ]
-  const firstPath = paths.find(p => p && typeof p === 'string' && p.length > 0)
-  if (!firstPath) return ''
-  const base = firstPath.startsWith('/api/files') ? firstPath : `/api/files${firstPath}`
-  return encodeURI(base)
+  return buildPhotoAssetUrl({
+    id: activePhoto.value?.id || face?.photoId,
+    thumbnailPath: face?.photoThumbnailPath || activePhoto.value?.thumbnailPath,
+    originalPath: face?.photoOriginalPath || activePhoto.value?.originalPath,
+    webpPath: activePhoto.value?.webpPath
+  }, 'thumbnail') || ''
 }
 
 const getFaceCropStyle = (face: any) => {
@@ -318,7 +350,7 @@ const toggleAll = (e: Event) => {
 
 const deleteSelected = async () => {
   if (selectedIds.value.length === 0) return
-  if (!window.confirm(`确定删除选中的 ${selectedIds.value.length} 张图片？`)) return
+  if (!await confirm({ title: `删除 ${selectedIds.value.length} 张图片`, message: '此操作不可撤销。', confirmLabel: '删除图片', tone: 'danger' })) return
   for (const id of selectedIds.value) {
     await api.delete(`/photos/${id}`)
   }
@@ -327,7 +359,7 @@ const deleteSelected = async () => {
 }
 
 const openPhoto = (photoId: number) => {
-  window.open(`/photo/${photoId}`, '_blank')
+  window.open(buildPublicPath(`/photo/${photoId}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
 }
 
 const openFaceDialog = async (photo: any) => {
@@ -400,7 +432,10 @@ const next = () => {
 }
 const openTag = (tag: any) => {
   if (!tag?.id) return
-  const route = router.resolve({ path: '/wall', query: { tagId: tag.id, tagName: tag.name } })
+  const route = router.resolve({
+    path: buildPublicPath('/wall', authStore.slug ? `/${authStore.slug}` : undefined),
+    query: { tagId: tag.id, tagName: tag.name }
+  })
   window.open(route.href, '_blank')
 }
 

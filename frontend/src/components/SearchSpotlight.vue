@@ -2,13 +2,14 @@
   <!-- 搜索按钮 -->
   <button
     @click="openSpotlight"
-    class="search-btn p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 hover:scale-110 hover:shadow-md transform-gpu group relative overflow-hidden"
+    class="search-btn p-2 rounded-xl border border-transparent hover:border-stone-300/70 dark:hover:border-white/10 hover:bg-white/72 dark:hover:bg-white/[0.05] transition-all duration-200 hover:scale-110 transform-gpu group relative overflow-hidden"
     title="搜索"
     @mouseenter="searchHover = true"
     @mouseleave="searchHover = false"
   >
+    <div class="absolute inset-0 rounded-xl bg-white/72 opacity-0 transition-all duration-300 ease-out group-hover:opacity-100 group-hover:translate-x-[3px] dark:bg-white/[0.05]"></div>
     <svg
-      class="search-svg w-5 h-5 transition-all duration-300 group-hover:scale-110"
+      class="search-svg relative z-10 w-5 h-5 transition-all duration-300 group-hover:scale-110"
       :class="{ 'is-hovering': searchHover }"
       fill="none"
       stroke="currentColor"
@@ -30,7 +31,6 @@
         d="M16.5 16.5L21 21"
       />
     </svg>
-    <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg pointer-events-none"></div>
   </button>
 
   <!-- Spotlight 弹窗 -->
@@ -46,7 +46,7 @@
     >
       <div
         v-if="showSpotlight"
-        class="fixed inset-0 z-[2000] bg-black/30 backdrop-blur-sm"
+        class="fixed inset-0 z-[2000] bg-black/5"
         @click="closeSpotlight"
       ></div>
     </Transition>
@@ -62,13 +62,17 @@
     >
       <div
         v-if="showSpotlight"
-        class="fixed z-[2100] top-[20%] left-1/2 -translate-x-1/2 w-[560px] max-w-[90vw]"
+        class="fixed z-[2100] top-[72px] left-1/2 -translate-x-1/2 w-[720px] max-w-[94vw] sm:top-[76px]"
         @click.stop
       >
-        <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
-          <div class="flex items-center px-5 py-4">
+        <div
+          class="relative overflow-hidden rounded-[20px] border border-stone-300/45 bg-[rgba(248,250,252,0.88)] shadow-[0_18px_42px_rgba(15,23,42,0.10)] backdrop-blur-[20px] dark:border-white/10 dark:bg-[rgba(15,23,42,0.86)] dark:shadow-[0_22px_48px_rgba(0,0,0,0.44)]"
+          style="-webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);"
+        >
+          <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/90 dark:bg-white/8"></div>
+          <div class="relative flex items-center gap-3 rounded-[14px] p-4 sm:gap-3.5 sm:p-4.5">
             <!-- 左侧放大镜图标 -->
-            <svg class="w-5 h-5 text-gray-400 dark:text-gray-500 flex-shrink-0 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="h-4 w-4 flex-shrink-0 translate-y-[0.5px] text-stone-400 dark:text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="7" stroke-width="1.5" />
               <path stroke-linecap="round" stroke-width="1.5" d="M16.5 16.5L21 21" />
             </svg>
@@ -77,24 +81,11 @@
               ref="searchInputRef"
               v-model="searchKeyword"
               type="text"
-              placeholder="搜索相册、人物、照片..."
-              class="flex-1 bg-transparent text-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none"
+              placeholder="关键词"
+              class="search-input min-w-0 flex-1 rounded-[10px] bg-transparent text-[15px] leading-none sm:text-[17px] font-light tracking-[0.035em] text-stone-900 dark:text-stone-100 placeholder-stone-400/90 dark:placeholder-stone-500 outline-none"
               @keyup.enter="doSearch"
               @keyup.escape="closeSpotlight"
             />
-            <!-- 右侧搜索按钮 -->
-            <button
-              v-if="searchKeyword.trim()"
-              @click="doSearch"
-              class="flex-shrink-0 ml-3 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors duration-150"
-            >
-              搜索
-            </button>
-            <!-- ESC 提示 -->
-            <kbd
-              v-else
-              class="flex-shrink-0 ml-3 px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
-            >ESC</kbd>
           </div>
         </div>
       </div>
@@ -104,11 +95,15 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { buildPublicPath } from '@/utils/publicRoute'
 
 const showSpotlight = ref(false)
 const searchHover = ref(false)
 const searchKeyword = ref('')
 const searchInputRef = ref<HTMLInputElement>()
+const route = useRoute()
+const router = useRouter()
 
 const openSpotlight = () => {
   showSpotlight.value = true
@@ -125,8 +120,11 @@ const closeSpotlight = () => {
 
 const doSearch = () => {
   if (searchKeyword.value.trim()) {
-    const searchUrl = `/search?q=${encodeURIComponent(searchKeyword.value.trim())}`
-    window.open(searchUrl, '_blank')
+    const targetRoute = router.resolve({
+      path: buildPublicPath('/search', route.path),
+      query: { q: searchKeyword.value.trim() }
+    })
+    window.open(targetRoute.href, '_blank')
     closeSpotlight()
   }
 }
@@ -185,6 +183,20 @@ onUnmounted(() => {
 
 .search-handle {
   transition: all 0.3s ease;
+}
+
+.search-input {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-results-button,
+.search-input::-webkit-search-results-decoration {
+  -webkit-appearance: none;
 }
 
 .search-svg.is-hovering .search-handle {

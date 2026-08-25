@@ -1,7 +1,7 @@
 <template>
   <div
-    class="photo-card cursor-pointer group w-full mx-auto transform-gpu rounded-xl overflow-hidden"
-    :class="[cardSizeClass, !cardBgColor ? 'bg-white dark:bg-gray-800' : '']"
+    class="photo-card cursor-pointer group w-full mx-auto transform-gpu rounded-2xl overflow-hidden"
+    :class="[cardSizeClass, !cardBgColor ? 'bg-[rgba(255,255,255,0.82)] dark:bg-[rgba(22,22,22,0.82)]' : '']"
     :style="cardBgColor ? { backgroundColor: cardBgColor } : {}"
     :data-album-id="album.id"
     role="button"
@@ -10,10 +10,9 @@
     @keydown.enter.prevent="handleClick"
     @keydown.space.prevent="handleClick"
     ref="cardRef"
-    style="contain: layout style paint; will-change: transform;"
   >
     <!-- 封面布局 -->
-    <div class="overflow-hidden rounded-t-xl">
+    <div class="overflow-hidden rounded-t-2xl">
       <CoverDisplay
         :covers="customCovers"
         :default-covers="defaultCovers"
@@ -23,11 +22,13 @@
     </div>
 
     <!-- 信息块（显示在封面下方） -->
-    <div class="px-3 py-2 text-gray-900 dark:text-gray-100">
+    <div class="px-4 pt-3 pb-3.5 sm:px-5 text-gray-900 dark:text-gray-100">
       <div class="flex items-center">
-        <h3 class="text-sm font-medium truncate">{{ album.displayTitle || album.name }}</h3>
+        <h3 class="text-[13px] sm:text-[13.5px] font-light tracking-[0.035em] leading-[1.35] truncate text-stone-900 dark:text-stone-100">
+          {{ album.displayTitle || album.name }}
+        </h3>
       </div>
-      <div v-if="takenDateText" class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+      <div v-if="takenDateText" class="mt-1 text-[10px] sm:text-[10.5px] tracking-[0.12em] uppercase text-stone-500 dark:text-stone-400">
         {{ takenDateText }}
       </div>
     </div>
@@ -191,19 +192,29 @@ const handleClick = () => {
 <style scoped>
 /* 默认状态：微妙边框，无阴影 */
 .photo-card {
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  border: 1px solid rgba(120, 113, 108, 0.18);
+  content-visibility: auto;
+  contain: layout paint style;
+  contain-intrinsic-size: 240px 300px;
+  transition: transform 0.28s ease, border-color 0.28s ease, background-color 0.28s ease;
 }
 
-/* 悬浮状态：轻微上浮 + 阴影 + 边框变深 */
+/* 悬浮状态：仅轻微上浮和边框加深，避免控件感过重 */
 .photo-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.12);
-  border-color: rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  border-color: rgba(68, 64, 60, 0.28);
 }
 
 /* 封面图片悬浮放大 */
 .photo-card:hover :deep(.cover-image) {
-  transform: scale(1.04);
+  transform: scale(1.02);
+}
+
+:global(.dark) .photo-card {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:global(.dark) .photo-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
 }
 </style>

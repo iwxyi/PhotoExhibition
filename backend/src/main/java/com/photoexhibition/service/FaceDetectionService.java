@@ -198,7 +198,7 @@ public class FaceDetectionService implements AutoCloseable {
         try {
             java.io.File modelFile = new java.io.File(detectionModelPath);
             if (!modelFile.exists()) {
-                log.warn("人脸检测模型文件不存在: {}，将使用简单检测方法", detectionModelPath);
+                log.warn("人脸检测模型文件不存在: {}，将使用简单检测方法", sanitizePath(detectionModelPath));
                 return;
             }
 
@@ -214,7 +214,7 @@ public class FaceDetectionService implements AutoCloseable {
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
             // 可以根据需要设置线程数等选项
             detectionSession = env.createSession(detectionModelPath, opts);
-            log.info("人脸检测模型已加载: {}", detectionModelPath);
+            log.info("人脸检测模型已加载: {}", sanitizePath(detectionModelPath));
         } catch (NoClassDefFoundError e) {
             log.warn("ONNX Runtime类初始化失败，人脸检测功能将被禁用。错误: {}", e.getMessage());
             log.warn("请检查: 1) ONNX Runtime JAR文件是否完整, 2) Java版本是否兼容 (>=11), 3) 系统权限是否足够");
@@ -232,7 +232,7 @@ public class FaceDetectionService implements AutoCloseable {
             log.warn("详细错误信息: ", e);
             detectionSession = null;
         } catch (Exception e) {
-            log.warn("加载人脸检测模型失败: {}，将使用简单检测方法。错误: {}", detectionModelPath, e.getMessage());
+            log.warn("加载人脸检测模型失败: {}，将使用简单检测方法。错误: {}", sanitizePath(detectionModelPath), e.getMessage());
             log.warn("详细错误信息: ", e);
             detectionSession = null;
         }
@@ -1009,6 +1009,17 @@ public class FaceDetectionService implements AutoCloseable {
             if (env != null) env.close();
         } catch (Exception ignored) {
         }
+        detectionSession = null;
+        env = null;
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String normalized = path.replace('\\', '/');
+        int index = normalized.lastIndexOf('/');
+        return index >= 0 ? normalized.substring(index + 1) : normalized;
     }
 
     public static class DetectedFace {
@@ -1032,5 +1043,30 @@ public class FaceDetectionService implements AutoCloseable {
         public double getHeight() { return height; }
         public double getConfidence() { return confidence; }
     }
-}
 
+    public String getModelPath() {
+        return detectionModelPath;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public synchronized boolean isModelLoaded() {
+        ensureSession();
+        return enabled && detectionSession != null;
+    }
+
+    public synchronized boolean reloadModel() {
+        try {
+            if (detectionSession != null) {
+                detectionSession.close();
+            }
+        } catch (Exception ignored) {
+        }
+        detectionSession = null;
+        env = null;
+        ensureSession();
+        return enabled && detectionSession != null;
+    }
+}

@@ -1,6 +1,11 @@
 package com.photoexhibition.controller;
 
+import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.SystemConfigService;
+import com.photoexhibition.service.UserPathService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -8,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/admin/config")
@@ -16,7 +23,21 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class SystemConfigController {
 
+    private static final Pattern EMBEDDED_PATH_PATTERN =
+        Pattern.compile("(storage://[^\\s,;]+|[A-Za-z]:\\\\[^\\s,;]+|/(?:[^\\s,;])+)");
+
+    private String normalizeAdminColorMode(String value) {
+        if (value == null) return "dark";
+        String normalized = value.trim().toLowerCase();
+        return "light".equals(normalized) || "dark".equals(normalized) || "system".equals(normalized)
+            ? normalized
+            : "dark";
+    }
+
+    private final AuthService authService;
     private final SystemConfigService systemConfigService;
+    private final UserPathService userPathService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 获取所有系统配置
@@ -45,7 +66,122 @@ public class SystemConfigController {
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/admin-theme")
+    public ResponseEntity<Map<String, Object>> getAdminColorMode(@RequestHeader("Authorization") String authorization) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            resp.put("colorMode", normalizeAdminColorMode(user.getAdminColorMode()));
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取后台颜色模式失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/admin-theme")
+    public ResponseEntity<Map<String, Object>> updateAdminColorMode(@RequestHeader("Authorization") String authorization,
+                                                                      @RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            String colorMode = normalizeAdminColorMode(
+                request.get("colorMode") == null ? null : String.valueOf(request.get("colorMode"))
+            );
+            user.setAdminColorMode(colorMode);
+            authService.saveUserAccount(user);
+            resp.put("colorMode", colorMode);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存后台颜色模式失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @GetMapping("/file-browser-preferences")
+    public ResponseEntity<Map<String, Object>> getFileBrowserPreferences(@RequestHeader("Authorization") String authorization) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            Map<String, Object> preferences = loadFileBrowserPreferences(user.getId());
+            resp.put("viewMode", normalizeAllowed(
+                preferences.get("viewMode") == null ? null : String.valueOf(preferences.get("viewMode")),
+                "grid",
+                new String[]{"grid", "list"}
+            ));
+            resp.put("gridPreset", normalizeAllowed(
+                preferences.get("gridPreset") == null ? null : String.valueOf(preferences.get("gridPreset")),
+                "auto-md",
+                new String[]{"auto-sm", "auto-md", "auto-lg", "cols-2", "cols-3", "cols-4", "cols-5"}
+            ));
+            resp.put("sortMode", normalizeAllowed(
+                preferences.get("sortMode") == null ? null : String.valueOf(preferences.get("sortMode")),
+                "name-asc",
+                new String[]{"name-asc", "name-desc", "lastModified-desc", "lastModified-asc", "size-desc", "size-asc", "photoCount-desc", "photoCount-asc", "type-asc", "type-desc"}
+            ));
+            Integer pageSize = parseInteger(preferences.get("pageSize"), 48);
+            resp.put("pageSize", (pageSize != null && (pageSize == 24 || pageSize == 48 || pageSize == 96 || pageSize == 200)) ? pageSize : 48);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取文件浏览器偏好失败"));
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    @PutMapping("/file-browser-preferences")
+    public ResponseEntity<Map<String, Object>> updateFileBrowserPreferences(@RequestHeader("Authorization") String authorization,
+                                                                            @RequestBody Map<String, Object> request) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            UserAccount user = requireCurrentUser(authorization);
+            String viewMode = normalizeAllowed(
+                request.get("viewMode") == null ? null : String.valueOf(request.get("viewMode")).trim(),
+                "grid",
+                new String[]{"grid", "list"}
+            );
+            String gridPreset = normalizeAllowed(
+                request.get("gridPreset") == null ? null : String.valueOf(request.get("gridPreset")).trim(),
+                "auto-md",
+                new String[]{"auto-sm", "auto-md", "auto-lg", "cols-2", "cols-3", "cols-4", "cols-5"}
+            );
+            String sortMode = normalizeAllowed(
+                request.get("sortMode") == null ? null : String.valueOf(request.get("sortMode")).trim(),
+                "name-asc",
+                new String[]{"name-asc", "name-desc", "lastModified-desc", "lastModified-asc", "size-desc", "size-asc", "photoCount-desc", "photoCount-asc", "type-asc", "type-desc"}
+            );
+            Integer pageSize = 48;
+            Object pageSizeValue = request.get("pageSize");
+            if (pageSizeValue instanceof Number) {
+                pageSize = ((Number) pageSizeValue).intValue();
+            } else if (pageSizeValue != null) {
+                pageSize = Integer.parseInt(String.valueOf(pageSizeValue));
+            }
+            if (!(pageSize == 24 || pageSize == 48 || pageSize == 96 || pageSize == 200)) {
+                pageSize = 48;
+            }
+            Map<String, Object> preferences = new HashMap<>();
+            preferences.put("viewMode", viewMode);
+            preferences.put("gridPreset", gridPreset);
+            preferences.put("sortMode", sortMode);
+            preferences.put("pageSize", pageSize);
+            systemConfigService.setConfigValue(
+                buildFileBrowserPreferenceKey(user.getId()),
+                objectMapper.writeValueAsString(preferences),
+                "文件浏览器偏好配置(JSON)"
+            );
+            resp.put("viewMode", viewMode);
+            resp.put("gridPreset", gridPreset);
+            resp.put("sortMode", sortMode);
+            resp.put("pageSize", pageSize);
+            resp.put("message", "文件浏览器偏好已保存");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存文件浏览器偏好失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -60,7 +196,7 @@ public class SystemConfigController {
             resp.put("maxAlbumDepth", systemConfigService.getMaxAlbumDepth());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -83,10 +219,10 @@ public class SystemConfigController {
             resp.put("maxAlbumDepth", depth);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -101,7 +237,7 @@ public class SystemConfigController {
             resp.put("photoSortOrder", systemConfigService.getPhotoSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -124,10 +260,10 @@ public class SystemConfigController {
             resp.put("photoSortOrder", sortOrder.trim());
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -142,7 +278,7 @@ public class SystemConfigController {
             resp.put("albumSortOrder", systemConfigService.getAlbumSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -168,11 +304,11 @@ public class SystemConfigController {
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
             log.warn("相册排序设置参数错误: {}", e.getMessage());
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
             log.error("相册排序设置失败: {}", e.getMessage(), e);
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -187,7 +323,7 @@ public class SystemConfigController {
             resp.put("wallSortOrder", systemConfigService.getWallSortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -210,10 +346,10 @@ public class SystemConfigController {
             resp.put("wallSortOrder", sortOrder.trim());
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -228,7 +364,7 @@ public class SystemConfigController {
             resp.put("minClusterFaceCount", systemConfigService.getMinClusterFaceCount());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -251,10 +387,10 @@ public class SystemConfigController {
             resp.put("minClusterFaceCount", minCount);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -269,7 +405,7 @@ public class SystemConfigController {
             resp.put("globalDownloadAllowed", systemConfigService.isGlobalDownloadAllowed());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -292,7 +428,7 @@ public class SystemConfigController {
             resp.put("globalDownloadAllowed", allowed);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -307,7 +443,7 @@ public class SystemConfigController {
             resp.put("albumCategorySortOrder", systemConfigService.getAlbumCategorySortOrder());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -325,7 +461,7 @@ public class SystemConfigController {
             resp.put("albumCategorySortOrder", sortOrder != null ? sortOrder.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -340,7 +476,7 @@ public class SystemConfigController {
             resp.put("tagIgnoreList", systemConfigService.getTagIgnoreList());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -358,7 +494,7 @@ public class SystemConfigController {
             resp.put("tagIgnoreList", tagIgnoreList != null ? tagIgnoreList.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -373,7 +509,7 @@ public class SystemConfigController {
             resp.put("atmosphereEnabled", systemConfigService.isAtmosphereEnabled());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -396,7 +532,7 @@ public class SystemConfigController {
             resp.put("atmosphereEnabled", enabled);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -411,7 +547,7 @@ public class SystemConfigController {
             resp.put("faceClusterThreshold", systemConfigService.getFaceClusterThreshold());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -439,10 +575,10 @@ public class SystemConfigController {
             resp.put("faceClusterThreshold", threshold);
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "参数错误"));
             return ResponseEntity.badRequest().body(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -456,7 +592,7 @@ public class SystemConfigController {
             resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -475,7 +611,7 @@ public class SystemConfigController {
             resp.put("aiSearchEnabled", enabled);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -487,7 +623,7 @@ public class SystemConfigController {
             resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -502,7 +638,7 @@ public class SystemConfigController {
             resp.put("aiSearchApiUrl", url != null ? url.trim() : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -519,7 +655,7 @@ public class SystemConfigController {
             }
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -533,7 +669,7 @@ public class SystemConfigController {
             resp.put("message", "AI搜索API密钥设置成功");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -545,7 +681,7 @@ public class SystemConfigController {
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "获取配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
             return ResponseEntity.status(500).body(resp);
         }
     }
@@ -560,8 +696,74 @@ public class SystemConfigController {
             resp.put("aiSearchModel", model != null ? model.trim() : "gpt-4o");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            resp.put("error", e.getMessage() != null ? e.getMessage() : "设置配置失败");
+            resp.put("error", sanitizeErrorMessage(e.getMessage(), "设置配置失败"));
             return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    private String sanitizeErrorMessage(String message, String fallback) {
+        if (message == null || message.isBlank()) {
+            return fallback;
+        }
+        Matcher matcher = EMBEDDED_PATH_PATTERN.matcher(message);
+        StringBuffer buffer = new StringBuffer();
+        boolean replaced = false;
+        while (matcher.find()) {
+            String candidate = matcher.group(1);
+            String sanitizedCandidate = userPathService.toDisplayPath(candidate, true);
+            if (!candidate.equals(sanitizedCandidate)) {
+                replaced = true;
+            }
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(sanitizedCandidate));
+        }
+        matcher.appendTail(buffer);
+        return replaced ? buffer.toString() : message;
+    }
+
+    private UserAccount requireCurrentUser(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new RuntimeException("未授权，请先登录");
+        }
+        return authService.getCurrentUserEntity(authorization.substring(7));
+    }
+
+    private String normalizeAllowed(String value, String fallback, String[] allowedValues) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        for (String allowedValue : allowedValues) {
+            if (allowedValue.equals(value)) {
+                return value;
+            }
+        }
+        return fallback;
+    }
+
+    private Map<String, Object> loadFileBrowserPreferences(Long userId) {
+        try {
+            String raw = systemConfigService.getConfigValue(buildFileBrowserPreferenceKey(userId), "{}");
+            Map<String, Object> data = objectMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+            return data == null ? new HashMap<>() : data;
+        } catch (Exception ignored) {
+            return new HashMap<>();
+        }
+    }
+
+    private String buildFileBrowserPreferenceKey(Long userId) {
+        return "user_file_browser_preferences_" + (userId == null ? 0 : userId);
+    }
+
+    private Integer parseInteger(Object value, Integer fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return fallback;
         }
     }
 }

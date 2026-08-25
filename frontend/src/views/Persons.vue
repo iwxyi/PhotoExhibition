@@ -11,7 +11,7 @@
           <AppHeader :show-nav-links="!isMobile" />
           <div class="flex items-center space-x-4">
             <SearchSpotlight />
-            <SettingsMenu />
+            <PublicAccountMenu />
           </div>
         </div>
       </div>
@@ -77,13 +77,14 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { personApi, PersonSummary } from '@/api'
+import { buildPublicPath } from '@/utils/publicRoute'
 import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
-import SettingsMenu from '@/components/SettingsMenu.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 import PersonCard from '@/components/PersonCard.vue'
 import SearchSpotlight from '@/components/SearchSpotlight.vue'
 import { useMobileNav } from '@/composables/useMobileNav'
@@ -91,6 +92,7 @@ import { useNavAutoHide } from '@/composables/useNavAutoHide'
 import { useUiSettings } from '@/composables/useUiSettings'
 
 const router = useRouter()
+const route = useRoute()
 const themeStore = useThemeStore()
 const { isMobile } = useMobileNav()
 const { isHidden: navHidden } = useNavAutoHide()
@@ -106,10 +108,8 @@ const savedScrollTop = ref(0)  // 保存滚动位置
 const PAGE_SIZE = 20
 
 const goToPerson = (id: number) => {
-  // 保存来源页面（通过 URL 参数传递，因为新标签页无法共享 sessionStorage）
-  const entryPage = encodeURIComponent(window.location.pathname)
-  // 使用短路由 /p/ID
-  window.open(`/p/${id}?from=${entryPage}`, '_blank')
+  const entryPage = encodeURIComponent(route.fullPath)
+  router.push(buildPublicPath(`/p/${id}?from=${entryPage}`, route.path))
 }
 
 const loadPersons = async () => {
