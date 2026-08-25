@@ -1,6 +1,7 @@
 <template>
   <div id="app" :class="{ dark: isDark }">
     <div class="app-shell">
+      <AdminStyleChrome v-if="isAdminRoute" />
       <router-view v-slot="{ Component, route }">
         <KeepAlive include="Home,Wall,Random">
           <component :is="Component" :key="componentKey" />
@@ -38,6 +39,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePublicSiteStore } from '@/stores/publicSite'
 import { useSyncNotice } from '@/composables/useSyncNotice'
 import AdminFeedbackLayer from '@/components/admin/AdminFeedbackLayer.vue'
+import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 
 const themeStore = useThemeStore()
 const languageStore = useLanguageStore()
@@ -46,6 +48,7 @@ const publicSiteStore = usePublicSiteStore()
 const { notices } = useSyncNotice()
 const isDark = computed(() => themeStore.isDark)
 const route = useRoute()
+const isAdminRoute = computed(() => route.path.startsWith('/admin') && route.path !== '/admin/login')
 
 // 为 keep-alive 组件生成稳定的 key，避免路由参数变化导致组件重新创建
 const componentKey = computed(() => {

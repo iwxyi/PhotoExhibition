@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-tags-page">
-    <AdminStyleChrome />
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="admin-page-actions">
         <div class="admin-page-actions__group">
@@ -114,11 +113,11 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 import { buildPublicPath } from '@/utils/publicRoute'
 
 const tags = ref<any[]>([])
@@ -128,6 +127,7 @@ const selectedIds = ref<number[]>([])
 const lastClickedIndex = ref<number | null>(null)
 const router = useRouter()
 const authStore = useAuthStore()
+const { confirm, prompt } = useAdminFeedback()
 const listContainer = ref<HTMLElement | null>(null)
 const tagItemEls = ref<HTMLElement[]>([])
 
@@ -319,16 +319,16 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 }
 
 const editOne = async (t: any) => {
-  const newName = window.prompt('修改标签名称', t.name)
+  const newName = await prompt({ title: '修改标签名称', initialValue: t.name, confirmLabel: '保存' })
   if (newName === null || newName.trim() === '') return
-  const newColor = window.prompt('修改颜色(可选)', t.color || '')
+  const newColor = await prompt({ title: '修改标签颜色', message: '可留空。', initialValue: t.color || '', confirmLabel: '保存' })
   await api.put(`/tags/${t.id}`, { name: newName.trim(), color: newColor || null })
   await load()
 }
 
 const deleteSelected = async () => {
   if (selectedIds.value.length === 0) return
-  if (!window.confirm(`确定删除选中的 ${selectedIds.value.length} 个标签？`)) return
+  if (!await confirm({ title: `删除 ${selectedIds.value.length} 个标签`, message: '此操作不可撤销。', confirmLabel: '删除标签', tone: 'danger' })) return
   for (const id of selectedIds.value) {
     await api.delete(`/tags/${id}`)
   }

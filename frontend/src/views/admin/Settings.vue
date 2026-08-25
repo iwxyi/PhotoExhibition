@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-settings-shell">
-    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-settings-page">
       <section class="glass-panel admin-settings-group">
         <h2 class="admin-settings-group-title">展示与内容</h2>
@@ -317,7 +316,6 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
 import { useRouter } from 'vue-router'

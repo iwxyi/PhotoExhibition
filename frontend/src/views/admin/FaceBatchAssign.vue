@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-face-batch-page">
-    <AdminStyleChrome />
     <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
       <div class="admin-face-batch-workspace flex flex-col gap-4 min-h-[calc(100vh-10rem)]">
     <!-- 头部 -->
@@ -240,11 +239,18 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, aiApi, configApi } from '@/api'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
+
+const { notify } = useAdminFeedback()
+const getErrorMessage = (error: unknown) => {
+  const e = error as any
+  return e?.response?.data?.message || e?.response?.data?.error || e?.message || '未知错误'
+}
+const alert = (message: unknown) => notify(String(message), /失败|错误|不能|无效/.test(String(message)) ? 'error' : 'info')
 
 interface Face {
   id: number
@@ -446,7 +452,7 @@ const assignToPerson = async (personId: number) => {
     await skipCluster()
   } catch (e) {
     console.error('分配失败:', e)
-    alert('分配失败: ' + (e as any)?.response?.data?.message || (e as Error).message)
+    alert('分配失败：' + getErrorMessage(e))
   }
 }
 
@@ -553,7 +559,7 @@ const createAndAssignPerson = async () => {
     await skipCluster()
   } catch (e) {
     console.error('创建人物失败:', e)
-    alert('创建人物失败: ' + (e as any)?.response?.data?.message || (e as Error).message)
+    alert('创建人物失败：' + getErrorMessage(e))
   }
 }
 
@@ -582,7 +588,7 @@ const confirmAssign = async () => {
     await skipCluster()
   } catch (e) {
     console.error('分配失败:', e)
-    alert('分配失败: ' + (e as any)?.response?.data?.message || (e as Error).message)
+    alert('分配失败：' + getErrorMessage(e))
   }
 }
 

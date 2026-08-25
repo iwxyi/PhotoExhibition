@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-photos-page">
-    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="glass-panel admin-photos-panel">
         <div class="admin-query-toolbar">
@@ -14,36 +13,35 @@
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
+        <div class="admin-photos-list-meta">
           <span>当前页 {{ photos.length }} 项</span>
+          <span v-if="selectedIds.length">已选 {{ selectedIds.length }} 项</span>
         </div>
 
-        <div class="overflow-auto">
-          <table class="min-w-full text-sm admin-photos-table">
-            <thead class="text-left text-gray-400">
+        <div class="admin-photos-table-frame">
+          <table class="admin-photos-table">
+            <thead>
               <tr>
-                <th class="py-2 pr-4">
+                <th class="admin-photos-select-cell">
                   <input type="checkbox" class="accent-blue-500" :checked="allSelected" @change="toggleAll" />
                 </th>
-                <th class="py-2 pr-4">ID</th>
-                <th class="py-2 pr-4">缩略图</th>
-                <th class="py-2 pr-4">文件名</th>
-                <th class="py-2 pr-4">去重</th>
-                <th class="py-2 pr-4">尺寸</th>
-                <th class="py-2 pr-4">格式</th>
-                <th class="py-2 pr-4">拍摄时间</th>
-                <th class="py-2 pr-4">操作</th>
+                <th class="admin-photos-preview-cell">照片</th>
+                <th class="admin-photos-file-cell">文件</th>
+                <th class="admin-photos-spec-cell">属性</th>
+                <th class="admin-photos-duplicate-cell">去重</th>
+                <th class="admin-photos-date-cell">拍摄时间</th>
+                <th class="admin-photos-action-cell">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in photos" :key="p.id" class="border-t border-gray-700 admin-photos-row" :class="p.isHidden ? 'opacity-50' : ''">
-                <td class="py-2 pr-4">
+              <tr v-for="p in photos" :key="p.id" class="admin-photos-row" :class="{ 'admin-photos-row--hidden': p.isHidden }">
+                <td class="admin-photos-select-cell">
                   <input type="checkbox" class="accent-blue-500" v-model="selectedIds" :value="p.id" />
+                  <span class="admin-photos-row-id">#{{ p.id }}</span>
                 </td>
-                <td class="py-2 pr-4">{{ p.id }}</td>
-                <td class="py-2 pr-4">
+                <td class="admin-photos-preview-cell">
                   <div
-                    class="w-16 h-16 admin-photos-thumb rounded overflow-hidden flex items-center justify-center cursor-pointer"
+                    class="admin-photos-thumb"
                     @click="openPhoto(p.id)"
                     @mouseenter="showPreview(p)"
                     @mousemove="movePreview"
@@ -56,17 +54,17 @@
                       class="w-full h-full object-cover"
                       loading="lazy"
                     />
-                    <span v-else class="text-xs text-gray-500">无图</span>
+                    <span v-else>无图</span>
                   </div>
                 </td>
-                <td class="py-2 pr-4 whitespace-nowrap">
-                  <div class="flex flex-col gap-1">
-                    <span>{{ p.filename }}</span>
-                    <div class="flex flex-wrap gap-1">
+                <td class="admin-photos-file-cell">
+                  <div class="admin-photos-file">
+                    <span class="admin-photos-filename" :title="p.filename">{{ p.filename }}</span>
+                    <div v-if="p.tags?.length" class="admin-photos-tags">
                       <span
                         v-for="t in p.tags || []"
                         :key="t.id"
-                        class="px-2 py-0.5 rounded-full text-xs cursor-pointer"
+                        class="admin-photos-tag"
                         :style="{ backgroundColor: t.color || 'rgba(59,130,246,0.1)', color: t.color ? '#fff' : '#93c5fd' }"
                         @click.stop="openTag(t)"
                       >
@@ -75,27 +73,31 @@
                     </div>
                   </div>
                 </td>
-                <td class="py-2 pr-4 whitespace-nowrap">
-                  <div class="flex flex-col gap-1 text-xs">
+                <td class="admin-photos-spec-cell">
+                  <div class="admin-photos-spec">
+                    <span>{{ p.width }} x {{ p.height }}</span>
+                    <span>{{ p.format || '未知格式' }}</span>
+                  </div>
+                </td>
+                <td class="admin-photos-duplicate-cell">
+                  <div class="admin-photos-duplicate">
                     <span
-                      class="inline-flex w-fit px-2 py-0.5 rounded-full border"
+                      class="admin-photos-duplicate-state"
                       :class="p.duplicateContent ? 'border-amber-500/40 text-amber-300 bg-amber-500/10' : 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'"
                     >
                       {{ p.duplicateContent ? '重复副本' : '规范源' }}
                     </span>
-                    <span v-if="p.canonicalPhotoId" class="text-gray-400">源ID: {{ p.canonicalPhotoId }}</span>
-                    <span v-if="p.contentHash" class="text-gray-500 font-mono">{{ shortHash(p.contentHash) }}</span>
+                    <span v-if="p.canonicalPhotoId">源 #{{ p.canonicalPhotoId }}</span>
+                    <span v-else-if="p.contentHash" class="admin-photos-hash">{{ shortHash(p.contentHash) }}</span>
                   </div>
                 </td>
-                <td class="py-2 pr-4">{{ p.width }} x {{ p.height }}</td>
-                <td class="py-2 pr-4">{{ p.format }}</td>
-                <td class="py-2 pr-4 whitespace-nowrap">{{ formatDate(p.takenAt) }}</td>
-                <td class="py-2 pr-4 space-x-2">
-                  <button @click="openFaceDialog(p)" class="admin-button-soft px-3 py-1 rounded text-xs">人脸</button>
+                <td class="admin-photos-date-cell">{{ formatDate(p.takenAt) || '-' }}</td>
+                <td class="admin-photos-action-cell">
+                  <button @click="openFaceDialog(p)" class="admin-button-soft admin-photos-face-button">人脸</button>
                 </td>
               </tr>
               <tr v-if="!loading && photos.length === 0">
-                <td colspan="9" class="py-10 text-center text-sm text-gray-400">
+                <td colspan="7" class="admin-photos-empty">
                   当前筛选条件下没有图片
                 </td>
               </tr>
@@ -103,23 +105,23 @@
           </table>
         </div>
 
-        <div class="flex items-center justify-between mt-4 text-sm text-gray-300">
+        <div class="admin-photos-pagination">
           <span>第 {{ page + 1 }} / {{ totalPages }} 页</span>
-          <div class="flex items-center gap-2">
-            <button @click="prev" :disabled="page===0 || loading" class="admin-button-soft px-3 py-1 rounded disabled:opacity-40">上一页</button>
-            <div class="flex items-center gap-1">
+          <div class="admin-photos-pagination-actions">
+            <button @click="prev" :disabled="page===0 || loading" class="admin-button-soft admin-photos-pagination-button">上一页</button>
+            <div class="admin-photos-page-numbers">
               <button
                 v-for="pnum in pageNumbers"
                 :key="pnum"
                 @click="jumpTo(pnum)"
                 :disabled="loading"
-                class="admin-photos-page-btn px-3 py-1 rounded border border-gray-700"
+                class="admin-photos-page-btn"
                 :class="pnum === page ? 'admin-photos-page-btn--active' : 'admin-photos-page-btn--idle'"
               >
                 {{ pnum + 1 }}
               </button>
             </div>
-            <button @click="next" :disabled="page>=totalPages-1 || loading" class="admin-button-soft px-3 py-1 rounded disabled:opacity-40">下一页</button>
+            <button @click="next" :disabled="page>=totalPages-1 || loading" class="admin-button-soft admin-photos-pagination-button">下一页</button>
           </div>
         </div>
       </div>
@@ -214,16 +216,18 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { useAuthStore } from '@/stores/auth'
 import { buildPublicPath } from '@/utils/publicRoute'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const { notify, confirm } = useAdminFeedback()
+const alert = (message: unknown) => notify(String(message), /失败|错误|不能|无效/.test(String(message)) ? 'error' : 'info')
 
 const photos = ref<any[]>([])
 const loading = ref(false)
@@ -346,7 +350,7 @@ const toggleAll = (e: Event) => {
 
 const deleteSelected = async () => {
   if (selectedIds.value.length === 0) return
-  if (!window.confirm(`确定删除选中的 ${selectedIds.value.length} 张图片？`)) return
+  if (!await confirm({ title: `删除 ${selectedIds.value.length} 张图片`, message: '此操作不可撤销。', confirmLabel: '删除图片', tone: 'danger' })) return
   for (const id of selectedIds.value) {
     await api.delete(`/photos/${id}`)
   }

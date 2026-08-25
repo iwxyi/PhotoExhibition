@@ -8,6 +8,7 @@ export type AdminConfirmOptions = {
   confirmLabel?: string
   tone?: 'default' | 'danger'
 }
+export type AdminPromptOptions = AdminConfirmOptions & { initialValue?: string; placeholder?: string }
 
 type AdminNotice = {
   id: number
@@ -18,9 +19,11 @@ type AdminNotice = {
 type PendingConfirm = AdminConfirmOptions & {
   resolve: (confirmed: boolean) => void
 }
+type PendingPrompt = AdminPromptOptions & { resolve: (value: string | null) => void }
 
 const notices = ref<AdminNotice[]>([])
 const pendingConfirm = ref<PendingConfirm | null>(null)
+const pendingPrompt = ref<PendingPrompt | null>(null)
 let noticeId = 0
 
 export const notifyAdmin = (message: string, tone: AdminNoticeTone = 'info') => {
@@ -41,11 +44,23 @@ export const resolveAdminConfirm = (confirmed: boolean) => {
   pendingConfirm.value = null
   current.resolve(confirmed)
 }
+export const promptAdmin = (options: AdminPromptOptions) => new Promise<string | null>(resolve => {
+  pendingPrompt.value = { ...options, resolve }
+})
+export const resolveAdminPrompt = (value: string | null) => {
+  const current = pendingPrompt.value
+  if (!current) return
+  pendingPrompt.value = null
+  current.resolve(value)
+}
 
 export const useAdminFeedback = () => ({
   notices: computed(() => notices.value),
   pendingConfirm: computed(() => pendingConfirm.value),
+  pendingPrompt: computed(() => pendingPrompt.value),
   notify: notifyAdmin,
   confirm: confirmAdmin,
-  resolveConfirm: resolveAdminConfirm
+  resolveConfirm: resolveAdminConfirm,
+  prompt: promptAdmin,
+  resolvePrompt: resolveAdminPrompt
 })

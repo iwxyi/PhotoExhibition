@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-dashboard-page">
-    <AdminStyleChrome />
     <main class="admin-workbench">
       <section class="admin-metric-grid" aria-label="内容统计">
         <router-link to="/admin/albums" class="admin-metric"><span>相册</span><strong>{{ stats.albums }}</strong></router-link>
@@ -219,7 +218,6 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { api } from '@/api'
 import { storageTypeLabel } from '@/utils/providerLabels'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'

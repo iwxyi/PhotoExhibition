@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-file-browser-page">
-    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 admin-file-browser-shell">
       <div class="glass-panel p-2.5 admin-file-browser-breadcrumbs">
         <div class="flex items-center gap-2 flex-wrap">
@@ -1142,7 +1141,6 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { api, getEffectiveAuthToken, type UploadPrecheckResponse } from '@/api'
 import { useAuthStore } from '@/stores/auth'

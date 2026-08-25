@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-super-admin-page">
-    <AdminStyleChrome />
     <div class="max-w-[1800px] 2xl:max-w-[96vw] mx-auto px-4 sm:px-6 lg:px-8 py-3 space-y-3 admin-super-admin-shell">
       <section class="admin-page-hero admin-super-admin-hero">
         <div class="admin-page-hero-grid">
@@ -1505,11 +1504,9 @@
                 {{ emailTemplatePreview.html ? 'HTML' : '纯文本' }}
               </span>
             </div>
-            <div
-              v-if="emailTemplatePreview.html"
-              class="rounded-lg bg-white text-gray-900 p-4 text-sm"
-              v-html="emailTemplatePreview.content"
-            />
+            <div v-if="emailTemplatePreview.html" class="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <AdminHtmlPreview :html="emailTemplatePreview.content" />
+            </div>
             <pre
               v-else
               class="rounded-lg admin-super-admin-log-box p-4 text-xs admin-table-muted whitespace-pre-wrap overflow-x-auto"
@@ -3498,8 +3495,8 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import AdminSuperAdminTabbar from '@/components/admin/AdminSuperAdminTabbar.vue'
+import AdminHtmlPreview from '@/components/admin/AdminHtmlPreview.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiTestToolPanel from '@/components/admin/ApiTestToolPanel.vue'

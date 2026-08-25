@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-persons-page">
-    <AdminStyleChrome />
     <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="admin-persons-workspace flex flex-col gap-4 min-h-[calc(100vh-10rem)]">
         <div class="glass-panel admin-query-toolbar admin-query-toolbar--compact admin-persons-query-toolbar">
@@ -8,7 +7,7 @@
             <input
               v-model="personKeyword"
               aria-label="搜索人物"
-              @input="loadPersons"
+              @input="schedulePersonSearch"
               placeholder="搜索人物"
               class="admin-field admin-persons-field admin-query-toolbar__search"
             />
@@ -1190,7 +1189,6 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, watch, computed, nextTick, onBeforeUnmount, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api, personApi, configApi } from '@/api'
@@ -1199,11 +1197,14 @@ import { useAuthStore } from '@/stores/auth'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { buildPublicPath } from '@/utils/publicRoute'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
 const route = useRoute()
 const photoStore = usePhotoStore()
 const authStore = useAuthStore()
+const { notify } = useAdminFeedback()
+const alert = (message: unknown) => notify(String(message).replace(/^[✅❌]\s*/, ''), /失败|错误|不能|未找到|无效/.test(String(message)) ? 'error' : 'info')
 
 interface PersonListItem {
   type: 'confirmed' | 'cluster'
@@ -1783,7 +1784,19 @@ const handleFaceListKeydown = (e: KeyboardEvent) => {
   }
 }
 
+let personSearchTimer: number | null = null
+let personsLoadRequestId = 0
+
+const schedulePersonSearch = () => {
+  if (personSearchTimer !== null) window.clearTimeout(personSearchTimer)
+  personSearchTimer = window.setTimeout(() => {
+    personSearchTimer = null
+    void loadPersons({ autoSelectFirst: false })
+  }, 250)
+}
+
 const loadPersons = async (options?: { restoreClusterPages?: number; autoSelectFirst?: boolean }) => {
+  const requestId = ++personsLoadRequestId
   const targetClusterPages = options?.restoreClusterPages ?? 1
   const autoSelectFirst = options?.autoSelectFirst ?? true
   loadingPersons.value = true
@@ -1792,6 +1805,7 @@ const loadPersons = async (options?: { restoreClusterPages?: number; autoSelectF
     const confirmedRes = await api.get('/admin/persons/items', {
       params: { threshold: clusterThreshold.value, clusterPage: 0, clusterSize: clusterPageSize.value }
     })
+    if (requestId !== personsLoadRequestId) return
     let list: PersonListItem[] = confirmedRes.data || []
 
     // 过滤出已确认人物，按确认照片总数降序排序
@@ -1814,6 +1828,7 @@ const loadPersons = async (options?: { restoreClusterPages?: number; autoSelectF
       const res = await api.get('/admin/persons/items', {
         params: { threshold: clusterThreshold.value, clusterPage: clusterPage.value, clusterSize: clusterPageSize.value }
       })
+      if (requestId !== personsLoadRequestId) return
       const newClusters: PersonListItem[] = (res.data || []).filter((p: PersonListItem) => p.type === 'cluster')
       if (newClusters.length < clusterPageSize.value) {
         hasMoreClusters.value = false
@@ -1834,7 +1849,7 @@ const loadPersons = async (options?: { restoreClusterPages?: number; autoSelectF
       selectPerson(persons.value[0])
     }
   } finally {
-    loadingPersons.value = false
+    if (requestId === personsLoadRequestId) loadingPersons.value = false
   }
 }
 
@@ -5681,6 +5696,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 }
 
 onBeforeUnmount(() => {
+  if (personSearchTimer !== null) window.clearTimeout(personSearchTimer)
   if (isResizing.value) {
     stopResize()
   }

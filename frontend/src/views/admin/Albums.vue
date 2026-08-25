@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-albums-page">
-    <AdminStyleChrome />
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="glass-panel admin-query-toolbar admin-query-toolbar--compact">
         <div class="admin-query-toolbar__fields">
@@ -1195,7 +1194,6 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, albumApi, getEffectiveAuthToken } from '@/api'

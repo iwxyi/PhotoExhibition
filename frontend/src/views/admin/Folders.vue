@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen admin-shell admin-folders-page">
-    <AdminStyleChrome />
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
       <div class="admin-folders-hero flex items-center justify-between gap-4">
         <h1 class="text-2xl font-light admin-page-title">数据迁移</h1>
@@ -82,12 +81,13 @@
 </template>
 
 <script setup lang="ts">
-import AdminStyleChrome from '@/components/admin/AdminStyleChrome.vue'
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
+import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
+const { confirm } = useAdminFeedback()
 
 const source = ref('')
 const target = ref('')
@@ -172,7 +172,7 @@ const move = async () => {
 }
 
 const remove = async () => {
-  if (!window.confirm('确认删除该目录以及数据库记录？此操作不可撤销。')) return
+  if (!await confirm({ title: '删除目录', message: '将删除目录以及数据库记录，此操作不可撤销。', confirmLabel: '删除目录', tone: 'danger' })) return
   loading.value = true
   message.value = ''
   error.value = false

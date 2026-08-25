@@ -18,13 +18,24 @@
         </div>
       </section>
     </div>
+    <div v-if="pendingPrompt" class="admin-confirm-backdrop" @click.self="resolvePrompt(null)">
+      <form class="admin-confirm-dialog" @submit.prevent="resolvePrompt(promptValue)">
+        <h2>{{ pendingPrompt.title }}</h2>
+        <p v-if="pendingPrompt.message">{{ pendingPrompt.message }}</p>
+        <input v-model="promptValue" class="admin-field admin-prompt-input" :placeholder="pendingPrompt.placeholder" autofocus />
+        <div class="admin-confirm-actions"><button type="button" class="admin-button-soft" @click="resolvePrompt(null)">取消</button><button type="submit" class="btn-primary">{{ pendingPrompt.confirmLabel || '确认' }}</button></div>
+      </form>
+    </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
-const { notices, pendingConfirm, resolveConfirm } = useAdminFeedback()
+const { notices, pendingConfirm, pendingPrompt, resolveConfirm, resolvePrompt } = useAdminFeedback()
+const promptValue = ref('')
+watch(pendingPrompt, prompt => { promptValue.value = prompt?.initialValue || '' })
 </script>
 
 <style>
@@ -41,6 +52,7 @@ const { notices, pendingConfirm, resolveConfirm } = useAdminFeedback()
 .admin-confirm-dialog p { white-space: pre-line; margin: .65rem 0 0; color: var(--pe-admin-text-muted, #94a3b8); font-size: .875rem; line-height: 1.55; }
 .admin-confirm-actions { display: flex; justify-content: flex-end; gap: .65rem; margin-top: 1.25rem; }
 .admin-confirm-actions > button { min-height: 2.25rem; padding: .42rem .8rem; border-radius: 5px; font-size: .875rem; }
+.admin-prompt-input { width: 100%; min-height: 2.25rem; margin-top: 1rem; padding: .45rem .7rem; }
 .admin-button-danger { border: 1px solid rgba(244,63,94,.5); background: #e11d48; color: #fff; }
 .admin-button-danger:hover { background: #be123c; }
 @media (max-width: 640px) { .admin-notice-stack { top: auto; right: 1rem; bottom: 1rem; } }
