@@ -95,28 +95,6 @@
       <div class="flex-1 relative min-h-0" :style="mainContentStyle" ref="mainContentArea">
         <!-- 相册氛围特效 - 背景层（在图片下方） -->
         <AtmosphereEffects v-if="albumAtmosphereEffects.length > 0" :effects="albumAtmosphereEffects" layer-filter="background" />
-        <!-- 移动端左右切换按钮 - 只在手机上显示 -->
-        <button
-          v-if="currentIndex > 0"
-          class="nav-button left-2"
-          @click.stop="prev"
-          title="上一张"
-        >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <button
-          v-if="currentIndex < photos.length - 1"
-          class="nav-button right-2"
-          @click.stop="next"
-          title="下一张"
-        >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-
         <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
         <div
           class="absolute flex items-center justify-center z-[1] cursor-grab active:cursor-grabbing"
@@ -161,7 +139,7 @@
                  同时保留旧图和新图会在索引提交帧叠加，导致上下闪烁。 -->
             <img
               v-if="currentPhoto"
-              :key="`${currentPhoto.id}-${viewingOriginal ? 'original' : 'large'}-${imageRetryToken}`"
+              :key="imageRetryToken"
               ref="mainImage"
               :src="getImageUrl(currentPhoto)"
               :alt="currentPhoto.filename"
@@ -282,9 +260,6 @@
             class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-white/20 transition-colors resize-handle"
             title="拖动调整宽度"
             @pointerdown.prevent="startResize"
-            @pointermove="onResize"
-            @pointerup="endResize"
-            @pointercancel="endResize"
           ></div>
           <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <span class="text-sm font-semibold">信息</span>
@@ -593,7 +568,10 @@
         >
           <div
             class="absolute inset-x-0 top-0 h-3 cursor-ns-resize border-b border-white/20 bg-black/40 z-20 drag-handle"
-            @mousedown.prevent="startDrag"
+            @pointerdown.prevent="startDrag"
+            @pointermove="onThumbResizeMove"
+            @pointerup="endThumbResize"
+            @pointercancel="endThumbResize"
             title="拖动调整高度"
           ></div>
           <div class="h-1"></div>
@@ -780,6 +758,9 @@ const isInfoPanelAnimating = ref(false)
 const isResizingInfoPanel = ref(false)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(320)
+const isResizingThumb = ref(false)
+const thumbResizeStartY = ref(0)
+const thumbResizeStartHeight = ref(112)
 
 // 响应式窗口宽度（用于判断是否显示遮罩层）
 const windowWidth = ref(window.innerWidth)
@@ -848,6 +829,8 @@ const touchSwipeStartX = ref(0)
 const touchSwipeStartY = ref(0)
 const touchSwipeOffset = ref(0)
 const swipeTransitioning = ref(false)
+const pendingSwipeDirection = ref<'previous' | 'next' | null>(null)
+let swipeTimer: ReturnType<typeof setTimeout> | null = null
 
 // 空白区域滑动相关
 const backdropSwipeStartX = ref(0)
@@ -1433,27 +1416,34 @@ const finishSwipe = (direction: 'previous' | 'next') => {
     swipeTransitioning.value = true
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
-    window.setTimeout(() => { swipeTransitioning.value = false }, 260)
+    if (swipeTimer) clearTimeout(swipeTimer)
+    swipeTimer = window.setTimeout(() => { swipeTransitioning.value = false; swipeTimer = null }, 260)
     return
   }
 
   swipeTransitioning.value = true
+  pendingSwipeDirection.value = direction
   const target = direction === 'previous' ? window.innerWidth : -window.innerWidth
   touchSwipeOffset.value = target
   imageDragOffset.value = target
-  window.setTimeout(() => {
+  if (swipeTimer) clearTimeout(swipeTimer)
+  swipeTimer = window.setTimeout(() => {
     direction === 'previous' ? prev() : next()
+    pendingSwipeDirection.value = null
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
     swipeTransitioning.value = false
+    swipeTimer = null
   }, 260)
 }
 
 const cancelSwipe = () => {
   swipeTransitioning.value = true
+  pendingSwipeDirection.value = null
   touchSwipeOffset.value = 0
   imageDragOffset.value = 0
-  window.setTimeout(() => { swipeTransitioning.value = false }, 260)
+  if (swipeTimer) clearTimeout(swipeTimer)
+  swipeTimer = window.setTimeout(() => { swipeTransitioning.value = false; swipeTimer = null }, 260)
 }
 
 const jump = (idx: number) => {
@@ -1594,6 +1584,9 @@ const startResize = (e: PointerEvent) => {
   resizeStartX.value = e.clientX
   resizeStartWidth.value = infoPanelWidth.value
   ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  document.addEventListener('pointermove', onResize)
+  document.addEventListener('pointerup', endResize)
+  document.addEventListener('pointercancel', endResize)
 }
 
 // 调整信息栏宽度中
@@ -1613,7 +1606,10 @@ const endResize = (e: PointerEvent) => {
   if (!isResizingInfoPanel.value) return
 
   isResizingInfoPanel.value = false
-  ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+  ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
+  document.removeEventListener('pointermove', onResize)
+  document.removeEventListener('pointerup', endResize)
+  document.removeEventListener('pointercancel', endResize)
 
   // 保存到 localStorage
   localStorage.setItem('pe-info-panel-width', infoPanelWidth.value.toString())
@@ -1807,6 +1803,15 @@ const pointerCenter = (points: { x: number; y: number }[]) => ({
 // Pointer Events 主路径：不再依赖浏览器合成 mouse/touch 事件，避免同一次手势被处理两遍。
 const onImagePointerDown = (e: PointerEvent) => {
   if (closing.value) return
+  if (swipeTransitioning.value) {
+    if (swipeTimer) clearTimeout(swipeTimer)
+    if (pendingSwipeDirection.value === 'previous') prev()
+    if (pendingSwipeDirection.value === 'next') next()
+    pendingSwipeDirection.value = null
+    touchSwipeOffset.value = 0
+    imageDragOffset.value = 0
+    swipeTransitioning.value = false
+  }
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture?.(e.pointerId)
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -2404,30 +2409,29 @@ const scrollThumbIntoView = (animate = true) => {
   })
 }
 
-const startDrag = (e: MouseEvent) => {
-  const startY = e.clientY
-  const startHeight = thumbHeight.value
-
-  const handleMouseMove = (moveEvent: MouseEvent) => {
-    const deltaY = startY - moveEvent.clientY // 向上拖动增加高度
-    const newHeight = Math.max(80, Math.min(300, startHeight + deltaY))
-    thumbHeight.value = newHeight
-  }
-
-  const handleMouseUp = () => {
-    // 保存到本地存储
-    localStorage.setItem(THUMB_KEY, thumbHeight.value.toString())
-
-    document.removeEventListener('mousemove', handleMouseMove)
-    document.removeEventListener('mouseup', handleMouseUp)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-  }
-
-  document.addEventListener('mousemove', handleMouseMove)
-  document.addEventListener('mouseup', handleMouseUp)
+const startDrag = (e: PointerEvent) => {
+  isResizingThumb.value = true
+  thumbResizeStartY.value = e.clientY
+  thumbResizeStartHeight.value = thumbHeight.value
+  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
   document.body.style.cursor = 'ns-resize'
   document.body.style.userSelect = 'none'
+}
+
+const onThumbResizeMove = (e: PointerEvent) => {
+  if (!isResizingThumb.value) return
+  const deltaY = thumbResizeStartY.value - e.clientY
+  thumbHeight.value = Math.max(80, Math.min(300, thumbResizeStartHeight.value + deltaY))
+  e.preventDefault()
+}
+
+const endThumbResize = (e: PointerEvent) => {
+  if (!isResizingThumb.value) return
+  isResizingThumb.value = false
+  try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+  localStorage.setItem(THUMB_KEY, thumbHeight.value.toString())
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
 }
 
 // 路由跳转函数
@@ -2710,6 +2714,12 @@ onBeforeUnmount(() => {
   pointerGesture.value = 'none'
   clearTimeout((onImageWheel as any).zoomTimeout)
   clearTimeout((onImageWheel as any).panTimeout)
+  if (swipeTimer) clearTimeout(swipeTimer)
+  document.removeEventListener('pointermove', onResize)
+  document.removeEventListener('pointerup', endResize)
+  document.removeEventListener('pointercancel', endResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
 })
 </script>
 
