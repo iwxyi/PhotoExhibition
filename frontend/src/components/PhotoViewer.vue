@@ -9,6 +9,7 @@
       @click="onBackdropClick"
       tabindex="0"
       ref="modalRoot"
+      :style="modalStyle"
     >
       <!-- 顶部栏 -->
       <div class="top-bar absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
@@ -121,17 +122,35 @@
           class="absolute flex items-center justify-center z-[1] cursor-grab active:cursor-grabbing"
           :style="imageContainerStyle"
           @click="onImageContainerClick"
-          @mousedown="onImageMouseDown"
-          @mousemove="onImageMouseMove"
-          @mouseup="onImageMouseUp"
-          @mouseleave="onImageMouseUp"
-          @touchstart="onImageTouchStart"
-          @touchmove="onImageTouchMove"
-          @touchend="onImageTouchEnd"
+          @pointerdown="onImagePointerDown"
+          @pointermove="onImagePointerMove"
+          @pointerup="onImagePointerUp"
+          @pointercancel="onImagePointerUp"
           @wheel="onImageWheel"
           @dblclick="onImageDoubleClick"
           ref="imageViewport"
         >
+          <!-- 前后邻图参与同一条滑动轨道，拖拽时实时露出 -->
+          <div class="absolute inset-0 pointer-events-none overflow-hidden swipe-stage">
+            <img
+              v-if="previousPhoto"
+              :src="getImageUrl(previousPhoto)"
+              :alt="previousPhoto.filename"
+              loading="eager"
+              decoding="async"
+              class="absolute left-1/2 top-1/2 select-none swipe-adjacent-image"
+              :style="getAdjacentImageStyle('previous')"
+            />
+            <img
+              v-if="nextPhoto"
+              :src="getImageUrl(nextPhoto)"
+              :alt="nextPhoto.filename"
+              loading="eager"
+              decoding="async"
+              class="absolute left-1/2 top-1/2 select-none swipe-adjacent-image"
+              :style="getAdjacentImageStyle('next')"
+            />
+          </div>
           <!-- 图片包装容器 - 应用变换，使人脸框和 -->
           <div
             class="relative photo-viewer-img-wrapper"
@@ -141,9 +160,11 @@
             <transition name="image-fade">
               <img
                 v-if="currentPhoto"
+                :key="`${currentPhoto.id}-${viewingOriginal ? 'original' : 'large'}-${imageRetryToken}`"
                 ref="mainImage"
                 :src="getImageUrl(currentPhoto)"
                 :alt="currentPhoto.filename"
+                decoding="async"
                 class="select-none main-image pointer-events-none"
                 :style="imageStyle"
                 @load="onImageLoad"
@@ -227,7 +248,13 @@
                 </div>
           </transition>
 
-          <!-- 加载状态 -->
+          <!-- 加载状态：首图/切图均不阻塞手势，失败提供可重试提示 -->
+          <div v-if="currentPhoto && !imageLoaded && !imageLoadError" class="absolute inset-0 z-[2] flex items-center justify-center pointer-events-none">
+            <div class="rounded-full bg-black/45 px-4 py-2 text-xs text-white/75 backdrop-blur-sm">正在加载图片…</div>
+          </div>
+          <div v-if="imageLoadError" class="absolute inset-0 z-[2] flex items-center justify-center">
+            <button class="rounded-full bg-black/65 px-4 py-2 text-xs text-white hover:bg-black/80" @click.stop="retryCurrentImage">图片加载失败，点击重试</button>
+          </div>
           <div v-if="!currentPhoto" class="text-white/50">加载中...</div>
         </div>
 
@@ -733,6 +760,8 @@ const imageViewport = ref<HTMLElement | null>(null) // 图片可视区域（不�
 const imageWrapper = ref<HTMLElement | null>(null) // 图片包装容器（用于控制动画）
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
+const imageLoadError = ref(false)
+const imageRetryToken = ref(0)
 const isInitialLoad = ref(true) // 标记是否为初始加载
 const scale = ref(1)
 const translateX = ref(0)
@@ -801,9 +830,24 @@ const lastTouchCenter = ref({ x: 0, y: 0 }) // 上次触摸中心点，用于双
 const initialTranslateX = ref(0) // 触摸开始时的 translateX
 const initialTranslateY = ref(0) // 触摸开始时的 translateY
 
+// 统一 Pointer Events 手势状态（触摸、鼠标、触控笔共用一套路径）
+const activePointers = new Map<number, { x: number; y: number }>()
+const pointerGesture = ref<'none' | 'pending' | 'swipe' | 'pan' | 'pinch'>('none')
+const pointerStartX = ref(0)
+const pointerStartY = ref(0)
+const pointerLastX = ref(0)
+const pointerLastY = ref(0)
+const pointerStartTime = ref(0)
+const pointerPinchDistance = ref(0)
+const pointerPinchScale = ref(1)
+const pointerPinchTranslate = ref({ x: 0, y: 0 })
+const pointerPinchCenter = ref({ x: 0, y: 0 })
+
 // 单指滑动切换照片相关
 const touchSwipeStartX = ref(0)
+const touchSwipeStartY = ref(0)
 const touchSwipeOffset = ref(0)
+const swipeTransitioning = ref(false)
 
 // 空白区域滑动相关
 const backdropSwipeStartX = ref(0)
@@ -833,6 +877,13 @@ const similarPhotosVisible = ref(false)
 
 // 防止拖拽后意外关闭的状态
 const wasDragging = ref(false)
+const opening = ref(false)
+const closing = ref(false)
+const originTransform = ref<string | null>(null)
+const modalStyle = computed(() => ({
+  opacity: closing.value ? 0 : 1,
+  transition: 'opacity 220ms ease'
+}))
 
 const { viewOriginalEnabled } = useUiSettings()
 
@@ -844,6 +895,9 @@ const THUMB_KEY = 'pe-thumb-height'
 
 // 计算属性
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
+const previousPhoto = computed(() => currentIndex.value > 0 ? props.photos[currentIndex.value - 1] : null)
+const nextPhoto = computed(() => currentIndex.value < props.photos.length - 1 ? props.photos[currentIndex.value + 1] : null)
+const swipeOffset = computed(() => touchSwipeOffset.value || imageDragOffset.value)
 
 // 获取当前相册的氛围特效（用于在查看器中显示）
 const photoStore = usePhotoStore()
@@ -960,6 +1014,13 @@ const imageTransformStyle = computed(() => {
   // 如果正在拖拽、缩放、平移或触摸操作，禁用过渡效果
   const isInteracting = isImageDragging.value || isZooming.value || isPanning.value || isPinching.value
 
+  if (originTransform.value) {
+    return {
+      transform: originTransform.value,
+      transformOrigin: 'center center',
+      transition: opening.value || closing.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
+    }
+  }
   if (scale.value > 1) {
     return {
       // transform 从右到左应用：translate(...) scale(...) 表示先 scale 后 translate
@@ -971,15 +1032,31 @@ const imageTransformStyle = computed(() => {
   } else {
     // 未缩放时，只需要拖拽切换的偏移
     // 图片位置由 imageContainerStyle 控制，会自动跟随信息栏动画
-    const dragOffsetX = imageDragOffset.value * 0.3
+    const dragOffsetX = swipeOffset.value
     return {
       transform: `translateX(${dragOffsetX}px)`,
       transformOrigin: 'center center',
-      // 拖拽切换时禁用动画，信息栏动画由 imageContainerStyle 处理
-      transition: isInteracting ? 'none' : 'transform 0.3s ease'
+      // 拖拽跟手；松手时由同一条轨道完成滑入或弹回
+      transition: swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' : (isInteracting ? 'none' : 'transform 0.3s ease')
     }
   }
 })
+
+const getAdjacentImageStyle = (direction: 'previous' | 'next') => {
+  const offset = swipeOffset.value
+  const width = window.innerWidth
+  const base = direction === 'previous' ? -width : width
+  return {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    width: 'auto',
+    height: 'auto',
+    objectFit: 'contain',
+    transform: `translate(calc(-50% + ${base + offset}px), -50%)`,
+    opacity: Math.min(1, Math.max(0, Math.abs(offset) / Math.max(width * 0.35, 1))),
+    transition: swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease' : 'none'
+  }
+}
 
 // 人脸颜色数组 - 为不同人脸分配不同颜色
 const FACE_COLORS = [
@@ -1074,6 +1151,9 @@ watch(() => props.visible, (newVisible) => {
     showAdminMenu.value = false
     // 打开查看器时，根据 startIndex 设置当前索引
     currentIndex.value = props.startIndex ?? 0
+    opening.value = !!props.originRect
+    closing.value = false
+    originTransform.value = null
     // 标记为初始加载
     isInitialLoad.value = true
     // 重新初始化框体状态（forceShowFaces需要在每次打开时生效）
@@ -1121,6 +1201,30 @@ watch(() => props.startIndex, (newStartIndex) => {
     })
   }
 })
+
+// 相册数据可能在查看器已打开后异步替换（随机页、筛选页尤其常见）。
+// 以 photoId 作为资源生命周期边界，确保旧图片的 load/error 回调不会污染新图片状态。
+watch(() => [currentPhoto.value?.id, viewingOriginal.value, props.photos.length] as const, () => {
+  imageLoaded.value = false
+  imageLoadError.value = false
+  isSwitchingPhoto.value = true
+  scale.value = 1
+  translateX.value = 0
+  translateY.value = 0
+  touchSwipeOffset.value = 0
+  imageDragOffset.value = 0
+})
+
+watch(() => props.photos, (nextPhotos) => {
+  if (!nextPhotos.length) {
+    currentIndex.value = 0
+    imageLoaded.value = false
+    return
+  }
+  if (currentIndex.value >= nextPhotos.length) {
+    currentIndex.value = nextPhotos.length - 1
+  }
+}, { deep: false })
 
 // 监听图片加载状态变化，确保人脸框在图片加载完成后重新计算
 watch(() => imageLoaded.value, (newLoaded) => {
@@ -1229,6 +1333,23 @@ if (savedWidth) {
 // 基本功能函数
 const close = () => {
   showAdminMenu.value = false
+  if (closing.value) return
+  if (props.originRect && mainImage.value) {
+    const target = props.originRect
+    const current = mainImage.value.getBoundingClientRect()
+    if (current.width > 0 && current.height > 0) {
+      const dx = target.left + target.width / 2 - (current.left + current.width / 2)
+      const dy = target.top + target.height / 2 - (current.top + current.height / 2)
+      closing.value = true
+      originTransform.value = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
+      window.setTimeout(() => {
+        originTransform.value = null
+        closing.value = false
+        emit('update:visible', false)
+      }, 220)
+      return
+    }
+  }
   emit('update:visible', false)
 }
 
@@ -1244,11 +1365,12 @@ const toggleFullscreen = () => {
 
 const prev = () => {
   if (!props.photos?.length) return
+  if (currentIndex.value <= 0) return
   showAdminMenu.value = false
   const oldIndex = currentIndex.value
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true
-  currentIndex.value = (currentIndex.value - 1 + props.photos.length) % props.photos.length
+  currentIndex.value = currentIndex.value - 1
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
   // 重置缩放和位置
@@ -1276,11 +1398,12 @@ const prev = () => {
 
 const next = () => {
   if (!props.photos?.length) return
+  if (currentIndex.value >= props.photos.length - 1) return
   showAdminMenu.value = false
   const oldIndex = currentIndex.value
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true
-  currentIndex.value = (currentIndex.value + 1) % props.photos.length
+  currentIndex.value = currentIndex.value + 1
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
   // 重置缩放和位置
@@ -1301,6 +1424,36 @@ const next = () => {
     to: currentIndex.value,
     filename: currentPhoto.value?.filename
   })
+}
+
+const finishSwipe = (direction: 'previous' | 'next') => {
+  if (swipeTransitioning.value) return
+  const canMove = direction === 'previous' ? currentIndex.value > 0 : currentIndex.value < props.photos.length - 1
+  if (!canMove) {
+    swipeTransitioning.value = true
+    touchSwipeOffset.value = 0
+    imageDragOffset.value = 0
+    window.setTimeout(() => { swipeTransitioning.value = false }, 260)
+    return
+  }
+
+  swipeTransitioning.value = true
+  const target = direction === 'previous' ? window.innerWidth : -window.innerWidth
+  touchSwipeOffset.value = target
+  imageDragOffset.value = target
+  window.setTimeout(() => {
+    direction === 'previous' ? prev() : next()
+    touchSwipeOffset.value = 0
+    imageDragOffset.value = 0
+    swipeTransitioning.value = false
+  }, 260)
+}
+
+const cancelSwipe = () => {
+  swipeTransitioning.value = true
+  touchSwipeOffset.value = 0
+  imageDragOffset.value = 0
+  window.setTimeout(() => { swipeTransitioning.value = false }, 260)
 }
 
 const jump = (idx: number) => {
@@ -1519,9 +1672,10 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
-const onImageLoad = () => {
-  if (mainImage.value) {
-    const img = mainImage.value
+const onImageLoad = (event?: Event) => {
+  const img = event?.currentTarget as HTMLImageElement | null
+  if (!img || img !== mainImage.value || !currentPhoto.value) return
+  {
     if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
       // 记录图片原始尺寸
       imageSize.value = {
@@ -1538,8 +1692,28 @@ const onImageLoad = () => {
       applyInfoPanelOffset(false)
 
       imageLoaded.value = true
+      imageLoadError.value = false
       // 图片加载完成后，重置切换标记，允许框体动画
       isSwitchingPhoto.value = false
+      if (opening.value && props.originRect && mainImage.value) {
+        const target = mainImage.value.getBoundingClientRect()
+        const origin = props.originRect
+        if (target.width > 0 && target.height > 0) {
+          const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
+          const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
+          originTransform.value = `translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
+          opening.value = false
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              originTransform.value = null
+              opening.value = true
+              requestAnimationFrame(() => { opening.value = false })
+            })
+          })
+        } else {
+          opening.value = false
+        }
+      }
 
       console.log('📸 PhotoViewer 图片加载完成:', {
         filename: currentPhoto.value?.filename,
@@ -1551,7 +1725,9 @@ const onImageLoad = () => {
   }
 }
 
-const onImageError = () => {
+const onImageError = (event?: Event) => {
+  const img = event?.currentTarget as HTMLImageElement | null
+  if (img && img !== mainImage.value) return
   // 图片加载失败，设置为已加载状态避免一直显示加载中
   console.error('❌ PhotoViewer: 图片加载失败', {
     currentPhoto: currentPhoto.value?.filename,
@@ -1560,6 +1736,13 @@ const onImageError = () => {
     error: '图片加载失败，可能的原因：网络错误、文件不存在、权限问题等'
   })
   imageLoaded.value = true
+  imageLoadError.value = true
+}
+
+const retryCurrentImage = () => {
+  imageLoadError.value = false
+  imageLoaded.value = false
+  imageRetryToken.value += 1
 }
 
 // 图片双击放大/缩小
@@ -1610,6 +1793,141 @@ const toggleZoom = () => {
       scale.value = 2
     }
   }
+}
+
+const pointerDistance = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+const pointerCenter = (points: { x: number; y: number }[]) => ({
+  x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+  y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+})
+
+// Pointer Events 主路径：不再依赖浏览器合成 mouse/touch 事件，避免同一次手势被处理两遍。
+const onImagePointerDown = (e: PointerEvent) => {
+  if (closing.value) return
+  const target = e.currentTarget as HTMLElement
+  target.setPointerCapture?.(e.pointerId)
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  lastPointerPos.value = { x: e.clientX, y: e.clientY }
+
+  if (activePointers.size >= 2) {
+    const points = [...activePointers.values()]
+    pointerGesture.value = 'pinch'
+    pointerPinchDistance.value = pointerDistance(points[0], points[1]) || 1
+    pointerPinchScale.value = scale.value
+    pointerPinchTranslate.value = { x: translateX.value, y: translateY.value }
+    pointerPinchCenter.value = pointerCenter(points)
+    isImageDragging.value = false
+    isPinching.value = true
+    e.preventDefault()
+    return
+  }
+
+  pointerGesture.value = 'pending'
+  pointerStartX.value = pointerLastX.value = e.clientX
+  pointerStartY.value = pointerLastY.value = e.clientY
+  pointerStartTime.value = performance.now()
+  imageDragOffset.value = 0
+  touchSwipeOffset.value = 0
+  isImageDragging.value = false
+  e.preventDefault()
+}
+
+const onImagePointerMove = (e: PointerEvent) => {
+  if (!activePointers.has(e.pointerId)) return
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  lastPointerPos.value = { x: e.clientX, y: e.clientY }
+
+  if (activePointers.size >= 2 || pointerGesture.value === 'pinch') {
+    const points = [...activePointers.values()]
+    if (points.length < 2) return
+    const distance = pointerDistance(points[0], points[1]) || 1
+    const center = pointerCenter(points)
+    const viewport = imageViewport.value?.getBoundingClientRect()
+    const ratio = distance / Math.max(pointerPinchDistance.value, 1)
+    const nextScale = Math.min(5, Math.max(1, pointerPinchScale.value * ratio))
+    if (viewport) {
+      const px = center.x - (viewport.left + viewport.width / 2)
+      const py = center.y - (viewport.top + viewport.height / 2)
+      const qx = (px - pointerPinchTranslate.value.x) / Math.max(pointerPinchScale.value, 1)
+      const qy = (py - pointerPinchTranslate.value.y) / Math.max(pointerPinchScale.value, 1)
+      translateX.value = px - nextScale * qx
+      translateY.value = py - nextScale * qy
+    }
+    scale.value = nextScale
+    userHasManuallyZoomed.value = nextScale > 1
+    pointerGesture.value = 'pinch'
+    isPinching.value = true
+    e.preventDefault()
+    return
+  }
+
+  const dx = e.clientX - pointerStartX.value
+  const dy = e.clientY - pointerStartY.value
+  if (pointerGesture.value === 'pending') {
+    if (Math.hypot(dx, dy) < 8) return
+    if (scale.value > 1) {
+      pointerGesture.value = 'pan'
+      isImageDragging.value = true
+      initialTranslateX.value = translateX.value
+      initialTranslateY.value = translateY.value
+    } else if (Math.abs(dx) >= Math.abs(dy) * 1.1) {
+      pointerGesture.value = 'swipe'
+      isImageDragging.value = true
+    } else {
+      pointerGesture.value = 'none'
+      return
+    }
+  }
+
+  if (pointerGesture.value === 'pan') {
+    translateX.value = initialTranslateX.value + dx
+    translateY.value = initialTranslateY.value + dy
+  } else if (pointerGesture.value === 'swipe') {
+    const bounded = (dx > 0 && !previousPhoto.value) || (dx < 0 && !nextPhoto.value) ? dx * 0.25 : dx
+    imageDragOffset.value = bounded
+    touchSwipeOffset.value = bounded
+  }
+  pointerLastX.value = e.clientX
+  pointerLastY.value = e.clientY
+  e.preventDefault()
+}
+
+const onImagePointerUp = (e: PointerEvent) => {
+  activePointers.delete(e.pointerId)
+  const target = e.currentTarget as HTMLElement
+  try { target.releasePointerCapture?.(e.pointerId) } catch { /* pointer may already be released */ }
+
+  if (activePointers.size > 0) {
+    if (activePointers.size === 1 && pointerGesture.value === 'pinch') {
+      const remaining = [...activePointers.values()][0]
+      pointerStartX.value = pointerLastX.value = remaining.x
+      pointerStartY.value = pointerLastY.value = remaining.y
+      pointerGesture.value = scale.value > 1 ? 'pan' : 'none'
+      initialTranslateX.value = translateX.value
+      initialTranslateY.value = translateY.value
+    }
+    return
+  }
+
+  const mode = pointerGesture.value
+  pointerGesture.value = 'none'
+  isPinching.value = false
+  if (mode === 'swipe') {
+    const offset = touchSwipeOffset.value
+    const elapsed = Math.max(1, performance.now() - pointerStartTime.value)
+    const velocity = Math.abs(offset) / elapsed
+    const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
+    if (Math.abs(offset) > threshold || velocity > 0.6) finishSwipe(offset > 0 ? 'previous' : 'next')
+    else cancelSwipe()
+  } else {
+    imageDragOffset.value = 0
+    touchSwipeOffset.value = 0
+  }
+  isImageDragging.value = false
+  e.preventDefault()
 }
 
 // 图片拖拽处理
@@ -1663,7 +1981,9 @@ const onImageMouseMove = (e: MouseEvent) => {
     } else {
     // 原始大小状态下，如果是水平拖拽且距离足够，准备切换图片
     if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
-      imageDragOffset.value = deltaX
+      imageDragOffset.value = ((deltaX > 0 && !previousPhoto.value) || (deltaX < 0 && !nextPhoto.value))
+        ? deltaX * 0.25
+        : deltaX
       imageDragVelocity.value = deltaX - (imageDragOffset.value - deltaX)
     }
   }
@@ -1677,47 +1997,24 @@ const onImageMouseUp = () => {
   if (scale.value <= 1) {
     // 只有在原始大小状态下才处理图片切换
     const offset = imageDragOffset.value
-    const velocity = imageDragVelocity.value
-
     // 判断是否应该切换图片
-    const threshold = 100 // 切换阈值
-    const velocityThreshold = 300 // 速度阈值
-
-    const shouldSwitch = Math.abs(offset) > threshold || Math.abs(velocity) > velocityThreshold
+    const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
+    const shouldSwitch = Math.abs(offset) > threshold
 
     if (shouldSwitch) {
       if (offset > 0) {
-        // 向右拖拽，切换到上一张
-        console.log('👆 PhotoViewer: 拖拽切换到上一张', {
-          offset: offset.toFixed(1),
-          velocity: velocity.toFixed(1),
-          threshold,
-          filename: currentPhoto.value?.filename
-        })
-        prev()
-    } else {
-        // 向左拖拽，切换到下一张
-        console.log('👇 PhotoViewer: 拖拽切换到下一张', {
-          offset: offset.toFixed(1),
-          velocity: velocity.toFixed(1),
-          threshold,
-          filename: currentPhoto.value?.filename
-        })
-        next()
+        finishSwipe('previous')
+      } else {
+        finishSwipe('next')
       }
     } else {
-      console.log('🚫 PhotoViewer: 拖拽取消，未达到切换阈值', {
-        offset: offset.toFixed(1),
-        velocity: velocity.toFixed(1),
-        threshold,
-        filename: currentPhoto.value?.filename
-      })
+      cancelSwipe()
     }
   }
 
-      // 重置状态
+  // 重置状态
   isImageDragging.value = false
-  imageDragOffset.value = 0
+  if (!swipeTransitioning.value) imageDragOffset.value = 0
   imageDragVelocity.value = 0
 }
 
@@ -1752,6 +2049,8 @@ const onImageTouchStart = (e: TouchEvent) => {
   } else if (e.touches.length === 1) {
     // 记录滑动开始的X坐标
     touchSwipeStartX.value = e.touches[0].clientX
+    touchSwipeStartY.value = e.touches[0].clientY
+    touchSwipeOffset.value = 0
 
     // 单指触摸：在放大状态下可以拖拽
     if (scale.value > 1) {
@@ -1860,20 +2159,20 @@ const onImageTouchMove = (e: TouchEvent) => {
   } else if (e.touches.length === 1 && scale.value <= 1) {
     // 单指水平滑动（仅在未放大状态下，用于切换照片）
     const currentX = e.touches[0].clientX
+    const currentY = e.touches[0].clientY
     const offset = currentX - touchSwipeStartX.value
+    const verticalOffset = currentY - touchSwipeStartY.value
+    if (Math.abs(verticalOffset) > Math.abs(offset) * 1.1) {
+      touchSwipeOffset.value = 0
+      return
+    }
     touchSwipeOffset.value = offset
 
     // 提供视觉反馈：图片跟随稍微移动（限制最大移动距离）
-    const maxOffset = 100 // 最大移动距离
-    const visualOffset = Math.max(-maxOffset, Math.min(maxOffset, offset))
-    translateX.value = visualOffset
-    // 稍微改变透明度提供切换提示
-    translateY.value = 0
-
-    console.log('👆 PhotoViewer: 单指滑动', {
-      offset: offset.toFixed(1),
-      visualOffset: visualOffset.toFixed(1)
-    })
+    // 到边界时使用阻尼，保留“拉不动”的反馈
+    if ((offset > 0 && !previousPhoto.value) || (offset < 0 && !nextPhoto.value)) {
+      touchSwipeOffset.value = offset * 0.25
+    }
   }
 
   e.preventDefault()
@@ -1883,20 +2182,21 @@ const onImageTouchEnd = (e: TouchEvent) => {
   // 单指触摸结束时的处理
   if (e.touches.length === 0) {
     const swipeOffset = touchSwipeOffset.value
-    const didSwitch = Math.abs(swipeOffset) > 50
+    const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
+    const didSwitch = Math.abs(swipeOffset) > threshold
 
     // 如果达到切换阈值，切换图片
     if (didSwitch) {
       if (swipeOffset > 0) {
         // 向右滑动：上一张
-        prev()
+        finishSwipe('previous')
       } else {
         // 向左滑动：下一张
-        next()
+        finishSwipe('next')
       }
     } else {
       // 未达到切换阈值，弹回原位
-      translateX.value = 0
+      cancelSwipe()
     }
 
     // 弹回原位后重置偏移量
@@ -2406,6 +2706,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('resize', onImageLoad)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
+  activePointers.clear()
+  pointerGesture.value = 'none'
+  clearTimeout((onImageWheel as any).zoomTimeout)
+  clearTimeout((onImageWheel as any).panTimeout)
 })
 </script>
 
@@ -2637,6 +2941,18 @@ onBeforeUnmount(() => {
 /* 图片加载时的脉冲动画 */
 .main-image.loading {
   animation: imagePulse 1.5s ease-in-out infinite;
+}
+
+.swipe-stage {
+  z-index: 0;
+}
+.swipe-stage,
+.photo-viewer-img-wrapper {
+  touch-action: none;
+}
+.swipe-adjacent-image {
+  will-change: transform, opacity;
+  border-radius: 2px;
 }
 @keyframes imagePulse {
   0%, 100% {
