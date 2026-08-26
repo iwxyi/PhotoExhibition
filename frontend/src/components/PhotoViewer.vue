@@ -4,6 +4,7 @@
     <div
       v-if="visible"
       class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
+      :class="{ 'pointer-events-none': closing }"
       style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
@@ -12,7 +13,7 @@
       :style="modalStyle"
     >
       <!-- 顶部栏 -->
-      <div class="top-bar absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
+      <div v-show="controlsVisible" class="top-bar absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
         <div class="flex items-center gap-3">
           <button class="btn-icon" @click="close" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,18 +93,23 @@
       </div>
 
       <!-- 主要图片显示区域 -->
-      <div class="flex-1 relative min-h-0" :style="mainContentStyle" ref="mainContentArea">
+      <div
+        class="flex-1 relative min-h-0 touch-none"
+        :style="mainContentStyle"
+        ref="mainContentArea"
+        @pointerdown="onImagePointerDown"
+        @pointermove="onImagePointerMove"
+        @pointerup="onImagePointerUp"
+        @pointercancel="onImagePointerUp"
+        @click="onImageContainerClick"
+      >
         <!-- 相册氛围特效 - 背景层（在图片下方） -->
         <AtmosphereEffects v-if="albumAtmosphereEffects.length > 0" :effects="albumAtmosphereEffects" layer-filter="background" />
         <!-- 图片显示容器 - 独立的空间，不受缩略图影响 -->
         <div
-          class="absolute flex items-center justify-center z-[1] cursor-grab active:cursor-grabbing"
+          class="absolute flex items-center justify-center z-[1] cursor-grab active:cursor-grabbing touch-none select-none"
           :style="imageContainerStyle"
           @click="onImageContainerClick"
-          @pointerdown="onImagePointerDown"
-          @pointermove="onImagePointerMove"
-          @pointerup="onImagePointerUp"
-          @pointercancel="onImagePointerUp"
           @wheel="onImageWheel"
           @dblclick="onImageDoubleClick"
           ref="imageViewport"
@@ -226,10 +232,7 @@
                 </div>
           </transition>
 
-          <!-- 加载状态：首图/切图均不阻塞手势，失败提供可重试提示 -->
-          <div v-if="currentPhoto && !imageLoaded && !imageLoadError" class="absolute inset-0 z-[2] flex items-center justify-center pointer-events-none">
-            <div class="rounded-full bg-black/45 px-4 py-2 text-xs text-white/75 backdrop-blur-sm">正在加载图片…</div>
-          </div>
+          <!-- 失败时才显示覆盖层；加载过程保留舞台，避免文字层造成视觉跳变。 -->
           <div v-if="imageLoadError" class="absolute inset-0 z-[2] flex items-center justify-center">
             <button class="rounded-full bg-black/65 px-4 py-2 text-xs text-white hover:bg-black/80" @click.stop="retryCurrentImage">图片加载失败，点击重试</button>
           </div>
@@ -257,7 +260,7 @@
         >
           <!-- 隐形调整把手（左边） -->
           <div
-            class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-white/20 transition-colors resize-handle"
+            class="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 transition-colors resize-handle touch-none select-none"
             title="拖动调整宽度"
             @pointerdown.prevent="startResize"
           ></div>
@@ -562,12 +565,12 @@
       <!-- 底部缩略图横排 -->
       <transition name="thumbnail-bar">
         <div
-          v-if="!isFullscreen"
+          v-if="!isFullscreen && controlsVisible"
           class="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md border-t border-white/10 overflow-x-auto overflow-y-hidden select-none pointer-events-auto z-10 thumbnail-bar"
           :style="{ height: Math.max(thumbHeight, thumbSize + 20) + 'px' }"
         >
           <div
-            class="absolute inset-x-0 top-0 h-3 cursor-ns-resize border-b border-white/20 bg-black/40 z-20 drag-handle"
+            class="absolute inset-x-0 top-0 h-3 cursor-ns-resize border-b border-white/20 bg-black/40 z-20 drag-handle touch-none select-none"
             @pointerdown.prevent="startDrag"
             @pointermove="onThumbResizeMove"
             @pointerup="endThumbResize"
@@ -722,6 +725,7 @@ const emit = defineEmits<{
 // 核心状态
 const currentIndex = ref(props.startIndex ?? 0)
 const infoCollapsed = ref(true)
+const controlsVisible = ref(true)
 const infoTransparent = ref(false)
 const modalRoot = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
@@ -831,10 +835,16 @@ const touchSwipeOffset = ref(0)
 const swipeTransitioning = ref(false)
 const pendingSwipeDirection = ref<'previous' | 'next' | null>(null)
 let swipeTimer: ReturnType<typeof setTimeout> | null = null
+let closeTimer: ReturnType<typeof setTimeout> | null = null
+let containerClickTimer: ReturnType<typeof setTimeout> | null = null
 const blockedSwipePointer = ref<number | null>(null)
 const blockedSwipeStartX = ref(0)
+const blockedSwipeStartY = ref(0)
 const blockedSwipeStartTime = ref(0)
 const queuedSwipeDirection = ref<'previous' | 'next' | null>(null)
+const deferredTapAction = ref<'close' | 'toggle-controls' | null>(null)
+const interactionReadyAt = ref(0)
+const ignoredPointerIds = new Set<number>()
 
 // 空白区域滑动相关
 const backdropSwipeStartX = ref(0)
@@ -866,6 +876,7 @@ const similarPhotosVisible = ref(false)
 const wasDragging = ref(false)
 const opening = ref(false)
 const closing = ref(false)
+const activeOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const originTransform = ref<string | null>(null)
 const modalStyle = computed(() => ({
   opacity: closing.value ? 0 : 1,
@@ -879,6 +890,7 @@ const STORAGE_KEY = 'pe-info-transparent'
 const FOCUS_BOX_KEY = 'pe-focus-box-visible'
 const FACE_BOXES_KEY = 'pe-face-boxes-visible'
 const THUMB_KEY = 'pe-thumb-height'
+const OPENING_INPUT_GUARD_MS = 220
 
 // 计算属性
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
@@ -995,6 +1007,16 @@ const imageStyle = computed(() => {
     objectFit: 'contain'
   }
 })
+
+// Photo records normally contain the intrinsic dimensions. Use them before
+// the large asset finishes loading so the image box has a stable aspect ratio
+// from the first paint (otherwise an <img> with no dimensions briefly lays out
+// as a thin strip and then grows while decoding).
+const getKnownImageSize = (photo: Photo | null | undefined) => {
+  const width = Number(photo?.width || 0)
+  const height = Number(photo?.height || 0)
+  return width > 0 && height > 0 ? { width, height } : { width: 0, height: 0 }
+}
 
 // 图片变换样式 - 用于缩放和拖拽
 const imageTransformStyle = computed(() => {
@@ -1135,10 +1157,41 @@ const currentAlbumPath = computed(() => {
 // 监听 visible 变化，重置状态
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
+    if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
     showAdminMenu.value = false
+    controlsVisible.value = true
+    interactionReadyAt.value = performance.now() + OPENING_INPUT_GUARD_MS
+    ignoredPointerIds.clear()
+    activePointers.clear()
+    pointerGesture.value = 'none'
+    isPinching.value = false
+    isImageDragging.value = false
+    swipeTransitioning.value = false
+    pendingSwipeDirection.value = null
+    queuedSwipeDirection.value = null
+    blockedSwipePointer.value = null
+    deferredTapAction.value = null
+    lastTapTime.value = 0
+    lastTapX.value = 0
+    lastTapY.value = 0
+    imageLoaded.value = false
+    imageLoadError.value = false
+    // imageSize is the layout source of truth. Never let a new session use the
+    // previous photo's aspect ratio while its own resource is loading.
+    imageSize.value = getKnownImageSize(props.photos[props.startIndex ?? 0])
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+    userHasManuallyZoomed.value = false
+    touchSwipeOffset.value = 0
+    imageDragOffset.value = 0
+    infoPanelOffsetX.value = 0
+    lastInfoPanelOffsetX.value = 0
     // 打开查看器时，根据 startIndex 设置当前索引
     currentIndex.value = props.startIndex ?? 0
     opening.value = !!props.originRect
+    activeOriginRect.value = props.originRect ? { ...props.originRect } : null
     closing.value = false
     originTransform.value = null
     // 标记为初始加载
@@ -1151,8 +1204,7 @@ watch(() => props.visible, (newVisible) => {
       // 滚动缩略图到当前图片（无动画，因为距离可能很长）
       scrollThumbIntoView(false)
     })
-    // 打开时应用信息栏偏移
-    applyInfoPanelOffset(false)
+    // 图片自身尺寸可用后再计算信息栏偏移，避免沿用上一张的几何信息。
     console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
       startIndex: props.startIndex,
       currentIndex: currentIndex.value,
@@ -1194,6 +1246,15 @@ watch(() => props.startIndex, (newStartIndex) => {
 watch(() => [currentPhoto.value?.id, viewingOriginal.value, props.photos.length] as const, () => {
   imageLoaded.value = false
   imageLoadError.value = false
+  const knownSize = getKnownImageSize(currentPhoto.value)
+  // During in-viewer navigation, keep the last stable box when metadata is
+  // incomplete. Clearing it to 0x0 makes both the main and adjacent image
+  // disappear for a frame while the new asset is decoding (black flash).
+  if (knownSize.width > 0 && knownSize.height > 0) {
+    imageSize.value = knownSize
+  } else if (opening.value) {
+    imageSize.value = { width: 0, height: 0 }
+  }
   isSwitchingPhoto.value = true
   scale.value = 1
   translateX.value = 0
@@ -1321,18 +1382,19 @@ if (savedWidth) {
 const close = () => {
   showAdminMenu.value = false
   if (closing.value) return
-  if (props.originRect && mainImage.value) {
-    const target = props.originRect
+  if (activeOriginRect.value && mainImage.value) {
+    const target = activeOriginRect.value
     const current = mainImage.value.getBoundingClientRect()
     if (current.width > 0 && current.height > 0) {
       const dx = target.left + target.width / 2 - (current.left + current.width / 2)
       const dy = target.top + target.height / 2 - (current.top + current.height / 2)
       closing.value = true
       originTransform.value = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
-      window.setTimeout(() => {
+      closeTimer = window.setTimeout(() => {
         originTransform.value = null
         closing.value = false
         emit('update:visible', false)
+        closeTimer = null
       }, 220)
       return
     }
@@ -1427,6 +1489,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
       const queued = queuedSwipeDirection.value
       queuedSwipeDirection.value = null
       if (queued) requestAnimationFrame(() => finishSwipe(queued))
+      else flushDeferredTapAction()
     }, 260)
     return
   }
@@ -1437,6 +1500,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   touchSwipeOffset.value = target
   imageDragOffset.value = target
   if (swipeTimer) clearTimeout(swipeTimer)
+  if (closeTimer) clearTimeout(closeTimer)
   blockedSwipePointer.value = null
   queuedSwipeDirection.value = null
   swipeTimer = window.setTimeout(() => {
@@ -1449,6 +1513,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
     const queued = queuedSwipeDirection.value
     queuedSwipeDirection.value = null
     if (queued) requestAnimationFrame(() => finishSwipe(queued))
+    else flushDeferredTapAction()
   }, 260)
 }
 
@@ -1464,6 +1529,7 @@ const cancelSwipe = () => {
     const queued = queuedSwipeDirection.value
     queuedSwipeDirection.value = null
     if (queued) requestAnimationFrame(() => finishSwipe(queued))
+    else flushDeferredTapAction()
   }, 260)
 }
 
@@ -1604,10 +1670,12 @@ const startResize = (e: PointerEvent) => {
   isResizingInfoPanel.value = true
   resizeStartX.value = e.clientX
   resizeStartWidth.value = infoPanelWidth.value
-  ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-  document.addEventListener('pointermove', onResize)
-  document.addEventListener('pointerup', endResize)
-  document.addEventListener('pointercancel', endResize)
+  const handle = e.currentTarget as HTMLElement
+  handle.setPointerCapture?.(e.pointerId)
+  window.addEventListener('pointermove', onResize, true)
+  window.addEventListener('pointerup', endResize, true)
+  window.addEventListener('pointercancel', endResize, true)
+  e.preventDefault()
 }
 
 // 调整信息栏宽度中
@@ -1627,10 +1695,10 @@ const endResize = (e: PointerEvent) => {
   if (!isResizingInfoPanel.value) return
 
   isResizingInfoPanel.value = false
-  ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
-  document.removeEventListener('pointermove', onResize)
-  document.removeEventListener('pointerup', endResize)
-  document.removeEventListener('pointercancel', endResize)
+  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+  window.removeEventListener('pointermove', onResize, true)
+  window.removeEventListener('pointerup', endResize, true)
+  window.removeEventListener('pointercancel', endResize, true)
 
   // 保存到 localStorage
   localStorage.setItem('pe-info-panel-width', infoPanelWidth.value.toString())
@@ -1664,18 +1732,55 @@ const onBackdropClick = (event: MouseEvent) => {
 
 // 处理图片容器点击事件（点击空白处关闭）
 const onImageContainerClick = (event: MouseEvent) => {
+  if (performance.now() < interactionReadyAt.value) {
+    event.stopPropagation()
+    return
+  }
+  if (deferredTapAction.value && !swipeTransitioning.value) {
+    event.stopPropagation()
+    flushDeferredTapAction()
+    return
+  }
+  if (swipeTransitioning.value) {
+    event.stopPropagation()
+    return
+  }
   // 如果正在拖拽，不处理点击
   if (wasDragging.value || isImageDragging.value) {
     return
   }
 
+  event.stopPropagation()
+
   const target = event.target as HTMLElement
   const currentTarget = event.currentTarget as HTMLElement
 
-  // 如果点击的是容器本身（空白处），而不是图片或其他子元素，则关闭查看器
-  if (target === currentTarget) {
-    close()
-  }
+  // Browser dispatches two click events before dblclick. Defer the single
+  // click briefly so a double-click can cancel both and perform only zoom.
+  if (containerClickTimer) clearTimeout(containerClickTimer)
+  const action = target === currentTarget ? 'close' : 'toggle-controls'
+  containerClickTimer = window.setTimeout(() => {
+    containerClickTimer = null
+    if (closing.value || !props.visible) return
+    if (action === 'close') close()
+    else controlsVisible.value = !controlsVisible.value
+  }, 240)
+}
+
+const getTapAction = (target: EventTarget | null): 'close' | 'toggle-controls' => {
+  // Both the stage and the image viewport are empty black background. A click
+  // on either should close; clicks landing on the image wrapper toggle chrome.
+  return target === mainContentArea.value || target === imageViewport.value
+    ? 'close'
+    : 'toggle-controls'
+}
+
+const flushDeferredTapAction = () => {
+  const action = deferredTapAction.value
+  deferredTapAction.value = null
+  if (!action || closing.value || !props.visible) return
+  if (action === 'close') close()
+  else controlsVisible.value = !controlsVisible.value
 }
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -1689,7 +1794,7 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
-const onImageLoad = (event?: Event) => {
+const onImageLoad = async (event?: Event) => {
   const img = event?.currentTarget as HTMLImageElement | null
   if (!img || img !== mainImage.value || !currentPhoto.value) return
   {
@@ -1705,16 +1810,21 @@ const onImageLoad = (event?: Event) => {
       translateX.value = 0
       translateY.value = 0
 
-      // 应用信息栏偏移
-      applyInfoPanelOffset(false)
-
       imageLoaded.value = true
       imageLoadError.value = false
       // 图片加载完成后，重置切换标记，允许框体动画
       isSwitchingPhoto.value = false
-      if (opening.value && props.originRect && mainImage.value) {
+      // Vue has to commit the new intrinsic ratio before a FLIP target can be
+      // measured. Measuring in the load callback sampled the previous image's
+      // rendered box, which caused horizontal-to-vertical opening distortion.
+      await nextTick()
+      if (img !== mainImage.value || !currentPhoto.value) return
+      applyInfoPanelOffset(false)
+      await nextTick()
+      if (img !== mainImage.value || !currentPhoto.value) return
+      if (opening.value && activeOriginRect.value && mainImage.value) {
         const target = mainImage.value.getBoundingClientRect()
-        const origin = props.originRect
+        const origin = activeOriginRect.value
         if (target.width > 0 && target.height > 0) {
           const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
           const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
@@ -1764,6 +1874,15 @@ const retryCurrentImage = () => {
 
 // 图片双击放大/缩小
 const onImageDoubleClick = (e: MouseEvent) => {
+  if (containerClickTimer) {
+    clearTimeout(containerClickTimer)
+    containerClickTimer = null
+  }
+  if (performance.now() < interactionReadyAt.value || swipeTransitioning.value) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
   const wasZoomed = scale.value > 1
   if (wasZoomed) {
     // 缩小到适应屏幕
@@ -1824,9 +1943,16 @@ const pointerCenter = (points: { x: number; y: number }[]) => ({
 // Pointer Events 主路径：不再依赖浏览器合成 mouse/touch 事件，避免同一次手势被处理两遍。
 const onImagePointerDown = (e: PointerEvent) => {
   if (closing.value) return
+  if (performance.now() < interactionReadyAt.value) {
+    ignoredPointerIds.add(e.pointerId)
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+    e.preventDefault()
+    return
+  }
   if (swipeTransitioning.value) {
     blockedSwipePointer.value = e.pointerId
     blockedSwipeStartX.value = e.clientX
+    blockedSwipeStartY.value = e.clientY
     blockedSwipeStartTime.value = performance.now()
     const target = e.currentTarget as HTMLElement
     target.setPointerCapture?.(e.pointerId)
@@ -1835,6 +1961,11 @@ const onImagePointerDown = (e: PointerEvent) => {
   }
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture?.(e.pointerId)
+  // 清理浏览器未发送 pointerup 的陈旧指针，避免下一次单指被误判为双指。
+  if (pointerGesture.value === 'none' && activePointers.size > 0) {
+    activePointers.clear()
+    isPinching.value = false
+  }
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
   lastPointerPos.value = { x: e.clientX, y: e.clientY }
 
@@ -1862,6 +1993,10 @@ const onImagePointerDown = (e: PointerEvent) => {
 }
 
 const onImagePointerMove = (e: PointerEvent) => {
+  if (ignoredPointerIds.has(e.pointerId)) {
+    e.preventDefault()
+    return
+  }
   if (blockedSwipePointer.value === e.pointerId) {
     e.preventDefault()
     return
@@ -1926,15 +2061,30 @@ const onImagePointerMove = (e: PointerEvent) => {
 }
 
 const onImagePointerUp = (e: PointerEvent) => {
+  if (ignoredPointerIds.delete(e.pointerId)) {
+    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+    e.preventDefault()
+    return
+  }
   if (blockedSwipePointer.value === e.pointerId) {
     const dx = e.clientX - blockedSwipeStartX.value
-    const velocity = Math.abs(dx) / Math.max(1, performance.now() - blockedSwipeStartTime.value)
+    const dy = e.clientY - blockedSwipeStartY.value
+    const elapsed = Math.max(1, performance.now() - blockedSwipeStartTime.value)
+    const velocity = Math.abs(dx) / elapsed
     const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
-    if (Math.abs(dx) > threshold || velocity > 0.6) {
+    if (Math.hypot(dx, dy) < 8 && elapsed < 450) {
+      deferredTapAction.value = getTapAction(e.target)
+    } else if (Math.abs(dx) > threshold || velocity > 0.6) {
       queuedSwipeDirection.value = dx > 0 ? 'previous' : 'next'
     }
     blockedSwipePointer.value = null
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+    // The pointer may be released after the fixed transition timer has fired.
+    // In that case no timer remains to flush the deferred tap, so consume it
+    // on the next frame instead of leaving the viewer apparently unresponsive.
+    if (deferredTapAction.value && !swipeTransitioning.value) {
+      requestAnimationFrame(flushDeferredTapAction)
+    }
     e.preventDefault()
     return
   }
@@ -2450,9 +2600,14 @@ const startDrag = (e: PointerEvent) => {
   isResizingThumb.value = true
   thumbResizeStartY.value = e.clientY
   thumbResizeStartHeight.value = thumbHeight.value
-  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  const handle = e.currentTarget as HTMLElement
+  handle.setPointerCapture?.(e.pointerId)
   document.body.style.cursor = 'ns-resize'
   document.body.style.userSelect = 'none'
+  window.addEventListener('pointermove', onThumbResizeMove, true)
+  window.addEventListener('pointerup', endThumbResize, true)
+  window.addEventListener('pointercancel', endThumbResize, true)
+  e.preventDefault()
 }
 
 const onThumbResizeMove = (e: PointerEvent) => {
@@ -2469,6 +2624,9 @@ const endThumbResize = (e: PointerEvent) => {
   localStorage.setItem(THUMB_KEY, thumbHeight.value.toString())
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
+  window.removeEventListener('pointermove', onThumbResizeMove, true)
+  window.removeEventListener('pointerup', endThumbResize, true)
+  window.removeEventListener('pointercancel', endThumbResize, true)
 }
 
 // 路由跳转函数
@@ -2752,9 +2910,13 @@ onBeforeUnmount(() => {
   clearTimeout((onImageWheel as any).zoomTimeout)
   clearTimeout((onImageWheel as any).panTimeout)
   if (swipeTimer) clearTimeout(swipeTimer)
-  document.removeEventListener('pointermove', onResize)
-  document.removeEventListener('pointerup', endResize)
-  document.removeEventListener('pointercancel', endResize)
+  if (containerClickTimer) clearTimeout(containerClickTimer)
+  window.removeEventListener('pointermove', onResize, true)
+  window.removeEventListener('pointerup', endResize, true)
+  window.removeEventListener('pointercancel', endResize, true)
+  window.removeEventListener('pointermove', onThumbResizeMove, true)
+  window.removeEventListener('pointerup', endThumbResize, true)
+  window.removeEventListener('pointercancel', endThumbResize, true)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 })
@@ -2763,16 +2925,20 @@ onBeforeUnmount(() => {
 <style scoped>
 /* 模态框显示/隐藏动画 */
 .modal-enter-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+  will-change: opacity, background-color;
 }
 .modal-leave-active {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
+  will-change: opacity, background-color;
 }
 .modal-enter-from {
   opacity: 0;
+  background-color: transparent;
 }
 .modal-leave-to {
   opacity: 0;
+  background-color: transparent;
 }
 
 /* 图片淡入动画 */
@@ -2996,6 +3162,13 @@ onBeforeUnmount(() => {
 .swipe-stage,
 .photo-viewer-img-wrapper {
   touch-action: none;
+}
+.resize-handle,
+.drag-handle,
+.photo-viewer-img-wrapper {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .swipe-adjacent-image {
   will-change: transform, opacity;
