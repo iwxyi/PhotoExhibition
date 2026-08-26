@@ -157,20 +157,20 @@
             ref="imageWrapper"
             :style="imageTransformStyle"
           >
-            <transition name="image-fade">
-              <img
-                v-if="currentPhoto"
-                :key="`${currentPhoto.id}-${viewingOriginal ? 'original' : 'large'}-${imageRetryToken}`"
-                ref="mainImage"
-                :src="getImageUrl(currentPhoto)"
-                :alt="currentPhoto.filename"
-                decoding="async"
-                class="select-none main-image pointer-events-none"
-                :style="imageStyle"
-                @load="onImageLoad"
-                @error="onImageError"
-              />
-            </transition>
+            <!-- 主图不再使用 Vue transition：切图轨道已经提供唯一的位移动画。
+                 同时保留旧图和新图会在索引提交帧叠加，导致上下闪烁。 -->
+            <img
+              v-if="currentPhoto"
+              :key="`${currentPhoto.id}-${viewingOriginal ? 'original' : 'large'}-${imageRetryToken}`"
+              ref="mainImage"
+              :src="getImageUrl(currentPhoto)"
+              :alt="currentPhoto.filename"
+              decoding="async"
+              class="select-none main-image pointer-events-none"
+              :style="imageStyle"
+              @load="onImageLoad"
+              @error="onImageError"
+            />
 
             <!-- 人脸框 - 作为图片的子元素，会跟随图片变换 -->
             <transition-group
