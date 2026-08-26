@@ -831,6 +831,10 @@ const touchSwipeOffset = ref(0)
 const swipeTransitioning = ref(false)
 const pendingSwipeDirection = ref<'previous' | 'next' | null>(null)
 let swipeTimer: ReturnType<typeof setTimeout> | null = null
+const blockedSwipePointer = ref<number | null>(null)
+const blockedSwipeStartX = ref(0)
+const blockedSwipeStartTime = ref(0)
+const queuedSwipeDirection = ref<'previous' | 'next' | null>(null)
 
 // 空白区域滑动相关
 const backdropSwipeStartX = ref(0)
@@ -1417,7 +1421,13 @@ const finishSwipe = (direction: 'previous' | 'next') => {
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
     if (swipeTimer) clearTimeout(swipeTimer)
-    swipeTimer = window.setTimeout(() => { swipeTransitioning.value = false; swipeTimer = null }, 260)
+    swipeTimer = window.setTimeout(() => {
+      swipeTransitioning.value = false
+      swipeTimer = null
+      const queued = queuedSwipeDirection.value
+      queuedSwipeDirection.value = null
+      if (queued) requestAnimationFrame(() => finishSwipe(queued))
+    }, 260)
     return
   }
 
@@ -1427,6 +1437,8 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   touchSwipeOffset.value = target
   imageDragOffset.value = target
   if (swipeTimer) clearTimeout(swipeTimer)
+  blockedSwipePointer.value = null
+  queuedSwipeDirection.value = null
   swipeTimer = window.setTimeout(() => {
     direction === 'previous' ? prev() : next()
     pendingSwipeDirection.value = null
@@ -1434,6 +1446,9 @@ const finishSwipe = (direction: 'previous' | 'next') => {
     imageDragOffset.value = 0
     swipeTransitioning.value = false
     swipeTimer = null
+    const queued = queuedSwipeDirection.value
+    queuedSwipeDirection.value = null
+    if (queued) requestAnimationFrame(() => finishSwipe(queued))
   }, 260)
 }
 
@@ -1443,7 +1458,13 @@ const cancelSwipe = () => {
   touchSwipeOffset.value = 0
   imageDragOffset.value = 0
   if (swipeTimer) clearTimeout(swipeTimer)
-  swipeTimer = window.setTimeout(() => { swipeTransitioning.value = false; swipeTimer = null }, 260)
+  swipeTimer = window.setTimeout(() => {
+    swipeTransitioning.value = false
+    swipeTimer = null
+    const queued = queuedSwipeDirection.value
+    queuedSwipeDirection.value = null
+    if (queued) requestAnimationFrame(() => finishSwipe(queued))
+  }, 260)
 }
 
 const jump = (idx: number) => {
@@ -1804,13 +1825,13 @@ const pointerCenter = (points: { x: number; y: number }[]) => ({
 const onImagePointerDown = (e: PointerEvent) => {
   if (closing.value) return
   if (swipeTransitioning.value) {
-    if (swipeTimer) clearTimeout(swipeTimer)
-    if (pendingSwipeDirection.value === 'previous') prev()
-    if (pendingSwipeDirection.value === 'next') next()
-    pendingSwipeDirection.value = null
-    touchSwipeOffset.value = 0
-    imageDragOffset.value = 0
-    swipeTransitioning.value = false
+    blockedSwipePointer.value = e.pointerId
+    blockedSwipeStartX.value = e.clientX
+    blockedSwipeStartTime.value = performance.now()
+    const target = e.currentTarget as HTMLElement
+    target.setPointerCapture?.(e.pointerId)
+    e.preventDefault()
+    return
   }
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture?.(e.pointerId)
@@ -1841,6 +1862,10 @@ const onImagePointerDown = (e: PointerEvent) => {
 }
 
 const onImagePointerMove = (e: PointerEvent) => {
+  if (blockedSwipePointer.value === e.pointerId) {
+    e.preventDefault()
+    return
+  }
   if (!activePointers.has(e.pointerId)) return
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
   lastPointerPos.value = { x: e.clientX, y: e.clientY }
@@ -1901,6 +1926,18 @@ const onImagePointerMove = (e: PointerEvent) => {
 }
 
 const onImagePointerUp = (e: PointerEvent) => {
+  if (blockedSwipePointer.value === e.pointerId) {
+    const dx = e.clientX - blockedSwipeStartX.value
+    const velocity = Math.abs(dx) / Math.max(1, performance.now() - blockedSwipeStartTime.value)
+    const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
+    if (Math.abs(dx) > threshold || velocity > 0.6) {
+      queuedSwipeDirection.value = dx > 0 ? 'previous' : 'next'
+    }
+    blockedSwipePointer.value = null
+    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+    e.preventDefault()
+    return
+  }
   activePointers.delete(e.pointerId)
   const target = e.currentTarget as HTMLElement
   try { target.releasePointerCapture?.(e.pointerId) } catch { /* pointer may already be released */ }
