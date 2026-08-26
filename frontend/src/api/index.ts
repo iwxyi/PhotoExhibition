@@ -1,26 +1,16 @@
 import axios from 'axios'
 import { getCurrentPublicSlug, shouldAttachUserSlug } from '@/utils/publicRoute'
 
-const LAST_ADMIN_ROUTE_KEY = 'pe_last_admin_route'
-
 export function getEffectiveAuthToken(): string | null {
   const authToken = localStorage.getItem('auth_token')
   const adminToken = localStorage.getItem('admin_token')
 
-  if (authToken && adminToken && authToken !== adminToken) {
-    localStorage.setItem('auth_token', adminToken)
-    return adminToken
-  }
-
   if (adminToken && !authToken) {
     localStorage.setItem('auth_token', adminToken)
-    return adminToken
   }
-
-  if (authToken && !adminToken) {
-    localStorage.setItem('admin_token', authToken)
-    return authToken
-  }
+  // `admin_token` was used by earlier releases. Migrate it once, rather than
+  // allowing a second storage key to silently override the active session.
+  localStorage.removeItem('admin_token')
 
   return authToken || adminToken || null
 }
@@ -50,20 +40,7 @@ export function clearStoredAuthSession() {
   localStorage.removeItem('auth_vip_expire_at')
   localStorage.removeItem('auth_effective_storage_quota_bytes')
   localStorage.removeItem('auth_storage_used_bytes')
-  delete axios.defaults.headers.common['Authorization']
-}
-
-function handleInvalidAuthSession() {
-  clearStoredAuthSession()
-  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`
-  if (window.location.pathname.startsWith('/admin') && window.location.pathname !== '/admin/login') {
-    localStorage.setItem(LAST_ADMIN_ROUTE_KEY, currentPath)
-    window.location.replace('/admin/login')
-    return
-  }
-
-  const redirect = encodeURIComponent(currentPath || '/')
-  window.location.replace(`/login?redirect=${redirect}`)
+  delete api.defaults.headers.common['Authorization']
 }
 
 // 类型定义
@@ -183,29 +160,10 @@ export interface UploadPrecheckResponse {
   message: string
 }
 
-// 获取服务器地址，支持多种配置方式
 function getServerUrl(): string {
-  // 1. 从URL参数获取（如 ?server=192.168.1.100:6060）
-  const urlParams = new URLSearchParams(window.location.search)
-  const serverParam = urlParams.get('server')
-  if (serverParam) {
-    return `http://${serverParam}/api`
-  }
-
-  // 2. 从localStorage获取用户设置的服务器地址
-  const savedServer = localStorage.getItem('server_url')
-  if (savedServer) {
-    return `${savedServer}/api`
-  }
-
-  // 3. 开发环境的代理会处理/api请求，所以使用相对路径
-  // 生产环境或手机访问时，默认使用当前域名的/api
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return '/api'  // 开发环境使用代理
-  } else {
-    // 生产环境使用当前域名
-    return `${window.location.protocol}//${window.location.host}/api`
-  }
+  // Keep authenticated requests same-origin. Vite proxies this path in
+  // development and production deployments serve it from the current origin.
+  return '/api'
 }
 
 export const api = axios.create({
@@ -245,17 +203,6 @@ api.interceptors.response.use(
     return response
   },
   error => {
-    console.error('API Error:', error)
-    const status = error?.response?.status
-    const errorMessage = String(error?.response?.data?.error || error?.response?.data?.message || '')
-    const hasToken = !!getEffectiveAuthToken()
-    const invalidAuth =
-      status === 401 ||
-      (hasToken && (errorMessage.includes('Token无效') || errorMessage.includes('未授权') || errorMessage.includes('未登录')))
-
-    if (invalidAuth) {
-      handleInvalidAuthSession()
-    }
     return Promise.reject(error)
   }
 )

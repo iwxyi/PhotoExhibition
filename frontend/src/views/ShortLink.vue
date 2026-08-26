@@ -12,6 +12,10 @@ const loading = ref(true)
 const error = ref('')
 const redirectPath = ref('')
 
+const safeDecode = (value: string) => {
+  try { return decodeURIComponent(value) } catch { return value }
+}
+
 // 判断当前是 /a/ 还是 /p/ 路由
 const linkType = ref<'album' | 'person'>('album')
 
@@ -37,7 +41,7 @@ const handleResolve = async () => {
   }
 
   // URL 解码关键词（处理 %20 等编码）
-  const decodedKeyword = decodeURIComponent(keyword.value)
+  const decodedKeyword = safeDecode(keyword.value)
 
   // 如果关键词是纯数字，认为是 ID
   if (/^\d+$/.test(decodedKeyword)) {

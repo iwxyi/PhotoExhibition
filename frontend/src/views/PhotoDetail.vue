@@ -140,6 +140,7 @@
                 :key="t.id"
                 :href="getTagSearchPath(t)"
                 target="_blank"
+                rel="noopener noreferrer"
                 class="px-4 py-1.5 rounded-full text-sm cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-lg"
                 :style="{ backgroundColor: t.color || 'rgba(59,130,246,0.1)', color: t.color ? '#fff' : '#2563eb' }"
               >
@@ -162,6 +163,7 @@
                 :key="face.id"
                 :href="getFaceSearchPath(face)"
                 target="_blank"
+                rel="noopener noreferrer"
                 class="group flex flex-col items-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors duration-200"
               >
                 <div

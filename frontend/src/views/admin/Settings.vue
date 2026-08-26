@@ -720,7 +720,7 @@ const changeUsername = async () => {
     // 更新本地存储的token
     if (response.data.token) {
       localStorage.setItem('auth_token', response.data.token)
-      localStorage.setItem('admin_token', response.data.token)
+      localStorage.removeItem('admin_token')
     }
     localStorage.setItem('auth_username', newUsername.value.trim())
     localStorage.setItem('admin_username', newUsername.value.trim())

@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import axios from 'axios'
-import { clearStoredAuthSession, getEffectiveAuthToken } from '@/api'
+import { api, clearStoredAuthSession, getEffectiveAuthToken } from '@/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(getEffectiveAuthToken())
@@ -33,9 +32,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isSuperAdmin = computed(() => role.value === 'SUPER_ADMIN')
   const projectDisplayName = computed(() => projectNameZh.value || projectNameEn.value || null)
 
-  // 设置axios默认请求头
+  // Set the header on the sole application client.
   if (token.value) {
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
+    api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
   }
 
   const persistProfile = (responseData: any, fallbackUsername?: string) => {
@@ -63,8 +62,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (newToken) {
       token.value = newToken
       localStorage.setItem('auth_token', newToken)
-      localStorage.setItem('admin_token', newToken)
-      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+      localStorage.removeItem('admin_token')
+      api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
     }
 
     username.value = user
@@ -166,21 +165,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   const login = async (payload: { username: string; password?: string; code?: string; loginType?: 'password' | 'smsCode' | 'emailCode' }) => {
     try {
-      console.log('开始登录请求:', { username: payload.username, loginType: payload.loginType || 'password' })
-      const response = await axios.post('/api/auth/login', {
+      const response = await api.post('/auth/login', {
         username: payload.username,
         password: payload.password,
         code: payload.code,
         loginType: payload.loginType || 'password'
       })
-      console.log('登录响应:', response.data)
       
       const responseData = response.data
       
       // 处理响应数据
       const newToken = responseData.token
       if (!newToken) {
-        console.error('未收到Token:', responseData)
         return { 
           success: false, 
           message: '登录失败：未收到Token' 
@@ -189,14 +185,11 @@ export const useAuthStore = defineStore('auth', () => {
       
       persistProfile(responseData, payload.username)
       
-      console.log('登录成功，Token已保存')
       return {
         success: true,
         message: responseData.message || '登录成功'
       }
     } catch (error: any) {
-      console.error('登录错误:', error)
-      console.error('错误响应:', error.response)
       
       let errorMessage = '登录失败，请检查用户名和密码'
       
@@ -223,7 +216,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const sendLoginCode = async (phone: string) => {
     try {
-      const response = await axios.post('/api/auth/send-code', { phone })
+      const response = await api.post('/auth/send-code', { phone })
       return {
         success: true,
         message: response.data?.message || '验证码已发送',
@@ -251,7 +244,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const sendEmailLoginCode = async (emailAddress: string) => {
     try {
-      const response = await axios.post('/api/auth/email/send-code', { email: emailAddress })
+      const response = await api.post('/auth/email/send-code', { email: emailAddress })
       return {
         success: true,
         message: response.data?.message || '验证码已发送',
@@ -279,7 +272,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const sendPasswordResetPhoneCode = async (phoneNumber: string) => {
     try {
-      const response = await axios.post('/api/auth/password-reset/phone/send-code', { phone: phoneNumber })
+      const response = await api.post('/auth/password-reset/phone/send-code', { phone: phoneNumber })
       return {
         success: true,
         message: response.data?.message || '验证码已发送',
@@ -307,7 +300,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const sendPasswordResetEmailCode = async (emailAddress: string) => {
     try {
-      const response = await axios.post('/api/auth/password-reset/email/send-code', { email: emailAddress })
+      const response = await api.post('/auth/password-reset/email/send-code', { email: emailAddress })
       return {
         success: true,
         message: response.data?.message || '验证码已发送',
@@ -335,7 +328,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const resetPasswordByPhone = async (payload: { phone: string; code: string; newPassword: string; confirmPassword: string }) => {
     try {
-      const response = await axios.post('/api/auth/password-reset/phone/confirm', payload)
+      const response = await api.post('/auth/password-reset/phone/confirm', payload)
       return {
         success: true,
         message: response.data?.message || '密码已重置'
@@ -359,7 +352,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const resetPasswordByEmail = async (payload: { email: string; code: string; newPassword: string; confirmPassword: string }) => {
     try {
-      const response = await axios.post('/api/auth/password-reset/email/confirm', payload)
+      const response = await api.post('/auth/password-reset/email/confirm', payload)
       return {
         success: true,
         message: response.data?.message || '密码已重置'
@@ -391,7 +384,7 @@ export const useAuthStore = defineStore('auth', () => {
     email?: string
   }) => {
     try {
-      const response = await axios.post('/api/auth/register', payload)
+      const response = await api.post('/auth/register', payload)
       persistProfile(response.data, payload.username)
       return {
         success: true,
@@ -448,7 +441,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     
     try {
-      const response = await axios.get('/api/auth/validate', {
+      const response = await api.get('/auth/validate', {
         headers: { Authorization: `Bearer ${token.value}` }
       })
       return response.data
@@ -463,7 +456,7 @@ export const useAuthStore = defineStore('auth', () => {
       return null
     }
 
-    const response = await axios.get('/api/auth/me', {
+    const response = await api.get('/auth/me', {
       headers: { Authorization: `Bearer ${token.value}` }
     })
     persistProfile(response.data)
@@ -472,7 +465,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const fetchPublicSettings = async () => {
     try {
-      const response = await axios.get('/api/auth/public-settings')
+      const response = await api.get('/auth/public-settings')
       multiUserEnabled.value = !!response.data?.multiUserEnabled
       smsLoginEnabled.value = !!response.data?.smsLoginEnabled
       emailCodeLoginEnabled.value = !!response.data?.emailCodeLoginEnabled

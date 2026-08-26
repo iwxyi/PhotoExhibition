@@ -591,6 +591,7 @@ let canvasEl: HTMLCanvasElement | null = null
 let ctx: CanvasRenderingContext2D | null = null
 let particles: Array<any> = []
 let rafId: number | null = null
+let canvasResizeHandler: (() => void) | null = null
 
 const ensureCanvas = () => {
   if (canvasEl && ctx) return
@@ -606,11 +607,12 @@ const ensureCanvas = () => {
   canvasEl.height = window.innerHeight
   document.body.appendChild(canvasEl)
   ctx = canvasEl.getContext('2d')
-  window.addEventListener('resize', () => {
+  canvasResizeHandler = () => {
     if (!canvasEl) return
     canvasEl.width = window.innerWidth
     canvasEl.height = window.innerHeight
-  })
+  }
+  window.addEventListener('resize', canvasResizeHandler)
   startLoop()
 }
 
@@ -682,6 +684,21 @@ const spawnCanvasBurst = (x: number, y: number) => {
       life: 700 + Math.random() * 300
     })
   }
+}
+
+const stopCanvasBurst = () => {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+  if (canvasResizeHandler) {
+    window.removeEventListener('resize', canvasResizeHandler)
+    canvasResizeHandler = null
+  }
+  canvasEl?.remove()
+  canvasEl = null
+  ctx = null
+  particles = []
 }
 
 const triggerCanvasBurstFor = (photoId: number, clientX?: number, clientY?: number) => {
@@ -1087,47 +1104,41 @@ onUnmounted(() => {
   if (scrollTimer) clearTimeout(scrollTimer)
   if (resizeTimer) clearTimeout(resizeTimer)
   if (layoutTimer) clearTimeout(layoutTimer)
+  stopCanvasBurst()
   // 清除当前视图标识
   photoStore.setCurrentView && photoStore.setCurrentView(null)
 })
 
 onActivated(() => {
-  console.log('[PhotoWall] onActivated 触发')
   // 标记组件已激活，用于路由参数变化监听
   isActivatedFlag.value = true
 
   // 智能判断是否需要重新加载数据
   // 只有当路由路径发生变化（首次加载或导航到其他路由后返回）时才重新加载
   if (!lastDataLoadedInfo.value || lastDataLoadedInfo.value.fullPath !== route.fullPath) {
-    console.log('[PhotoWall] 路由路径变化，需要重新加载数据')
     // 重置加载状态，确保可以继续加载更多
     hasMore.value = true
     isLoadingMore.value = false
-    console.log('[PhotoWall] hasMore 重置为:', hasMore.value)
 
     // 更新窗口宽度
     windowWidth.value = window.innerWidth
 
     // 恢复滚动位置并添加事件监听器
     setTimeout(() => {
-      console.log('[PhotoWall] setTimeout 触发，savedScrollTop:', savedScrollTop.value)
       // 先恢复滚动位置
       window.scrollTo({ top: savedScrollTop.value, behavior: 'instant' as ScrollBehavior })
 
       // 再次确保滚动位置正确（有时一次可能不够）
       requestAnimationFrame(() => {
-        console.log('[PhotoWall] requestAnimationFrame 触发，当前滚动位置:', window.scrollY)
         window.scrollTo({ top: savedScrollTop.value })
       })
 
       // 添加事件监听器
       window.addEventListener('scroll', handleScroll, { passive: true })
-      console.log('[PhotoWall] scroll listener 已添加')
       window.addEventListener('resize', handleResize)
 
       // 重新布局，确保容器尺寸和位置正确
       if (photos.value.length > 0 && masonryContainer.value) {
-        console.log('[PhotoWall] 重新布局，photos:', photos.value.length)
         setTimeout(() => {
           layoutItems()
           updateParallax()
@@ -1135,7 +1146,6 @@ onActivated(() => {
       }
     }, 10)
   } else {
-    console.log('[PhotoWall] 路由路径未变化，保持缓存状态')
     // 路由路径未变化，只是从其他页面返回，不需要重新加载数据
     // 只需恢复滚动位置和事件监听器
     setTimeout(() => {
@@ -1306,6 +1316,7 @@ onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('resize', handleResize)
+  stopCanvasBurst()
   // 清除当前视图标识，防止切换时残留触发请求
   photoStore.setCurrentView && photoStore.setCurrentView(null)
   // 标记组件已停用，下次激活时需要恢复状态

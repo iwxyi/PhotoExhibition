@@ -417,6 +417,7 @@ let canvasEl: HTMLCanvasElement | null = null
 let ctx: CanvasRenderingContext2D | null = null
 let particles: Array<any> = []
 let rafId: number | null = null
+let canvasResizeHandler: (() => void) | null = null
 
 const ensureCanvas = () => {
   if (canvasEl && ctx) return
@@ -432,11 +433,12 @@ const ensureCanvas = () => {
   canvasEl.height = window.innerHeight
   document.body.appendChild(canvasEl)
   ctx = canvasEl.getContext('2d')
-  window.addEventListener('resize', () => {
+  canvasResizeHandler = () => {
     if (!canvasEl) return
     canvasEl.width = window.innerWidth
     canvasEl.height = window.innerHeight
-  })
+  }
+  window.addEventListener('resize', canvasResizeHandler)
   startLoop()
 }
 
@@ -508,6 +510,21 @@ const spawnCanvasBurst = (x: number, y: number) => {
       life: 700 + Math.random() * 300
     })
   }
+}
+
+const stopCanvasBurst = () => {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+  if (canvasResizeHandler) {
+    window.removeEventListener('resize', canvasResizeHandler)
+    canvasResizeHandler = null
+  }
+  canvasEl?.remove()
+  canvasEl = null
+  ctx = null
+  particles = []
 }
 
 const triggerCanvasBurstFor = (photoId: number, clientX?: number, clientY?: number) => {
@@ -640,7 +657,9 @@ const loadInitial = async () => {
     // 初始化点赞数据
     loadLikedFromStorage()
     // 获取分类数据
-    await Promise.all([
+    // Category metadata is auxiliary; a failure here must not prevent the
+    // primary random-photo request from rendering the page.
+    await Promise.allSettled([
       photoStore.fetchCategories(),
       loadCategorySortOrder()
     ])
@@ -734,18 +753,27 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
   if (scrollTimer) clearTimeout(scrollTimer)
+  stopCanvasBurst()
   // 清除当前视图标识
   photoStore.setCurrentView && photoStore.setCurrentView(null)
   try { delete (window as any).__photoStore } catch(e) {}
 })
 
 onActivated(() => {
-  console.log('[RandomGallery] onActivated 触发')
+  // KeepAlive deactivation clears the shared view marker. Restore it before
+  // any subsequent pagination or retry request.
+  photoStore.setCurrentView('random')
   // 标记组件已激活，用于路由参数变化监听
   isActivatedFlag.value = true
   // 重置加载状态，确保可以继续加载更多
   hasMore.value = true
   isLoadingMore.value = false
+
+  // If the first request failed while this cached view was inactive, retry on
+  // activation instead of leaving the page permanently empty.
+  if (photos.value.length === 0 && !loading.value) {
+    void loadInitial()
+  }
 
   // 恢复滚动位置
   if (savedScrollTop.value > 0) {
@@ -761,6 +789,7 @@ onActivated(() => {
 onDeactivated(() => {
   savedScrollTop.value = window.scrollY || 0
   window.removeEventListener('scroll', handleScroll)
+  stopCanvasBurst()
   // 清除当前视图标识，防止切换时残留触发请求
   photoStore.setCurrentView && photoStore.setCurrentView(null)
   // 标记组件已停用，下次激活时需要恢复状态

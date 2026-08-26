@@ -2972,7 +2972,13 @@ const handleBreadcrumbDragLeave = (targetPath: string) => {
 const handleBreadcrumbDrop = async (event: DragEvent, targetPath: string) => {
   event.stopPropagation()
   const raw = event.dataTransfer?.getData('application/x-photoexhibition-paths')
-  const paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
+  let paths: string[]
+  try {
+    paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
+  } catch {
+    handleItemDragEnd()
+    return
+  }
   dragMoveTargetPath.value = ''
   if (!paths?.length) return
   if (isInvalidMoveTarget(paths, targetPath)) {
@@ -2997,7 +3003,13 @@ const handleBreadcrumbDrop = async (event: DragEvent, targetPath: string) => {
 const handleFolderDrop = async (event: DragEvent, dir: FileItem) => {
   event.stopPropagation()
   const raw = event.dataTransfer?.getData('application/x-photoexhibition-paths')
-  const paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
+  let paths: string[]
+  try {
+    paths = raw ? (JSON.parse(raw) as string[]) : draggingPaths.value
+  } catch {
+    handleItemDragEnd()
+    return
+  }
   dragMoveTargetPath.value = ''
   if (!paths?.length) return
   if (isInvalidMoveTarget(paths, dir.path)) {
@@ -3049,7 +3061,9 @@ const handleDrop = async (event: DragEvent) => {
   const internalPathsPayload = event.dataTransfer?.getData('application/x-photoexhibition-paths')
   if (internalPathsPayload) {
     try {
-      await movePathsToTarget(JSON.parse(internalPathsPayload), currentPath.value || basePath.value)
+      const paths = JSON.parse(internalPathsPayload)
+      if (!Array.isArray(paths) || paths.some(path => typeof path !== 'string')) throw new Error('invalid drag payload')
+      await movePathsToTarget(paths, currentPath.value || basePath.value)
       selectedPaths.value.clear()
       await loadFiles()
     } catch (e: any) {

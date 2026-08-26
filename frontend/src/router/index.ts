@@ -249,6 +249,12 @@ const routes = [
     name: 'AdminSuperAdmin',
     component: () => import('@/views/admin/SuperAdmin.vue'),
     meta: { requiresAuth: true, requiresSuperAdmin: true, title: '超级管理员' }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/views/NotFound.vue'),
+    meta: { title: '页面不存在' }
   }
 ]
 

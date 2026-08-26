@@ -839,26 +839,21 @@ onMounted(async () => {
   const fromParam = route.query.from as string
   let entryPage = ''
 
-  console.log('[PersonDetail] onMounted - fromParam:', fromParam, 'referrer:', document.referrer)
 
   if (fromParam) {
     // 从新标签页打开时，通过 URL 参数传递来源
     entryPage = decodeURIComponent(fromParam)
-    console.log('[PersonDetail] onMounted - entry from param:', entryPage)
   } else if (document.referrer && document.referrer.includes(window.location.origin)) {
     // 同标签页导航，从 referrer 获取来源
     try {
       const referrerUrl = new URL(document.referrer)
       entryPage = referrerUrl.pathname
-      console.log('[PersonDetail] onMounted - entry from referrer:', entryPage)
     } catch {
       entryPage = buildPublicPath('/persons', route.path)
-      console.log('[PersonDetail] onMounted - entry default to /persons')
     }
   } else {
     // 直接 URL 访问或跨域来源，默认返回人物列表
     entryPage = ''
-    console.log('[PersonDetail] onMounted - entry empty (direct URL)')
   }
 
   sessionStorage.setItem('person-entry-page', entryPage)

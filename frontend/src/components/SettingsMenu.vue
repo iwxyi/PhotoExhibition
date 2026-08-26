@@ -235,7 +235,6 @@ const settingsHover = ref(false)
 const settingsRef = ref<HTMLElement>()
 const menuRef = ref<HTMLElement>()
 const buttonRef = ref<HTMLElement>()
-const serverUrl = ref('')
 
 const { coverSize, previewSize, parallaxEnabled, atmosphereEnabled, viewOriginalEnabled, setCoverSize, setPreviewSize, setParallaxEnabled, setAtmosphereEnabled, setViewOriginalEnabled } = useUiSettings()
 const { language, setLanguage } = useLanguageStore()
@@ -305,28 +304,9 @@ const goAdmin = () => {
   showSettings.value = false
 }
 
-const saveServerUrl = () => {
-  if (serverUrl.value.trim()) {
-    // 保存到localStorage
-    localStorage.setItem('server_url', `http://${serverUrl.value.trim()}`)
-    // 显示成功提示（可以后续添加）
-    console.log('服务器地址已保存:', serverUrl.value.trim())
-  }
-}
-
-// 初始化服务器URL
-const initServerUrl = () => {
-  const saved = localStorage.getItem('server_url')
-  if (saved) {
-    // 移除http://前缀显示
-    serverUrl.value = saved.replace(/^https?:\/\//, '')
-  }
-}
-
 // 生命周期钩子
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
-  initServerUrl()
 })
 
 onUnmounted(() => {

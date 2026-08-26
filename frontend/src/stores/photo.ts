@@ -133,7 +133,6 @@ export const usePhotoStore = defineStore('photo', () => {
   }
 
   const fetchAlbums = async (page = 0, size = 12, category?: string, sort?: string, setLoading = true) => {
-    console.log(`获取相册列表 - 页码: ${page}, 数量: ${size}, 分类: ${category || '全部'}, 排序: ${sort || '默认'}`)
     const wasLoading = loading.value
     if (setLoading) loading.value = true
     try {
@@ -143,7 +142,6 @@ export const usePhotoStore = defineStore('photo', () => {
       const response = await api.get('/albums', { params })
       // 合并并去重（按 id）
       const incoming: Album[] = response.data.content || []
-      console.log(`获取到 ${incoming.length} 个相册, 总页数: ${response.data.totalPages}, 总数: ${response.data.totalElements}`)
       if (page === 0) {
         albums.value = incoming
       } else {

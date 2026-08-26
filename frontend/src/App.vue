@@ -116,7 +116,6 @@ watch(
 // 初始化标题
 onMounted(() => {
   updateTitle()
-  authStore.bootstrap()
   // 初次挂载时，根据当前路由给 body 一个过渡友好的背景状态
   document.body.dataset.route = (route.name as string) || ''
 })

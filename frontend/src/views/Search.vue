@@ -224,6 +224,9 @@ const unconfirmedFaceIds = computed(() => {
 
 const keyword = ref('')
 const editableKeyword = ref('')
+const safeDecode = (value: string) => {
+  try { return decodeURIComponent(value) } catch { return value }
+}
 const faceId = ref<number | null>(null)
 const tagId = ref<number | null>(null)
 const tagName = ref<string>('')
@@ -231,12 +234,12 @@ const clusterThreshold = ref<number>(0.7)
 
 // 监听关键词变化，更新页面标题
 watch(keyword, (newKeyword) => {
-  editableKeyword.value = newKeyword ? decodeURIComponent(newKeyword) : ''
+  editableKeyword.value = newKeyword ? safeDecode(newKeyword) : ''
   const baseTitle = languageStore.language === 'zh'
     ? (authStore.projectNameZh || authStore.projectNameEn || '光忆集')
     : (authStore.projectNameEn || authStore.projectNameZh || 'Aurellic Memoriq')
   if (newKeyword) {
-    document.title = `${baseTitle} - 搜索: ${decodeURIComponent(newKeyword)}`
+    document.title = `${baseTitle} - 搜索: ${safeDecode(newKeyword)}`
   } else {
     document.title = baseTitle
   }
@@ -1577,6 +1580,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
               :key="photo.id"
               :href="buildPublicPath(`/photo/${photo.id}`, route.path)"
               target="_blank"
+              rel="noopener noreferrer"
               class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
@@ -1683,6 +1687,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
               :key="photo.id"
               :href="buildPublicPath(`/photo/${photo.id}`, route.path)"
               target="_blank"
+              rel="noopener noreferrer"
               class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
