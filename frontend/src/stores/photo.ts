@@ -132,16 +132,23 @@ export const usePhotoStore = defineStore('photo', () => {
     return stripPublicSlug(path)
   }
 
+  // 只读取一页数据，不修改当前列表。列表页的预加载必须使用这个方法，
+  // 否则预加载会在用户尚未滚动到底部时把下一页直接渲染出来。
+  const getAlbumsPage = async (page = 0, size = 12, category?: string, sort?: string) => {
+    const params: any = { page, size, includeHidden: false }
+    if (category) params.category = category
+    if (sort) params.sort = sort
+    const response = await api.get('/albums', { params })
+    return response.data
+  }
+
   const fetchAlbums = async (page = 0, size = 12, category?: string, sort?: string, setLoading = true) => {
     const wasLoading = loading.value
     if (setLoading) loading.value = true
     try {
-      const params: any = { page, size, includeHidden: false }
-      if (category) params.category = category
-      if (sort) params.sort = sort
-      const response = await api.get('/albums', { params })
+      const data = await getAlbumsPage(page, size, category, sort)
       // 合并并去重（按 id）
-      const incoming: Album[] = response.data.content || []
+      const incoming: Album[] = data.content || []
       if (page === 0) {
         albums.value = incoming
       } else {
@@ -152,7 +159,7 @@ export const usePhotoStore = defineStore('photo', () => {
         })
         albums.value = Array.from(seen.values())
       }
-      return response.data
+      return data
     } finally {
       if (setLoading) loading.value = false
       else loading.value = wasLoading // 恢复原来的loading状态
@@ -448,6 +455,7 @@ export const usePhotoStore = defineStore('photo', () => {
     currentPhoto,
     loading,
     fetchAlbums,
+    getAlbumsPage,
     fetchCategories,
     fetchAlbumById,
     fetchPhotosByAlbum,

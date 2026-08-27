@@ -16,13 +16,12 @@
         :class="[
           c === selectedCategory
             ? 'bg-transparent text-stone-50 dark:text-stone-950 border-stone-300/80 dark:border-white/14'
-            : 'bg-white/72 dark:bg-white/[0.05] text-stone-700 dark:text-stone-300 border-stone-300/70 dark:border-white/10 hover:bg-stone-100/92 dark:hover:bg-white/[0.08]'
+            : 'bg-white/72 dark:bg-white/[0.05] text-stone-700 dark:text-stone-300 border-stone-300/70 dark:border-white/10'
         ]"
         :style="getTabStyle(c)"
       >
         <div 
           class="liquid-bg absolute transition-all duration-500 ease-out"
-          :class="c === selectedCategory ? 'opacity-100' : 'opacity-0'"
           :style="getLiquidStyle(c)"
         ></div>
         
@@ -137,9 +136,10 @@ const handleMouseLeave = (_event: MouseEvent, category: string) => {
 // 获取 tab 样式
 const getTabStyle = (category: string) => {
   const isSelected = category === props.selectedCategory
+  const state = getMouseState(category)
 
   return {
-    transform: isSelected ? 'scale(1.015)' : 'none'
+    transform: isSelected || state.entering ? 'scale(1.015)' : 'none'
   }
 }
 
@@ -148,13 +148,14 @@ const getLiquidStyle = (category: string) => {
   const isSelected = category === props.selectedCategory
   const state = getMouseState(category)
   
-  const offset = isSelected && state.entering ? (state.percentX - 0.5) * 18 : 0
+  const offset = state.entering ? (state.percentX - 0.5) * 18 : 0
   
   return {
     inset: '0',
+    opacity: isSelected || state.entering ? '1' : '0',
     background: isSelected
       ? (isDark.value ? 'rgb(245 245 244)' : 'rgb(28 25 23)')
-      : 'transparent',
+      : (isDark.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(245, 245, 244, 0.92)'),
     transform: `translateX(${offset}px)`,
   }
 }

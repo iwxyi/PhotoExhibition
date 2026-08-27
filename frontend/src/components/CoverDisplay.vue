@@ -18,7 +18,6 @@
             class="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-110"
             loading="lazy"
             @error="handleError"
-            @load="onImageLoad($event, photo)"
           />
         </div>
       </div>
@@ -35,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed } from 'vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Photo {
@@ -71,20 +70,6 @@ const props = withDefaults(defineProps<Props>(), {
   preferMediumThumb: false
 })
 
-// 存储图片的实际尺寸（用于布局判断）
-const imageDimensions = ref<Map<number, { width: number; height: number }>>(new Map())
-
-// 图片加载完成后获取实际尺寸
-const onImageLoad = (event: Event, photo: Photo) => {
-  const img = event.target as HTMLImageElement
-  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-    imageDimensions.value.set(photo.id, {
-      width: img.naturalWidth,
-      height: img.naturalHeight
-    })
-  }
-}
-
 // 获取所有照片（自定义封面优先，否则使用默认封面）
 const allPhotos = computed(() => {
   if (props.covers && props.covers.length > 0) {
@@ -108,16 +93,8 @@ const getPhotoType = (photo: Photo): 'vertical' | 'horizontal' | 'square' => {
     return 'square' // 接近1:1 → 正方形
   }
   
-  // 使用动态加载的图片尺寸
-  const dims = imageDimensions.value.get(photo.id)
-  if (dims && dims.width > 0 && dims.height > 0) {
-    const ratio = dims.width / dims.height
-    if (ratio > 1.15) return 'horizontal'
-    if (ratio < 0.85) return 'vertical'
-    return 'square'
-  }
-  
-  return 'horizontal' // 未知尺寸按横图处理
+  // 尺寸缺失时保持首次布局，避免图片加载后重排造成列表跳动。
+  return 'horizontal'
 }
 
 // 计算图片"主体占比"（主体越大越适合做主图）
@@ -125,15 +102,6 @@ const getMainScore = (photo: Photo): number => {
   // 优先使用预设尺寸
   let width = photo.width
   let height = photo.height
-  
-  // 使用动态加载的图片尺寸
-  if ((!width || !height) && imageDimensions.value.has(photo.id)) {
-    const dims = imageDimensions.value.get(photo.id)
-    if (dims) {
-      width = dims.width
-      height = dims.height
-    }
-  }
   
   if (!width || !height) return 0
   // 面积越大、越接近正方形，分数越高

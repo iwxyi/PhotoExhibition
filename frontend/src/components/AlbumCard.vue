@@ -1,10 +1,11 @@
 <template>
   <div
-    class="photo-card cursor-pointer group w-full mx-auto transform-gpu rounded-2xl overflow-hidden"
-    :class="[cardSizeClass, !cardBgColor ? 'bg-[rgba(255,255,255,0.82)] dark:bg-[rgba(22,22,22,0.82)]' : '']"
+    class="photo-card cursor-pointer group w-full transform-gpu rounded-[18px] overflow-hidden"
+    :class="[cardSizeClass, !cardBgColor ? 'bg-white/85 dark:bg-[#1a1a1a]/85' : '']"
     :style="cardBgColor ? { backgroundColor: cardBgColor } : {}"
     :data-album-id="album.id"
     role="button"
+    :aria-label="`打开相册：${album.displayTitle || album.name}`"
     tabindex="0"
     @click="handleClick"
     @keydown.enter.prevent="handleClick"
@@ -12,7 +13,7 @@
     ref="cardRef"
   >
     <!-- 封面布局 -->
-    <div class="overflow-hidden rounded-t-2xl">
+    <div class="overflow-hidden rounded-t-[17px]">
       <CoverDisplay
         :covers="customCovers"
         :default-covers="defaultCovers"
@@ -22,15 +23,20 @@
     </div>
 
     <!-- 信息块（显示在封面下方） -->
-    <div class="px-4 pt-3 pb-3.5 sm:px-5 text-gray-900 dark:text-gray-100">
+    <div class="px-4 pt-2 pb-2.5 text-gray-900 dark:text-gray-100">
       <div class="flex items-center">
-        <h3 class="text-[13px] sm:text-[13.5px] font-light tracking-[0.035em] leading-[1.35] truncate text-stone-900 dark:text-stone-100">
+        <h3 class="text-[13.5px] sm:text-sm font-normal tracking-[0.02em] leading-[1.35] truncate text-stone-900 dark:text-stone-100">
           {{ album.displayTitle || album.name }}
         </h3>
       </div>
-      <div v-if="takenDateText" class="mt-1 text-[10px] sm:text-[10.5px] tracking-[0.12em] uppercase text-stone-500 dark:text-stone-400">
+      <time
+        v-if="takenDateText"
+        :datetime="album.takenAt"
+        class="mt-0.5 block text-[10px] sm:text-[10.5px] leading-3 tracking-[0.1em] uppercase text-stone-500 dark:text-stone-400"
+      >
         {{ takenDateText }}
-      </div>
+      </time>
+      <div v-else aria-hidden="true" class="mt-0.5 h-3"></div>
     </div>
   </div>
 </template>
@@ -117,11 +123,9 @@ const takenDateText = computed(() => {
 })
 
 const cardSizeClass = computed(() => {
-  const size = props.size || 'md'
-  if (size === 'sm') return 'max-w-[200px]'
-  if (size === 'md') return 'max-w-[240px]'
-  if (size === 'lg') return 'max-w-[280px]'
-  return 'max-w-[240px]'
+  // 卡片填满网格轨道，视觉上的横向间隙才会与 row-gap 完全一致。
+  // 封面尺寸与列数已由首页网格控制，无需再以 max-width 缩窄卡片。
+  return 'max-w-none'
 })
 
 const handleClick = () => {
@@ -190,19 +194,28 @@ const handleClick = () => {
 </script>
 
 <style scoped>
-/* 默认状态：微妙边框，无阴影 */
+/* 轻薄封套：封面主导，文字区提供稳定的归档感。 */
 .photo-card {
-  border: 1px solid rgba(120, 113, 108, 0.18);
+  /* 覆盖全局瀑布流卡片的 mb-6；首页网格只由 gap 控制行列间距。 */
+  margin-bottom: 0;
+  border: 1px solid rgba(120, 113, 108, 0.16);
   content-visibility: auto;
   contain: layout paint style;
   contain-intrinsic-size: 240px 300px;
-  transition: transform 0.28s ease, border-color 0.28s ease, background-color 0.28s ease;
+  box-shadow: 0 1px 2px rgba(41, 37, 36, 0.035);
+  transition: transform 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
 }
 
-/* 悬浮状态：仅轻微上浮和边框加深，避免控件感过重 */
+.photo-card:focus-visible {
+  outline: 2px solid rgb(14 165 233);
+  outline-offset: 3px;
+}
+
+/* 悬浮只增加一层纸张般的浮起感。 */
 .photo-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(68, 64, 60, 0.28);
+  border-color: rgba(68, 64, 60, 0.24);
+  box-shadow: 0 10px 24px rgba(41, 37, 36, 0.08);
 }
 
 /* 封面图片悬浮放大 */
@@ -212,9 +225,11 @@ const handleClick = () => {
 
 :global(.dark) .photo-card {
   border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 :global(.dark) .photo-card:hover {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.20);
 }
 </style>

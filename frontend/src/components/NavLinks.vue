@@ -2,41 +2,53 @@
   <div class="flex items-center space-x-2.5 transition-opacity duration-300" :style="{ opacity: navOpacity }">
     <router-link
       :to="buildPublicPath('/', route.path)"
-      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      @mouseenter="handleMouseEnter($event, '/')"
+      @mousemove="handleMouseMove($event, '/')"
+      @mouseleave="handleMouseLeave('/')"
+      class="inline-flex min-h-[34px] items-center justify-center w-[84px] rounded-full border transition-all duration-500 hover:scale-[1.015] transform-gpu group relative overflow-hidden whitespace-nowrap text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 dark:focus-visible:ring-stone-500 dark:focus-visible:ring-offset-gray-900"
       :class="linkClass('/')"
     >
-      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/')"></div>
+      <div class="absolute inset-0 rounded-full transition-all duration-500 ease-out" :class="panelClass('/')" :style="getPanelStyle('/')"></div>
       <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">相册</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/wall', route.path)"
-      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      @mouseenter="handleMouseEnter($event, '/wall')"
+      @mousemove="handleMouseMove($event, '/wall')"
+      @mouseleave="handleMouseLeave('/wall')"
+      class="inline-flex min-h-[34px] items-center justify-center w-[84px] rounded-full border transition-all duration-500 hover:scale-[1.015] transform-gpu group relative overflow-hidden whitespace-nowrap text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 dark:focus-visible:ring-stone-500 dark:focus-visible:ring-offset-gray-900"
       :class="linkClass('/wall')"
     >
-      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/wall')"></div>
+      <div class="absolute inset-0 rounded-full transition-all duration-500 ease-out" :class="panelClass('/wall')" :style="getPanelStyle('/wall')"></div>
       <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">图墙</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/random', route.path)"
-      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      @mouseenter="handleMouseEnter($event, '/random')"
+      @mousemove="handleMouseMove($event, '/random')"
+      @mouseleave="handleMouseLeave('/random')"
+      class="inline-flex min-h-[34px] items-center justify-center w-[84px] rounded-full border transition-all duration-500 hover:scale-[1.015] transform-gpu group relative overflow-hidden whitespace-nowrap text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 dark:focus-visible:ring-stone-500 dark:focus-visible:ring-offset-gray-900"
       :class="linkClass('/random')"
     >
-      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/random')"></div>
+      <div class="absolute inset-0 rounded-full transition-all duration-500 ease-out" :class="panelClass('/random')" :style="getPanelStyle('/random')"></div>
       <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">随机</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/persons', route.path)"
-      class="inline-flex h-9 items-center justify-center w-[84px] rounded-full border transition-all duration-200 hover:scale-[1.02] transform-gpu group relative overflow-hidden whitespace-nowrap text-center"
+      @mouseenter="handleMouseEnter($event, '/persons')"
+      @mousemove="handleMouseMove($event, '/persons')"
+      @mouseleave="handleMouseLeave('/persons')"
+      class="inline-flex min-h-[34px] items-center justify-center w-[84px] rounded-full border transition-all duration-500 hover:scale-[1.015] transform-gpu group relative overflow-hidden whitespace-nowrap text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 dark:focus-visible:ring-stone-500 dark:focus-visible:ring-offset-gray-900"
       :class="linkClass('/persons')"
     >
-      <div class="absolute inset-0 rounded-full transition-transform duration-300 ease-out" :class="panelClass('/persons')"></div>
+      <div class="absolute inset-0 rounded-full transition-all duration-500 ease-out" :class="panelClass('/persons')" :style="getPanelStyle('/persons')"></div>
       <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">人物</span>
     </router-link>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { buildPublicPath, stripPublicSlug } from '@/utils/publicRoute'
 
@@ -45,18 +57,64 @@ const navOpacity = ref(1)
 let lastScrollY = 0
 let ticking = false
 
+interface NavMouseState {
+  percentX: number
+  hovering: boolean
+  rect: DOMRect | null
+}
+
+const navMouseStates = reactive<Record<string, NavMouseState>>({})
+
+const getMouseState = (path: string): NavMouseState => {
+  if (!navMouseStates[path]) {
+    navMouseStates[path] = { percentX: 0.5, hovering: false, rect: null }
+  }
+  return navMouseStates[path]
+}
+
+const updateMousePosition = (event: MouseEvent, path: string) => {
+  const state = getMouseState(path)
+  const rect = state.rect || (event.currentTarget as HTMLElement | null)?.getBoundingClientRect()
+  if (!rect) return
+  state.rect = rect
+  state.percentX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+}
+
+const handleMouseEnter = (event: MouseEvent, path: string) => {
+  const state = getMouseState(path)
+  state.rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect() || null
+  state.hovering = true
+  updateMousePosition(event, path)
+}
+
+const handleMouseMove = (event: MouseEvent, path: string) => {
+  updateMousePosition(event, path)
+}
+
+const handleMouseLeave = (path: string) => {
+  const state = getMouseState(path)
+  state.hovering = false
+  state.rect = null
+}
+
 const linkClass = (path: string) => {
   const active = stripPublicSlug(route.path) === path
   return active
     ? 'border-stone-300/80 text-stone-50 dark:border-white/14 dark:text-stone-950'
-    : 'border-stone-300/70 text-stone-700 dark:border-white/10 dark:text-stone-300'
+    : 'bg-white/72 dark:bg-white/[0.05] border-stone-300/70 text-stone-700 dark:border-white/10 dark:text-stone-300'
 }
 
 const panelClass = (path: string) => {
   const active = stripPublicSlug(route.path) === path
   return active
-    ? 'bg-stone-900 dark:bg-stone-100 group-hover:translate-x-[4px]'
-    : 'bg-white/72 dark:bg-white/[0.05] group-hover:bg-stone-100/92 dark:group-hover:bg-white/[0.08]'
+    ? 'bg-stone-900 dark:bg-stone-100'
+    : 'bg-stone-100/92 dark:bg-white/[0.08] opacity-0 group-hover:opacity-100'
+}
+
+const getPanelStyle = (path: string) => {
+  const state = getMouseState(path)
+  const offset = state.hovering ? (state.percentX - 0.5) * 18 : 0
+  return { transform: `translateX(${offset}px)` }
 }
 
 const updateNavOpacity = () => {

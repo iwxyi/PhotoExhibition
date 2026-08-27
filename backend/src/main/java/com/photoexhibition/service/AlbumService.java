@@ -109,23 +109,10 @@ public class AlbumService {
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort, boolean includeHidden, Long userId) {
         log.debug("获取相册列表 - 排序: {}, 分类: {}, includeHidden: {}", sort, category, includeHidden);
 
-        // 先查询足够多的数据（500条足够容纳所有相册），然后在内存中过滤和分页
-        int fetchSize = 500;
-        Pageable fetchPageable = PageRequest.of(0, fetchSize, pageable.getSort());
-
-        Page<Album> albums;
-        if (category != null && !category.isEmpty()) {
-            List<Album> categoryAlbums = loadCategoryAlbums(category, userId).stream()
-                .filter(this::isAlbumVisibleInListing)
-                .collect(Collectors.toList());
-            albums = new org.springframework.data.domain.PageImpl<>(categoryAlbums, fetchPageable, categoryAlbums.size());
-        } else {
-            // 查询有照片的相册或开启了聚合功能的相册
-            albums = albumRepository.findAlbumsWithPhotosOrAggregation(fetchPageable);
-        }
-
-        // 过滤掉被聚合的相册，并按排序重新排序
-        List<Album> filteredAlbums = filterAggregatedAlbums(filterAlbumsByUser(albums.getContent(), userId), includeHidden);
+        // 聚合相册需要按路径排除子相册，因此先完整读取候选集，再执行筛选、排序和分页。
+        // 不能只读取固定的前 500 条，否则总数大于 500 时后续页面会永久为空。
+        List<Album> filteredAlbums = filterAggregatedAlbums(
+            filterAlbumsByUser(loadAlbumsForListing(category, userId), userId), includeHidden);
         filteredAlbums = sortAlbums(filteredAlbums, sort);
 
         // 获取总数

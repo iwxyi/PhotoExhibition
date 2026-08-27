@@ -19,7 +19,7 @@
 
 
     <!-- 相册网格 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 pb-14 md:pt-8 md:pb-16">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-14 md:pt-6 md:pb-16">
       <template v-if="showPublicPortal">
         <section class="py-10 md:py-14">
           <div class="max-w-4xl">
@@ -80,7 +80,7 @@
           <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
         </div>
 
-        <section v-if="albums.length > 0" class="pt-1 md:pt-2">
+        <section v-if="albums.length > 0">
         <div
           :class="coverGridClass"
           style="contain: layout style; will-change: auto;"
@@ -94,6 +94,27 @@
           />
         </div>
         </section>
+
+        <div
+          v-else-if="!loading"
+          class="mx-auto flex min-h-[22rem] max-w-md flex-col items-center justify-center text-center"
+        >
+          <template v-if="loadError">
+            <p class="text-base text-stone-800 dark:text-stone-100">相册加载失败</p>
+            <p class="mt-2 text-sm leading-6 text-stone-500 dark:text-stone-400">{{ loadError }}</p>
+            <button
+              type="button"
+              class="mt-6 rounded-full bg-stone-900 px-5 py-2.5 text-sm text-white transition-colors hover:bg-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-500 focus-visible:ring-offset-2 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+              @click="reloadAlbums"
+            >
+              重新加载
+            </button>
+          </template>
+          <template v-else>
+            <p class="text-base text-stone-800 dark:text-stone-100">暂无可展示的相册</p>
+            <p class="mt-2 text-sm text-stone-500 dark:text-stone-400">可以稍后再来看看。</p>
+          </template>
+        </div>
 
         <!-- 加载状态 -->
         <div v-if="isLoadingMore && albums.length > 0" class="mt-12 text-center">
@@ -112,15 +133,14 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { buildPublicPath } from '@/utils/publicRoute'
 import { useAuthStore } from '@/stores/auth'
-import { usePhotoStore } from '@/stores/photo'
+import { usePhotoStore, type Album } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
 import { api, publicUserApi, type PublicUserProfile } from '@/api'
 import AlbumCard from '@/components/AlbumCard.vue'
-import FilterPanel from '@/components/FilterPanel.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import PublicAccountMenu from '@/components/PublicAccountMenu.vue'
 import SearchSpotlight from '@/components/SearchSpotlight.vue'
@@ -134,17 +154,16 @@ const route = useRoute()
 const authStore = useAuthStore()
 const photoStore = usePhotoStore()
 const themeStore = useThemeStore()
-import NavLinks from '@/components/NavLinks.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import CategoryTabs from '@/components/CategoryTabs.vue'
 
 const albums = computed(() => photoStore.albums)
 const loading = computed(() => photoStore.loading)
 const categories = computed(() => sortCategories(photoStore.categories))
-const showFilter = ref(false)
 const currentPage = ref(0)
 const hasMore = ref(true)
 const activeCategory = ref('全部')
+const loadError = ref('')
 const savedScrollTop = ref(0)
 const isLoadingMore = ref(false)
 const albumSortOrder = ref('name_asc')
@@ -158,9 +177,15 @@ const currentUserSlug = computed(() => typeof route.params.userSlug === 'string'
 const showPublicPortal = computed(() => publicMultiUserEnabled.value && !currentUserSlug.value)
 
 // 预加载缓冲区状态
-const preloadBuffer = ref<any[]>([])
+interface PreloadedPage {
+  albums: Album[]
+  last: boolean
+}
+const preloadBuffer = ref<PreloadedPage | null>(null)
 const isPreloading = ref(false)
 const isInitialized = ref(false)  // 标记是否已初始化完成
+let listingRequestVersion = 0
+let preloadPromise: Promise<void> | null = null
 
 // 监听排序设置变化，重新获取数据（只处理用户手动更改，不处理初始化）
 watch(albumSortOrder, async (newSort, oldSort) => {
@@ -169,29 +194,23 @@ watch(albumSortOrder, async (newSort, oldSort) => {
     currentPage.value = 0
     hasMore.value = true
     // 清空预加载缓冲区
-    preloadBuffer.value = []
-    const loadSize = getDynamicLoadSize()
-    const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
-    const data = await photoStore.fetchAlbums(0, loadSize, cat, newSort)
-    hasMore.value = !data.last
-    // 切换排序时滚动到顶部
-    window.scrollTo({ top: 0, behavior: 'instant' })
+    await reloadAlbums()
   }
 })
 const coverGridClass = computed(() => {
   if (coverSize.value === 'sm') {
     // 小尺寸：更多列数（适合小封面）
-    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
+    return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-6'
   }
   if (coverSize.value === 'md') {
     // 中等尺寸：中等列数
-    return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
+    return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-6 gap-y-6'
   }
   if (coverSize.value === 'lg') {
     // 大尺寸：较少列数（适合大封面）
-    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5'
+    return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-6'
   }
-  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
+  return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-6 gap-y-6'
 })
 
 // 动态计算当前网格布局的列数
@@ -211,26 +230,26 @@ const getCurrentGridColumns = () => {
   if (size === 'md') {
     // 中等尺寸：中等列数
     if (width >= 1280) return 5 // xl
-    if (width >= 1024) return 4 // lg
-    if (width >= 768) return 3 // md
-    if (width >= 640) return 2 // sm
+    if (width >= 1024) return 5 // lg
+    if (width >= 768) return 4 // md
+    if (width >= 640) return 3 // sm
     return 2 // default (手机上2列)
   }
 
   if (size === 'lg') {
     // 大尺寸：较少列数
     if (width >= 1280) return 4 // xl
-    if (width >= 1024) return 3 // lg
-    if (width >= 768) return 2 // md
-    if (width >= 640) return 1 // sm
+    if (width >= 1024) return 4 // lg
+    if (width >= 768) return 3 // md
+    if (width >= 640) return 2 // sm
     return 1 // default (手机上1列)
   }
 
   // 默认 md
   if (width >= 1280) return 5 // xl
-  if (width >= 1024) return 4 // lg
-  if (width >= 768) return 3 // md
-  if (width >= 640) return 2 // sm
+  if (width >= 1024) return 5 // lg
+  if (width >= 768) return 4 // md
+  if (width >= 640) return 3 // sm
   return 2 // default
 }
 
@@ -495,56 +514,108 @@ const performAlbumBackTransitionIfNeeded = async () => {
   }
 }
 
-// 预加载下一页数据到缓冲区
-const preloadNextPage = async () => {
+const reloadAlbums = async () => {
   if (showPublicPortal.value) return
-  if (isPreloading.value || !hasMore.value || preloadBuffer.value.length > 0) return
+
+  const requestVersion = ++listingRequestVersion
+  currentPage.value = 0
+  hasMore.value = true
+  preloadBuffer.value = null
+  loadError.value = ''
+  photoStore.loading = true
 
   try {
+    const category = activeCategory.value === '全部' ? undefined : activeCategory.value
+    const data = await photoStore.getAlbumsPage(0, getDynamicLoadSize(), category, albumSortOrder.value)
+    if (requestVersion !== listingRequestVersion) return
+
+    photoStore.albums = data.content || []
+    hasMore.value = !data.last
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  } catch (error) {
+    if (requestVersion !== listingRequestVersion) return
+    photoStore.albums = []
+    hasMore.value = false
+    loadError.value = '请检查网络连接后重试。'
+    console.error('加载相册失败:', error)
+  } finally {
+    if (requestVersion === listingRequestVersion) {
+      photoStore.loading = false
+    }
+  }
+}
+
+// 预加载下一页数据到缓冲区；读取操作不会改变已渲染的列表。
+const preloadNextPage = async () => {
+  if (showPublicPortal.value) return
+  if (isPreloading.value || !hasMore.value || preloadBuffer.value) return
+
+  const requestVersion = listingRequestVersion
+  preloadPromise = (async () => {
+    try {
     isPreloading.value = true
     const nextPage = currentPage.value + 1
     const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
     const loadSize = Math.max(12, getCurrentGridColumns() * 2)
 
-    const data = await photoStore.fetchAlbums(nextPage, loadSize, cat, albumSortOrder.value, false)
+    const data = await photoStore.getAlbumsPage(nextPage, loadSize, cat, albumSortOrder.value)
+    if (requestVersion !== listingRequestVersion) return
 
     if (data && data.content && data.content.length > 0) {
-      preloadBuffer.value = data.content
-      // 更新hasMore状态
+      preloadBuffer.value = { albums: data.content, last: data.last }
       hasMore.value = !data.last
     } else {
       hasMore.value = false
     }
   } catch (error) {
+    if (requestVersion !== listingRequestVersion) return
     console.error('预加载失败:', error)
-    hasMore.value = false
   } finally {
     isPreloading.value = false
+  }
+  })()
+
+  try {
+    await preloadPromise
+  } finally {
+    if (preloadPromise) preloadPromise = null
   }
 }
 
 const loadMore = async () => {
   if (showPublicPortal.value) return
   // 防止重复加载
-  if (loading.value || isLoadingMore.value || !hasMore.value) return
+  if (loading.value || isLoadingMore.value || (!hasMore.value && !preloadBuffer.value)) return
+
+  const requestVersion = listingRequestVersion
 
   try {
     isLoadingMore.value = true
+
+    // 滚动阈值可能在预加载未完成时触发；先等待同一页进入缓冲区，避免重复请求。
+    if (isPreloading.value && preloadPromise) {
+      await preloadPromise
+    }
+    if (requestVersion !== listingRequestVersion) return
+    if (!hasMore.value && !preloadBuffer.value) return
+
     currentPage.value++
 
-    let newAlbums: any[] = []
+    let newAlbums: Album[] = []
 
     // 优先使用预加载的缓冲区数据
-    if (preloadBuffer.value.length > 0) {
-      newAlbums = [...preloadBuffer.value]
-      preloadBuffer.value = []
-      hasMore.value = true // 假设还有更多数据
+    if (preloadBuffer.value) {
+      const bufferedPage = preloadBuffer.value
+      newAlbums = bufferedPage.albums
+      preloadBuffer.value = null
+      hasMore.value = !bufferedPage.last
     } else {
       // 如果没有预加载数据，则直接加载
     const cat = activeCategory.value === '全部' ? undefined : activeCategory.value
     const loadSize = Math.max(12, getCurrentGridColumns() * 2)
 
-    const data = await photoStore.fetchAlbums(currentPage.value, loadSize, cat, albumSortOrder.value, false)
+    const data = await photoStore.getAlbumsPage(currentPage.value, loadSize, cat, albumSortOrder.value)
+    if (requestVersion !== listingRequestVersion) return
 
     if (!data || !data.content || data.content.length === 0) {
       hasMore.value = false
@@ -552,7 +623,7 @@ const loadMore = async () => {
       return
     }
 
-      newAlbums = data.content
+    newAlbums = data.content
     hasMore.value = !data.last
     }
 
@@ -569,8 +640,10 @@ const loadMore = async () => {
   } catch (error) {
     console.error('加载更多失败:', error)
     // 加载失败时回退页码
-    currentPage.value--
-    hasMore.value = false
+    if (requestVersion === listingRequestVersion) {
+      currentPage.value--
+      hasMore.value = false
+    }
   } finally {
     isLoadingMore.value = false
   }
@@ -672,11 +745,10 @@ onMounted(async () => {
       loadCategorySortOrder()
     ])
 
-    const loadSize = getDynamicLoadSize()
-    const data = await photoStore.fetchAlbums(0, loadSize, undefined, albumSortOrder.value)
-    hasMore.value = !data.last
+    await reloadAlbums()
     isInitialized.value = true  // 标记初始化完成，之后 watch 才会生效
     window.addEventListener('scroll', handleScroll, { passive: true })
+    requestAnimationFrame(handleScroll)
 
     // 首次挂载时也尝试执行一次返回动画（例如刷新后从浏览器返回）
     // 使用 requestAnimationFrame 确保在渲染完成后执行
@@ -754,16 +826,8 @@ onDeactivated(() => {
 
 const selectCategory = async (c: string) => {
   if (showPublicPortal.value) return
+  if (c === activeCategory.value && !loadError.value) return
   activeCategory.value = c
-  currentPage.value = 0
-  hasMore.value = true
-  // 清空预加载缓冲区
-  preloadBuffer.value = []
-  const cat = c === '全部' ? undefined : c
-  const loadSize = getDynamicLoadSize()
-  const data = await photoStore.fetchAlbums(0, loadSize, cat, albumSortOrder.value)
-  hasMore.value = !data.last
-  // 切换分类时滚动到顶部
-  window.scrollTo({ top: 0, behavior: 'instant' })
+  await reloadAlbums()
 }
 </script>
