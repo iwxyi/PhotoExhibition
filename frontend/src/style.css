@@ -5487,6 +5487,12 @@
   transform: translateY(0);
 }
 
+.album-persons-slot--reserved {
+  max-height: var(--persons-height, 16rem);
+  opacity: 0;
+  transform: translateY(0);
+}
+
 .album-persons-section {
   margin-bottom: 2rem;
   padding: 0 0.5rem;

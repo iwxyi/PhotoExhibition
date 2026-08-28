@@ -195,7 +195,7 @@ watch(albumSortOrder, async (newSort, oldSort) => {
     currentPage.value = 0
     hasMore.value = true
     // 清空预加载缓冲区
-    await reloadAlbums()
+    await reloadAlbums({ resetScroll: true })
   }
 })
 const coverGridClass = computed(() => {
@@ -277,8 +277,14 @@ const getDynamicLoadSize = () => {
 }
 
 const goToAlbum = (id: number) => {
+  // 必须在 click 导航开始前保存列表位置。Android Chrome 可能会在路由
+  // 生命周期触发前先把旧页面滚动到 0，不能依赖 onDeactivated 再读取。
+  const currentScrollTop = window.scrollY || document.scrollingElement?.scrollTop || document.documentElement.scrollTop || document.body.scrollTop || 0
+  savedScrollTop.value = currentScrollTop
+  sessionStorage.setItem('home-scroll-position', String(currentScrollTop))
   // 保存来源页面（当前完整路径），用于返回时判断
   sessionStorage.setItem('album-entry-page', window.location.pathname)
+  sessionStorage.setItem('album-entry-source', 'home')
   // 设置导航标志和时间戳，确保只有立即导航才能检测到
   sessionStorage.setItem('album-navigation-active', Date.now().toString())
   // 使用短路由 /a/ID
@@ -500,7 +506,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
           const savedPos = sessionStorage.getItem('home-scroll-position')
           if (savedPos) {
             const scrollY = parseInt(savedPos, 10)
-            window.scrollTo({ top: scrollY, left: 0, behavior: 'instant' as ScrollBehavior })
+            setPageScrollTop(scrollY)
             savedScrollTop.value = scrollY
           }
 
@@ -515,7 +521,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
   }
 }
 
-const reloadAlbums = async () => {
+const reloadAlbums = async ({ resetScroll = false }: { resetScroll?: boolean } = {}) => {
   if (showPublicPortal.value) return
 
   const requestVersion = ++listingRequestVersion
@@ -532,7 +538,11 @@ const reloadAlbums = async () => {
 
     photoStore.albums = data.content || []
     hasMore.value = !data.last
-    window.scrollTo({ top: 0, behavior: 'instant' })
+    // 仅由用户主动切换筛选/排序时置顶。初始化或从详情页返回时，
+    // 此处不能覆盖已保存的列表滚动位置。
+    if (resetScroll) {
+      window.scrollTo({ top: 0, behavior: 'instant' })
+    }
   } catch (error) {
     if (requestVersion !== listingRequestVersion) return
     photoStore.albums = []
@@ -653,21 +663,32 @@ const loadMore = async () => {
 // 优化滚动处理：触摸板会产生高频 scroll，避免每帧写 sessionStorage。
 let scrollRafId: number | null = null
 let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null
+let homeIsDeactivated = false
+const setPageScrollTop = (top: number) => {
+  window.scrollTo({ top, left: 0, behavior: 'instant' as ScrollBehavior })
+  if (document.scrollingElement) document.scrollingElement.scrollTop = top
+  document.documentElement.scrollTop = top
+  document.body.scrollTop = top
+}
+
 const LOAD_THRESHOLD = 1000 // 距离底部1000px时开始加载，增加缓冲区
 const PRELOAD_THRESHOLD = 2000 // 距离底部2000px时开始预加载
 
 const handleScroll = () => {
   if (showPublicPortal.value) return
+  if (homeIsDeactivated) return
 
   if (scrollRafId !== null) return
 
   scrollRafId = requestAnimationFrame(() => {
     scrollRafId = null
+    if (homeIsDeactivated) return
     const scrollTop = window.scrollY || document.documentElement.scrollTop
     const windowHeight = window.innerHeight
     const documentHeight = document.documentElement.scrollHeight
 
     savedScrollTop.value = scrollTop
+
 
     if (scrollSaveTimer) {
       clearTimeout(scrollSaveTimer)
@@ -689,6 +710,13 @@ const handleScroll = () => {
   })
 }
 
+const persistCurrentScroll = () => {
+  if (homeIsDeactivated) return
+  const top = window.scrollY || document.scrollingElement?.scrollTop || document.documentElement.scrollTop || document.body.scrollTop || 0
+  savedScrollTop.value = top
+  sessionStorage.setItem('home-scroll-position', String(top))
+}
+
 // 获取相册排序设置
 const loadAlbumSortOrder = async () => {
   try {
@@ -703,6 +731,7 @@ const loadAlbumSortOrder = async () => {
 
 
 onMounted(async () => {
+  window.addEventListener('pagehide', persistCurrentScroll)
   // 清理可能残留的克隆元素（处理直接URL进入后返回或页面刷新等情况）
   // 注意：不要清理 sessionStorage 数据，因为 performAlbumBackTransitionIfNeeded 需要用到它们
   // 使用 setTimeout 延迟清理，确保动画有足够时间运行
@@ -712,12 +741,12 @@ onMounted(async () => {
     })
   }, 500)
 
-  // 从 sessionStorage 恢复滚动位置（处理刷新后返回的情况）
-  const savedPos = sessionStorage.getItem('home-scroll-position')
-  if (savedPos) {
-    savedScrollTop.value = parseInt(savedPos, 10)
-    window.scrollTo({ top: savedScrollTop.value, left: 0, behavior: 'instant' as ScrollBehavior })
-  }
+  // 刷新首页时始终从顶部开始。正常从详情页返回走 onActivated，
+  // 由 KeepAlive 恢复点击前的位置，不经过这里。
+  history.scrollRestoration = 'manual'
+  setPageScrollTop(0)
+  savedScrollTop.value = 0
+  sessionStorage.removeItem('home-scroll-position')
 
   try {
     const publicSettings = await authStore.fetchPublicSettings().catch((error) => {
@@ -746,7 +775,10 @@ onMounted(async () => {
       loadCategorySortOrder()
     ])
 
-    await reloadAlbums()
+    await reloadAlbums({ resetScroll: false })
+    // 首次数据渲染前设置的 scrollTop 可能被 Android Chrome 夹回 0；
+    // 等列表真实高度建立后再恢复一次。
+    setPageScrollTop(0)
     isInitialized.value = true  // 标记初始化完成，之后 watch 才会生效
     window.addEventListener('scroll', handleScroll, { passive: true })
     requestAnimationFrame(handleScroll)
@@ -765,12 +797,14 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('pagehide', persistCurrentScroll)
   window.removeEventListener('scroll', handleScroll)
   if (scrollRafId !== null) cancelAnimationFrame(scrollRafId)
   if (scrollSaveTimer) clearTimeout(scrollSaveTimer)
 })
 
 onActivated(() => {
+  homeIsDeactivated = false
   if (showPublicPortal.value) {
     if (!loadingPublicUsers.value && publicUsers.value.length === 0) {
       loadingPublicUsers.value = true
@@ -788,13 +822,13 @@ onActivated(() => {
   const savedPos = sessionStorage.getItem('home-scroll-position')
   const scrollY = savedPos ? parseInt(savedPos, 10) : savedScrollTop.value
   // 激活时 DOM 可能尚未恢复，延后一帧并再次校正，避免被布局/动画重置到顶部。
-  window.scrollTo({ top: scrollY, left: 0, behavior: 'instant' as ScrollBehavior })
+  setPageScrollTop(scrollY)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       const latest = sessionStorage.getItem('home-scroll-position')
       const target = latest ? parseInt(latest, 10) : savedScrollTop.value
       if (Number.isFinite(target) && target > 0) {
-        window.scrollTo({ top: target, left: 0, behavior: 'instant' as ScrollBehavior })
+        setPageScrollTop(target)
       }
     })
   })
@@ -812,18 +846,22 @@ onActivated(() => {
 })
 
 onDeactivated(() => {
+  homeIsDeactivated = true
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
+  if (scrollSaveTimer) {
+    clearTimeout(scrollSaveTimer)
+    scrollSaveTimer = null
+  }
   if (showPublicPortal.value) {
     window.removeEventListener('scroll', handleScroll)
     return
   }
-  // 保存滚动位置到 sessionStorage 和 ref
-  const scrollY = window.scrollY || 0
-  const existingPos = sessionStorage.getItem('home-scroll-position')
-  // 如果已经有保存的滚动位置且当前是 0（说明是路由切换导致的），不要覆盖
-  if (scrollY > 0 || !existingPos) {
-    savedScrollTop.value = scrollY
-    sessionStorage.setItem('home-scroll-position', String(scrollY))
-  }
+  // 不在 deactivated 阶段读取滚动位置。Android Chrome 在路由切换过程中
+  // 会先把页面滚动到临时位置（通常约 55px），此时读取会覆盖点击瞬间
+  // 已保存的真实位置。滚动过程中和点击相册时已经完成位置持久化。
   window.removeEventListener('scroll', handleScroll)
   if (scrollRafId !== null) {
     cancelAnimationFrame(scrollRafId)
@@ -839,6 +877,6 @@ const selectCategory = async (c: string) => {
   if (showPublicPortal.value) return
   if (c === activeCategory.value && !loadError.value) return
   activeCategory.value = c
-  await reloadAlbums()
+  await reloadAlbums({ resetScroll: true })
 }
 </script>

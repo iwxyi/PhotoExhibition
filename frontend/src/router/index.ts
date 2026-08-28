@@ -261,11 +261,9 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(to, from, savedPosition) {
-    if (savedPosition) {
-      return savedPosition
-    }
-    // 让组件自己管理滚动位置，不在路由层面干预
+  scrollBehavior(_to, _from, savedPosition) {
+    // 交给浏览器/Vue Router 恢复历史位置；各页面的 KeepAlive 状态保持不变。
+    if (savedPosition) return savedPosition
     return false
   }
 })

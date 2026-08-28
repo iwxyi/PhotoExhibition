@@ -84,7 +84,7 @@
         <!-- 人物列表 - 横向可滚动 -->
         <div
           class="album-persons-slot"
-          :class="{ 'album-persons-slot--visible': showAlbumPersons && albumPersons.length > 0 }"
+          :class="{ 'album-persons-slot--reserved': albumPersons.length > 0, 'album-persons-slot--visible': showAlbumPersons && albumPersons.length > 0 }"
           ref="albumPersonsSlotRef"
           :style="{ '--persons-height': `${albumPersonsHeight}px` }"
         >
@@ -1211,7 +1211,8 @@ const handleBack = async () => {
   const targetPage = fromParam || entryPage
   
   // 判断是否应该使用动画：从 Home 页面直接导航来的（没有 from 参数，且 entryPage 是 / 或空）
-  const shouldAnimate = !fromParam && (!entryPage || entryPage === '/' || entryPage === '')
+  const entrySource = sessionStorage.getItem('album-entry-source')
+  const shouldAnimate = entrySource === 'home' && !fromParam
   
   console.log('[AlbumDetail] handleBack - fromParam:', fromParam, 'entryPage:', entryPage, 'shouldAnimate:', shouldAnimate)
 
@@ -1228,6 +1229,7 @@ const handleBack = async () => {
     sessionStorage.removeItem('album-animation-performed')
     sessionStorage.removeItem('album-navigation-active')
     sessionStorage.removeItem('album-entry-page')
+    sessionStorage.removeItem('album-entry-source')
     
     // 根据来源决定去向
     const normalizedTargetPage = targetPage ? stripPublicSlug(targetPage) : ''
@@ -1332,6 +1334,7 @@ const onBackButtonMouseDown = (e: MouseEvent) => {
 // download progress UI state
 const downloadInProgress = ref(false)
 const downloadProgress = ref(0)
+let transitionViewportSnapshot: { width: number; height: number; offsetTop: number } | null = null
 
 // 执行从封面到详情页的 FLIP 动画
 const performCoverTransition = async (): Promise<boolean> => {
@@ -1346,6 +1349,11 @@ const performCoverTransition = async (): Promise<boolean> => {
   }
   
   try {
+    transitionViewportSnapshot = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      offsetTop: window.visualViewport?.offsetTop || 0
+    }
     const coverRects: Array<{ photoId: number; src?: string; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
     
     // 等待 DOM 更新完成
@@ -1397,6 +1405,38 @@ const performCoverTransition = async (): Promise<boolean> => {
         sourceSrc: src || img.currentSrc || img.src
       })
     }
+
+    // Android Chrome 首次进入时，字体/异步内容可能在首帧后继续触发一次
+    // 页面重排。等待所有目标卡片连续 3 帧位置与尺寸稳定，再启动 FLIP，
+    // 避免动画先到偏上的旧终点、随后页面整体跳下。
+    for (let stableFrame = 0; stableFrame < 8; stableFrame++) {
+      if (isDisposed || (transitionViewportSnapshot && (
+        transitionViewportSnapshot.width !== window.innerWidth ||
+        transitionViewportSnapshot.height !== window.innerHeight ||
+        transitionViewportSnapshot.offsetTop !== (window.visualViewport?.offsetTop || 0)
+      ))) {
+        transitionViewportSnapshot = null
+        return false
+      }
+      const before = transitions.map(({ photoId, toRect }) => `${photoId}:${toRect.top.toFixed(2)},${toRect.left.toFixed(2)},${toRect.width.toFixed(2)},${toRect.height.toFixed(2)}`)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      let changed = false
+      transitions.forEach((transition) => {
+        const element = photoRefs.value.get(transition.photoId)
+        if (!element) return
+        const nextRect = element.getBoundingClientRect()
+        const nextKey = `${transition.photoId}:${nextRect.top.toFixed(2)},${nextRect.left.toFixed(2)},${nextRect.width.toFixed(2)},${nextRect.height.toFixed(2)}`
+        const index = transitions.indexOf(transition)
+        if (before[index] !== nextKey) {
+          changed = true
+          transition.toRect = nextRect
+        }
+      })
+      if (!changed && stableFrame >= 2) break
+      if (!changed) stableFrame++
+      else stableFrame = 0
+    }
+
     
     if (transitions.length === 0) {
       sessionStorage.removeItem(storageKey)
@@ -1507,10 +1547,12 @@ const performCoverTransition = async (): Promise<boolean> => {
     
     // 保存清理定时器，以便在组件卸载时清理
     ;(window as any).__albumTransitionCleanupTimer = cleanupTimer
+    transitionViewportSnapshot = null
     
     return true
   } catch (error) {
     console.error('执行封面过渡动画失败:', error)
+    transitionViewportSnapshot = null
     sessionStorage.removeItem(storageKey)
     isTransitioning.value = false
     transitionPhotoIds.value = []
@@ -1528,7 +1570,7 @@ const startBackTransitionAndNavigate = () => {
 
   const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  const isFromDirectUrl = sessionStorage.getItem('album-navigation-active') !== 'true'
+  const isFromDirectUrl = sessionStorage.getItem('album-entry-source') !== 'home'
 
   console.log('[返回动画] 启动，返回方式:', isFromDirectUrl ? '直接URL进入' : '正常导航')
 
@@ -1539,6 +1581,7 @@ const startBackTransitionAndNavigate = () => {
     sessionStorage.removeItem('album-animation-performed')
     sessionStorage.removeItem('album-navigation-active')
     sessionStorage.removeItem('album-entry-page')
+    sessionStorage.removeItem('album-entry-source')
     
     // 根据来源决定去向
     const entryPage = sessionStorage.getItem('album-entry-page')
@@ -1676,12 +1719,15 @@ const startBackTransitionAndNavigate = () => {
       sessionStorage.removeItem(storageKey)
       // 清理 entry-page，让 Home 页能正常恢复滚动位置
       sessionStorage.removeItem('album-entry-page')
+      sessionStorage.removeItem('album-entry-source')
 
       // session storage set
 
-      // 使用 router.push('/') 确保导航成功（router.back() 在某些情况下可能无效）
-      console.log('[返回动画] 导航到 Home')
-      router.push(buildPublicPath('/', route.path))
+      // 正常从首页进入时使用历史回退，交给浏览器/KeepAlive 保留首页
+      // 原始滚动位置；只有没有可回退历史时才使用首页路径兜底。
+      console.log('[返回动画] 导航到 Home，使用历史回退保留原位置')
+      if (window.history.length > 1) router.back()
+      else router.push(buildPublicPath('/', route.path))
 
       // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
       setTimeout(() => {
@@ -1698,6 +1744,7 @@ const startBackTransitionAndNavigate = () => {
     sessionStorage.removeItem('album-animation-performed')
     sessionStorage.removeItem('album-navigation-active')
     sessionStorage.removeItem('album-entry-page')
+    sessionStorage.removeItem('album-entry-source')
     
     const entryPage = sessionStorage.getItem('album-entry-page')
     if (entryPage && stripPublicSlug(entryPage) !== '/') {
@@ -1847,6 +1894,15 @@ const loadAlbumData = async () => {
 }
 
 onMounted(async () => {
+  // 必须在任何异步请求前同步归零。Android Chrome 进入详情页时可能暂时
+  // 沿用首页的 scrollTop；若等请求完成后再归零，首次布局/FLIP 会带着
+  // 首页滚动偏移计算，随后归零时就会出现整体跳动。
+  history.scrollRestoration = 'manual'
+  window.scrollTo(0, 0)
+  if (document.scrollingElement) document.scrollingElement.scrollTop = 0
+  document.documentElement.scrollTop = 0
+  document.body.scrollTop = 0
+
   // 从组件挂载开始就监听 ESC，避免网络请求/图片加载期间无法退出详情页。
   // addEventListener 对同一函数引用是幂等的，后续流程无需重复注册。
   window.addEventListener('keydown', handleKeydown)
@@ -1860,9 +1916,6 @@ onMounted(async () => {
     console.warn('获取全局下载权限设置失败:', error)
     globalDownloadAllowed.value = false
   }
-
-  // 确保页面从顶部开始显示
-  window.scrollTo(0, 0)
 
   // 添加窗口大小监听（实时响应）
   if (isDisposed) return
@@ -1885,6 +1938,9 @@ onActivated(async () => {
   } else {
     // 即使数据匹配，也重置滚动位置
     window.scrollTo(0, 0)
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
     console.log('[AlbumDetail] onActivated - 数据已存在，使用缓存')
   }
 })

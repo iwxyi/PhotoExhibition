@@ -87,12 +87,13 @@ const commentSectionVisible = ref(false)
 
 // 用户今天是否已经发过评论
 const hasCommentedToday = ref(false)
-const commentFormStorageKey = computed(() => `comment-form-collapsed-${props.albumId}`)
+// 评论框折叠状态是全局偏好：一个相册折叠后，其他相册也沿用该状态。
+const commentFormStorageKey = 'comment-form-collapsed'
 const commentFormCollapsed = ref(false)
 
 const restoreCommentFormState = () => {
   try {
-    commentFormCollapsed.value = localStorage.getItem(commentFormStorageKey.value) === 'true'
+    commentFormCollapsed.value = localStorage.getItem(commentFormStorageKey) === 'true'
   } catch {
     commentFormCollapsed.value = false
   }
@@ -100,7 +101,7 @@ const restoreCommentFormState = () => {
 
 watch(commentFormCollapsed, (collapsed) => {
   try {
-    localStorage.setItem(commentFormStorageKey.value, String(collapsed))
+    localStorage.setItem(commentFormStorageKey, String(collapsed))
   } catch {
     // ignore storage failures
   }
