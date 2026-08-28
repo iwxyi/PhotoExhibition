@@ -27,6 +27,10 @@ public class AlbumDTO {
      */
     private String displayTitle;
     /**
+     * 仅相册自身名称的展示文本（去掉日期前缀，不包含父级分组路径）。
+     */
+    private String displayName;
+    /**
      * 一级分类（base-path 下的第一层目录）
      */
     private String category;
@@ -51,4 +55,3 @@ public class AlbumDTO {
     private String lightAccentColor;
     private List<AtmosphereEffectDTO> atmosphereEffects;
 }
-

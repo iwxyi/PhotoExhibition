@@ -76,7 +76,7 @@
           @category-changed="selectCategory"
         />
 
-        <div v-if="loading && albums.length === 0" class="flex justify-center items-center h-96">
+        <div v-if="(albums.length === 0 && (!isInitialized || loading))" class="flex justify-center items-center h-96">
           <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
         </div>
 
@@ -96,7 +96,7 @@
         </section>
 
         <div
-          v-else-if="!loading"
+          v-else-if="isInitialized && !loading"
           class="mx-auto flex min-h-[22rem] max-w-md flex-col items-center justify-center text-center"
         >
           <template v-if="loadError">
@@ -175,6 +175,7 @@ const loadingPublicUsers = ref(false)
 const publicUsers = ref<PublicUserProfile[]>([])
 const currentUserSlug = computed(() => typeof route.params.userSlug === 'string' ? route.params.userSlug : null)
 const showPublicPortal = computed(() => publicMultiUserEnabled.value && !currentUserSlug.value)
+
 
 // 预加载缓冲区状态
 interface PreloadedPage {
@@ -786,7 +787,17 @@ onActivated(() => {
   // 恢复滚动位置 - 直接从 sessionStorage 读取
   const savedPos = sessionStorage.getItem('home-scroll-position')
   const scrollY = savedPos ? parseInt(savedPos, 10) : savedScrollTop.value
+  // 激活时 DOM 可能尚未恢复，延后一帧并再次校正，避免被布局/动画重置到顶部。
   window.scrollTo({ top: scrollY, left: 0, behavior: 'instant' as ScrollBehavior })
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const latest = sessionStorage.getItem('home-scroll-position')
+      const target = latest ? parseInt(latest, 10) : savedScrollTop.value
+      if (Number.isFinite(target) && target > 0) {
+        window.scrollTo({ top: target, left: 0, behavior: 'instant' as ScrollBehavior })
+      }
+    })
+  })
 
   // 重新添加滚动事件监听器（从 AlbumDetail 返回后需要重新添加）
   window.addEventListener('scroll', handleScroll, { passive: true })

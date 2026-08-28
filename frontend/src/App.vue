@@ -2,9 +2,10 @@
   <div id="app" :class="{ dark: isDark }">
     <div class="app-shell">
       <AdminStyleChrome v-if="isAdminRoute" />
-      <router-view v-slot="{ Component, route }">
+      <router-view v-slot="{ Component }">
+        <!-- KeepAlive 容器保持挂载，确保从详情页返回时列表页状态和数据瞬间恢复。 -->
         <KeepAlive include="Home,Wall,Random">
-          <component :is="Component" :key="componentKey" />
+          <component v-if="Component" :is="Component" :key="componentKey" />
         </KeepAlive>
       </router-view>
       <TransitionGroup

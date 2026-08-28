@@ -1,8 +1,21 @@
 <template>
   <div class="comment-form bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-lg p-6 mb-8 shadow-sm border border-gray-200/50 dark:border-gray-700/50" :style="{ backgroundColor: backgroundColor, borderColor: borderColor }">
-    <h3 class="text-lg font-medium mb-4" :style="{ color: textColor }">
-      {{ parentId ? '回复评论' : '发表评论' }}
-    </h3>
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-medium" :style="{ color: textColor }">
+        {{ parentId ? '回复评论' : '发表评论' }}
+      </h3>
+      <button
+        v-if="!parentId"
+        type="button"
+        class="comment-form-collapse-button"
+        :style="{ color: textColor }"
+        title="收起评论框"
+        aria-label="收起评论框"
+        @click="$emit('collapse')"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
+      </button>
+    </div>
 
     <form @submit.prevent="submitComment" class="space-y-4">
       <!-- 昵称和邮箱 -->
@@ -97,6 +110,7 @@ interface Props {
 interface Emits {
   (e: 'comment-added', comment: CommentDTO): void
   (e: 'cancel'): void
+  (e: 'collapse'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {

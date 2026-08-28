@@ -1,11 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { attachExplicitPublicSlug } from '@/utils/publicRoute'
+import AlbumDetail from '@/views/AlbumDetail.vue'
 
 const LAST_ADMIN_ROUTE_KEY = 'pe_last_admin_route'
 
 const Home = () => import('@/views/Home.vue')
-const AlbumDetail = () => import('@/views/AlbumDetail.vue')
 const PhotoDetail = () => import('@/views/PhotoDetail.vue')
 const PhotoWall = () => import('@/views/PhotoWall.vue')
 const RandomGallery = () => import('@/views/RandomGallery.vue')

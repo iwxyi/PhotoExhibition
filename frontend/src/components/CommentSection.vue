@@ -25,16 +25,29 @@
       <p :style="{ color: textColor, opacity: 0.7 }" class="text-lg">您已评论</p>
       <p :style="{ color: textColor, opacity: 0.5 }" class="text-sm mt-2">每天只能发表一条评论</p>
     </div>
-    <CommentForm
-      v-else
-      :album-id="albumId"
-      :text-color="textColor"
-      :background-color="backgroundColor"
-      :border-color="borderColor"
-      :input-border-color="inputBorderColor"
-      :is-dark-mode="props.isDarkMode"
-      @comment-added="handleCommentAdded"
-    />
+    <template v-else>
+      <button
+        v-if="commentFormCollapsed"
+        type="button"
+        class="comment-form-collapsed"
+        :style="{ color: textColor, backgroundColor, borderColor }"
+        @click="commentFormCollapsed = false"
+      >
+        <span>发表评论</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      </button>
+      <CommentForm
+        v-else
+        :album-id="albumId"
+        :text-color="textColor"
+        :background-color="backgroundColor"
+        :border-color="borderColor"
+        :input-border-color="inputBorderColor"
+        :is-dark-mode="props.isDarkMode"
+        @comment-added="handleCommentAdded"
+        @collapse="commentFormCollapsed = true"
+      />
+    </template>
   </div>
 </template>
 
@@ -74,6 +87,25 @@ const commentSectionVisible = ref(false)
 
 // 用户今天是否已经发过评论
 const hasCommentedToday = ref(false)
+const commentFormStorageKey = computed(() => `comment-form-collapsed-${props.albumId}`)
+const commentFormCollapsed = ref(false)
+
+const restoreCommentFormState = () => {
+  try {
+    commentFormCollapsed.value = localStorage.getItem(commentFormStorageKey.value) === 'true'
+  } catch {
+    commentFormCollapsed.value = false
+  }
+}
+
+watch(commentFormCollapsed, (collapsed) => {
+  try {
+    localStorage.setItem(commentFormStorageKey.value, String(collapsed))
+  } catch {
+    // ignore storage failures
+  }
+})
+watch(() => props.albumId, restoreCommentFormState)
 
 const textColor = computed(() => props.textColor)
 const backgroundColor = computed(() => props.backgroundColor)
@@ -268,6 +300,7 @@ const handleReplyAdded = (newReply: CommentDTO, parentId: number) => {
 }
 
 onMounted(() => {
+  restoreCommentFormState()
   console.log('[CommentSection] onMounted, props.visible:', props.visible, 'props.albumId:', props.albumId)
   // 只有当父组件要求可见时，才延迟显示评论区域
   if (props.visible) {
@@ -320,5 +353,55 @@ watch(() => props.albumId, (newAlbumId, oldAlbumId) => {
 <style scoped>
 .comment-section {
   /* 样式会在全局样式中定义 */
+}
+
+.comment-form-collapsed {
+  width: 100%;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  margin-bottom: 2rem;
+  border: 1px solid;
+  border-radius: 0.5rem;
+  text-align: left;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
+  opacity: 0.88;
+  transition: opacity 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.comment-form-collapsed:hover {
+  opacity: 1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.comment-form-collapsed svg,
+:deep(.comment-form-collapse-button svg) {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:deep(.comment-form-collapse-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  opacity: 0.65;
+  transition: background-color 180ms ease, opacity 180ms ease;
+}
+
+:deep(.comment-form-collapse-button:hover) {
+  opacity: 1;
+  background: rgba(127, 127, 127, 0.12);
 }
 </style>

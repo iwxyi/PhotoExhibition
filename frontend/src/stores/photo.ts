@@ -7,6 +7,7 @@ export interface Album {
   id: number
   name: string
   displayTitle?: string
+  displayName?: string
   category?: string
   path: string
   coverImageId?: number

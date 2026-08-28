@@ -5406,7 +5406,7 @@
 @keyframes headerFadeIn {
   from {
     opacity: 0;
-    transform: translateY(24px);
+    transform: translateY(0);
   }
   to {
     opacity: 1;
@@ -5473,6 +5473,20 @@
 }
 
 /* 人物列表区域 */
+.album-persons-slot {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: max-height 460ms cubic-bezier(0.22, 1, 0.36, 1), opacity 360ms ease-out, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.album-persons-slot--visible {
+  max-height: var(--persons-height, 16rem);
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .album-persons-section {
   margin-bottom: 2rem;
   padding: 0 0.5rem;

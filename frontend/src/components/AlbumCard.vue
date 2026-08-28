@@ -130,7 +130,7 @@ const cardSizeClass = computed(() => {
 
 const handleClick = () => {
   // 记录封面图的位置和对应的照片ID
-  const coverRects: Array<{ photoId: number; slot: string; rect: DOMRect }> = []
+  const coverRects: Array<{ photoId: number; slot: string; rect: DOMRect; src: string }> = []
   
   // 获取实际显示的封面图片
   const actualCovers = customCovers.value.length > 0 ? customCovers.value : defaultCoversPhotos.value
@@ -142,14 +142,19 @@ const handleClick = () => {
     const photoId = element.getAttribute('data-photo-id')
     const slot = element.getAttribute('data-slot')
     const rect = element.getBoundingClientRect()
+    const image = element instanceof HTMLImageElement ? element : element.querySelector('img')
     
     // 找到对应的封面图片
     const cover = actualCovers.find(c => c.id.toString() === photoId)
-    if (cover && photoId) {
+    // 懒加载图片首次点击时 currentSrc 可能尚未被浏览器填充，
+    // 回退到 src 仍可直接复用首页缩略图作为详情页过渡源。
+    const sourceSrc = image?.currentSrc || image?.getAttribute('src') || image?.src || ''
+    if (cover && photoId && sourceSrc) {
       coverRects.push({ 
         photoId: parseInt(photoId), 
         slot: slot || `photo-${photoId}`, 
-        rect 
+        rect,
+        src: sourceSrc
       })
   }
   })
@@ -163,9 +168,10 @@ const handleClick = () => {
     sessionStorage.setItem(
       `album-cover-rects-${props.album.id}`,
       JSON.stringify(
-        coverRects.map(({ photoId, slot, rect }) => ({
+        coverRects.map(({ photoId, slot, rect, src }) => ({
           photoId,
           slot,
+          src,
           rect: {
             top: rect.top,
             left: rect.left,

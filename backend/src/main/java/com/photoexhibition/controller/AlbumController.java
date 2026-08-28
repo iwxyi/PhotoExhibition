@@ -1,6 +1,7 @@
 package com.photoexhibition.controller;
 
 import com.photoexhibition.dto.AlbumDTO;
+import com.photoexhibition.dto.AlbumFirstPageDTO;
 import com.photoexhibition.dto.AlbumMoveRequest;
 import com.photoexhibition.dto.AlbumMoveResult;
 import com.photoexhibition.dto.CoverImagesDTO;
@@ -12,6 +13,8 @@ import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.PublicUserScopeService;
 import com.photoexhibition.service.SystemConfigService;
 import com.photoexhibition.service.UserPathService;
+import com.photoexhibition.service.PhotoService;
+import com.photoexhibition.service.FaceService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +42,24 @@ public class AlbumController {
     private final PublicUserScopeService publicUserScopeService;
     private final AuthService authService;
     private final UserPathService userPathService;
+    private final PhotoService photoService;
+    private final FaceService faceService;
+
+    @GetMapping("/{id}/first-page")
+    public ResponseEntity<AlbumFirstPageDTO> getFirstPage(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String userSlug) {
+        Long userId = publicUserScopeService.resolveUserId(userSlug);
+        AlbumFirstPageDTO result = new AlbumFirstPageDTO();
+        result.setAlbum(albumService.getAlbumById(id, userId));
+        Page<com.photoexhibition.dto.PhotoDTO> page = photoService.getPhotosByAlbum(
+                id, PageRequest.of(0, Math.max(1, Math.min(size, 100))), userId, false);
+        result.setPhotos(page.getContent());
+        result.setLast(page.isLast());
+        result.setPersons(faceService.getPersonsInAlbum(id, true, userId));
+        return ResponseEntity.ok(result);
+    }
 
     /**
      * 获取所有相册（相册模式）

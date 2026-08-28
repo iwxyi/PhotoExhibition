@@ -810,6 +810,7 @@ public class AlbumService {
         dto.setCreatedAt(album.getCreatedAt());
         dto.setUpdatedAt(album.getUpdatedAt());
         dto.setDisplayTitle(buildDisplayTitle(album));
+        dto.setDisplayName(buildLeafDisplayName(album));
         dto.setCategory(extractCategory(album));
 
         // 设置相册拍摄时间：取相册最早的拍摄时间，若无则为空
@@ -1060,7 +1061,22 @@ public class AlbumService {
      */
     private String stripDatePrefix(String name) {
         if (name == null) return "";
-        return name.replaceFirst("^\\d{4}[\\.-]?\\d{2}[\\.-]?\\d{2}\\s*", "").trim();
+        return name.replaceFirst("^\\d{4}[\\.-]?\\d{2}[\\.-]?\\d{2}(?:[ T_-]+\\d{2}(?:[\\.:_-]?\\d{2}){0,2})?[\\s_-]*", "").trim();
+    }
+
+    /** 仅生成当前相册自身名称，不包含父级分组路径。 */
+    private String buildLeafDisplayName(Album album) {
+        String leafName = album.getName();
+        try {
+            Path relative = resolveAlbumLogicalRelativePath(album.getPath(), album.getUserId());
+            if (relative.getNameCount() > 0) {
+                leafName = relative.getName(relative.getNameCount() - 1).toString();
+            }
+        } catch (Exception e) {
+            log.debug("计算相册展示名称失败: {}", e.getMessage());
+        }
+        String cleaned = stripDatePrefix(leafName);
+        return cleaned.isEmpty() ? leafName : cleaned;
     }
 
     /**
@@ -1601,6 +1617,7 @@ public class AlbumService {
         AlbumDTO dto = new AlbumDTO();
         dto.setId(saved.getId());
         dto.setName(saved.getName());
+        dto.setDisplayName(buildLeafDisplayName(saved));
         dto.setPath(convertAlbumPath(saved.getPath()));
         dto.setCoverImageId(saved.getCoverImageId());
         

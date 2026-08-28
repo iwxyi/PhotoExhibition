@@ -63,7 +63,7 @@
       <div v-if="album" class="album-content-wrapper">
         <!-- 相册信息 - 居中显示 -->
         <div class="album-header-center">
-          <h1 class="album-title" :style="titleStyle">{{ album.name }}</h1>
+          <h1 class="album-title" :style="titleStyle">{{ album.displayName || album.name }}</h1>
           <p v-if="album.description" class="album-description">{{ album.description }}</p>
           <!-- 分割线：位于备注和照片数量之间 -->
           <div class="album-header-divider"></div>
@@ -74,12 +74,20 @@
               <polyline points="21,15 16,10 5,21"/>
             </svg>
             {{ album.photoCount }} 张照片
+            <span v-if="album.takenAt" class="text-gray-400">·</span>
+            <span v-if="album.takenAt">{{ formatAlbumTakenAt(album.takenAt) }}</span>
             <span v-if="commentCount > 0" class="text-gray-400">·</span>
             <span v-if="commentCount > 0">{{ commentCount }} 条评论</span>
           </p>
         </div>
 
         <!-- 人物列表 - 横向可滚动 -->
+        <div
+          class="album-persons-slot"
+          :class="{ 'album-persons-slot--visible': showAlbumPersons && albumPersons.length > 0 }"
+          ref="albumPersonsSlotRef"
+          :style="{ '--persons-height': `${albumPersonsHeight}px` }"
+        >
         <div
           v-if="albumPersons.length > 0"
           class="album-persons-section"
@@ -115,6 +123,7 @@
               <span class="person-count">{{ person.faceCount }} 张</span>
             </a>
           </div>
+        </div>
         </div>
 
         <MasonryLayout
@@ -247,6 +256,11 @@ const router = useRouter()
 const photoStore = usePhotoStore()
 const authStore = useAuthStore()
 const languageStore = useLanguageStore()
+const themeStore = useThemeStore()
+
+// 预存的氛围背景色（从相册列表页传递，用于避免页面跳转时的闪烁）
+// 需要在下面的 immediate watch 注册前初始化，避免首次执行时触发 TDZ。
+const presetAtmosphereBg = ref<string | null>(null)
 
 const album = computed(() => photoStore.currentAlbum)
 const photos = computed(() => photoStore.photos)
@@ -257,7 +271,7 @@ watch(album, (newAlbum) => {
     const baseTitle = languageStore.language === 'zh'
       ? (authStore.projectNameZh || authStore.projectNameEn || '光忆集')
       : (authStore.projectNameEn || authStore.projectNameZh || 'Aurellic Memoriq')
-    document.title = `${baseTitle} - ${newAlbum.name}`
+    document.title = `${baseTitle} - ${newAlbum.displayName || newAlbum.name}`
   }
   // 当相册数据加载后，清除预存的背景色（避免覆盖真实数据）
   if (newAlbum) {
@@ -339,6 +353,16 @@ interface AlbumPerson {
 }
 const albumPersons = ref<AlbumPerson[]>([])
 const albumPersonsLoading = ref(false)
+// 人物栏会改变照片瀑布流的起始位置，等封面过渡完成后再渲染，避免动画中途整体下移。
+const showAlbumPersons = ref(false)
+const albumPersonsSlotRef = ref<HTMLElement | null>(null)
+const albumPersonsHeight = ref(0)
+let albumPersonsRevealTimer: number | null = null
+
+watch(albumPersons, async () => {
+  await nextTick()
+  albumPersonsHeight.value = albumPersonsSlotRef.value?.scrollHeight || 0
+})
 
 // 当前悬浮的照片关联的人物ID集合
 const hoveredPhotoPersonIds = ref<Set<number>>(new Set())
@@ -398,26 +422,31 @@ const loadingMore = ref(false)
 const hasMore = ref(true)
 const pageSize = 30 // 每次加载30张照片
 const isInitialLoading = ref(true) // 初始加载状态，用于避免显示旧数据
+let isDisposed = false
 
-// 关键：进入详情页的 setup 阶段就同步清空上一相册数据，避免首帧闪现旧标题/备注
-// （相册详情页不在 KeepAlive include 列表中，因此不能依赖 onDeactivated）
-photoStore.currentAlbum = null
+// 首屏优先复用首页列表中已经拿到的相册摘要，避免标题、介绍和氛围色
+// 必须等待详情接口返回。详情接口随后会在 loadAlbumData 中后台校正这些数据。
+// 如果是直接打开详情 URL，列表中没有摘要，此处仍保持空值并走完整加载态。
+const seededAlbumId = albumId.value
+const listedAlbum = seededAlbumId
+  ? photoStore.albums.find((item) => item.id === seededAlbumId) || null
+  : null
+// 使用快照而不是直接共享 Home 列表中的 Pinia 响应式代理，
+// 避免路由切换时两个组件同时更新同一个对象。
+const seededAlbum = listedAlbum ? { ...listedAlbum } : null
+photoStore.currentAlbum = seededAlbum
 photoStore.photos = []
 commentCount.value = 0
 albumPersons.value = []
 albumPersonsLoading.value = false
+showAlbumPersons.value = false
+albumPersonsHeight.value = 0
 imagesLoaded.value = false
 loadedImagesCount.value = 0
 totalImages.value = 0
 showComments.value = false
 
 const { atmosphereEnabled, previewSize } = useUiSettings()
-
-// 获取主题store
-const themeStore = useThemeStore()
-
-// 预存的氛围背景色（从相册列表页传递，用于避免页面跳转时的闪烁）
-const presetAtmosphereBg = ref<string | null>(null)
 
 // 窗口宽度响应式（用于触发columnCount重新计算）
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
@@ -1317,7 +1346,7 @@ const performCoverTransition = async (): Promise<boolean> => {
   }
   
   try {
-    const coverRects: Array<{ photoId: number; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
+    const coverRects: Array<{ photoId: number; src?: string; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
     
     // 等待 DOM 更新完成
     await nextTick()
@@ -1328,9 +1357,10 @@ const performCoverTransition = async (): Promise<boolean> => {
       fromRect: DOMRect
       toRect: DOMRect
       img: HTMLImageElement
+      sourceSrc: string
     }> = []
     
-    for (const { photoId, rect: fromRectData } of coverRects) {
+    for (const { photoId, rect: fromRectData, src } of coverRects) {
       const photoElement = photoRefs.value.get(photoId)
       if (!photoElement) continue
       
@@ -1363,7 +1393,8 @@ const performCoverTransition = async (): Promise<boolean> => {
         photoId,
         fromRect: new DOMRect(fromRectData.left, fromRectData.top, fromRectData.width, fromRectData.height),
         toRect,
-        img
+        img,
+        sourceSrc: src || img.currentSrc || img.src
       })
     }
     
@@ -1387,22 +1418,11 @@ const performCoverTransition = async (): Promise<boolean> => {
       remainingPhotosVisible.value = true
     })
 
-    for (const { photoId, fromRect, toRect, img } of transitions) {
-      // 确保图片已经加载完成
-      if (!img.complete) {
-        await new Promise((resolve) => {
-          if (img.complete) {
-            resolve(undefined)
-          } else {
-            img.onload = () => resolve(undefined)
-            img.onerror = () => resolve(undefined) // 即使加载失败也继续
-          }
-        })
-      }
-      
-      const clone = img.cloneNode(true) as HTMLImageElement
-      // 确保克隆的图片也使用相同的 src
-      clone.src = img.src
+    for (const { photoId, fromRect, toRect, sourceSrc } of transitions) {
+      // 直接使用首页已经显示的缩略图，不等待详情页图片加载。
+      const clone = new Image()
+      clone.src = sourceSrc
+      clone.dataset.photoId = String(photoId)
       clone.style.position = 'fixed'
       clone.style.top = `${fromRect.top}px`
       clone.style.left = `${fromRect.left}px`
@@ -1443,21 +1463,28 @@ const performCoverTransition = async (): Promise<boolean> => {
     const cleanupTimer = setTimeout(() => {
       // 使用 requestAnimationFrame 确保在下一帧执行，避免闪烁
       requestAnimationFrame(() => {
-        // 先让原始图片可见
-        transitions.forEach(({ photoId }) => {
+        const revealPhoto = (photoId: number) => {
           const photoElement = photoRefs.value.get(photoId)
           if (photoElement) {
             photoElement.style.visibility = 'visible'
             photoElement.style.pointerEvents = ''
           }
+          const clone = transitionClones.find(item => item.dataset.photoId === String(photoId))
+          clone?.remove()
+        }
+
+        // 大图已就绪就立即交接；未就绪则保留缩略图占位，待大图 load 后再交接。
+        transitions.forEach(({ photoId, img }) => {
+          if (img.complete && img.naturalWidth > 0) {
+            revealPhoto(photoId)
+          } else {
+            img.addEventListener('load', () => revealPhoto(photoId), { once: true })
+          }
         })
 
         // 在同一帧中立即移除克隆元素
         requestAnimationFrame(() => {
-          transitionClones.forEach(clone => {
-            clone.remove()
-          })
-          transitionClones = []
+          transitionClones = transitionClones.filter(clone => clone.isConnected)
 
           // 恢复原始图片的样式
           transitions.forEach(({ photoId }) => {
@@ -1683,8 +1710,12 @@ const startBackTransitionAndNavigate = () => {
 
 // 加载相册数据的主要函数（onMounted 和 onActivated 都会调用）
 const loadAlbumData = async () => {
+  // 用户可能在首屏请求尚未完成时按 ESC 离开，组件卸载后不再继续处理旧请求。
+  if (isDisposed) return
+
   // 解析相册 ID（支持 ID 或名称）
   const targetAlbumId = await resolveAlbumId()
+  if (isDisposed) return
   if (!targetAlbumId) {
     console.error('[AlbumDetail] 无效的相册 ID')
     router.push(buildPublicPath('/', route.path))
@@ -1740,14 +1771,18 @@ const loadAlbumData = async () => {
     console.log('[AlbumDetail] 已读取预存氛围背景色:', storedBgColor)
   }
 
-  // 注意：数据已在 onDeactivated 中清空，此处直接加载新数据
   await photoStore.fetchAlbumById(targetAlbumId)
+  if (isDisposed) return
 
   const album = photoStore.currentAlbum
 
-  // 初始加载第一页照片
+  // 首屏照片与人物栏并行请求。人物栏会影响瀑布流起始位置，需在测量动画目标前完成；
+  // 评论数不影响布局，延后到动画开始后再后台加载。
   const initialLoadSize = 50
+  // 详情首屏动画只依赖照片元数据；人物栏并行加载但不阻塞封面过渡。
+  void loadAlbumPersons(targetAlbumId).catch(() => undefined)
   const result = await photoStore.fetchPhotosByAlbum(targetAlbumId, 0, initialLoadSize)
+  if (isDisposed) return
   hasMore.value = !result.last
 
   totalImages.value = photos.value.length
@@ -1757,12 +1792,6 @@ const loadAlbumData = async () => {
   window.addEventListener('scroll', handleScroll, { passive: true })
 
   resetImageLoading()
-
-  await loadCommentCount(targetAlbumId)
-  await loadAlbumPersons(targetAlbumId)
-
-  // 只在图片真正加载完成时显示评论区，不做超时强制展示
-  window.addEventListener('keydown', handleKeydown)
 
   // 等待照片元素渲染完成
   await nextTick()
@@ -1777,8 +1806,9 @@ const loadAlbumData = async () => {
     })
   }
 
-  // 再等待一帧，确保所有图片都已渲染
-  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  // 只等待布局完成即可，不等待任何图片资源下载。
+  // MasonryLayout 根据照片宽高元数据计算位置，目标卡片出现后就可以测量 FLIP 终点。
+  await new Promise(resolve => requestAnimationFrame(resolve))
 
   // 准备剩余图片的动画数据
   let remainingIndex = 0
@@ -1801,15 +1831,30 @@ const loadAlbumData = async () => {
     remainingPhotosVisible.value = true
   }
 
+  // 人物栏可能改变瀑布流整体起点，统一在封面动画结束后再显示。
+  // 数据即使已经返回，也不会在过渡过程中造成页面跳动。
+  if (albumPersonsRevealTimer) window.clearTimeout(albumPersonsRevealTimer)
+  albumPersonsRevealTimer = window.setTimeout(() => {
+    if (!isDisposed) showAlbumPersons.value = true
+  }, hasCoverTransition ? 430 : 120)
+
+  // 评论数不参与首屏布局，动画启动后再补齐，避免阻塞封面展开。
+  loadCommentCount(targetAlbumId).catch(() => undefined)
+
   // 动画完成后清理上一个相册的动画缓存
   await nextTick()
   sessionStorage.removeItem('album-back-transition')
 }
 
 onMounted(async () => {
+  // 从组件挂载开始就监听 ESC，避免网络请求/图片加载期间无法退出详情页。
+  // addEventListener 对同一函数引用是幂等的，后续流程无需重复注册。
+  window.addEventListener('keydown', handleKeydown)
+
   // 获取全局下载权限设置
   try {
     const response = await api.get('/admin/config/global-download-allowed')
+    if (isDisposed) return
     globalDownloadAllowed.value = response.data.globalDownloadAllowed !== false
   } catch (error) {
     console.warn('获取全局下载权限设置失败:', error)
@@ -1820,6 +1865,7 @@ onMounted(async () => {
   window.scrollTo(0, 0)
 
   // 添加窗口大小监听（实时响应）
+  if (isDisposed) return
   window.addEventListener('resize', handleResize)
 
   // 加载相册数据
@@ -1844,6 +1890,8 @@ onActivated(async () => {
 })
 
 onUnmounted(() => {
+  isDisposed = true
+
   // 清理滚动节流定时器，防止组件卸载后定时器回调仍执行
   if (scrollThrottleTimer) {
     clearTimeout(scrollThrottleTimer)
@@ -1856,6 +1904,8 @@ onUnmounted(() => {
   commentCount.value = 0
   albumPersons.value = []
   albumPersonsLoading.value = false
+  showAlbumPersons.value = false
+  albumPersonsHeight.value = 0
   imagesLoaded.value = false
   loadedImagesCount.value = 0
   totalImages.value = 0
@@ -1885,12 +1935,17 @@ onUnmounted(() => {
     clearTimeout((window as any).__albumTransitionCleanupTimer)
     ;(window as any).__albumTransitionCleanupTimer = null
   }
+  if (albumPersonsRevealTimer) {
+    window.clearTimeout(albumPersonsRevealTimer)
+    albumPersonsRevealTimer = null
+  }
 })
 
 // 获取相册评论数量
-const loadCommentCount = async (albumId: number) => {
+const loadCommentCount = async (id: number) => {
   try {
-    const response = await commentApi.getAlbumCommentCount(albumId)
+    const response = await commentApi.getAlbumCommentCount(id)
+    if (isDisposed || albumId.value !== id) return
     commentCount.value = response.data
   } catch (error) {
     console.error('Failed to load comment count:', error)
@@ -1899,10 +1954,11 @@ const loadCommentCount = async (albumId: number) => {
 }
 
 // 获取相册中的人物列表
-const loadAlbumPersons = async (albumId: number) => {
+const loadAlbumPersons = async (id: number) => {
   try {
     albumPersonsLoading.value = true
-    const response = await personApi.getAlbumPersons(albumId)
+    const response = await personApi.getAlbumPersons(id)
+    if (isDisposed || albumId.value !== id) return
     albumPersons.value = response.data || []
   } catch (error) {
     console.error('Failed to load album persons:', error)
@@ -1920,6 +1976,17 @@ const hexToRgb = (hex: string) => {
     g: parseInt(result[2], 16),
     b: parseInt(result[3], 16)
   } : null
+}
+
+// 相册拍摄时间使用紧凑日期显示，放在照片数量之后。
+const formatAlbumTakenAt = (dateStr: string) => {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return dateStr
+  return date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
 }
 
 
