@@ -10,10 +10,12 @@
                 @dragover.prevent="handleBreadcrumbDragOver(basePath)"
                 @dragleave.prevent="handleBreadcrumbDragLeave(basePath)"
                 @drop.prevent="handleBreadcrumbDrop($event, basePath)"
-                class="rounded-full border px-2.5 py-1 text-sm transition-all duration-200"
+                class="admin-file-browser-root-button flex h-8 w-8 items-center justify-center rounded-full border p-0 text-sm transition-all duration-200"
                 :class="breadcrumbClass(-1)"
+                :title="rootButtonLabel"
+                aria-label="返回根目录"
               >
-                {{ rootButtonLabel }}
+                <span aria-hidden="true">⌂</span>
               </button>
               <template v-for="(crumb, index) in breadcrumbSegments" :key="crumb.path">
                 <button
@@ -39,73 +41,35 @@
           <button
             @click="goToParent"
             :disabled="isAtRoot"
-            class="admin-file-browser-breadcrumb-action px-2.5 py-1 rounded text-sm transition-colors shrink-0"
+            class="admin-file-browser-breadcrumb-action admin-file-browser-parent-button px-2.5 py-1 rounded text-sm transition-colors shrink-0"
             :class="isAtRoot ? 'admin-file-browser-breadcrumb-action--disabled cursor-not-allowed' : 'admin-file-browser-breadcrumb-action--primary'"
+            title="返回上级目录"
+            aria-label="返回上级目录"
           >
-            返回上级
+            <span aria-hidden="true">↑</span>
           </button>
-          <button
-            @click="openCurrentDirectoryMenu"
-            class="admin-button-soft shrink-0 rounded px-2.5 py-1 text-sm transition-colors"
-          >
-            目录设置
-          </button>
-          <div
-            v-if="canSelectStorageProvider"
-            class="admin-file-browser-provider-select w-[200px] max-w-[200px] shrink-0"
-            @click.stop
-          >
-            <button
-              ref="providerTriggerRef"
-              type="button"
-              class="admin-file-browser-select-trigger admin-file-browser-provider-field flex w-[200px] max-w-[200px] items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm"
-              :title="providerSummaryLabel"
-              @click="toggleProviderMenu"
-            >
-              <span class="truncate">{{ providerSummaryLabel }}</span>
-              <span class="admin-file-browser-select-arrow">▾</span>
-            </button>
-          </div>
         </div>
       </div>
 
       <!-- 工具栏 -->
       <div class="glass-panel glass-toolbar flex items-center gap-2 flex-wrap admin-file-browser-toolbar">
-        <button
-          @click="openCreateDialog"
-          :disabled="!supportsDirectoryCreation"
-          class="admin-button-primary px-3 py-1.5 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          + 新建文件夹
-        </button>
-        <button
-          @click="refresh"
-          class="admin-button-soft min-w-[82px] whitespace-nowrap rounded-lg px-3 py-1.5 text-sm"
-        >
-          刷新
-        </button>
-        <button
-          @click="triggerFileInput(false)"
-          :disabled="!activeProviderSupported"
-          class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          上传文件
-        </button>
-        <button
-          @click="triggerFileInput(true)"
-          :disabled="!activeProviderSupported"
-          class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          上传文件夹
-        </button>
-        <button
-          @click="toggleMultiSelect"
-          :disabled="!supportsItemManagement"
-          class="admin-button-soft px-3 py-1.5 rounded-lg text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-          :class="{ 'opacity-50 cursor-not-allowed': !supportsItemManagement }"
-        >
-          {{ multiSelect ? '关闭多选' : '开启多选' }}
-        </button>
+        <div class="relative shrink-0" @click.stop>
+          <button
+            ref="actionsTriggerRef"
+            type="button"
+            class="admin-button-primary flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm"
+            aria-haspopup="menu"
+            :aria-expanded="actionsMenu.show"
+            @click="toggleActionsMenu"
+          >
+            操作 <span class="text-xs opacity-70">▾</span>
+          </button>
+        </div>
+        <label class="admin-file-browser-search relative shrink-0" aria-label="搜索当前目录">
+          <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-[color:var(--pe-admin-text-faint)]">⌕</span>
+          <input v-model="searchKeyword" type="search" autocomplete="off" placeholder="搜索当前目录" class="admin-file-browser-search-input w-[180px] rounded-lg py-1.5 pl-8 pr-8 text-sm outline-none transition" />
+          <button v-if="searchKeyword" type="button" class="admin-file-browser-search-clear absolute inset-y-0 right-1 flex w-7 items-center justify-center rounded-full text-sm" aria-label="清除搜索" @click="searchKeyword = ''">×</button>
+        </label>
         <template v-if="multiSelect">
         <button
           @click="moveSelected"
@@ -140,6 +104,42 @@
         </template>
         <input ref="fileInput" type="file" multiple class="hidden" @change="handleFileInput(false, $event)" />
         <input ref="dirInput" type="file" multiple webkitdirectory class="hidden" @change="handleFileInput(true, $event)" />
+        <div v-if="canSelectStorageProvider" class="admin-file-browser-provider-select admin-file-browser-provider-select--end shrink-0" @click.stop>
+          <button
+            ref="providerTriggerRef"
+            type="button"
+            class="admin-file-browser-select-trigger admin-file-browser-provider-field flex w-[168px] max-w-[168px] items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm"
+            :title="providerSummaryLabel"
+            @click="toggleProviderMenu"
+          >
+            <span class="truncate">{{ providerSummaryLabel }}</span>
+            <span class="admin-file-browser-select-arrow">▾</span>
+          </button>
+        </div>
+      </div>
+      <div
+        v-if="actionsMenu.show"
+        class="glass-popover admin-floating-popover admin-file-browser-popover fixed z-[95] w-[220px] rounded-2xl"
+        :style="{ left: `${actionsMenu.x}px`, top: `${actionsMenu.y}px` }"
+        @click.stop
+      >
+        <div class="admin-file-browser-popover-title px-3 pb-1 pt-3 text-[11px]">当前目录操作</div>
+        <button type="button" class="admin-file-browser-popover-option admin-file-browser-context-action w-full text-left text-sm" @click="openCreateDialog(); actionsMenu.show = false" :disabled="!supportsDirectoryCreation">新建文件夹</button>
+        <button type="button" class="admin-file-browser-popover-option admin-file-browser-context-action w-full text-left text-sm" @click="triggerFileInput(false); actionsMenu.show = false" :disabled="!activeProviderSupported">上传文件</button>
+        <button type="button" class="admin-file-browser-popover-option admin-file-browser-context-action w-full text-left text-sm" @click="triggerFileInput(true); actionsMenu.show = false" :disabled="!activeProviderSupported">上传文件夹</button>
+        <button
+          type="button"
+          class="admin-file-browser-popover-option admin-file-browser-context-action w-full text-left text-sm"
+          :disabled="isAtRoot"
+          :title="isAtRoot ? '根目录没有相册设置' : '打开当前目录的相册设置'"
+          @click="openCurrentDirectoryAlbumSettings(); actionsMenu.show = false"
+        >
+          目录设置
+        </button>
+        <button type="button" class="admin-file-browser-popover-option admin-file-browser-context-action w-full text-left text-sm" @click="toggleMultiSelect(); actionsMenu.show = false" :disabled="!supportsItemManagement">{{ multiSelect ? '关闭多选模式' : '开启多选模式' }}</button>
+        <div class="admin-file-browser-popover-divider mx-3"></div>
+        <button type="button" class="admin-file-browser-popover-option admin-file-browser-context-action w-full text-left text-sm" @click="refresh(); actionsMenu.show = false">刷新当前目录</button>
+        <div class="h-1.5 shrink-0"></div>
       </div>
       <div
         v-if="!supportsDirectoryCreation || !supportsItemManagement || !activeProviderSupported"
@@ -195,7 +195,7 @@
         </div>
         <div v-else>
           <div class="mb-3 text-xs admin-file-browser-list-meta">
-            共 {{ items.length }} 项，当前第 {{ currentPage }} / {{ totalPages }} 页
+            {{ searchKeyword ? `找到 ${sortedItems.length} 项（当前目录共 ${items.length} 项）` : `共 ${items.length} 项` }}，当前第 {{ currentPage }} / {{ totalPages }} 页
           </div>
           <div :class="[gridClass, 'admin-file-browser-grid']">
           <!-- 文件夹 -->
@@ -369,13 +369,14 @@
                 ? 'admin-file-browser-card-icon-shell mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg'
                 : 'admin-file-browser-card-icon-shell mb-2 flex h-32 items-center justify-center rounded-xl'"
             >
-              <div class="transition-transform duration-200 group-hover:scale-110" :class="viewMode === 'list' ? 'text-xl' : 'text-4xl'">📄</div>
+              <div class="transition-transform duration-200 group-hover:scale-110" :class="viewMode === 'list' ? 'text-xl' : 'text-4xl'">{{ isImageFile(file) ? '🖼️' : '📄' }}</div>
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="truncate font-medium text-[color:var(--pe-admin-text-primary)]" :title="file.name">{{ file.name }}</div>
                   <div class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0 text-[11px] text-[color:var(--pe-admin-text-muted)]">
+                    <span>{{ isImageFile(file) ? '图片' : '文件' }}</span>
                     <span>{{ formatFileSize(file.size) }}</span>
                     <span>{{ formatDate(file.lastModified) }}</span>
                     <span v-if="file.thumbnail?.id">已入库</span>
@@ -1342,6 +1343,7 @@ const pageSizeMenu = ref({
   x: 0,
   y: 0
 })
+const actionsMenu = ref({ show: false, x: 0, y: 0 })
 const breadcrumbMenu = ref({
   show: false,
   x: 0,
@@ -1355,11 +1357,13 @@ const breadcrumbMenu = ref({
 const fileInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 const providerTriggerRef = ref<HTMLElement | null>(null)
+const actionsTriggerRef = ref<HTMLElement | null>(null)
 const viewTriggerRef = ref<HTMLElement | null>(null)
 const sortTriggerRef = ref<HTMLElement | null>(null)
 const pageSizeTriggerRef = ref<HTMLElement | null>(null)
 const sortMode = ref<'name-asc' | 'name-desc' | 'lastModified-desc' | 'lastModified-asc' | 'size-desc' | 'size-asc' | 'photoCount-desc' | 'photoCount-asc'>('name-asc')
 const typeOrderMode = ref<'mixed' | 'directory-first' | 'file-first'>('mixed')
+const searchKeyword = ref('')
 const pageSize = ref(48)
 const currentPage = ref(1)
 const viewMode = ref<'grid' | 'list'>('grid')
@@ -1415,8 +1419,15 @@ const viewSummaryLabel = computed(() => {
   const presetLabel = gridPresetOptions.find(option => option.value === gridPreset.value)?.label || '自动中'
   return viewMode.value === 'list' ? `${modeLabel} · ${presetLabel}` : `${modeLabel} · ${presetLabel}`
 })
-const directories = computed(() => items.value.filter(item => item.isDirectory))
-const files = computed(() => items.value.filter(item => !item.isDirectory))
+const filteredItems = computed(() => {
+  const keyword = searchKeyword.value.trim().toLocaleLowerCase('zh-CN')
+  return items.value.filter(item => {
+    if (keyword && !item.name.toLocaleLowerCase('zh-CN').includes(keyword)) return false
+    return true
+  })
+})
+const directories = computed(() => filteredItems.value.filter(item => item.isDirectory))
+const files = computed(() => filteredItems.value.filter(item => !item.isDirectory))
 const sortedItems = computed(() => {
   const [sortKey, sortOrder] = sortMode.value.split('-') as ['name' | 'lastModified' | 'size' | 'photoCount', 'asc' | 'desc']
   const factor = sortOrder === 'asc' ? 1 : -1
@@ -1428,12 +1439,10 @@ const sortedItems = computed(() => {
     const result = typeRank(a) - typeRank(b)
     return typeOrderMode.value === 'directory-first' ? result : -result
   }
-  return [...items.value].sort((a, b) => {
-    let result = compareType(a, b)
-    if (result !== 0) {
-      return result
-    }
-    result = 0
+  return [...filteredItems.value].sort((a, b) => {
+    const typeResult = compareType(a, b)
+    if (typeResult !== 0) return typeResult
+    let result = 0
     if (sortKey === 'name') {
       result = a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
     } else if (sortKey === 'lastModified') {
@@ -1444,7 +1453,7 @@ const sortedItems = computed(() => {
       result = (a.photoCount || 0) - (b.photoCount || 0)
     }
     if (result === 0) {
-      result = compareType(a, b) || a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+      result = a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
     }
     return result * factor
   })
@@ -1461,24 +1470,24 @@ const gridClass = computed(() => {
     return 'grid grid-cols-1 gap-1'
   }
   if (gridPreset.value === 'auto-sm') {
-    return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2'
+    return 'grid gap-2 admin-file-browser-grid--auto-sm'
   }
   if (gridPreset.value === 'auto-md') {
-    return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2'
+    return 'grid gap-2.5 admin-file-browser-grid--auto-md'
   }
   if (gridPreset.value === 'auto-lg') {
-    return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5'
+    return 'grid gap-3 admin-file-browser-grid--auto-lg'
   }
   if (gridPreset.value === 'cols-2') {
-    return 'grid grid-cols-1 sm:grid-cols-2 gap-2.5'
+    return 'grid gap-2.5 admin-file-browser-grid--cols-2'
   }
   if (gridPreset.value === 'cols-3') {
-    return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5'
+    return 'grid gap-2.5 admin-file-browser-grid--cols-3'
   }
   if (gridPreset.value === 'cols-4') {
-    return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2'
+    return 'grid gap-2.5 admin-file-browser-grid--cols-4'
   }
-  return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2'
+  return 'grid gap-2.5 admin-file-browser-grid--cols-5'
 })
 const selectedDirectoryItems = computed(() => directories.value.filter(item => selectedPaths.value.has(item.path)))
 const selectedFileItems = computed(() => files.value.filter(item => selectedPaths.value.has(item.path)))
@@ -1552,9 +1561,11 @@ const filteredPhotoTags = computed(() => {
   if (!keyword) return allTags.value
   return allTags.value.filter(tag => tag.name.toLowerCase().includes(keyword))
 })
-const currentDirectoryDirectImageCount = computed(() => files.value.filter(file => isImageFile(file)).length)
+const currentDirectoryDirectImageCount = computed(() => items.value.filter(file => !file.isDirectory && isImageFile(file)).length)
 const currentDirectoryAggregatedChildPhotoCount = computed(() => {
-  return directories.value.reduce((sum, dir) => sum + (dir.photoCount || 0), 0)
+  return items.value
+    .filter(item => item.isDirectory)
+    .reduce((sum, dir) => sum + (dir.photoCount || 0), 0)
 })
 const currentDirectoryState = computed(() => {
   const album = currentDirectoryAlbum.value
@@ -2462,7 +2473,14 @@ const openAlbumSettings = (dir: FileItem) => {
 }
 
 const openCurrentDirectoryAlbumSettings = () => {
-  if (!currentDirectoryAlbum.value.albumBound || !currentDirectoryAlbum.value.albumId) return
+  if (isAtRoot.value) {
+    alert('根目录不支持目录设置')
+    return
+  }
+  if (!currentDirectoryAlbum.value.albumBound || !currentDirectoryAlbum.value.albumId) {
+    alert('当前目录尚未绑定相册，请先使用“绑定为相册”')
+    return
+  }
   openAlbumSettings({
     name: pathParts.value[pathParts.value.length - 1] || rootButtonLabel.value,
     path: currentPath.value || '/',
@@ -2769,7 +2787,7 @@ const toggleMultiSelect = () => {
 const selectAll = () => {
   if (!multiSelect.value || !supportsItemManagement.value) return
   const set = new Set<string>()
-  items.value.forEach(i => set.add(i.path))
+  filteredItems.value.forEach(i => set.add(i.path))
   selectedPaths.value = set
 }
 
@@ -2777,12 +2795,12 @@ const invertSelection = () => {
   if (!multiSelect.value || !supportsItemManagement.value) return
   const set = new Set<string>()
   const current = selectedPaths.value
-  items.value.forEach(i => {
+  filteredItems.value.forEach(i => {
     if (current.has(i.path)) return
     set.add(i.path)
   })
   // 同时保留未选 → 选，已选 → 取消
-  items.value.forEach(i => {
+  filteredItems.value.forEach(i => {
     if (!current.has(i.path)) return
     // 已选的反转为不选，已处理
   })
@@ -3254,6 +3272,7 @@ const closeFloatingMenus = () => {
   providerMenu.value.show = false
   viewMenu.value.show = false
   pageSizeMenu.value.show = false
+  actionsMenu.value.show = false
 }
 
 const openFloatingMenu = (
@@ -3292,6 +3311,15 @@ const toggleProviderMenu = () => {
   }
   closeFloatingMenus()
   openFloatingMenu(providerTriggerRef.value, providerMenu.value, 280, 72 + availableStorageProviders.value.length * 52)
+}
+
+const toggleActionsMenu = () => {
+  if (actionsMenu.value.show) {
+    actionsMenu.value.show = false
+    return
+  }
+  closeFloatingMenus()
+  openFloatingMenu(actionsTriggerRef.value, actionsMenu.value, 220, 280, false)
 }
 
 const toggleViewMenu = () => {
@@ -3383,6 +3411,13 @@ watch([sortMode, typeOrderMode, pageSize, viewMode, gridPreset], () => {
   fileBrowserPreferenceSaveTimer = setTimeout(() => {
     persistFileBrowserPreferences()
   }, 250)
+})
+
+watch(searchKeyword, () => {
+  currentPage.value = 1
+  // 搜索范围变化后保留仍在结果中的选择，避免批量操作误带入隐藏项目。
+  const visiblePaths = new Set(filteredItems.value.map(item => item.path))
+  selectedPaths.value = new Set(Array.from(selectedPaths.value).filter(path => visiblePaths.has(path)))
 })
 
 onMounted(async () => {
