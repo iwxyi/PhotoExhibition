@@ -70,6 +70,7 @@ public class AlbumController {
             @RequestParam(defaultValue = "12") int size,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "false") boolean includeHidden,
             @RequestParam(required = false) String userSlug) {
         log.info("获取相册列表 - 页码: {}, 数量: {}, 分类: {}, 排序: {}, includeHidden: {}", page, size, category, sort, includeHidden);
@@ -78,7 +79,7 @@ public class AlbumController {
         if (size < 1) size = 12;
         Pageable pageable = PageRequest.of(page, size);
         Long userId = publicUserScopeService.resolveUserId(userSlug);
-        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort, includeHidden, userId);
+        Page<AlbumDTO> albums = albumService.getAllAlbumsWithCover(pageable, category, sort, includeHidden, userId, keyword);
         log.info("返回 {} 个相册, 总数: {}", albums.getNumberOfElements(), albums.getTotalElements());
         return ResponseEntity.ok(albums);
     }

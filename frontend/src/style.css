@@ -3033,6 +3033,13 @@
     border-color: color-mix(in srgb, var(--pe-theme-secondary) 16%, rgba(148, 163, 184, 0.2)) !important;
   }
 
+  .admin-albums-menu__section-label {
+    color: var(--pe-admin-text-faint);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
   .admin-albums-dialog--photos {
     box-shadow: 0 28px 72px rgba(2, 6, 23, 0.28);
   }
@@ -6779,6 +6786,57 @@
   color: var(--pe-admin-text-primary);
 }
 
+/* The utility bar lives next to (rather than inside) .admin-shell. Keep its
+   palette explicit so it never falls back to the legacy translucent white
+   header when the admin mode changes. */
+.admin-utility-nav {
+  --admin-nav-bg: #ffffff;
+  --admin-nav-border: #d8e0ea;
+  --admin-nav-text: #172033;
+  --admin-nav-muted: #64748b;
+  background: var(--admin-nav-bg) !important;
+  border-bottom-color: var(--admin-nav-border) !important;
+  color: var(--admin-nav-text) !important;
+}
+
+.admin-utility-nav .admin-utility-nav__brand {
+  color: var(--admin-nav-text) !important;
+}
+
+.admin-utility-nav .admin-utility-nav__link,
+.admin-utility-nav .admin-utility-nav__logout {
+  color: var(--admin-nav-muted) !important;
+}
+
+.admin-utility-nav .admin-utility-nav__link:hover,
+.admin-utility-nav .admin-utility-nav__link--active,
+.admin-utility-nav .admin-utility-nav__logout:hover {
+  color: var(--admin-nav-text) !important;
+}
+
+.admin-utility-nav .admin-color-mode-control {
+  border-color: var(--admin-nav-border) !important;
+  background: color-mix(in srgb, var(--admin-nav-bg) 88%, var(--admin-nav-text) 12%) !important;
+}
+
+.admin-utility-nav .admin-color-mode-control__option {
+  color: var(--admin-nav-muted) !important;
+}
+
+:root[data-admin-color-mode='dark'] .admin-utility-nav {
+  --admin-nav-bg: #182235;
+  --admin-nav-border: #2d3a4f;
+  --admin-nav-text: #f1f5f9;
+  --admin-nav-muted: #94a3b8;
+}
+
+:root[data-admin-color-mode='light'] .admin-utility-nav {
+  --admin-nav-bg: #ffffff;
+  --admin-nav-border: #d8e0ea;
+  --admin-nav-text: #172033;
+  --admin-nav-muted: #64748b;
+}
+
 /* Content containers must size to their content. Media and modal wrappers retain clipping locally. */
 .admin-shell .glass-panel:not(.admin-dashboard-modal-card),
 .admin-shell .admin-entry-card,
@@ -6985,8 +7043,25 @@
   box-shadow: var(--pe-surface-shadow) !important;
 }
 
-.admin-shell .admin-albums-card {
-  overflow: hidden !important;
+.admin-shell .admin-albums-card-heading {
+  min-width: 0;
+  min-height: 1.25rem;
+}
+
+.admin-shell .admin-albums-card > .p-3 {
+  padding: 0.7rem 0.8rem 0.8rem;
+}
+
+.admin-shell .admin-albums-card-heading h3 {
+  min-width: 0;
+  max-width: 100%;
+  letter-spacing: -0.01em;
+}
+
+.admin-shell .admin-albums-card-date {
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .admin-shell .admin-photos-panel {
@@ -7008,6 +7083,185 @@
   background: color-mix(in srgb, var(--pe-surface-bg) 97%, #4f8cff 3%) !important;
   box-shadow: var(--pe-surface-shadow) !important;
   transform: none !important;
+}
+
+.admin-shell .admin-albums-card--hidden {
+  border-color: color-mix(in srgb, #f43f5e 28%, var(--pe-surface-border)) !important;
+}
+
+.admin-shell .admin-albums-card--hidden > .relative:first-child::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.3));
+}
+
+.admin-shell .admin-albums-card-select input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #4f8cff;
+  cursor: pointer;
+}
+
+/* Keep selection controls completely out of the card when batch mode is
+   closed. The explicit visibility rule also protects against stale DOM or
+   broad label/button styles while the mode is toggling. */
+.admin-shell .admin-albums-card-select {
+  display: none !important;
+}
+
+.admin-shell.admin-albums-page--selection .admin-albums-card-select {
+  display: block !important;
+}
+
+.admin-shell .admin-albums-page .admin-albums-card-menu,
+.admin-shell .admin-albums-card-menu {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent !important;
+  background-image: none !important;
+  color: #fff !important;
+  opacity: 0.68;
+  transform: scale(0.94);
+  box-shadow: none !important;
+  position: absolute !important;
+  top: 0.5rem !important;
+  right: 0.5rem !important;
+  z-index: 20 !important;
+  transition: background 140ms ease, border-color 140ms ease, opacity 140ms ease, transform 140ms ease;
+}
+
+.admin-shell .admin-albums-card-menu svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
+.admin-shell .admin-albums-page .admin-albums-card-menu:hover,
+.admin-shell .admin-albums-page .admin-albums-card-menu:focus-visible,
+.admin-shell .admin-albums-card-menu:hover,
+.admin-shell .admin-albums-card-menu:focus-visible,
+.admin-shell .admin-albums-card-menu[aria-expanded='true'] {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: #fff !important;
+  opacity: 1;
+  transform: translateY(-1px) scale(1);
+}
+
+.admin-shell .admin-albums-card-menu:hover,
+.admin-shell .admin-albums-card-menu:focus-visible,
+.admin-shell .admin-albums-card-menu[aria-expanded='true'] {
+  border: 1px solid rgba(255, 255, 255, 0.28) !important;
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.64) !important;
+}
+
+.admin-shell .admin-albums-card-menu:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.9);
+  outline-offset: 3px;
+}
+
+.admin-shell .admin-albums-card-menu:active {
+  transform: translateY(0) scale(0.92);
+}
+
+.admin-shell .admin-albums-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, #4f8cff 70%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-shell .admin-albums-overflow-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--pe-surface-border);
+  border-radius: 999px;
+  color: var(--pe-admin-text-faint);
+  font-size: 0.68rem;
+}
+
+.admin-shell .admin-albums-selection-count,
+.admin-shell .admin-albums-load-status {
+  color: var(--pe-admin-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Teleported menus are rendered under body, so they cannot inherit the
+   palette scoped to .admin-shell. Give them the same deterministic surface
+   and text colors in both admin modes. */
+.admin-albums-menu,
+.admin-persons-context-menu,
+.glass-menu {
+  --admin-menu-bg: #182235;
+  --admin-menu-border: #2d3a4f;
+  --admin-menu-text: #f1f5f9;
+  --admin-menu-muted: #94a3b8;
+  color: var(--admin-menu-text) !important;
+  border-color: var(--admin-menu-border) !important;
+  background: var(--admin-menu-bg) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.admin-albums-menu button,
+.admin-persons-context-menu button,
+.glass-menu button {
+  color: var(--admin-menu-text) !important;
+}
+
+.admin-albums-menu select,
+.admin-persons-context-menu select,
+.glass-menu select {
+  color: var(--admin-menu-text) !important;
+  border-color: var(--admin-menu-border) !important;
+  background: color-mix(in srgb, var(--admin-menu-bg) 88%, var(--admin-menu-text) 12%) !important;
+}
+
+.admin-albums-menu button:hover,
+.admin-persons-context-menu button:hover,
+.glass-menu button:hover {
+  background: color-mix(in srgb, #4f8cff 10%, var(--admin-menu-bg)) !important;
+}
+
+:root[data-admin-color-mode='dark'] .admin-albums-menu,
+:root[data-admin-color-mode='dark'] .admin-persons-context-menu,
+:root[data-admin-color-mode='dark'] .glass-menu {
+  --admin-menu-bg: #182235;
+  --admin-menu-border: #34435b;
+  --admin-menu-text: #f1f5f9;
+  --admin-menu-muted: #94a3b8;
+}
+
+:root[data-admin-color-mode='light'] .admin-albums-menu,
+:root[data-admin-color-mode='light'] .admin-persons-context-menu,
+:root[data-admin-color-mode='light'] .glass-menu {
+  --admin-menu-bg: #ffffff;
+  --admin-menu-border: #d8e0ea;
+  --admin-menu-text: #172033;
+  --admin-menu-muted: #64748b;
+}
+
+/* Admin defaults to dark mode. This also prevents a white flash before the
+   persisted admin color mode has been applied to <html>. */
+:root:not([data-admin-color-mode='light']) .admin-albums-menu,
+:root:not([data-admin-color-mode='light']) .admin-persons-context-menu,
+:root:not([data-admin-color-mode='light']) .glass-menu {
+  --admin-menu-bg: #182235;
+  --admin-menu-border: #2d3a4f;
+  --admin-menu-text: #f1f5f9;
+  --admin-menu-muted: #94a3b8;
 }
 
 .admin-shell .admin-persons-panel,

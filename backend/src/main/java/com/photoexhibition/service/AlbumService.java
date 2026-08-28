@@ -107,16 +107,29 @@ public class AlbumService {
 
     @Transactional(readOnly = true)
     public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort, boolean includeHidden, Long userId) {
+        return getAllAlbumsWithCover(pageable, category, sort, includeHidden, userId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AlbumDTO> getAllAlbumsWithCover(Pageable pageable, String category, String sort, boolean includeHidden, Long userId, String keyword) {
         log.debug("获取相册列表 - 排序: {}, 分类: {}, includeHidden: {}", sort, category, includeHidden);
 
         // 聚合相册需要按路径排除子相册，因此先完整读取候选集，再执行筛选、排序和分页。
         // 不能只读取固定的前 500 条，否则总数大于 500 时后续页面会永久为空。
         List<Album> filteredAlbums = filterAggregatedAlbums(
             filterAlbumsByUser(loadAlbumsForListing(category, userId), userId), includeHidden);
+        String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!normalizedKeyword.isEmpty()) {
+            filteredAlbums = filteredAlbums.stream().filter(album ->
+                containsIgnoreCase(album.getName(), normalizedKeyword)
+                    || containsIgnoreCase(album.getPath(), normalizedKeyword)
+                    || containsIgnoreCase(buildDisplayTitle(album), normalizedKeyword)
+            ).collect(java.util.stream.Collectors.toList());
+        }
         filteredAlbums = sortAlbums(filteredAlbums, sort);
 
         // 获取总数
-        long totalElements = getAlbumsCount(category, includeHidden, userId);
+        long totalElements = filteredAlbums.size();
 
         // 计算实际的分页范围
         int page = pageable.getPageNumber();
@@ -1022,6 +1035,10 @@ public class AlbumService {
     /**
      * 生成展示用标题：去掉首段日期前缀，并将层级目录拼接
      */
+    private boolean containsIgnoreCase(String value, String keyword) {
+        return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(keyword);
+    }
+
     private String buildDisplayTitle(Album album) {
         try {
             String albumPath = album.getPath();

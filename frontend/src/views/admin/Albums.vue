@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen admin-shell admin-albums-page">
+  <div class="min-h-screen admin-shell admin-albums-page" :class="{ 'admin-albums-page--selection': selectionMode }">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 admin-content-rail">
       <div class="glass-panel admin-query-toolbar admin-query-toolbar--compact">
         <div class="admin-query-toolbar__fields">
@@ -10,6 +10,17 @@
           <span v-if="loading && albums.length === 0" class="admin-albums-empty-state admin-query-toolbar__status">加载中...</span>
         </div>
         <div class="admin-query-toolbar__actions">
+          <button v-if="albums.length" @click="toggleSelectionMode" class="admin-query-toolbar__button admin-button-soft">
+            {{ selectionMode ? '退出多选' : '批量管理' }}
+          </button>
+          <template v-if="selectionMode">
+            <span class="admin-albums-selection-count">已选 {{ selectedAlbumIds.length }}</span>
+            <button @click="selectAllAlbums" class="admin-query-toolbar__button admin-button-soft">全选</button>
+            <button @click="batchSetHidden(false)" :disabled="!selectedAlbumIds.length || batchLoading" class="admin-query-toolbar__button admin-button-soft disabled:opacity-50">显示</button>
+            <button @click="batchSetHidden(true)" :disabled="!selectedAlbumIds.length || batchLoading" class="admin-query-toolbar__button admin-button-soft disabled:opacity-50">隐藏</button>
+            <button @click="openBatchTagDialog" :disabled="!selectedAlbumIds.length || batchLoading" class="admin-query-toolbar__button admin-button-soft disabled:opacity-50">加标签</button>
+            <button @click="batchDelete" :disabled="!selectedAlbumIds.length || batchLoading" class="admin-query-toolbar__button admin-button-danger disabled:opacity-50">删除</button>
+          </template>
           <button v-on:click="load" :disabled="loading" class="admin-button-soft admin-query-toolbar__button disabled:opacity-50">刷新</button>
           <button v-if="authStore.isSuperAdmin" v-on:click="forceScanAndRebuild" :disabled="loading" class="btn-primary admin-query-toolbar__button disabled:opacity-50">重新扫描</button>
         </div>
@@ -19,9 +30,29 @@
         <div
           v-for="album in albums"
           :key="album.id"
-          class="admin-albums-card glass-panel overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
-          :class="{ 'opacity-50': album.isHidden }"
+          class="admin-albums-card glass-panel relative overflow-hidden hover:ring-2 hover:ring-blue-500/80 transition-all flex flex-col"
+          :class="{ 'admin-albums-card--hidden': album.isHidden }"
+          tabindex="0"
+          @keydown.enter.prevent="openPhotoManageModal(album)"
+          @contextmenu.prevent.stop="openMenu($event, album)"
         >
+          <label v-show="selectionMode" class="admin-albums-card-select absolute top-2 left-2 z-20">
+            <input type="checkbox" :checked="selectedAlbumIds.includes(album.id)" @click.stop="toggleAlbumSelection(album.id)" />
+          </label>
+          <button
+            @click="openMenu($event, album)"
+            class="admin-albums-card-menu absolute top-2 right-2 z-20"
+            title="更多操作"
+            aria-label="相册更多操作"
+            aria-haspopup="menu"
+            :aria-expanded="showMenuForAlbum?.id === album.id"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.55" />
+              <circle cx="12" cy="12" r="1.55" />
+              <circle cx="12" cy="19" r="1.55" />
+            </svg>
+          </button>
           <!-- 封面预览 -->
           <div
             class="relative overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
@@ -32,20 +63,12 @@
               :covers="getAlbumCovers(album)"
               :default-covers="getDefaultCovers(album)"
               :photo-count="album.photoCount || 0"
-              size="lg"
+              size="md"
             />
-            <!-- 隐藏标签 - 封面左上角 -->
-            <div
-              v-if="album.isHidden"
-              class="absolute top-2 left-2 px-2 py-0.5 bg-red-500/30 backdrop-blur-sm rounded text-xs text-red-200 border border-red-400/30"
-              title="已隐藏（前台不可见）"
-            >
-              已隐藏
-            </div>
             <!-- 聚合标签 - 封面右上角 -->
             <div
               v-if="album.aggregateSubAlbums"
-              class="absolute top-2 right-2 px-2 py-0.5 bg-blue-500/30 backdrop-blur-sm rounded text-xs text-blue-200 border border-blue-400/30"
+              class="absolute top-2 right-11 px-2 py-0.5 bg-blue-500/30 backdrop-blur-sm rounded text-xs text-blue-200 border border-blue-400/30"
               title="已开启聚合下级相册"
             >
               聚合
@@ -56,31 +79,13 @@
           <div class="p-3 flex flex-col flex-grow">
             <!-- 固定内容区 -->
             <div class="flex-shrink-0">
-              <div class="flex items-center justify-between gap-2 mb-0.5">
-                <h3 class="text-base font-medium truncate" :title="album.displayTitle || album.name">
+            <div class="admin-albums-card-heading flex items-center gap-2 mb-0.5">
+                <h3 class="min-w-0 flex-1 truncate text-sm font-medium leading-5" :title="album.displayTitle || album.name">
                   {{ album.displayTitle || album.name }}
                 </h3>
-                <span class="admin-albums-meta text-xs text-gray-500">
+                <span class="admin-albums-card-date admin-albums-meta shrink-0 whitespace-nowrap text-[11px] text-gray-500">
                   {{ formatDate(album.takenAt) }}
                 </span>
-              </div>
-              <div class="flex items-center justify-between gap-2">
-                <p class="admin-albums-meta text-xs text-gray-400 truncate flex-grow" :title="album.relativePath">
-                  {{ album.relativePath || album.path }}
-                </p>
-                <!-- 更多菜单按钮 -->
-                <button
-                  @click="openMenu($event, album)"
-                  class="admin-button-soft p-1 rounded text-xs transition-colors flex-shrink-0"
-                  title="更多操作"
-                  aria-label="相册更多操作"
-                  aria-haspopup="menu"
-                  :aria-expanded="showMenuForAlbum?.id === album.id"
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                  </svg>
-                </button>
               </div>
             </div>
 
@@ -90,7 +95,7 @@
               <div v-if="album.atmosphereEffects && album.atmosphereEffects.length > 0" class="mb-2">
                 <div class="flex flex-wrap gap-1">
                   <span
-                    v-for="effect in album.atmosphereEffects"
+                    v-for="effect in album.atmosphereEffects.slice(0, 2)"
                     :key="effect.type"
                     class="admin-albums-effect-pill px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-md text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500/30 transition-colors"
                     :title="'点击编辑特效: ' + getEffectDisplayName(effect.type)"
@@ -101,6 +106,7 @@
                     </svg>
                     {{ getEffectDisplayName(effect.type) }}({{ getIntensityDisplay(effect.intensity || 'medium') }}|{{ effect.layer === 'background' ? '下' : '上' }})
                   </span>
+                  <span v-if="album.atmosphereEffects.length > 2" class="admin-albums-overflow-pill">+{{ album.atmosphereEffects.length - 2 }}</span>
                 </div>
               </div>
 
@@ -108,7 +114,7 @@
               <div v-if="album.tags && album.tags.length > 0" class="mb-2">
                 <div class="flex flex-wrap gap-1">
                   <span
-                    v-for="t in album.tags"
+                    v-for="t in album.tags.slice(0, 3)"
                     :key="t.id"
                     class="admin-albums-tag-pill px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-xs inline-flex items-center gap-1 cursor-pointer hover:bg-blue-500/30 transition-colors"
                     :title="'点击编辑标签'"
@@ -123,11 +129,12 @@
                       ×
                     </button>
                   </span>
+                  <span v-if="album.tags.length > 3" class="admin-albums-overflow-pill">+{{ album.tags.length - 3 }}</span>
                 </div>
               </div>
 
               <!-- 备注 -->
-              <div v-if="album.description" class="admin-albums-description text-xs text-gray-300 bg-gray-900/50 p-1.5 rounded line-clamp-2">
+              <div v-if="album.description" class="admin-albums-description text-xs text-gray-300 bg-gray-900/50 p-1.5 rounded line-clamp-1">
                 {{ album.description }}
               </div>
             </div>
@@ -202,8 +209,8 @@
               </svg>
               相册特效
             </button>
-            <!-- 分割线 -->
-            <div class="border-t border-gray-600 my-1"></div>
+            <!-- 编辑操作分组 -->
+            <div class="admin-albums-menu__section-label px-4 pt-2 pb-1 text-[10px]">编辑</div>
             <!-- 重命名菜单项 -->
             <button
               @click="editName(showMenuForAlbum)"
@@ -356,8 +363,8 @@
               </svg>
               删除相册
             </button>
-            <!-- 分割线 -->
-            <div class="border-t border-gray-600 my-1"></div>
+            <!-- 结构与权限分组 -->
+            <div class="admin-albums-menu__section-label px-4 pt-2 pb-1 text-[10px]">结构与权限</div>
             <!-- 聚合下级相册菜单项 -->
             <button
               v-if="hasSubAlbums(showMenuForAlbum)"
@@ -424,7 +431,7 @@
         @click.self="closeAllMenus"
       >
         <div class="glass-dialog admin-albums-dialog admin-albums-dialog--tag rounded-lg p-6 max-w-md w-full text-gray-100">
-          <h3 class="text-lg font-medium mb-4 text-gray-100">添加标签</h3>
+          <h3 class="text-lg font-medium mb-4 text-gray-100">{{ batchTagMode ? `为 ${selectedAlbumIds.length} 个相册添加标签` : '添加标签' }}</h3>
           <div class="mb-4">
             <label class="block space-y-2">
               <span class="admin-albums-field-label text-sm text-gray-300">标签名称</span>
@@ -468,7 +475,7 @@
               确定
             </button>
             <button
-              v-on:click="tagDialogVisible = false"
+              v-on:click="tagDialogVisible = false; batchTagMode = false"
               class="admin-button-soft flex-1 px-4 py-2 rounded text-sm"
             >
               取消
@@ -1181,13 +1188,15 @@
     </teleport>
 
     <!-- 加载状态提示 -->
-    <div v-if="loadingMore" class="admin-albums-empty-state text-center py-4 text-gray-400 text-sm">
-      加载中...
+    <div class="admin-albums-load-status text-center py-3 text-xs">
+      <span v-if="loadingMore">正在加载更多…</span>
+      <span v-else-if="loadMoreError" class="text-rose-300">{{ loadMoreError }} <button class="underline" @click="loadMore">重试</button></span>
+      <span v-else-if="albums.length > 0">已加载 {{ albums.length }}<span v-if="totalAlbumCount"> / 共 {{ totalAlbumCount }}</span> 个相册</span>
     </div>
-    <div v-else-if="!hasMoreData && albums.length > 0" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
+    <div v-if="!hasMoreData && albums.length > 0" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
       已加载全部 {{ albums.length }} 个相册
     </div>
-    <div v-else-if="albums.length === 0 && !loading" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
+    <div v-if="albums.length === 0 && !loading" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
       没有找到相册
     </div>
   </div>
@@ -1217,6 +1226,10 @@ const albums = ref<any[]>([])
 const loading = ref(false)
 const isDataLoaded = ref(false)  // 标记数据是否已加载（用于缓存）
 const keyword = ref('')
+const selectionMode = ref(false)
+const selectedAlbumIds = ref<number[]>([])
+const batchLoading = ref(false)
+const batchTagMode = ref(false)
 const showMenuForAlbum = ref<any>(null)
 const menuPosition = ref({ x: 0, y: 0 })
 const menuNearRight = ref(false) // 标记菜单是否靠近右边缘
@@ -1229,6 +1242,8 @@ const PAGE_SIZE = 20
 let currentPage = 0
 let hasMoreData = true
 const loadingMore = ref(false)
+const loadMoreError = ref('')
+const totalAlbumCount = ref(0)
 
 // 监听排序设置变化，重新加载相册（排除初始化时的第一次设置）
 let isInitialized = false
@@ -1327,33 +1342,24 @@ const loadAlbumSortOrder = async () => {
 
 const load = async () => {
   loading.value = true
+  loadMoreError.value = ''
   currentPage = 0
   hasMoreData = true
   albums.value = []
 
   try {
     const params: any = { page: 0, size: PAGE_SIZE, sort: albumSortOrder.value, includeHidden: true }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await api.get('/albums', { params })
     const content = res.data.content || res.data || []
-    
-    // 关键词过滤
-    if (keyword.value.trim()) {
-      const kw = keyword.value.trim().toLowerCase()
-      const filtered = (content as any[]).filter((a: any) =>
-        (a.name || '').toLowerCase().includes(kw) ||
-        (a.path || '').toLowerCase().includes(kw) ||
-        (a.displayTitle || '').toLowerCase().includes(kw) ||
-        (a.relativePath || '').toLowerCase().includes(kw)
-      )
-      albums.value = filtered
-      hasMoreData = false // 过滤模式下不加载更多
-    } else {
-      albums.value = content
-      // 只有返回数量等于请求数量时，才认为还有更多数据
-      hasMoreData = content.length === PAGE_SIZE
-      currentPage = 0
-    }
+    totalAlbumCount.value = Number(res.data.totalElements ?? content.length)
+    albums.value = content
+    hasMoreData = content.length === PAGE_SIZE
+    currentPage = 0
     isDataLoaded.value = true  // 标记数据已加载
+  } catch (e: any) {
+    notify('加载相册失败：' + (e.response?.data?.error || e.response?.data?.message || e.message || '网络错误'), 'error')
+    hasMoreData = false
   } finally {
     loading.value = false
   }
@@ -1363,16 +1369,83 @@ const loadMore = async () => {
   if (loadingMore.value || !hasMoreData) return
   
   loadingMore.value = true
+  loadMoreError.value = ''
   try {
     currentPage++
     const params: any = { page: currentPage, size: PAGE_SIZE, sort: albumSortOrder.value, includeHidden: true }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await api.get('/albums', { params })
     const content = res.data.content || res.data || []
     albums.value = [...albums.value, ...content]
     hasMoreData = content.length === PAGE_SIZE // 只有返回完整的 PAGE_SIZE 才认为还有更多
+  } catch (e: any) {
+    currentPage = Math.max(0, currentPage - 1)
+    loadMoreError.value = '加载失败'
   } finally {
     loadingMore.value = false
   }
+}
+
+const toggleSelectionMode = () => {
+  selectionMode.value = !selectionMode.value
+  if (!selectionMode.value) selectedAlbumIds.value = []
+}
+
+const toggleAlbumSelection = (id: number) => {
+  selectedAlbumIds.value = selectedAlbumIds.value.includes(id)
+    ? selectedAlbumIds.value.filter(item => item !== id)
+    : [...selectedAlbumIds.value, id]
+}
+
+const selectAllAlbums = () => {
+  selectedAlbumIds.value = albums.value.map(album => album.id)
+}
+
+const batchSetHidden = async (isHidden: boolean) => {
+  if (!selectedAlbumIds.value.length || batchLoading.value) return
+  batchLoading.value = true
+  try {
+    await Promise.all(selectedAlbumIds.value.map(id => api.put(`/albums/${id}/hidden`, { isHidden })))
+    albums.value.forEach(album => {
+      if (selectedAlbumIds.value.includes(album.id)) album.isHidden = isHidden
+    })
+    notify(isHidden ? '已批量隐藏相册' : '已批量显示相册', 'success')
+  } catch (e: any) {
+    notify('批量修改隐藏状态失败：' + (e.response?.data?.error || e.message), 'error')
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+const batchDelete = async () => {
+  if (!selectedAlbumIds.value.length || batchLoading.value) return
+  const confirmed = await confirm({
+    title: '删除所选相册',
+    message: `将删除 ${selectedAlbumIds.value.length} 个相册及其管理记录。此操作不可撤销。`,
+    confirmLabel: '删除所选',
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  batchLoading.value = true
+  try {
+    await Promise.all(selectedAlbumIds.value.map(id => api.delete(`/albums/${id}`)))
+    selectedAlbumIds.value = []
+    selectionMode.value = false
+    await load()
+    notify('已删除所选相册', 'success')
+  } catch (e: any) {
+    notify('批量删除失败：' + (e.response?.data?.error || e.message), 'error')
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+const openBatchTagDialog = async () => {
+  batchTagMode.value = true
+  currentAlbum.value = null
+  tagKeyword.value = ''
+  await loadAllTags()
+  tagDialogVisible.value = true
 }
 
 // 使用 scroll 事件监听滚动，实现更可靠的预加载
@@ -1586,13 +1659,13 @@ const selectTag = (tag: any) => {
 }
 
 const confirmAddTag = async () => {
-  if (!tagKeyword.value.trim() || !currentAlbum.value) {
+  if (!tagKeyword.value.trim() || (!currentAlbum.value && !batchTagMode.value)) {
     console.log('无法添加标签：缺少必要信息', { tagKeyword: tagKeyword.value, currentAlbum: currentAlbum.value })
     return
   }
 
   const tagName = tagKeyword.value.trim()
-  console.log('开始添加标签:', tagName, '到相册:', currentAlbum.value.name)
+  console.log('开始添加标签:', tagName, batchTagMode.value ? `到 ${selectedAlbumIds.value.length} 个相册` : `到相册: ${currentAlbum.value.name}`)
 
   try {
     // 查找或创建标签
@@ -1607,10 +1680,21 @@ const confirmAddTag = async () => {
       console.log('使用已有标签:', tag)
     }
 
-    // 为相册添加标签
-    console.log('为相册添加标签，相册ID:', currentAlbum.value.id, '标签ID:', tag.id)
+    if (batchTagMode.value) {
+      await Promise.all(selectedAlbumIds.value.map(id => api.post(`/albums/${id}/tags/${tag.id}`)))
+      albums.value.forEach(album => {
+        if (selectedAlbumIds.value.includes(album.id)) {
+          album.tags = album.tags || []
+          if (!album.tags.find((item: any) => item.id === tag.id)) album.tags.push(tag)
+        }
+      })
+      batchTagMode.value = false
+      tagDialogVisible.value = false
+      notify('已为所选相册添加标签', 'success')
+      return
+    }
+
     await api.post(`/albums/${currentAlbum.value.id}/tags/${tag.id}`)
-    console.log('添加标签成功')
 
     // 直接更新本地标签数据，避免重新加载导致滚动丢失
     const album = albums.value.find(a => a.id === currentAlbum.value.id)
@@ -2896,6 +2980,13 @@ const forceScanAndRebuild = async () => {
 }
 
 const handleGlobalKeydown = (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement | null
+  const editing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT'
+  if (!editing && e.key === 'Delete' && selectionMode.value && selectedAlbumIds.value.length) {
+    e.preventDefault()
+    batchDelete()
+    return
+  }
   if (e.key === 'Escape') {
     // 优先关闭照片管理弹窗（最上层）
     if (photoModalVisible.value) {
@@ -2976,17 +3067,17 @@ onBeforeUnmount(() => {
 .admin-albums-menu--photo-sub {
   opacity: 1 !important;
   border: 1px solid rgba(148, 163, 184, 0.5) !important;
-  background: rgba(15, 23, 42, 0.74) !important;
+  background: #182235 !important;
   box-shadow: 0 18px 38px rgba(2, 6, 23, 0.42), inset 0 1px rgba(255, 255, 255, 0.14) !important;
   backdrop-filter: blur(40px) saturate(180%) contrast(1.08) !important;
   -webkit-backdrop-filter: blur(40px) saturate(180%) contrast(1.08) !important;
 }
 
-:root:not(.dark) .admin-albums-menu,
-:root:not(.dark) .admin-albums-menu--nested,
-:root:not(.dark) .admin-albums-menu--photo-sub {
+:root[data-admin-color-mode='light'] .admin-albums-menu,
+:root[data-admin-color-mode='light'] .admin-albums-menu--nested,
+:root[data-admin-color-mode='light'] .admin-albums-menu--photo-sub {
   border-color: rgba(148, 163, 184, 0.5) !important;
-  background: rgba(255, 255, 255, 0.76) !important;
+  background: #ffffff !important;
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.16) !important;
 }
 
