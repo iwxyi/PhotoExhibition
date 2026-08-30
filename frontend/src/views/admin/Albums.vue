@@ -1249,7 +1249,6 @@ const totalAlbumCount = ref(0)
 let isInitialized = false
 watch(albumSortOrder, async (newSort, oldSort) => {
   if (newSort !== oldSort && isInitialized) {
-    console.log('相册排序设置已更改，重新加载相册列表')
     await load()
   }
 })
@@ -1503,7 +1502,6 @@ const loadAllTags = async () => {
     } else {
       allTags.value = []
     }
-    console.log('加载标签成功，共', allTags.value.length, '个标签')
   } catch (e) {
     console.error('加载标签失败:', e)
     allTags.value = []
@@ -1660,24 +1658,19 @@ const selectTag = (tag: any) => {
 
 const confirmAddTag = async () => {
   if (!tagKeyword.value.trim() || (!currentAlbum.value && !batchTagMode.value)) {
-    console.log('无法添加标签：缺少必要信息', { tagKeyword: tagKeyword.value, currentAlbum: currentAlbum.value })
     return
   }
 
   const tagName = tagKeyword.value.trim()
-  console.log('开始添加标签:', tagName, batchTagMode.value ? `到 ${selectedAlbumIds.value.length} 个相册` : `到相册: ${currentAlbum.value.name}`)
 
   try {
     // 查找或创建标签
     let tag = allTags.value.find((t: any) => t.name === tagName)
     if (!tag) {
-      console.log('标签不存在，创建新标签:', tagName)
       const res = await api.post('/tags', { name: tagName })
       tag = res.data
-      console.log('创建标签成功:', tag)
       await loadAllTags()
     } else {
-      console.log('使用已有标签:', tag)
     }
 
     if (batchTagMode.value) {
@@ -1826,7 +1819,6 @@ const saveCover = async () => {
     // 保存封面到后端
     const response = await albumApi.setAlbumCover(albumId, coverIdsToSave)
     const savedCoverImageIds = response.data.coverImageIds || []
-    console.log('保存封面成功:', savedCoverImageIds)
     
     // 直接更新本地数据，不重新获取整个相册（避免超时）
     if (originalAlbum) {
@@ -1853,7 +1845,6 @@ const saveCover = async () => {
         rightTop: covers[1] || null,
         rightBottom: covers[2] || null
       }
-      console.log('本地数据已更新, coverImageIds:', originalAlbum.coverImageIds, 'covers:', covers.length)
     }
   } catch (e: any) {
     console.error('更新封面失败:', e)
@@ -2465,24 +2456,18 @@ const toggleAggregateSubAlbums = async (album: any) => {
         return isDirectChild
       })
 
-      console.log('关闭聚合 - 从列表找到的子相册:', subAlbums.map(a => a.name))
 
       // 如果当前列表没有子相册，尝试从后端获取
       if (subAlbums.length === 0) {
-        console.log('关闭聚合 - 当前列表没有子相册，尝试从后端获取')
         try {
           // 调用后端 API 获取子相册
           const response = await api.get(`/albums/${album.id}/sub-albums`)
           subAlbums = response.data || []
-          console.log('关闭聚合 - 从后端获取的子相册:', subAlbums.map(a => a.name))
         } catch (fetchError: any) {
           console.warn('从后端获取子相册失败:', fetchError)
         }
       }
 
-      console.log('关闭聚合 - 最终找到的子相册:', subAlbums.map(a => a.name))
-      console.log('关闭聚合 - 当前相册路径:', album.path)
-      console.log('关闭聚合 - 当前相册层级:', albumPathParts.length)
 
       // 移除当前相册（它将分裂成多个子相册）
       albums.value = albums.value.filter(a => a.id !== album.id)
@@ -2528,9 +2513,6 @@ const aggregateToParent = async (album: any) => {
   const rawPath = getAlbumRawPath(album)
 
   // 调试信息：打印相册路径，帮助诊断问题
-  console.log('聚合到上一级 - 相册路径:', displayPath)
-  console.log('聚合到上一级 - 相册名称:', album.name)
-  console.log('聚合到上一级 - isTopLevel:', album.isTopLevel)
 
   // 首先使用后端的 isTopLevel 字段进行判断（如果后端正确计算了的话）
   if (album.isTopLevel === true) {
@@ -2539,7 +2521,6 @@ const aggregateToParent = async (album: any) => {
   }
 
   const displayPathParts = splitPath(displayPath)
-  console.log('路径分割结果:', displayPathParts, '长度:', displayPathParts.length)
 
   // 对当前后台展示而言，按“用户根目录下的分类/相册/子相册”计算
   const minDepth = 3
@@ -2556,7 +2537,6 @@ const aggregateToParent = async (album: any) => {
 
   const parentPath = joinPath(splitPath(rawPath).slice(0, -1))
   const parentDisplayPath = joinPath(displayPathParts.slice(0, -1))
-  console.log('父相册路径:', parentDisplayPath)
 
   // 查找父相册（使用统一处理后的路径比较）
   // 同时尝试原始路径和标准化后的路径
@@ -2568,7 +2548,6 @@ const aggregateToParent = async (album: any) => {
   // 如果父相册不存在，尝试创建它
   if (!parentAlbum) {
     try {
-      console.log('父相册不存在，尝试创建:', parentPath)
 
       // 直接创建父相册
       const createResponse = await api.post('/albums', { path: parentPath })
@@ -2579,7 +2558,6 @@ const aggregateToParent = async (album: any) => {
         return
       }
 
-      console.log('父相册创建成功:', parentAlbum)
     } catch (createError: any) {
       console.error('创建父相册失败:', createError)
       const errorDetail = createError.response?.data?.error || createError.response?.data?.message || createError.message
@@ -2594,8 +2572,6 @@ const aggregateToParent = async (album: any) => {
     return joinPath(aPathParts.slice(0, -1)) === joinPath(displayPathParts.slice(0, -1))
   })
   const siblingIds = siblingAlbums.map(a => a.id)
-  console.log('同一层级的相册:', siblingIds)
-  console.log('父相册信息:', parentAlbum)
 
   // 找到第一个同级相册的索引位置，用于插入父相册
   const firstSiblingIndex = albums.value.findIndex(a => siblingIds.includes(a.id))
@@ -2610,7 +2586,6 @@ const aggregateToParent = async (album: any) => {
     try {
       const parentResponse = await api.get(`/albums/${parentAlbum.id}`)
       updatedParentAlbum = parentResponse.data
-      console.log('获取到更新后的父相册信息:', updatedParentAlbum)
     } catch (getError: any) {
       console.warn('获取更新后的父相册信息失败，使用之前的信息:', getError)
       updatedParentAlbum = { ...parentAlbum, aggregateSubAlbums: true }
@@ -2622,7 +2597,6 @@ const aggregateToParent = async (album: any) => {
     // 2. 在第一个同级相册的位置插入父相册
     const insertIndex = firstSiblingIndex >= 0 ? firstSiblingIndex : albums.value.length
     albums.value.splice(insertIndex, 0, updatedParentAlbum)
-    console.log('更新后的相册列表:', albums.value)
   } catch (e: any) {
     const errorDetail = e.response?.data?.error || e.response?.data?.message || e.message
     alert(`聚合到上一级失败: ${errorDetail}\n\n子相册: ${album.displayTitle || album.name}\n父相册: ${parentAlbum.displayTitle || parentAlbum.name}`)
@@ -2939,9 +2913,7 @@ const forceScanAndRebuild = async () => {
 
   try {
     // 执行普通扫描（只处理更改的内容）
-    console.log('开始重新扫描照片...')
     const scanResponse = await api.post('/admin/scan')
-    console.log('扫描任务已启动:', scanResponse.data)
 
     // 等待扫描完成（简单轮询）
     let scanCompleted = false
@@ -2952,11 +2924,9 @@ const forceScanAndRebuild = async () => {
       await new Promise(resolve => setTimeout(resolve, 1000))
       const statusResponse = await api.get('/admin/scan/status')
       const status = statusResponse.data
-      console.log('扫描状态:', status)
 
       if (!status.scanning) {
         scanCompleted = true
-        console.log('扫描完成')
       }
       attempts++
     }
@@ -3029,7 +2999,6 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(async () => {
-  console.log('相册管理页面加载')
   // 先获取排序设置（这是加载相册的必要前提）
   await loadAlbumSortOrder()
   // 排序设置获取完成后，在后台加载其他初始化数据
@@ -3040,7 +3009,6 @@ onMounted(async () => {
   if (!isDataLoaded.value) {
     load()  // 移除 await，允许页面先渲染
   }
-  console.log('相册管理页面已启动')
   window.addEventListener('keydown', handleGlobalKeydown)
   initScrollObserver()
 })
