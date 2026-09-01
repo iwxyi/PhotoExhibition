@@ -19,8 +19,8 @@
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div class="text-center mb-12">
-        <h1 class="text-4xl font-light mb-4">随机精选</h1>
-        <p class="text-gray-600 dark:text-gray-400">发现高质量摄影作品</p>
+        <h1 class="text-4xl font-light mb-4">发现</h1>
+        <p class="text-gray-600 dark:text-gray-400">随机浏览高质量摄影作品</p>
       </div>
       <div v-if="currentFilters" class="mb-6 flex items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-300">
         <div class="px-3 py-1 rounded bg-gray-100/60 dark:bg-gray-800/60 cursor-pointer hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors" @click="showFilter = true">
@@ -33,8 +33,9 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
       </div>
 
-      <div v-if="!loading && photos.length === 0" class="text-center mt-12 text-gray-500 dark:text-gray-400">
-        <p>暂无图片</p>
+      <div v-if="!loading && photos.length === 0" class="empty-state mt-12">
+        <p class="text-sm">{{ loadError || '暂时没有可展示的照片' }}</p>
+        <button v-if="loadError" type="button" class="empty-retry" @click="reloadDiscover">重新加载</button>
       </div>
 
       <div v-if="photos.length > 0" :class="gridClass">
@@ -42,8 +43,13 @@
           v-for="(photo, idx) in photos"
           :key="`photo-${photo.id}-${idx}`"
           class="photo-card cursor-pointer group"
+          role="button"
+          tabindex="0"
+          :aria-label="`查看图片：${photo.filename}`"
           :data-photo-id="photo.id"
           @click="openViewer(idx, $event)"
+          @keydown.enter.prevent="openViewer(idx, $event as any)"
+          @keydown.space.prevent="openViewer(idx, $event as any)"
         >
           <div class="aspect-square overflow-hidden rounded-lg relative">
             <img
@@ -54,6 +60,9 @@
               loading="lazy"
               @error="onImageError"
             />
+            <div v-if="failedImageIds.has(photo.id)" class="image-fallback" role="img" :aria-label="`图片加载失败：${photo.filename}`">
+              图片暂不可用
+            </div>
             <!-- 曝光参数悬浮层 -->
             <div v-if="photo.focalLength || photo.aperture || photo.iso || photo.shutterSpeed" class="photo-info-overlay">
               <div class="params-row">
@@ -149,6 +158,7 @@ const hasMore = ref(true)
 const savedScrollTop = ref(0)
 const showFilter = ref(false)
 const isLoadingMore = ref(false)
+const loadError = ref('')
 // 标记组件是否已激活（用于区分首次加载和从其他页面返回）
 const isActivatedFlag = ref(false)
 const filterPanelRef = ref()
@@ -174,8 +184,8 @@ const gridClass = computed(() => {
 // 当前已启用的筛选（来自 store.lastFilters 或 URL 参数）
 const currentFilters = computed(() => {
   // 优先使用 store 中的筛选条件
-  if (photoStore.lastFilters?.value) {
-    return photoStore.lastFilters.value
+  if (photoStore.lastFilters) {
+    return photoStore.lastFilters
   }
   // 其次检查 URL 中的筛选参数
   if (urlFilters.value) {
@@ -281,6 +291,8 @@ const clearFilters = async () => {
 
 
 const handleFilterReset = async () => {
+  // FilterPanel 会先将空对象写入 store；清掉筛选会话后才能恢复随机接口
+  photoStore.clearLastFilters()
   selectedTags.value = [] // 重置选中的标签
   await loadInitial()
   // 滚动到页面顶部
@@ -316,8 +328,12 @@ const openViewer = (idx: number, e: MouseEvent) => {
 const onImageError = (e: Event) => {
   // 图片加载失败时的处理
   const img = e.target as HTMLImageElement
+  const photoId = Number((img.closest('[data-photo-id]') as HTMLElement | null)?.dataset.photoId)
+  if (Number.isFinite(photoId)) failedImageIds.value.add(photoId)
   img.style.display = 'none'
 }
+
+const failedImageIds = ref<Set<number>>(new Set())
 
 // 获取图片样式（智能聚焦主体）
 const getImageStyle = (photo: any) => {
@@ -376,15 +392,7 @@ const likePhoto = async (photoId: number, ev?: Event) => {
       likesMap.value.set(photoId, newCount)
       likedIds.value.add(photoId)
       saveLikedToStorage()
-      // show burst animation for this photo (canvas) at click coordinates if available
-      try {
-        const x = ev && (ev as MouseEvent).clientX
-        const y = ev && (ev as MouseEvent).clientY
-        triggerCanvasBurstFor(photoId, x as number | undefined, y as number | undefined)
-      } catch (e) {
-        // ignore
-      }
-      // visual pop on the clicked button
+      // 触发一次粒子动画，并让按钮产生轻微弹跳
       try {
         const target = ev && (ev.target as HTMLElement)
         const btn = target?.closest?.('.like-btn') as HTMLElement | null
@@ -564,12 +572,12 @@ const loadMore = async () => {
   try {
     isLoadingMore.value = true
     // 如果筛选请求正在进行，先不触发加载更多（避免竞态）
-    if (photoStore.lastFiltersLoading && photoStore.lastFiltersLoading.value) {
+    if (photoStore.lastFiltersLoading) {
       isLoadingMore.value = false
       return
     }
     // 如果存在活动筛选且已被标记为耗尽，直接停止并不增加页码
-    if (photoStore.lastFiltersExhausted && photoStore.lastFiltersExhausted.value) {
+    if (photoStore.lastFiltersExhausted) {
       hasMore.value = false
       isLoadingMore.value = false
       return
@@ -582,12 +590,12 @@ const loadMore = async () => {
       return
     }
     if (photoStore.hasActiveFilters && photoStore.hasActiveFilters()) {
-      if (photoStore.lastFiltersExhausted && photoStore.lastFiltersExhausted.value) {
+      if (photoStore.lastFiltersExhausted) {
         hasMore.value = false
         isLoadingMore.value = false
         return
       }
-      const filtersObj = photoStore.lastFilters?.value
+      const filtersObj = photoStore.lastFilters
       if (!filtersObj) {
         currentPage.value--
         hasMore.value = false
@@ -654,6 +662,7 @@ const handleScroll = () => {
 
 const loadInitial = async () => {
   try {
+    loadError.value = ''
     // 初始化点赞数据
     loadLikedFromStorage()
     // 获取分类数据
@@ -665,6 +674,8 @@ const loadInitial = async () => {
     ])
     currentPage.value = 0
     hasMore.value = true
+    // 每次重新开始随机会话时重置去重集合，避免旧筛选结果影响新结果
+    viewedPhotoIds.value.clear()
     let data: any
 
     // 解析 URL 参数
@@ -703,6 +714,8 @@ const loadInitial = async () => {
         data = await photoStore.filterPhotos(filtersFromUrl, 0, 20)
       }
     } else {
+      // 防止从筛选路由返回时残留 lastFilters，导致随机接口被 store 拦截
+      photoStore.clearLastFilters()
       data = await photoStore.fetchRandomPhotos(0, 20, 70)
     }
 
@@ -719,6 +732,7 @@ const loadInitial = async () => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (error) {
     console.error('初始化加载失败:', error)
+    loadError.value = '照片加载失败，请稍后重试。'
     hasMore.value = false
   }
 }
@@ -940,6 +954,24 @@ onDeactivated(() => {
   transition: opacity 0.3s ease, transform 0.3s ease;
   pointer-events: none;
   /* 无背景蒙版，参数悬浮显示 */
+}
+
+.image-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.empty-state { text-align: center; color: #94a3b8; }
+.empty-retry { margin-top: 0.75rem; color: #64748b; text-decoration: underline; text-underline-offset: 3px; }
+
+:global(.dark) .image-fallback {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  color: #94a3b8;
 }
 
 .group:hover .photo-info-overlay {

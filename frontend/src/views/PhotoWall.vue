@@ -39,7 +39,12 @@
           class="masonry-item photo-card cursor-pointer"
           :style="getItemStyle(idx)"
           :data-photo-id="photo.id"
+          role="button"
+          tabindex="0"
+          :aria-label="`查看图片：${photo.filename}`"
           @click="openViewer(idx, $event)"
+          @keydown.enter.prevent="openViewer(idx, $event as any)"
+          @keydown.space.prevent="openViewer(idx, $event as any)"
         >
           <div class="masonry-image-wrapper rounded-lg overflow-hidden relative">
             <img
@@ -51,6 +56,9 @@
               @load="onImageLoad(idx)"
               @error="onImageError"
             />
+            <div v-if="failedImageIds.has(photo.id)" class="image-fallback" role="img" :aria-label="`图片加载失败：${photo.filename}`">
+              图片暂不可用
+            </div>
           </div>
           <!-- 曝光参数悬浮层 -->
           <div v-if="photo.focalLength || photo.aperture || photo.iso || photo.shutterSpeed" class="photo-info-overlay">
@@ -190,8 +198,8 @@ const syncFilterPanel = async () => {
 // 当前已启用的筛选（来自 store.lastFilters 或 URL 参数）
 const currentFilters = computed(() => {
   // 优先使用 store 中的筛选条件
-  if (photoStore.lastFilters?.value) {
-    return photoStore.lastFilters.value
+  if (photoStore.lastFilters) {
+    return photoStore.lastFilters
   }
   // 其次检查 URL 中的筛选参数
   if (urlFilters.value) {
@@ -550,15 +558,7 @@ const likePhoto = async (photoId: number, ev?: Event) => {
       likesMap.value.set(photoId, newCount)
       likedIds.value.add(photoId)
       saveLikedToStorage()
-      // show burst animation for this photo (canvas) at click coordinates if available
-      try {
-        const x = ev && (ev as MouseEvent).clientX
-        const y = ev && (ev as MouseEvent).clientY
-        triggerCanvasBurstFor(photoId, x as number | undefined, y as number | undefined)
-      } catch (e) {
-        // ignore
-      }
-      // visual pop on the clicked button
+      // 触发一次粒子动画，并让按钮产生轻微弹跳
       try {
         const target = ev && (ev.target as HTMLElement)
         const btn = target?.closest?.('.like-btn') as HTMLElement | null
@@ -897,8 +897,12 @@ const layoutItems = () => {
 const onImageError = (e: Event) => {
   // 图片加载失败时的处理
   const img = e.target as HTMLImageElement
+  const photoId = Number((img.closest('[data-photo-id]') as HTMLElement | null)?.dataset.photoId)
+  if (Number.isFinite(photoId)) failedImageIds.value.add(photoId)
   img.style.display = 'none'
 }
+
+const failedImageIds = ref<Set<number>>(new Set())
 
 const loadMore = async () => {
   // 防止重复加载
@@ -912,7 +916,7 @@ const loadMore = async () => {
       return
     }
     // 如果存在活动筛选且已被标记为耗尽，直接停止并不增加页码
-    if (photoStore.lastFiltersExhausted && photoStore.lastFiltersExhausted.value) {
+    if (photoStore.lastFiltersExhausted) {
       hasMore.value = false
       return
     }
@@ -922,7 +926,7 @@ const loadMore = async () => {
     // 使用 store 的同步 helper判断是否处于活动筛选
     if (photoStore.hasActiveFilters && photoStore.hasActiveFilters()) {
       // 只有当 lastFilters.value 可用时才继续分页请求；否则避免传 undefined 导致覆盖原有 filters
-      const filtersObj = photoStore.lastFilters?.value
+      const filtersObj = photoStore.lastFilters
       if (!filtersObj) {
         // 保持当前页码不变（因为尚未成功加载新页），并结束加载
         currentPage.value--
@@ -1048,9 +1052,9 @@ onMounted(() => {
       // 如果已经有数据（从其他页面返回），不重新加载，但可能需要应用筛选
       if (photos.value.length > 0) {
         // 检查是否有URL筛选参数需要应用
-        if (photoStore.lastFilters?.value && urlFilters.value) {
+        if (photoStore.lastFilters && urlFilters.value) {
           // 重新应用筛选
-          await photoStore.filterPhotos(photoStore.lastFilters?.value, 0)
+          await photoStore.filterPhotos(photoStore.lastFilters, 0)
         }
         isActivatedFlag.value = true
         window.addEventListener('scroll', handleScroll, { passive: true })
@@ -1390,6 +1394,22 @@ onDeactivated(() => {
   height: auto;
   display: block;
   object-fit: cover;
+}
+
+.image-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+
+:global(.dark) .image-fallback {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  color: #94a3b8;
 }
 
 .masonry-item:hover .masonry-photo-image {

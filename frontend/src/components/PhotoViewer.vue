@@ -109,7 +109,6 @@
         <div
           class="absolute flex items-center justify-center z-[1] cursor-grab active:cursor-grabbing touch-none select-none"
           :style="imageContainerStyle"
-          @click="onImageContainerClick"
           @wheel="onImageWheel"
           @dblclick="onImageDoubleClick"
           ref="imageViewport"
@@ -117,24 +116,31 @@
           <!-- 前后邻图参与同一条滑动轨道，拖拽时实时露出 -->
           <div class="absolute inset-0 pointer-events-none overflow-hidden swipe-stage">
             <img
-              v-if="previousPhoto"
-              :src="getImageUrl(previousPhoto)"
-              :alt="previousPhoto.filename"
+              v-if="trackPreviousPhoto"
+              :src="getDisplayUrl(trackPreviousPhoto)"
+              :alt="trackPreviousPhoto.filename"
               loading="eager"
               decoding="async"
               class="absolute left-1/2 top-1/2 select-none swipe-adjacent-image"
               :style="getAdjacentImageStyle('previous')"
             />
             <img
-              v-if="nextPhoto"
-              :src="getImageUrl(nextPhoto)"
-              :alt="nextPhoto.filename"
+              v-if="trackNextPhoto"
+              :src="getDisplayUrl(trackNextPhoto)"
+              :alt="trackNextPhoto.filename"
               loading="eager"
               decoding="async"
               class="absolute left-1/2 top-1/2 select-none swipe-adjacent-image"
               :style="getAdjacentImageStyle('next')"
             />
           </div>
+          <img
+            v-if="openingPreviewVisible && currentPhoto"
+            :src="getDisplayUrl(currentPhoto)"
+            :alt="currentPhoto.filename"
+            class="absolute left-1/2 top-1/2 z-[3] pointer-events-none select-none opening-preview-image"
+            :style="openingPreviewStyle"
+          />
           <!-- 图片包装容器 - 应用变换，使人脸框和 -->
           <div
             class="relative photo-viewer-img-wrapper"
@@ -147,13 +153,21 @@
               v-if="currentPhoto"
               :key="imageRetryToken"
               ref="mainImage"
-              :src="getImageUrl(currentPhoto)"
+              :src="displayedImageUrl"
               :alt="currentPhoto.filename"
               decoding="async"
               class="select-none main-image pointer-events-none"
-              :style="imageStyle"
-              @load="onImageLoad"
+              :style="{ ...imageStyle, opacity: openingPreviewVisible ? 0 : 1 }"
+              @load="onDisplayedImageLoad"
               @error="onImageError"
+            />
+            <img
+              v-if="currentPhoto && largeImagePreloadUrl"
+              :key="`large-${currentPhoto.id}-${viewingOriginal}`"
+              :src="largeImagePreloadUrl"
+              class="absolute w-px h-px opacity-0 pointer-events-none"
+              aria-hidden="true"
+              @load="onLargeImageLoad"
             />
 
             <!-- 人脸框 - 作为图片的子元素，会跟随图片变换 -->
@@ -698,6 +712,9 @@ import { aiApi } from '@/api'
 import type { Photo } from '@/stores/photo'
 import AtmosphereEffects from '@/components/AtmosphereEffects.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
+import { usePhotoViewerAssets } from '@/composables/usePhotoViewerAssets'
+import type { PhotoAssetInput } from '@/composables/usePhotoViewerAssets'
+import { usePhotoViewerNavigation } from '@/composables/usePhotoViewerNavigation'
 
 type AdminMenuAction = {
   key: string
@@ -723,7 +740,9 @@ const emit = defineEmits<{
 }>()
 
 // 核心状态
-const currentIndex = ref(props.startIndex ?? 0)
+const photosLength = computed(() => props.photos?.length || 0)
+const navigation = usePhotoViewerNavigation({ length: photosLength, index: props.startIndex ?? 0 })
+const currentIndex = navigation.currentIndex
 const infoCollapsed = ref(true)
 const controlsVisible = ref(true)
 const infoTransparent = ref(false)
@@ -743,6 +762,10 @@ const imageWrapper = ref<HTMLElement | null>(null) // 图片包装容器（用�
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const imageLoadError = ref(false)
+const displayedImageUrl = ref('')
+const largeImagePreloadUrl = ref('')
+const largeImageReady = ref(false)
+const openingTransformPrepared = ref(false)
 const imageRetryToken = ref(0)
 const isInitialLoad = ref(true) // 标记是否为初始加载
 const scale = ref(1)
@@ -760,9 +783,11 @@ const lastInfoPanelOffsetX = ref(0)
 const isInfoPanelAnimating = ref(false)
 // 信息栏宽度调整状态
 const isResizingInfoPanel = ref(false)
+const activeInfoResizeHandle = ref<HTMLElement | null>(null)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(320)
 const isResizingThumb = ref(false)
+const activeThumbResizeHandle = ref<HTMLElement | null>(null)
 const thumbResizeStartY = ref(0)
 const thumbResizeStartHeight = ref(112)
 
@@ -801,6 +826,10 @@ const imageDragStartY = ref(0)
 const imageDragOffset = ref(0)
 const imageDragVelocity = ref(0)
 const isImageDragging = ref(false)
+// Resetting the track offset and committing the new index happen in one
+// render. Disable the generic idle transition for that handoff frame so the
+// outgoing wrapper cannot animate back through the center a second time.
+const trackTransitionDisabled = ref(false)
 const isZooming = ref(false) // 是否正在缩放
 const isPanning = ref(false) // 是否正在平移（触控板双指移动）
 
@@ -817,7 +846,9 @@ const initialTranslateY = ref(0) // 触摸开始时的 translateY
 
 // 统一 Pointer Events 手势状态（触摸、鼠标、触控笔共用一套路径）
 const activePointers = new Map<number, { x: number; y: number }>()
-const pointerGesture = ref<'none' | 'pending' | 'swipe' | 'pan' | 'pinch'>('none')
+const pointerGesture = ref<'none' | 'pending' | 'swipe' | 'pan' | 'pinch' | 'dismiss' | 'holdZoom'>('none')
+const dismissOffset = ref(0)
+const isDismissing = ref(false)
 const pointerStartX = ref(0)
 const pointerStartY = ref(0)
 const pointerLastX = ref(0)
@@ -827,6 +858,8 @@ const pointerPinchDistance = ref(0)
 const pointerPinchScale = ref(1)
 const pointerPinchTranslate = ref({ x: 0, y: 0 })
 const pointerPinchCenter = ref({ x: 0, y: 0 })
+const pointerSwipeBaseOffset = ref(0)
+const interruptedSwipeDirection = ref<'previous' | 'next' | null>(null)
 
 // 单指滑动切换照片相关
 const touchSwipeStartX = ref(0)
@@ -837,11 +870,17 @@ const pendingSwipeDirection = ref<'previous' | 'next' | null>(null)
 let swipeTimer: ReturnType<typeof setTimeout> | null = null
 let closeTimer: ReturnType<typeof setTimeout> | null = null
 let containerClickTimer: ReturnType<typeof setTimeout> | null = null
+let transitionEpoch = 0
+let swipeStartedAt = 0
+let swipeStartOffset = 0
+let swipeTargetOffset = 0
 const blockedSwipePointer = ref<number | null>(null)
 const blockedSwipeStartX = ref(0)
 const blockedSwipeStartY = ref(0)
 const blockedSwipeStartTime = ref(0)
-const queuedSwipeDirection = ref<'previous' | 'next' | null>(null)
+// Navigation composable owns the FIFO queue; this alias keeps the existing
+// rendering/gesture code readable without maintaining a second queue.
+const queuedSwipeDirections = navigation.queue
 const deferredTapAction = ref<'close' | 'toggle-controls' | null>(null)
 const interactionReadyAt = ref(0)
 const ignoredPointerIds = new Set<number>()
@@ -875,6 +914,9 @@ const similarPhotosVisible = ref(false)
 // 防止拖拽后意外关闭的状态
 const wasDragging = ref(false)
 const opening = ref(false)
+const openingPreviewVisible = ref(false)
+const openingPreviewTransform = ref<string | null>(null)
+let openingPreviewTimer: ReturnType<typeof setTimeout> | null = null
 const closing = ref(false)
 const activeOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const originTransform = ref<string | null>(null)
@@ -896,10 +938,17 @@ const OPENING_INPUT_GUARD_MS = 220
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
 const previousPhoto = computed(() => currentIndex.value > 0 ? props.photos[currentIndex.value - 1] : null)
 const nextPhoto = computed(() => currentIndex.value < props.photos.length - 1 ? props.photos[currentIndex.value + 1] : null)
+const trackPreviousPhoto = computed(() => navigation.incomingIndex.value !== null && navigation.incomingIndex.value < currentIndex.value
+  ? props.photos[navigation.incomingIndex.value] || null
+  : previousPhoto.value)
+const trackNextPhoto = computed(() => navigation.incomingIndex.value !== null && navigation.incomingIndex.value > currentIndex.value
+  ? props.photos[navigation.incomingIndex.value] || null
+  : nextPhoto.value)
 const swipeOffset = computed(() => touchSwipeOffset.value || imageDragOffset.value)
 
 // 获取当前相册的氛围特效（用于在查看器中显示）
 const photoStore = usePhotoStore()
+const assetManager = usePhotoViewerAssets((photo) => photo)
 const albumAtmosphereEffects = computed(() => {
   const album = photoStore.currentAlbum
   if (!album?.atmosphereEffects) return []
@@ -918,7 +967,8 @@ const infoPanelMaxHeight = computed(() => {
 const mainContentStyle = computed(() => {
   // 主内容区域占满flex-1的空间
   return {
-    height: '100%' // 占满flex-1的空间
+    height: '100%',
+    opacity: isDismissing.value ? Math.max(0.15, 1 - dismissOffset.value / Math.max(window.innerHeight * 0.8, 1)) : 1
   }
 })
 
@@ -1008,6 +1058,13 @@ const imageStyle = computed(() => {
   }
 })
 
+const openingPreviewStyle = computed(() => ({
+  ...imageStyle.value,
+  transform: openingPreviewTransform.value || 'translate(-50%, -50%)',
+  transformOrigin: 'center center',
+  transition: openingPreviewTransform.value ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+}))
+
 // Photo records normally contain the intrinsic dimensions. Use them before
 // the large asset finishes loading so the image box has a stable aspect ratio
 // from the first paint (otherwise an <img> with no dimensions briefly lays out
@@ -1018,10 +1075,69 @@ const getKnownImageSize = (photo: Photo | null | undefined) => {
   return width > 0 && height > 0 ? { width, height } : { width: 0, height: 0 }
 }
 
+const waitForPhotoReady = (photo: Photo | null | undefined, source: 'thumbnail' | 'large' = 'large', timeoutMs = 1200) => {
+  if (!photo) return Promise.resolve(false)
+  const asset = toAssetInput(photo)
+  const quality = source === 'thumbnail' ? 'thumbnail' : 'original'
+  const load = assetManager.loadQuality(asset, quality)
+  return Promise.race([
+    load,
+    new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), timeoutMs))
+  ])
+}
+
+const waitForTrackSettle = () => new Promise<void>((resolve) => {
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+})
+
+const preloadAllThumbnails = (photos: Photo[]) => {
+  const assets: PhotoAssetInput[] = photos.map(toAssetInput)
+  assetManager.preloadThumbnails(assets)
+}
+
+const prepareOpeningTransform = () => {
+  if (openingTransformPrepared.value || !opening.value || !activeOriginRect.value || !imageViewport.value || !openingPreviewVisible.value) return
+  const target = imageViewport.value.getBoundingClientRect()
+  const origin = activeOriginRect.value
+  if (target.width <= 0 || target.height <= 0) return
+  openingTransformPrepared.value = true
+  const epoch = transitionEpoch
+  const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
+  const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
+  openingPreviewTransform.value = `translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
+  opening.value = false
+  if (openingPreviewTimer) clearTimeout(openingPreviewTimer)
+  requestAnimationFrame(() => {
+    if (epoch !== transitionEpoch) return
+    requestAnimationFrame(() => {
+      if (epoch !== transitionEpoch) return
+      openingPreviewTransform.value = null
+      opening.value = true
+      requestAnimationFrame(() => {
+        if (epoch !== transitionEpoch) return
+        opening.value = false
+        openingPreviewTimer = window.setTimeout(() => {
+          openingPreviewVisible.value = false
+          openingPreviewTimer = null
+        }, 280)
+      })
+    })
+  })
+}
+
 // 图片变换样式 - 用于缩放和拖拽
 const imageTransformStyle = computed(() => {
   // 如果正在拖拽、缩放、平移或触摸操作，禁用过渡效果
   const isInteracting = isImageDragging.value || isZooming.value || isPanning.value || isPinching.value
+
+  if (isDismissing.value) {
+    const progress = Math.min(1, dismissOffset.value / Math.max(window.innerHeight * 0.8, 1))
+    return {
+      transform: `translateY(${dismissOffset.value}px) scale(${1 - progress * 0.35})`,
+      transformOrigin: 'center center',
+      transition: isInteracting ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+    }
+  }
 
   if (originTransform.value) {
     return {
@@ -1036,7 +1152,7 @@ const imageTransformStyle = computed(() => {
       // 这样 translateX/Y 表示屏幕像素平移，不会被 scale 再次放大，缩放/平移更稳定
       transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
       transformOrigin: 'center center',
-      transition: isInteracting ? 'none' : 'transform 0.3s ease'
+      transition: trackTransitionDisabled.value ? 'none' : (isInteracting ? 'none' : 'transform 0.3s ease')
     }
   } else {
     // 未缩放时，只需要拖拽切换的偏移
@@ -1046,7 +1162,7 @@ const imageTransformStyle = computed(() => {
       transform: `translateX(${dragOffsetX}px)`,
       transformOrigin: 'center center',
       // 拖拽跟手；松手时由同一条轨道完成滑入或弹回
-      transition: swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' : (isInteracting ? 'none' : 'transform 0.3s ease')
+      transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' : (isInteracting ? 'none' : 'transform 0.3s ease'))
     }
   }
 })
@@ -1063,7 +1179,7 @@ const getAdjacentImageStyle = (direction: 'previous' | 'next') => {
     objectFit: 'contain',
     transform: `translate(calc(-50% + ${base + offset}px), -50%)`,
     opacity: Math.min(1, Math.max(0, Math.abs(offset) / Math.max(width * 0.35, 1))),
-    transition: swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease' : 'none'
+    transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease' : 'none')
   }
 }
 
@@ -1157,8 +1273,10 @@ const currentAlbumPath = computed(() => {
 // 监听 visible 变化，重置状态
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
+    transitionEpoch += 1
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
     if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
+    if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
     showAdminMenu.value = false
     controlsVisible.value = true
     interactionReadyAt.value = performance.now() + OPENING_INPUT_GUARD_MS
@@ -1168,10 +1286,14 @@ watch(() => props.visible, (newVisible) => {
     isPinching.value = false
     isImageDragging.value = false
     swipeTransitioning.value = false
+    trackTransitionDisabled.value = false
     pendingSwipeDirection.value = null
-    queuedSwipeDirection.value = null
+    queuedSwipeDirections.value = []
     blockedSwipePointer.value = null
     deferredTapAction.value = null
+    openingTransformPrepared.value = false
+    openingPreviewVisible.value = !!props.originRect
+    openingPreviewTransform.value = null
     lastTapTime.value = 0
     lastTapX.value = 0
     lastTapY.value = 0
@@ -1186,10 +1308,13 @@ watch(() => props.visible, (newVisible) => {
     userHasManuallyZoomed.value = false
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
+    dismissOffset.value = 0
+    isDismissing.value = false
     infoPanelOffsetX.value = 0
     lastInfoPanelOffsetX.value = 0
     // 打开查看器时，根据 startIndex 设置当前索引
-    currentIndex.value = props.startIndex ?? 0
+    navigation.reset(props.startIndex ?? 0)
+    preloadAllThumbnails(props.photos)
     opening.value = !!props.originRect
     activeOriginRect.value = props.originRect ? { ...props.originRect } : null
     closing.value = false
@@ -1203,6 +1328,9 @@ watch(() => props.visible, (newVisible) => {
       modalRoot.value?.focus()
       // 滚动缩略图到当前图片（无动画，因为距离可能很长）
       scrollThumbIntoView(false)
+      // Prepare FLIP from the known layout box before the image decode callback.
+      // This prevents a final-size strip from appearing before the opening motion.
+      prepareOpeningTransform()
     })
     // 图片自身尺寸可用后再计算信息栏偏移，避免沿用上一张的几何信息。
     console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
@@ -1211,6 +1339,13 @@ watch(() => props.visible, (newVisible) => {
       forceShowFaces: props.forceShowFaces
     })
   } else {
+    // Parent-driven close must invalidate pending transition callbacks too;
+    // otherwise a late timer can mutate state while the viewer is hidden.
+    transitionEpoch += 1
+    if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
+    pendingSwipeDirection.value = null
+    swipeTransitioning.value = false
+    navigation.cancel()
     showAdminMenu.value = false
     // 人脸框现在直接绑定在图片内部，无需清理
   }
@@ -1219,8 +1354,9 @@ watch(() => props.visible, (newVisible) => {
 // 监听 startIndex 变化
 watch(() => props.startIndex, (newStartIndex) => {
   if (props.visible && newStartIndex !== undefined) {
+    abortNavigation()
     showAdminMenu.value = false
-    currentIndex.value = newStartIndex
+    navigation.reset(newStartIndex)
     // 标记为非初始加载，避免切换时的透明度闪烁
     isInitialLoad.value = false
     // 重置缩放和位置
@@ -1261,16 +1397,35 @@ watch(() => [currentPhoto.value?.id, viewingOriginal.value, props.photos.length]
   translateY.value = 0
   touchSwipeOffset.value = 0
   imageDragOffset.value = 0
+  displayedImageUrl.value = currentPhoto.value ? getDisplayUrl(currentPhoto.value) : ''
+  largeImagePreloadUrl.value = currentPhoto.value ? getImageUrl(currentPhoto.value) : ''
+  largeImageReady.value = false
+  if (currentPhoto.value) {
+    const photoAtRequest = currentPhoto.value
+    void assetManager.prepareForDisplay(toAssetInput(photoAtRequest)).then((slot) => {
+      if (currentPhoto.value?.id !== photoAtRequest.id) return
+      if (slot.displayUrl && slot.displayUrl !== displayedImageUrl.value) {
+        displayedImageUrl.value = slot.displayUrl
+        if (slot.quality === 'original') largeImageReady.value = true
+      }
+    })
+    // Keep the adjacent slots warm so a rapid swipe can promote an already
+    // decoded preview/original without blocking the track animation.
+    ;[previousPhoto.value, nextPhoto.value].forEach((adjacent) => {
+      if (adjacent) void assetManager.prepareForDisplay(toAssetInput(adjacent))
+    })
+  }
 })
 
 watch(() => props.photos, (nextPhotos) => {
+  if (props.visible) abortNavigation()
   if (!nextPhotos.length) {
-    currentIndex.value = 0
+    navigation.reset(0)
     imageLoaded.value = false
     return
   }
   if (currentIndex.value >= nextPhotos.length) {
-    currentIndex.value = nextPhotos.length - 1
+    navigation.reset(nextPhotos.length - 1)
   }
 }, { deep: false })
 
@@ -1309,6 +1464,19 @@ const getImageUrl = (photo: Photo) => {
 
 const getThumbUrl = (photo: Photo) => {
   return buildPhotoAssetUrl(photo, 'thumbnail') || getImageUrl(photo)
+}
+
+const toAssetInput = (photo: Photo): PhotoAssetInput => ({
+  id: photo.id,
+  thumbnailUrl: getThumbUrl(photo),
+  previewUrl: photo.largeThumbPath ? buildPhotoAssetUrl(photo, 'large') || undefined : undefined,
+  originalUrl: getImageUrl(photo)
+})
+
+const getDisplayUrl = (photo: Photo | null | undefined) => {
+  if (!photo) return ''
+  const slot = assetManager.ensureSlot(toAssetInput(photo))
+  return slot.displayUrl || getThumbUrl(photo)
 }
 
 // 焦点框样式
@@ -1379,12 +1547,18 @@ if (savedWidth) {
 // 初始化框体状态已在上面声明
 
 // 基本功能函数
-const close = () => {
+const close = (visualRect?: { left: number; top: number; width: number; height: number }) => {
   showAdminMenu.value = false
   if (closing.value) return
-  if (activeOriginRect.value && mainImage.value) {
+  const measuredRect = visualRect || mainImage.value?.getBoundingClientRect()
+  abortNavigation()
+  if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
+  openingPreviewVisible.value = false
+  openingPreviewTransform.value = null
+  opening.value = false
+  if (activeOriginRect.value && measuredRect) {
     const target = activeOriginRect.value
-    const current = mainImage.value.getBoundingClientRect()
+    const current = measuredRect
     if (current.width > 0 && current.height > 0) {
       const dx = target.left + target.width / 2 - (current.left + current.width / 2)
       const dy = target.top + target.height / 2 - (current.top + current.height / 2)
@@ -1412,14 +1586,18 @@ const toggleFullscreen = () => {
   }
 }
 
-const prev = () => {
+const prev = (alreadyAtIndex = false) => {
   if (!props.photos?.length) return
-  if (currentIndex.value <= 0) return
+  if (!alreadyAtIndex && swipeTransitioning.value) {
+    queuedSwipeDirections.value.push('previous')
+    return
+  }
+  if (!alreadyAtIndex && currentIndex.value <= 0) return
   showAdminMenu.value = false
   const oldIndex = currentIndex.value
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true
-  currentIndex.value = currentIndex.value - 1
+  if (!alreadyAtIndex) navigation.reset(currentIndex.value - 1)
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
   // 重置缩放和位置
@@ -1445,14 +1623,18 @@ const prev = () => {
   })
 }
 
-const next = () => {
+const next = (alreadyAtIndex = false) => {
   if (!props.photos?.length) return
-  if (currentIndex.value >= props.photos.length - 1) return
+  if (!alreadyAtIndex && swipeTransitioning.value) {
+    queuedSwipeDirections.value.push('next')
+    return
+  }
+  if (!alreadyAtIndex && currentIndex.value >= props.photos.length - 1) return
   showAdminMenu.value = false
   const oldIndex = currentIndex.value
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true
-  currentIndex.value = currentIndex.value + 1
+  if (!alreadyAtIndex) navigation.reset(currentIndex.value + 1)
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
   // 重置缩放和位置
@@ -1476,68 +1658,155 @@ const next = () => {
 }
 
 const finishSwipe = (direction: 'previous' | 'next') => {
-  if (swipeTransitioning.value) return
+  const navDirection = direction
+  if (swipeTransitioning.value) {
+    queuedSwipeDirections.value.push(direction)
+    return
+  }
   const canMove = direction === 'previous' ? currentIndex.value > 0 : currentIndex.value < props.photos.length - 1
   if (!canMove) {
+    const epoch = ++transitionEpoch
+    trackTransitionDisabled.value = false
     swipeTransitioning.value = true
+    swipeStartedAt = performance.now()
+    swipeStartOffset = touchSwipeOffset.value || imageDragOffset.value
+    swipeTargetOffset = 0
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
     if (swipeTimer) clearTimeout(swipeTimer)
-    swipeTimer = window.setTimeout(() => {
+    swipeTimer = window.setTimeout(async () => {
+      await waitForTrackSettle()
+      if (epoch !== transitionEpoch) return
       swipeTransitioning.value = false
+      navigation.cancel()
       swipeTimer = null
-      const queued = queuedSwipeDirection.value
-      queuedSwipeDirection.value = null
+      const queued = queuedSwipeDirections.value.shift() || null
       if (queued) requestAnimationFrame(() => finishSwipe(queued))
       else flushDeferredTapAction()
     }, 260)
     return
   }
 
+  if (!navigation.begin(navDirection)) return
+
+  const epoch = ++transitionEpoch
+
+  // A new gesture owns the track again, even if it begins in the same frame
+  // as the previous commit's no-transition handoff.
+  trackTransitionDisabled.value = false
   swipeTransitioning.value = true
   pendingSwipeDirection.value = direction
   const target = direction === 'previous' ? window.innerWidth : -window.innerWidth
+  swipeStartedAt = performance.now()
+  swipeStartOffset = touchSwipeOffset.value
+  swipeTargetOffset = target
   touchSwipeOffset.value = target
   imageDragOffset.value = target
   if (swipeTimer) clearTimeout(swipeTimer)
+  if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
+  // A swipe after the opening guard takes ownership of the visual track;
+  // never leave the FLIP preview layer mounted above the next image.
+  openingPreviewVisible.value = false
+  openingPreviewTransform.value = null
+  opening.value = false
   if (closeTimer) clearTimeout(closeTimer)
   blockedSwipePointer.value = null
-  queuedSwipeDirection.value = null
-  swipeTimer = window.setTimeout(() => {
-    direction === 'previous' ? prev() : next()
+  swipeTimer = window.setTimeout(async () => {
+    // Let the browser present the final transform frame before replacing the
+    // current slot/index. Committing at the exact CSS duration can race the
+    // compositor and briefly repaint the outgoing image in reverse.
+    await waitForTrackSettle()
+    const targetPhoto = navigation.incomingIndex.value !== null
+      ? props.photos[navigation.incomingIndex.value] || null
+      : (direction === 'previous' ? previousPhoto.value : nextPhoto.value)
+    if (epoch !== transitionEpoch || !props.visible || pendingSwipeDirection.value !== direction) {
+      swipeTransitioning.value = false
+      pendingSwipeDirection.value = null
+      swipeTimer = null
+      return
+    }
+    // The gesture transition is complete at this point. Do not keep the
+    // interaction state locked while an image request is decoding: doing so
+    // makes the next pointerdown look like an animation interruption and
+    // drops subsequent swipe animations. The asset manager already exposes a
+    // thumbnail fallback synchronously; warm the target in the background.
+    if (targetPhoto) void waitForPhotoReady(targetPhoto, 'thumbnail')
     pendingSwipeDirection.value = null
+    // End the outgoing transform before changing currentIndex. If the index
+    // watcher resets the offset while this flag is still true, CSS animates
+    // the old image back toward center (the occasional right-then-left jump).
+    trackTransitionDisabled.value = true
+    swipeTransitioning.value = false
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
-    swipeTransitioning.value = false
+    // Prime the main slot with the already decoded target thumbnail before
+    // committing the index. This keeps one stable drawable in the main image
+    // element while Vue applies the new photo geometry.
+    if (targetPhoto) {
+      displayedImageUrl.value = getDisplayUrl(targetPhoto)
+      largeImagePreloadUrl.value = getImageUrl(targetPhoto)
+      imageLoaded.value = true
+    }
+    navigation.commit()
+    direction === 'previous' ? prev(true) : next(true)
     swipeTimer = null
-    const queued = queuedSwipeDirection.value
-    queuedSwipeDirection.value = null
-    if (queued) requestAnimationFrame(() => finishSwipe(queued))
-    else flushDeferredTapAction()
+    requestAnimationFrame(() => {
+      trackTransitionDisabled.value = false
+    })
+    const queued = queuedSwipeDirections.value.shift() || null
+    if (queued) {
+      // Start queued gestures on the next frame so the committed slot has
+      // settled before the next transform begins.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => finishSwipe(queued))
+      })
+    } else {
+      flushDeferredTapAction()
+    }
   }, 260)
 }
 
 const cancelSwipe = () => {
+  const epoch = ++transitionEpoch
+  swipeStartedAt = performance.now()
+  swipeStartOffset = touchSwipeOffset.value || imageDragOffset.value
+  swipeTargetOffset = 0
+  trackTransitionDisabled.value = false
   swipeTransitioning.value = true
   pendingSwipeDirection.value = null
   touchSwipeOffset.value = 0
   imageDragOffset.value = 0
   if (swipeTimer) clearTimeout(swipeTimer)
-  swipeTimer = window.setTimeout(() => {
+  swipeTimer = window.setTimeout(async () => {
+    await waitForTrackSettle()
+    if (epoch !== transitionEpoch) return
     swipeTransitioning.value = false
+    navigation.cancel()
     swipeTimer = null
-    const queued = queuedSwipeDirection.value
-    queuedSwipeDirection.value = null
+    const queued = queuedSwipeDirections.value.shift() || null
     if (queued) requestAnimationFrame(() => finishSwipe(queued))
     else flushDeferredTapAction()
   }, 260)
 }
 
+const abortNavigation = () => {
+  transitionEpoch += 1
+  if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
+  pendingSwipeDirection.value = null
+  swipeTransitioning.value = false
+  trackTransitionDisabled.value = false
+  touchSwipeOffset.value = 0
+  imageDragOffset.value = 0
+  navigation.cancel()
+  queuedSwipeDirections.value = []
+}
+
 const jump = (idx: number) => {
   const oldIndex = currentIndex.value
+  abortNavigation()
   // 标记正在切换图片，禁用框体动画
   isSwitchingPhoto.value = true
-  currentIndex.value = idx
+  navigation.reset(idx)
   // 标记为非初始加载，避免切换时的透明度闪烁
   isInitialLoad.value = false
   // 重置缩放和位置
@@ -1671,6 +1940,7 @@ const startResize = (e: PointerEvent) => {
   resizeStartX.value = e.clientX
   resizeStartWidth.value = infoPanelWidth.value
   const handle = e.currentTarget as HTMLElement
+  activeInfoResizeHandle.value = handle
   handle.setPointerCapture?.(e.pointerId)
   window.addEventListener('pointermove', onResize, true)
   window.addEventListener('pointerup', endResize, true)
@@ -1695,7 +1965,8 @@ const endResize = (e: PointerEvent) => {
   if (!isResizingInfoPanel.value) return
 
   isResizingInfoPanel.value = false
-  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+  activeInfoResizeHandle.value?.releasePointerCapture?.(e.pointerId)
+  activeInfoResizeHandle.value = null
   window.removeEventListener('pointermove', onResize, true)
   window.removeEventListener('pointerup', endResize, true)
   window.removeEventListener('pointercancel', endResize, true)
@@ -1791,6 +2062,17 @@ const onKeydown = (e: KeyboardEvent) => {
     prev()
   } else if (e.key === 'ArrowRight') {
     next()
+  } else if (e.key === 'Home') {
+    jump(0)
+  } else if (e.key === 'End') {
+    jump(Math.max(0, props.photos.length - 1))
+  } else if (e.key === '0') {
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+    userHasManuallyZoomed.value = false
+  } else if (e.key === ' ') {
+    controlsVisible.value = !controlsVisible.value
   }
 }
 
@@ -1805,10 +2087,13 @@ const onImageLoad = async (event?: Event) => {
         height: img.naturalHeight
       }
 
-      // 重置缩放和平移
-      scale.value = 1
-      translateX.value = 0
-      translateY.value = 0
+      // Keep the user's current transform when a background original replaces
+      // an already-visible thumbnail. Reset only for a genuinely new photo.
+      if (!imageLoaded.value) {
+        scale.value = 1
+        translateX.value = 0
+        translateY.value = 0
+      }
 
       imageLoaded.value = true
       imageLoadError.value = false
@@ -1822,25 +2107,12 @@ const onImageLoad = async (event?: Event) => {
       applyInfoPanelOffset(false)
       await nextTick()
       if (img !== mainImage.value || !currentPhoto.value) return
-      if (opening.value && activeOriginRect.value && mainImage.value) {
-        const target = mainImage.value.getBoundingClientRect()
-        const origin = activeOriginRect.value
-        if (target.width > 0 && target.height > 0) {
-          const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
-          const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
-          originTransform.value = `translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
-          opening.value = false
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              originTransform.value = null
-              opening.value = true
-              requestAnimationFrame(() => { opening.value = false })
-            })
-          })
-        } else {
-          opening.value = false
-        }
+      if (openingPreviewVisible.value && openingPreviewTransform.value === null) {
+        requestAnimationFrame(() => {
+          if (img === mainImage.value) openingPreviewVisible.value = false
+        })
       }
+      prepareOpeningTransform()
 
       console.log('📸 PhotoViewer 图片加载完成:', {
         filename: currentPhoto.value?.filename,
@@ -1850,6 +2122,34 @@ const onImageLoad = async (event?: Event) => {
       })
     }
   }
+}
+
+const onDisplayedImageLoad = (event?: Event) => {
+  const img = event?.currentTarget as HTMLImageElement | null
+  if (!img || img !== mainImage.value || !currentPhoto.value) return
+  if ((!imageSize.value.width || !imageSize.value.height) && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    imageSize.value = { width: img.naturalWidth, height: img.naturalHeight }
+    void nextTick(() => applyInfoPanelOffset(false))
+  }
+  // The thumbnail is drawable immediately; layout dimensions come from photo
+  // metadata. Full-image lifecycle is handled by the hidden preloader below.
+  if (largeImageReady.value && img.currentSrc === largeImagePreloadUrl.value) {
+    onImageLoad(event)
+  } else {
+    // A decoded thumbnail is already a valid drawable image. Do not keep the
+    // opening FLIP layer waiting for the original asset.
+    imageLoaded.value = true
+  }
+}
+
+const onLargeImageLoad = (event?: Event) => {
+  const img = event?.currentTarget as HTMLImageElement | null
+  if (!img || !currentPhoto.value || img.naturalWidth <= 0) return
+  const url = largeImagePreloadUrl.value
+  if (!url || url !== getImageUrl(currentPhoto.value)) return
+  largeImageReady.value = true
+  imageLoadError.value = false
+  displayedImageUrl.value = url
 }
 
 const onImageError = (event?: Event) => {
@@ -1864,6 +2164,7 @@ const onImageError = (event?: Event) => {
   })
   imageLoaded.value = true
   imageLoadError.value = true
+  openingPreviewVisible.value = false
 }
 
 const retryCurrentImage = () => {
@@ -1950,10 +2251,31 @@ const onImagePointerDown = (e: PointerEvent) => {
     return
   }
   if (swipeTransitioning.value) {
-    blockedSwipePointer.value = e.pointerId
-    blockedSwipeStartX.value = e.clientX
-    blockedSwipeStartY.value = e.clientY
-    blockedSwipeStartTime.value = performance.now()
+    // Interrupt the active CSS transition at its current visual position.
+    // The next gesture then starts from that position instead of being
+    // ignored until the old animation finishes.
+    const elapsed = Math.max(0, performance.now() - swipeStartedAt)
+    const progress = Math.min(1, elapsed / 260)
+    const currentOffset = swipeStartOffset + (swipeTargetOffset - swipeStartOffset) * progress
+    if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
+    transitionEpoch += 1
+    navigation.cancel()
+    swipeTransitioning.value = false
+    trackTransitionDisabled.value = false
+    pendingSwipeDirection.value = null
+    touchSwipeOffset.value = currentOffset
+    imageDragOffset.value = currentOffset
+    blockedSwipePointer.value = null
+    activePointers.clear()
+    isPinching.value = false
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    pointerStartX.value = pointerLastX.value = e.clientX
+    pointerStartY.value = pointerLastY.value = e.clientY
+    pointerStartTime.value = performance.now()
+    pointerGesture.value = 'swipe'
+    isImageDragging.value = true
+    pointerSwipeBaseOffset.value = currentOffset
+    interruptedSwipeDirection.value = swipeTargetOffset < 0 ? 'next' : 'previous'
     const target = e.currentTarget as HTMLElement
     target.setPointerCapture?.(e.pointerId)
     e.preventDefault()
@@ -1968,6 +2290,19 @@ const onImagePointerDown = (e: PointerEvent) => {
   }
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
   lastPointerPos.value = { x: e.clientX, y: e.clientY }
+
+  const now = performance.now()
+  const tapDistance = Math.hypot(e.clientX - lastTapX.value, e.clientY - lastTapY.value)
+  const isSecondTap = now - lastTapTime.value < 320 && tapDistance < 32
+  if (isSecondTap && activePointers.size === 1) {
+    pointerGesture.value = 'holdZoom'
+    initialScale.value = scale.value > 1 ? scale.value : 1
+    pointerStartY.value = e.clientY
+    isZooming.value = true
+    userHasManuallyZoomed.value = true
+    e.preventDefault()
+    return
+  }
 
   if (activePointers.size >= 2) {
     const points = [...activePointers.values()]
@@ -1986,6 +2321,8 @@ const onImagePointerDown = (e: PointerEvent) => {
   pointerStartX.value = pointerLastX.value = e.clientX
   pointerStartY.value = pointerLastY.value = e.clientY
   pointerStartTime.value = performance.now()
+  pointerSwipeBaseOffset.value = 0
+  interruptedSwipeDirection.value = null
   imageDragOffset.value = 0
   touchSwipeOffset.value = 0
   isImageDragging.value = false
@@ -2041,6 +2378,10 @@ const onImagePointerMove = (e: PointerEvent) => {
     } else if (Math.abs(dx) >= Math.abs(dy) * 1.1) {
       pointerGesture.value = 'swipe'
       isImageDragging.value = true
+    } else if (dy > 0 && Math.abs(dy) >= Math.abs(dx) * 1.1 && scale.value <= 1) {
+      pointerGesture.value = 'dismiss'
+      isDismissing.value = true
+      isImageDragging.value = true
     } else {
       pointerGesture.value = 'none'
       return
@@ -2051,9 +2392,17 @@ const onImagePointerMove = (e: PointerEvent) => {
     translateX.value = initialTranslateX.value + dx
     translateY.value = initialTranslateY.value + dy
   } else if (pointerGesture.value === 'swipe') {
-    const bounded = (dx > 0 && !previousPhoto.value) || (dx < 0 && !nextPhoto.value) ? dx * 0.25 : dx
+    const rawOffset = pointerSwipeBaseOffset.value + dx
+    const bounded = (rawOffset > 0 && !previousPhoto.value) || (rawOffset < 0 && !nextPhoto.value)
+      ? pointerSwipeBaseOffset.value + dx * 0.25
+      : rawOffset
     imageDragOffset.value = bounded
     touchSwipeOffset.value = bounded
+  } else if (pointerGesture.value === 'dismiss') {
+    dismissOffset.value = Math.max(0, dy)
+  } else if (pointerGesture.value === 'holdZoom') {
+    const nextScale = Math.min(5, Math.max(1, initialScale.value + (pointerStartY.value - e.clientY) * 0.01))
+    scale.value = nextScale
   }
   pointerLastX.value = e.clientX
   pointerLastY.value = e.clientY
@@ -2075,7 +2424,7 @@ const onImagePointerUp = (e: PointerEvent) => {
     if (Math.hypot(dx, dy) < 8 && elapsed < 450) {
       deferredTapAction.value = getTapAction(e.target)
     } else if (Math.abs(dx) > threshold || velocity > 0.6) {
-      queuedSwipeDirection.value = dx > 0 ? 'previous' : 'next'
+      queuedSwipeDirections.value.push(dx > 0 ? 'previous' : 'next')
     }
     blockedSwipePointer.value = null
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
@@ -2107,16 +2456,48 @@ const onImagePointerUp = (e: PointerEvent) => {
   const mode = pointerGesture.value
   pointerGesture.value = 'none'
   isPinching.value = false
-  if (mode === 'swipe') {
+  if (mode === 'holdZoom') {
+    isZooming.value = false
+    userHasManuallyZoomed.value = scale.value > 1
+    lastTapTime.value = 0
+  } else if (mode === 'dismiss') {
+    const elapsed = Math.max(1, performance.now() - pointerStartTime.value)
+    const progress = dismissOffset.value / Math.max(window.innerHeight, 1)
+    const velocity = dismissOffset.value / elapsed
+    isImageDragging.value = false
+    if (progress > 0.22 || velocity > 0.65) {
+      const draggedRect = mainImage.value?.getBoundingClientRect()
+      isDismissing.value = false
+      close(draggedRect ? {
+        left: draggedRect.left,
+        top: draggedRect.top,
+        width: draggedRect.width,
+        height: draggedRect.height
+      } : undefined)
+    } else {
+      // Keep the dismiss transform mounted while it animates back to center;
+      // clearing the mode in the same frame would make the image snap.
+      dismissOffset.value = 0
+      window.setTimeout(() => { isDismissing.value = false }, 260)
+    }
+  } else if (mode === 'swipe') {
     const offset = touchSwipeOffset.value
+    const moved = Math.abs(e.clientX - pointerStartX.value) > 8 || Math.abs(e.clientY - pointerStartY.value) > 8
     const elapsed = Math.max(1, performance.now() - pointerStartTime.value)
     const velocity = Math.abs(offset) / elapsed
     const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
-    if (Math.abs(offset) > threshold || velocity > 0.6) finishSwipe(offset > 0 ? 'previous' : 'next')
+    if (!moved && interruptedSwipeDirection.value) finishSwipe(interruptedSwipeDirection.value)
+    else if (Math.abs(offset) > threshold || velocity > 0.6) finishSwipe(offset > 0 ? 'previous' : 'next')
     else cancelSwipe()
+    interruptedSwipeDirection.value = null
   } else {
     imageDragOffset.value = 0
     touchSwipeOffset.value = 0
+    if (mode === 'pending') {
+      lastTapTime.value = performance.now()
+      lastTapX.value = e.clientX
+      lastTapY.value = e.clientY
+    }
   }
   isImageDragging.value = false
   e.preventDefault()
@@ -2538,6 +2919,7 @@ const onImageWheel = (e: WheelEvent) => {
 
 // 键盘快捷键处理
 const onKeyDown = (e: KeyboardEvent) => {
+  if (!props.visible || closing.value) return
   // 左右键切换图片（始终可用，不受焦点限制）
   if (e.key === 'ArrowLeft') {
     e.preventDefault()
@@ -2548,6 +2930,18 @@ const onKeyDown = (e: KeyboardEvent) => {
     next()
     return
   }
+
+  if (e.key === 'Home') { e.preventDefault(); jump(0); return }
+  if (e.key === 'End') { e.preventDefault(); jump(Math.max(0, props.photos.length - 1)); return }
+  if (e.key === '0') {
+    e.preventDefault()
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+    userHasManuallyZoomed.value = false
+    return
+  }
+  if (e.key === ' ') { e.preventDefault(); controlsVisible.value = !controlsVisible.value; return }
 
   // Ctrl + +/- 缩放
   if (e.ctrlKey && (e.key === '=' || e.key === '+' || e.key === '-')) {
@@ -2601,6 +2995,7 @@ const startDrag = (e: PointerEvent) => {
   thumbResizeStartY.value = e.clientY
   thumbResizeStartHeight.value = thumbHeight.value
   const handle = e.currentTarget as HTMLElement
+  activeThumbResizeHandle.value = handle
   handle.setPointerCapture?.(e.pointerId)
   document.body.style.cursor = 'ns-resize'
   document.body.style.userSelect = 'none'
@@ -2620,7 +3015,8 @@ const onThumbResizeMove = (e: PointerEvent) => {
 const endThumbResize = (e: PointerEvent) => {
   if (!isResizingThumb.value) return
   isResizingThumb.value = false
-  try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+  try { activeThumbResizeHandle.value?.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+  activeThumbResizeHandle.value = null
   localStorage.setItem(THUMB_KEY, thumbHeight.value.toString())
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
@@ -2868,7 +3264,7 @@ const jumpToPhoto = (photoId: number) => {
   const targetIndex = props.photos.findIndex(p => p.id === photoId)
   if (targetIndex >= 0) {
     // 跳转到目标照片
-    currentIndex.value = targetIndex
+    navigation.reset(targetIndex)
     // 关闭相似照片模态框
     similarPhotosVisible.value = false
   } else {
@@ -2900,7 +3296,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('resize', onImageLoad)
@@ -2910,6 +3305,7 @@ onBeforeUnmount(() => {
   clearTimeout((onImageWheel as any).zoomTimeout)
   clearTimeout((onImageWheel as any).panTimeout)
   if (swipeTimer) clearTimeout(swipeTimer)
+  if (openingPreviewTimer) clearTimeout(openingPreviewTimer)
   if (containerClickTimer) clearTimeout(containerClickTimer)
   window.removeEventListener('pointermove', onResize, true)
   window.removeEventListener('pointerup', endResize, true)
@@ -2919,6 +3315,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointercancel', endThumbResize, true)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
+  activeInfoResizeHandle.value = null
+  activeThumbResizeHandle.value = null
+  assetManager.clear()
 })
 </script>
 
@@ -3155,6 +3554,11 @@ onBeforeUnmount(() => {
 .main-image.loading {
   animation: imagePulse 1.5s ease-in-out infinite;
 }
+.main-image {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
 
 .swipe-stage {
   z-index: 0;
@@ -3236,5 +3640,16 @@ onBeforeUnmount(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-image,
+  .swipe-adjacent-image,
+  .photo-viewer-img-wrapper,
+  .modal-enter-active,
+  .modal-leave-active {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 </style>

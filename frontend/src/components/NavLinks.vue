@@ -31,7 +31,7 @@
       :class="linkClass('/random')"
     >
       <div class="absolute inset-0 rounded-full transition-all duration-500 ease-out" :class="panelClass('/random')" :style="getPanelStyle('/random')"></div>
-      <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">随机</span>
+      <span class="relative z-10 text-[13px] font-medium tracking-[0.08em] transition-transform duration-200 group-hover:scale-[1.03]">发现</span>
     </router-link>
     <router-link
       :to="buildPublicPath('/persons', route.path)"

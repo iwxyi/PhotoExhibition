@@ -30,40 +30,53 @@ PhotoViewer 是照片列表之上的沉浸式查看器，支持触摸屏、鼠�
 状态机：
 
 ```text
-closed → opening → idle ⇄ controls-visible
+closed → opening → stable ⇄ controls-visible
                       ↓
-                   dragging → settling → idle
+             interactive-transition
+               ├─ outgoing-exit
+               └─ incoming-active
                       ↓
-              zoomed ⇄ panning
-idle/zoomed → closing → closed
+          horizontal / dismiss / zoom / pan
+                      ↓
+          settling → stable   or   closing → closed
 ```
 
-- `opening`：锁定非必要操作，加载首图缩略图即可开始 FLIP，高清随后替换。
-- `idle`：单击切换控件；左右拖动进入 `dragging`。
-- `dragging`：三图轨道跟手移动；垂直下拉同时改变背景透明度。
-- `settling`：切换目标或回弹，动画结束后提交索引。
+- `opening`：使用来源缩略图立即开始 FLIP，高清图后台加载，不阻塞动画。
+- `stable`：当前图片是唯一手势目标；左右拖动切图，向下拖动 dismiss。
+- `interactive-transition`：旧图继续离场，新图达到可交互阈值后立即接管手势。CSS 位移动画结束即释放 `transitioning` 状态；缩略图/原图解码属于后台资源流程，不能延长手势锁定或阻塞下一次滑动。
+- `outgoing-exit`：只负责完成旧图离场，不再响应新的手势。
+- `incoming-active`：新图可继续左滑、反向右滑、向下 dismiss、双击缩放或双指平移。
+- `settling`：基于实时位置和速度完成切换或回弹；允许新手势排队或重新定向。
 - `zoomed`：双击或捏合后缩放；水平拖动优先平移，边界才转为切图意图。
 - `closing`：执行回到来源缩略图的动画，完成后再卸载查看器。
 
 ## 4. 图片轨道与导航
 
-采用三槽位轨道：`previous | current | next`。槽位按容器宽度定位，拖动时整体平移；当前图偏移 `x`，邻图位于 `x - viewportWidth` 与 `x + viewportWidth`。索引提交只发生在 settle 完成后，避免请求、标题、计数和人脸框提前错位。
+采用可复用的多槽位轨道。稳定状态只显示 `previous | current | next`；连续快速同向手势时扩展为有限槽位（建议最多 5–7 个），通过循环复用而不是重复创建 DOM。每个槽位独立保存 photoId、transform、速度、质量级别和加载 token。
+
+一次切换由两个独立角色组成：旧当前图继续离场，新目标图进入并在达到可交互阈值后接管手势。反向手势复用已有槽位返回旧图，禁止同一 photoId 同时作为两个可见实例。
 
 判定规则：
 
 - 释放时位移超过 `max(64px, 18vw)`，或速度超过 `0.6px/ms`，切换对应方向。
 - 未达到阈值时使用 220–280ms 阻尼回弹。
 - 首尾边界应用 0.25 倍阻尼并给出轻微橡皮筋回弹，不触发切换。
-- 快速连续滑动期间只保留最后一个目标索引；旧 settle 可取消，避免跳帧。
+- 快速连续滑动期间使用 FIFO 手势队列，方向按用户完成手势的顺序执行；越过边界的目标丢弃。
+- 新手势不会暂停旧动画：命中新进入的图片后，旧图继续离场，新图从当前实时位置接管。
+- 视觉轨道的邻图在过渡期间直接取导航状态的 `incomingIndex`，空闲时才回退到当前索引的前后邻图，避免状态源分裂。
 - 缩放比例 `≤1` 才允许水平切图；`>1` 时优先平移，只有到达水平边界才转交切图。
 
 ## 5. 输入模型（跨平台）
 
 统一使用 Pointer Events，并在舞台上设置 `touch-action: none`，通过 pointer capture 保证指针离开元素后仍能完成手势。
 
-- 单指/鼠标拖动：水平切图；垂直向下且位于未缩放状态时关闭。
+- 单指/鼠标拖动：水平切图；垂直向下且位于未缩放状态时关闭。图片和黑色空白区域共用同一手势舞台。
+- 左滑切换过程中按住新图：旧图继续离场，新图成为新的手势目标；可继续左滑、反向右滑或向下 dismiss。
+- 如果在离场动画尚未结束时按下，轨道先按时间进度冻结当前偏移，再把该偏移交给新 pointer；松手后的方向/速度重新决定提交、回弹或排队，不重置到中心。
+- 中断后若用户只是按住未移动，默认继续原方向完成当前切换；只有检测到实际位移后才重新计算反向、取消或下一次排队。
+- 上滑暂时保留为未定义手势，不触发信息面板或其他操作，待产品确定后接入。
 - 双指：计算两指距离与中心点，分别更新 scale 和 translate；最小 1，最大 4–6（设备可配置）。
-- 双击：1x ↔ 2x，焦点为点击位置；三击不绑定操作。
+- 双击：1x ↔ 2x，焦点为点击位置；第二次按住并移动时进入连续缩放；三击不绑定操作。
 - 鼠标滚轮：以指针为焦点缩放；`Ctrl/Cmd + wheel` 在桌面浏览器中启用。
 - 键盘：`ArrowLeft/Right` 切图，`Home/End` 首尾，`+/-` 缩放，`0` 还原，`Escape` 关闭，`Space` 显示控件。
 - 触控板横向滚动：按累计位移与速度进入同一轨道，不依赖 click 事件。
@@ -71,13 +84,13 @@ idle/zoomed → closing → closed
 
 ## 6. 打开与关闭动画
 
-打开时由调用方传入来源缩略图 `originRect`（viewport 坐标、宽高、圆角可选）和 photoId。使用 FLIP：先以缩略图尺寸/位置渲染低清图，再在下一帧过渡到舞台目标矩形；高清到达不重启动画。
+打开时由调用方传入来源缩略图 `originRect`（viewport 坐标、宽高、圆角可选）和 photoId。使用缩略图作为 FLIP 视觉载体：先以缩略图尺寸/位置渲染，再过渡到舞台目标矩形；高清到达后只在同一槽位内替换，不重启动画。
 
 关闭时反向 FLIP，只有动画完成才 emit `update:visible=false`。来源已卸载、尺寸为零或 photoId 不匹配时，回退 180–220ms 的中心缩放+淡出。窗口旋转或列表滚动导致来源变化时，实时重新测量目标矩形，避免飞向错误位置。
 
 ## 7. 加载、预加载与缓存
 
-每个 photo slot 有独立状态：`idle → thumbnail-loading → thumbnail-ready → full-loading → full-ready`，并行分支 `error`、`offline`、`cancelled`。低清或缩略图可先展示，高清完成后交叉淡入。
+每个 photo slot 有独立状态：`idle → thumbnail-loading → thumbnail-ready → preview-loading → preview-ready → original-loading → original-ready`，并行分支 `error`、`offline`、`cancelled`。显示优先级为原图 > 预览图 > 缩略图；当前已显示的高质量资源不会因开始手势而降级。
 
 预加载优先级：
 
@@ -88,15 +101,19 @@ idle/zoomed → closing → closed
 
 使用有限并发队列（移动端默认 2，桌面端 3），带 AbortController。缓存采用按字节估算的 LRU，缩略图与高清分层；释放 slot 时撤销 Blob URL。网络恢复时只重试当前图和用户明确点击重试的图。
 
+实现中 slot 使用浅引用保持对象身份，质量升级后显式触发容器刷新；每个质量请求按 `photoId + quality` 去重，并同时校验 slot 身份和请求时的 URL，确保当前图和邻图都能在不降级的前提下替换为更高清资源，旧模式 URL 不会回写。
+
 ## 8. 竞态与异常处理
 
-- 每次导航生成递增 `requestVersion`，响应提交前校验版本与 photoId，旧请求不得覆盖当前图。
+- 导航和资源请求都携带 photoId，并带有查看会话/transition epoch；同一 slot 的缩略图、预览图、原图允许并发，响应提交前校验稳定的 slot 身份，旧 photo 或旧会话的回调不得覆盖新 slot。slot 容器使用浅引用避免响应式代理改变对象身份；质量升级不使用互相覆盖的单一全局版本号。
 - 图片被删除/404：保留轨道位置，显示“照片不可用”，提供移除并跳到下一张。
 - 超时/弱网：保留已有低清图，显示细进度与“重试”；不阻止左右切换。
 - 快速切换：取消不可见 slot 的高清请求，只保留当前和方向邻图。
 - 解码失败：尝试 `img.decode()` 失败后回退普通 load；记录一次诊断信息，避免死循环。
 - 窗口尺寸变化：重新计算轨道和缩放边界，保持视觉焦点。
+- 缩略图跳转、外部索引变化或照片列表替换会使当前 transition epoch 失效，并取消旧定时器/队列，避免旧动画在新索引上提交。
 - 组件卸载：清理 pointer capture、RAF、定时器、AbortController、事件监听和 Blob URL。
+- 父组件直接关闭查看器时，也必须使当前 transition epoch 失效并取消定时器，禁止隐藏状态被迟到回调修改。
 - 无图片/空列表：显示空态并允许关闭，不渲染空轨道。
 
 ## 9. 模块边界与数据契约
@@ -133,4 +150,19 @@ Photo 最小契约：`id`, `url`, `thumbnailUrl?`, `filename?`, `width?`, `heigh
 
 ## 12. 完成定义
 
-只有同时满足以下条件才视为完成：拖动过程中邻图实时可见；松手切换/回弹稳定；图片未加载时仍可浏览；快速切换不会串图；打开/关闭与来源缩略图同图过渡；键盘、触摸、鼠标和触控板均有等价能力；错误、离线、删除、旋转和 reduced-motion 场景有明确行为；构建与 `git diff --check` 通过。
+只有同时满足以下条件才视为完成：拖动过程中邻图实时可见；松手切换/回弹稳定；图片未加载时仍可浏览；快速切换不会串图；打开/关闭与来源缩略图同图过渡；键盘、触摸、鼠标和触控板均有等价能力；错误、离线、删除和 reduced-motion 场景有明确行为；构建与 `git diff --check` 通过。
+
+## 13. 本项目范围与既有业务兼容
+
+本次重构定位为精简但完备的看图程序，不新增幻灯片播放、旋转、翻转等功能。保留现有下载、分享、收藏、点赞、标签、相册跳转、相似图片、信息面板等图片操作。
+
+PhotoViewer 必须继续兼容既有照片与分析数据：
+
+- `faces`、`focusX`、`focusY` 及人脸框/主体焦点框显示。
+- `forceShowFaces`、`autoShowFaces` 的默认显示策略。
+- `highlightedFaceId`、`highlightedFaceIds`、`highlightedPersonId` 的聚焦过滤。
+- `preferredFaceId` 的初始聚焦对象。
+- 人物管理、聚类、相似人脸等页面传入的白名单/黑名单语义。
+- 图片切换后按当前 photoId 重新计算人脸数据，旧图片异步请求不得污染新图片。
+
+上滑手势暂保留为未定义状态，不打开信息面板，也不触发其他操作，待信息内容确定后再接入。
