@@ -255,7 +255,7 @@ public class AlbumController {
      * 创建相册（如果路径存在但没有图片，也会创建）
      */
     @PostMapping
-    public ResponseEntity<AlbumDTO> createAlbum(@RequestBody java.util.Map<String, String> request) {
+    public ResponseEntity<?> createAlbum(@RequestBody java.util.Map<String, String> request) {
         String path = request.get("path");
         if (path == null || path.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(null);
@@ -265,7 +265,11 @@ public class AlbumController {
             AlbumDTO album = albumService.createAlbumIfNotExists(path.trim());
             return ResponseEntity.ok(album);
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(null);
+            log.error("创建相册失败，path={}", userPathService.toDisplayPath(path, true), e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("message", userPathService.sanitizeVisibleText(e.getMessage()));
+            return ResponseEntity.status(500).body(error);
         }
     }
 

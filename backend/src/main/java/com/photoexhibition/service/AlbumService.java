@@ -495,11 +495,48 @@ public class AlbumService {
         if (path == null || path.isBlank()) {
             throw new RuntimeException("相册路径不存在");
         }
-        try {
-            return userPathService.resolveStoredPhotoPath(path);
-        } catch (Exception e) {
-            return Paths.get(path).toAbsolutePath().normalize();
+        String normalized = path.trim().replace('\\', '/');
+        if (normalized.matches("^/[A-Za-z]:/.*")) {
+            normalized = normalized.substring(1);
         }
+        try {
+            Path stored = userPathService.resolveStoredPhotoPath(normalized);
+            if (stored != null && (userPathService.isStoragePathReference(normalized)
+                || normalized.startsWith("storage://"))) {
+                return stored;
+            }
+        } catch (Exception ignored) {
+            // Fall through to local/display path resolution.
+        }
+
+        // Windows 驱动器路径即使在非 Windows 测试环境中也应保留为绝对引用。
+        if (normalized.matches("^[A-Za-z]:/.*")) {
+            return Paths.get(normalized).toAbsolutePath().normalize();
+        }
+
+        Path configuredBase = userPathService.resolvePhotoBasePath();
+        Path candidate = Paths.get(normalized);
+        if (configuredBase == null) {
+            return candidate.toAbsolutePath().normalize();
+        }
+        if (!candidate.isAbsolute()) {
+            // API 接收的是相对于照片根目录的展示路径（如 1/人像/相册），
+            // 不能相对于 JVM 当前工作目录解析。
+            return configuredBase.resolve(candidate).normalize();
+        }
+
+        Path absolute = candidate.toAbsolutePath().normalize();
+        if (absolute.startsWith(configuredBase) || Files.exists(absolute)) {
+            return absolute;
+        }
+
+        // 形如 /1/人像/相册 的展示路径在 Unix 下会被 Path 识别为绝对路径，
+        // 但实际含义仍是照片根目录下的相对路径。
+        String displayRelative = normalized;
+        while (displayRelative.startsWith("/")) {
+            displayRelative = displayRelative.substring(1);
+        }
+        return configuredBase.resolve(displayRelative).normalize();
     }
 
     private String toStoredDirectoryPath(Path path, Long userId) {

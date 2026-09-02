@@ -92,6 +92,17 @@ public class AdminController {
         resp.put("details", sanitizeErrorMessage(e.getMessage(), "系统异常"));
         resp.put("exceptionType", e.getClass().getSimpleName());
 
+        // 认证失败不是服务器故障。此前所有控制器的 requireCurrentUser
+        // 都抛 RuntimeException，导致前端把登录失效误判成 500。
+        String exceptionMessage = e.getMessage();
+        if (exceptionMessage != null
+            && (exceptionMessage.contains("未授权") || exceptionMessage.contains("Token无效")
+                || exceptionMessage.contains("Token已过期"))) {
+            resp.put("error", "未授权");
+            resp.put("message", "登录状态已失效，请重新登录");
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).body(resp);
+        }
+
         // 处理ONNX相关错误
         if (e instanceof com.photoexhibition.service.OnnxConfigurationException) {
             resp.put("error", "ONNX环境配置错误");

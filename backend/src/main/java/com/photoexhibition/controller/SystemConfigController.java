@@ -72,7 +72,8 @@ public class SystemConfigController {
     }
 
     @GetMapping("/admin-theme")
-    public ResponseEntity<Map<String, Object>> getAdminColorMode(@RequestHeader("Authorization") String authorization) {
+    public ResponseEntity<Map<String, Object>> getAdminColorMode(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
             UserAccount user = requireCurrentUser(authorization);
@@ -80,12 +81,16 @@ public class SystemConfigController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取后台颜色模式失败"));
+            if (isUnauthorized(e)) {
+                resp.put("message", "登录状态已失效，请重新登录");
+                return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).body(resp);
+            }
             return ResponseEntity.status(500).body(resp);
         }
     }
 
     @PutMapping("/admin-theme")
-    public ResponseEntity<Map<String, Object>> updateAdminColorMode(@RequestHeader("Authorization") String authorization,
+    public ResponseEntity<Map<String, Object>> updateAdminColorMode(@RequestHeader(value = "Authorization", required = false) String authorization,
                                                                       @RequestBody Map<String, Object> request) {
         Map<String, Object> resp = new HashMap<>();
         try {
@@ -99,8 +104,18 @@ public class SystemConfigController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "保存后台颜色模式失败"));
+            if (isUnauthorized(e)) {
+                resp.put("message", "登录状态已失效，请重新登录");
+                return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).body(resp);
+            }
             return ResponseEntity.status(500).body(resp);
         }
+    }
+
+    private boolean isUnauthorized(Exception e) {
+        String message = e.getMessage();
+        return message != null && (message.contains("未授权") || message.contains("Token无效")
+            || message.contains("Token已过期"));
     }
 
     @GetMapping("/file-browser-preferences")

@@ -39,7 +39,10 @@ public class UserPathService {
 
     public Path getScopedPhotoRoot(UserAccount user) {
         Path base = resolvePhotoBasePath();
-        if (user == null || !systemConfigService.isMultiUserEnabled()) {
+        // 超级管理员始终使用全局根目录。普通用户只有在多用户模式下
+        // 才会进入 base/<uid>，关闭多用户后必须保留历史目录中的 UID 段。
+        if (user == null || user.getRole() == com.photoexhibition.entity.UserRole.SUPER_ADMIN
+            || !systemConfigService.isMultiUserEnabled()) {
             return base;
         }
         return base.resolve(String.valueOf(user.getId())).normalize();
@@ -91,10 +94,27 @@ public class UserPathService {
         if (!candidate.isAbsolute()) {
             String clean = requestedPath.startsWith("./") ? requestedPath.substring(2) : requestedPath;
             Path relative = Paths.get(clean).normalize();
-            if (user != null) {
+            if (shouldStripUserSegment(user)) {
                 relative = stripLeadingUserSegment(relative, user.getId());
             }
             candidate = scopedRoot.resolve(relative);
+        } else {
+            // 前端展示路径形如 /1/分类/相册，并不是文件系统根目录下的
+            // /1/...。仅当绝对路径确实位于照片根目录（或已存在于磁盘）
+            // 时按绝对路径处理，否则将其视为相对照片根目录的展示路径。
+            Path absolute = candidate.toAbsolutePath().normalize();
+            Path photoBase = resolvePhotoBasePath();
+            if (absolute.startsWith(photoBase) || Files.exists(absolute)) {
+                candidate = absolute;
+            } else {
+                String clean = requestedPath.trim().replace('\\', '/');
+                while (clean.startsWith("/")) clean = clean.substring(1);
+                Path relative = Paths.get(clean).normalize();
+                if (shouldStripUserSegment(user)) {
+                    relative = stripLeadingUserSegment(relative, user.getId());
+                }
+                candidate = scopedRoot.resolve(relative);
+            }
         }
 
         candidate = candidate.toAbsolutePath().normalize();
@@ -102,6 +122,12 @@ public class UserPathService {
             throw new IllegalArgumentException("路径超出当前用户可操作范围");
         }
         return candidate;
+    }
+
+    private boolean shouldStripUserSegment(UserAccount user) {
+        return user != null
+            && user.getRole() != com.photoexhibition.entity.UserRole.SUPER_ADMIN
+            && systemConfigService.isMultiUserEnabled();
     }
 
     public Long extractUserIdFromPath(String absolutePath) {

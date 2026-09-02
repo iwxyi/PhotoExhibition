@@ -122,9 +122,6 @@ public class AuthService {
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new RuntimeException("用户当前不可公开访问");
         }
-        if (user.getRole() == UserRole.SUPER_ADMIN) {
-            throw new RuntimeException("超级管理员公开站点不可访问");
-        }
         if (systemConfigService.isMultiUserEnabled() && Boolean.FALSE.equals(user.getMultiUserVisible())) {
             throw new RuntimeException("用户未公开");
         }
@@ -143,7 +140,12 @@ public class AuthService {
         if (!systemConfigService.isMultiUserEnabled()) {
             return java.util.List.of();
         }
-        return userAccountRepository.findByRoleAndStatusAndMultiUserVisibleTrueOrderByCreatedAtAsc(UserRole.USER_ADMIN, UserStatus.ACTIVE)
+        // Legacy single-user data is intentionally migrated to the first
+        // super administrator.  Excluding SUPER_ADMIN here made that owner's
+        // entire gallery disappear as soon as multi-user mode was enabled.
+        // Public visibility is governed by status + multiUserVisible; role is
+        // an administrative permission boundary, not a content-ownership one.
+        return userAccountRepository.findByStatusAndMultiUserVisibleTrueOrderByCreatedAtAsc(UserStatus.ACTIVE)
             .stream()
             .map(user -> PublicUserProfileResponse.builder()
                 .userId(user.getId())

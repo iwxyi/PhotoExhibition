@@ -2767,7 +2767,10 @@ const openPhotoManageModal = async (album: any) => {
   photoModalLoading.value = true
 
   try {
-    const res = await api.get(`/photos/album/${album.id}`, { params: { all: true, includeHidden: true } })
+    const res = await api.get(`/photos/album/${album.id}`, {
+      params: { all: true, includeHidden: true },
+      ...getAdminRequestConfig()
+    })
     photoModalPhotos.value = sortPhotoModalPhotos(res.data.content || [])
   } catch (e: any) {
     console.error('获取相册照片失败:', e)
@@ -2778,7 +2781,7 @@ const openPhotoManageModal = async (album: any) => {
 
   // Load move targets in background
   try {
-    const res = await api.get(`/admin/photos/move-targets/${album.id}`)
+    const res = await api.get(`/admin/photos/move-targets/${album.id}`, getAdminRequestConfig())
     photoMoveTargets.value = res.data || {}
   } catch (e) {
     console.error('获取移动目标失败:', e)

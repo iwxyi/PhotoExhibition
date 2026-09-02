@@ -203,6 +203,16 @@ api.interceptors.response.use(
     return response
   },
   error => {
+    // 令牌失效时清理本地会话，避免页面继续显示“已登录”但所有后台接口
+    // 都收到 401。后台页面直接回登录页；公开页面仅清理会话，不强制跳转。
+    if (error?.response?.status === 401 && typeof window !== 'undefined') {
+      const currentPath = window.location.pathname
+      clearStoredAuthSession()
+      if (currentPath.startsWith('/admin') && currentPath !== '/admin/login') {
+        const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+        window.location.assign(`/admin/login?redirect=${redirect}`)
+      }
+    }
     return Promise.reject(error)
   }
 )

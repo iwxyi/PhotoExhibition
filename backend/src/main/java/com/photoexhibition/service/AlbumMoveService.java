@@ -737,20 +737,25 @@ public class AlbumMoveService {
     }
 
     private Path resolveRequestedPathWithinScope(String requestedPath, UserAccount currentUser) {
-        Path scopedRoot = getScopedRoot(currentUser);
-        if (requestedPath == null || requestedPath.isBlank()) {
-            return scopedRoot;
-        }
-        Path candidate = Paths.get(requestedPath.trim());
-        if (!candidate.isAbsolute()) {
-            String clean = requestedPath.startsWith("./") ? requestedPath.substring(2) : requestedPath;
-            Path relative = Paths.get(clean).normalize();
-            if (currentUser != null) {
-                relative = userPathService.stripLeadingUserSegment(relative, currentUser.getId());
+        Path candidate = userPathService.resolveScopedPath(requestedPath, currentUser);
+        // 保持对旧版/测试替身 UserPathService 的兼容；生产实现始终走统一解析器。
+        if (candidate == null) {
+            Path scopedRoot = getScopedRoot(currentUser);
+            if (requestedPath == null || requestedPath.isBlank()) {
+                return scopedRoot;
             }
-            candidate = scopedRoot.resolve(relative);
+            Path raw = Paths.get(requestedPath.trim());
+            if (!raw.isAbsolute()) {
+                Path relative = raw.normalize();
+                if (currentUser != null) {
+                    relative = userPathService.stripLeadingUserSegment(relative, currentUser.getId());
+                }
+                candidate = scopedRoot.resolve(relative);
+            } else {
+                candidate = raw;
+            }
+            candidate = candidate.toAbsolutePath().normalize();
         }
-        candidate = candidate.toAbsolutePath().normalize();
         ensureWithinScope(candidate, currentUser);
         return candidate;
     }

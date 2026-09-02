@@ -60,7 +60,9 @@ export const useThemeStore = defineStore('theme', () => {
     loading.value = true
     errorMessage.value = ''
     try {
-      const { data } = await api.get('/admin/config/admin-theme')
+      const { data } = await api.get('/admin/config/admin-theme', {
+        headers: { Authorization: `Bearer ${authStore.token}` }
+      })
       adminColorMode.value = normalizeAdminColorMode(data?.colorMode)
       applyAdminColorMode()
     } catch (error: any) {
@@ -77,7 +79,9 @@ export const useThemeStore = defineStore('theme', () => {
     saving.value = true
     errorMessage.value = ''
     try {
-      await api.put('/admin/config/admin-theme', { colorMode: mode })
+      await api.put('/admin/config/admin-theme', { colorMode: mode }, {
+        headers: { Authorization: `Bearer ${authStore.token}` }
+      })
     } catch (error: any) {
       errorMessage.value = error?.response?.data?.error || error?.message || '保存后台颜色模式失败'
     } finally {

@@ -50,6 +50,8 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 
     List<UserAccount> findByRoleAndStatusAndMultiUserVisibleTrueOrderByCreatedAtAsc(UserRole role, UserStatus status);
 
+    List<UserAccount> findByStatusAndMultiUserVisibleTrueOrderByCreatedAtAsc(UserStatus status);
+
     boolean existsBySlug(String slug);
 
     boolean existsByUsername(String username);

@@ -54,7 +54,7 @@ public class PhotoManageService {
                 .orElseThrow(() -> new RuntimeException("相册不存在"));
         ensureAlbumAccess(currentUser, album);
 
-        Path albumPath = resolveLocalDirectoryPath(album.getPath());
+        Path albumPath = resolveLocalDirectoryPath(album.getPath(), currentUser);
         Path parentDir = albumPath.getParent();
         Map<String, Object> result = new HashMap<>();
 
@@ -125,7 +125,7 @@ public class PhotoManageService {
             return result;
         }
 
-        Path targetDir = resolveLocalDirectoryPath(targetDirPath);
+        Path targetDir = resolveLocalDirectoryPath(targetDirPath, currentUser);
 
         try {
             Files.createDirectories(targetDir);
@@ -775,8 +775,22 @@ public class PhotoManageService {
     }
 
     private Path resolveLocalDirectoryPath(String path) {
+        return resolveLocalDirectoryPath(path, null);
+    }
+
+    private Path resolveLocalDirectoryPath(String path, UserAccount currentUser) {
         if (path == null || path.isBlank()) {
             throw new RuntimeException("目录路径为空");
+        }
+        if (!userPathService.isStoragePathReference(path) && currentUser != null) {
+            try {
+                Path scoped = userPathService.resolveScopedPath(path, currentUser);
+                if (scoped != null) {
+                    return scoped;
+                }
+            } catch (Exception e) {
+                log.debug("按用户作用域解析目录失败，继续尝试存储路径解析: {}", path, e);
+            }
         }
         Optional<Path> localPath = tryResolveMutableLocalPath(path);
         if (localPath.isPresent()) {
