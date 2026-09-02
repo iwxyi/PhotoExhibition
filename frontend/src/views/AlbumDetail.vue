@@ -701,6 +701,25 @@ let slideStartY = 0 // 滑动开始的Y坐标
 let hasDraggedDuringPress = false // track if user dragged during pointer down
 // whether the last interaction was a long-press (suppress click)
 const longPressActivated = ref(false)
+let activePhotoPressCleanup: (() => void) | null = null
+
+// PhotoViewer 关闭或浏览器取消指针序列时，确保照片列表按压状态不会
+// 残留到下一次点击。否则移动端快速手势可能留下全局监听器，吞掉下一次
+// 缩略图 click。
+const resetPhotoPressState = () => {
+  activePhotoPressCleanup?.()
+  activePhotoPressCleanup = null
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  sliding = false
+  slideStartPhotoId = null
+  slideStartX = 0
+  slideStartY = 0
+  hasDraggedDuringPress = false
+  longPressActivated.value = false
+}
 
 const toggleSelect = (photoId: number, idx?: number) => {
   // Work with a new Set to ensure Vue reactivity picks up changes
@@ -885,6 +904,11 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
   // Prevent default browser behavior immediately (text selection, etc.)
   e.preventDefault()
 
+  // A cancelled pointer sequence may not deliver the old window-level
+  // pointerup callback. Remove it before starting a new press.
+  activePhotoPressCleanup?.()
+  activePhotoPressCleanup = null
+
   // reset drag tracking
   hasDraggedDuringPress = false
 
@@ -1016,17 +1040,21 @@ const onPhotoPointerDown = (photo: any, idx: number, e: PointerEvent) => {
   window.addEventListener('pointermove', onMove)
 
   // attach a one-time cleanup when pointerup
-  const onUp = () => {
+  const cleanup = () => {
     endPress()
     window.removeEventListener('pointermove', onMove)
-    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointerup', cleanup)
+    window.removeEventListener('pointercancel', cleanup)
     try { (target as any)?.releasePointerCapture?.((e as any).pointerId) } catch (e) {}
     // clear long-press activation shortly after pointer up to prevent click
     if (longPressActivated.value) {
       setTimeout(() => { longPressActivated.value = false }, 50)
     }
+    if (activePhotoPressCleanup === cleanup) activePhotoPressCleanup = null
   }
-  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointerup', cleanup)
+  window.addEventListener('pointercancel', cleanup)
+  activePhotoPressCleanup = cleanup
 }
 
 const onPhotoPointerUp = (_photo: any, _idx: number, _e: PointerEvent) => {
@@ -1061,6 +1089,10 @@ const handlePhotoClick = (photo: any, idx: number, e: MouseEvent) => {
   // otherwise open viewer
   openViewer(idx, e)
 }
+
+watch(viewerVisible, (visible) => {
+  if (!visible) resetPhotoPressState()
+})
 
 // bulk actions
 const selectAll = () => {
@@ -1953,6 +1985,8 @@ onActivated(async () => {
 
 onUnmounted(() => {
   isDisposed = true
+
+  resetPhotoPressState()
 
   // 清理滚动节流定时器，防止组件卸载后定时器回调仍执行
   if (scrollThrottleTimer) {

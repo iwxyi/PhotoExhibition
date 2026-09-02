@@ -1,10 +1,12 @@
 <template>
   <!-- 自定义PhotoViewer -->
   <transition name="modal">
+    <!-- closing 时继续保留节点播放图片缩回动画；事件通过 closing
+         状态禁用并交给底层相册，动画结束后再真正移除。 -->
     <div
-      v-if="visible"
+      v-if="visible || closing"
       class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
-      :class="{ 'pointer-events-none': closing }"
+      :class="{ 'pointer-events-none': closing || !visible }"
       style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
@@ -100,7 +102,7 @@
         @pointerdown="onImagePointerDown"
         @pointermove="onImagePointerMove"
         @pointerup="onImagePointerUp"
-        @pointercancel="onImagePointerUp"
+        @pointercancel="onImagePointerCancel"
         @click="onImageContainerClick"
       >
         <!-- 相册氛围特效 - 背景层（在图片下方） -->
@@ -918,11 +920,21 @@ const openingPreviewVisible = ref(false)
 const openingPreviewTransform = ref<string | null>(null)
 let openingPreviewTimer: ReturnType<typeof setTimeout> | null = null
 const closing = ref(false)
+// Closing is deliberately split into two render phases.  The first phase
+// freezes the image at its current visual transform; the second phase (next
+// frame) applies the thumbnail target and fades the modal.  Applying both in
+// one Vue patch makes browsers skip the transform transition.
+const closingAnimationStarted = ref(false)
+const closingStartTransform = ref<string | null>(null)
 const activeOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const originTransform = ref<string | null>(null)
 const modalStyle = computed(() => ({
-  opacity: closing.value ? 0 : 1,
-  transition: 'opacity 220ms ease'
+  // Once the parent has released visibility and the handoff animation has
+  // finished, keep the leave-transition node transparent.  Otherwise the
+  // inline opacity would override Vue's leave class and briefly reveal a
+  // fully opaque modal before it is removed.
+  opacity: (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value) ? 0 : 1,
+  transition: 'opacity 260ms cubic-bezier(0.4, 0, 0.2, 1)'
 }))
 
 const { viewOriginalEnabled } = useUiSettings()
@@ -1130,6 +1142,20 @@ const imageTransformStyle = computed(() => {
   // 如果正在拖拽、缩放、平移或触摸操作，禁用过渡效果
   const isInteracting = isImageDragging.value || isZooming.value || isPanning.value || isPinching.value
 
+  // Closing owns the image transform for the entire handoff.  Keep the
+  // captured transform for one frame, then animate to the thumbnail origin.
+  // This branch must precede dismiss/zoom branches so those states cannot
+  // overwrite the closing animation when the parent sets visible=false.
+  if (closing.value) {
+    return {
+      transform: originTransform.value || closingStartTransform.value || 'none',
+      transformOrigin: 'center center',
+      transition: originTransform.value
+        ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+        : 'none'
+    }
+  }
+
   if (isDismissing.value) {
     const progress = Math.min(1, dismissOffset.value / Math.max(window.innerHeight * 0.8, 1))
     return {
@@ -1294,6 +1320,8 @@ watch(() => props.visible, (newVisible) => {
     openingTransformPrepared.value = false
     openingPreviewVisible.value = !!props.originRect
     openingPreviewTransform.value = null
+    closingAnimationStarted.value = false
+    closingStartTransform.value = null
     lastTapTime.value = 0
     lastTapX.value = 0
     lastTapY.value = 0
@@ -1552,12 +1580,36 @@ if (savedWidth) {
 const close = (visualRect?: { left: number; top: number; width: number; height: number }) => {
   showAdminMenu.value = false
   if (closing.value) return
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = null
+  }
   const measuredRect = visualRect || mainImage.value?.getBoundingClientRect()
   abortNavigation()
   if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
+  // Capture the exact transform currently visible on screen before clearing
+  // dismiss/zoom state.  Without this freeze, resetting isDismissing/scale in
+  // the same frame snaps the image to center and leaves no animated start.
+  const progress = dismissOffset.value / Math.max(window.innerHeight * 0.8, 1)
+  const currentTransform = isDismissing.value
+    ? `translateY(${dismissOffset.value}px) scale(${1 - Math.min(1, progress) * 0.35})`
+    : scale.value > 1
+      ? `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`
+      : `translateX(${swipeOffset.value}px)`
+
   openingPreviewVisible.value = false
   openingPreviewTransform.value = null
   opening.value = false
+  closingStartTransform.value = currentTransform
+  originTransform.value = null
+  closingAnimationStarted.value = false
+  // The closing branch now owns the visual state; dismiss/gesture state can
+  // be cleared immediately without affecting the frozen first frame.
+  isDismissing.value = false
+  dismissOffset.value = 0
+  isImageDragging.value = false
+  touchSwipeOffset.value = 0
+  imageDragOffset.value = 0
   if (activeOriginRect.value && measuredRect) {
     const target = activeOriginRect.value
     const current = measuredRect
@@ -1565,17 +1617,40 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
       const dx = target.left + target.width / 2 - (current.left + current.width / 2)
       const dy = target.top + target.height / 2 - (current.top + current.height / 2)
       closing.value = true
-      originTransform.value = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
+      const targetTransform = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
+      // Return control to the parent immediately.  The component remains
+      // rendered while closing and has pointer-events disabled, so the page
+      // below can already receive a new thumbnail click.
+      emit('update:visible', false)
+      requestAnimationFrame(() => {
+        if (!closing.value) return
+        originTransform.value = targetTransform
+        closingAnimationStarted.value = true
+      })
       closeTimer = window.setTimeout(() => {
         originTransform.value = null
+        closingStartTransform.value = null
+        closingAnimationStarted.value = false
         closing.value = false
-        emit('update:visible', false)
         closeTimer = null
-      }, 220)
+      }, 280)
       return
     }
   }
+
+  // No origin rectangle (keyboard/backdrop close): still use the same
+  // two-phase fade so the background never disappears abruptly.
+  closing.value = true
   emit('update:visible', false)
+  requestAnimationFrame(() => {
+    if (closing.value) closingAnimationStarted.value = true
+  })
+  closeTimer = window.setTimeout(() => {
+    closingStartTransform.value = null
+    closingAnimationStarted.value = false
+    closing.value = false
+    closeTimer = null
+  }, 280)
 }
 
 const toggleFullscreen = () => {
@@ -2524,6 +2599,54 @@ const onImagePointerUp = (e: PointerEvent) => {
   e.preventDefault()
 }
 
+// pointercancel 表示浏览器/系统已经接管并取消了当前指针序列，不能再把
+// 它当成普通 pointerup 继续提交滑动或点击状态。快速下滑时移动端更容易
+// 触发该事件；若仍走 pointerup 路径，会留下兼容 click/捕获状态，吞掉关闭
+// PhotoViewer 后的下一次点击。
+const onImagePointerCancel = (e: PointerEvent) => {
+  if (ignoredPointerIds.delete(e.pointerId)) {
+    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+    return
+  }
+
+  if (blockedSwipePointer.value === e.pointerId) {
+    blockedSwipePointer.value = null
+    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+    return
+  }
+
+  const mode = pointerGesture.value
+  const shouldDismiss = mode === 'dismiss' && dismissOffset.value > 0
+    && dismissOffset.value / Math.max(window.innerHeight, 1) > 0.22
+  const draggedRect = shouldDismiss ? mainImage.value?.getBoundingClientRect() : null
+
+  activePointers.delete(e.pointerId)
+  try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+
+  activePointers.clear()
+  pointerGesture.value = 'none'
+  isPinching.value = false
+  isZooming.value = false
+  isPanning.value = false
+  isImageDragging.value = false
+  isDismissing.value = false
+  dismissOffset.value = 0
+  imageDragOffset.value = 0
+  touchSwipeOffset.value = 0
+  interruptedSwipeDirection.value = null
+  deferredTapAction.value = null
+  lastTapTime.value = 0
+
+  if (shouldDismiss) {
+    close(draggedRect && draggedRect.width > 0 && draggedRect.height > 0 ? {
+      left: draggedRect.left,
+      top: draggedRect.top,
+      width: draggedRect.width,
+      height: draggedRect.height
+    } : undefined)
+  }
+}
+
 // 图片拖拽处理
 const onImageMouseDown = (e: MouseEvent) => {
   if (e.button !== 0) return // 只处理左键
@@ -3349,7 +3472,7 @@ onBeforeUnmount(() => {
   will-change: opacity, background-color;
 }
 .modal-leave-active {
-  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
+  transition: opacity 0.26s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.26s ease;
   will-change: opacity, background-color;
 }
 .modal-enter-from {
