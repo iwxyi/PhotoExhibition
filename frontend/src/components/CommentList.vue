@@ -3,7 +3,7 @@
     <!-- 加载状态 -->
     <div v-if="loading && comments.length === 0" class="text-center py-8">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      <p class="mt-2 text-gray-600 dark:text-gray-400">加载评论中...</p>
+      <p class="mt-2" :style="{ color: textColor, opacity: 0.65 }">加载评论中...</p>
     </div>
 
     <!-- 评论列表 -->
@@ -26,7 +26,7 @@
 
     <!-- 没有评论 -->
     <div v-else-if="!loading" class="text-center py-12">
-      <p class="text-white/60">暂无评论，快来发表第一条评论吧！</p>
+      <p :style="{ color: textColor, opacity: 0.6 }">暂无评论，快来发表第一条评论吧！</p>
     </div>
 
     <!-- 加载更多 -->
@@ -34,7 +34,8 @@
       <button
         @click="$emit('load-more')"
         :disabled="loading"
-        class="px-6 py-2 border border-white/30 text-white/80 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50 backdrop-blur-sm"
+        class="px-6 py-2 border rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 backdrop-blur-sm"
+        :style="{ color: textColor, borderColor: borderColor }"
       >
         {{ loading ? '加载中...' : '加载更多评论' }}
       </button>

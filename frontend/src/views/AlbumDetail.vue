@@ -84,7 +84,10 @@
         <!-- 人物列表 - 横向可滚动 -->
         <div
           class="album-persons-slot"
-          :class="{ 'album-persons-slot--reserved': albumPersons.length > 0, 'album-persons-slot--visible': showAlbumPersons && albumPersons.length > 0 }"
+          :class="{
+            'album-persons-slot--reserved': albumPersons.length > 0 && !showAlbumPersons,
+            'album-persons-slot--visible': albumPersons.length > 0 && showAlbumPersons
+          }"
           ref="albumPersonsSlotRef"
           :style="{ '--persons-height': `${albumPersonsHeight}px` }"
         >
@@ -205,7 +208,7 @@
         :background-color="commentBackgroundColor"
         :border-color="commentBorderColor"
         :input-border-color="inputBorderColor"
-        :is-dark-mode="themeStore.isDark"
+        :is-dark-mode="contentBackgroundIsDark"
       />
 
       <!-- 回到顶部按钮 -->
@@ -549,6 +552,17 @@ const atmosphereBgColor = computed(() => {
   return themeStore.isDark ? album.value!.darkBgColor! : album.value!.lightBgColor!
 })
 
+// 页面实际生效的背景色。过渡期间可能暂时使用从相册列表页带来的预存颜色，
+// 不能只用全局日夜间开关判断评论文字颜色。
+const effectiveBackgroundColor = computed(() => {
+  if (presetAtmosphereBg.value) return presetAtmosphereBg.value
+  if (atmosphereEnabled.value && atmosphereBgColor.value) return atmosphereBgColor.value
+  return themeStore.isDark ? '#000000' : '#ffffff'
+})
+
+// 根据实际背景亮度决定内容使用浅色还是深色文字。
+const contentBackgroundIsDark = computed(() => getBrightness(effectiveBackgroundColor.value) < 0.5)
+
 // 当前模式下的氛围点缀色（用于标题等）
 const atmosphereAccentColor = computed(() => {
   if (!album.value?.darkAccentColor || !album.value?.lightAccentColor) return null
@@ -577,15 +591,10 @@ const backgroundStyle = computed(() => {
 
 // 文字样式（确保在任何背景下都有足够对比度）
 const textStyle = computed(() => {
-  if (atmosphereEnabled.value && atmosphereBgColor.value) {
-    // 深色模式用浅色文字，浅色模式用深色文字
-    return { color: themeStore.isDark ? '#e8e8e8' : '#2a2a2a' }
-  } else if (!atmosphereEnabled.value) {
-    return {
-      color: themeStore.isDark ? '#ffffff' : '#1a1a1a'
-    }
+  if (effectiveBackgroundColor.value) {
+    return { color: contentBackgroundIsDark.value ? '#e8e8e8' : '#2a2a2a' }
   }
-  return {}
+  return { color: contentBackgroundIsDark.value ? '#ffffff' : '#1a1a1a' }
 })
 
 // 标题样式（使用点缀色，在氛围背景上更醒目）
@@ -604,24 +613,21 @@ const albumAtmosphereEffects = computed(() => {
   return album.value?.atmosphereEffects || [] as any[]
 })
 
-// 评论区域背景和边框颜色（根据日夜间模式，而非氛围开关）
+// 评论区域背景和边框颜色跟随实际内容背景的明暗，而不是单独使用日夜间开关。
 const commentBackgroundColor = computed(() => {
-  // 直接根据日夜间模式判断，不依赖氛围开关
-  if (themeStore.isDark) {
-    return 'rgba(31, 41, 55, 0.85)' // 深色日间
-  } else {
-    return 'rgba(255, 255, 255, 0.85)' // 浅色日间
-  }
+  return contentBackgroundIsDark.value
+    ? 'rgba(31, 41, 55, 0.85)'
+    : 'rgba(255, 255, 255, 0.85)'
 })
 
-// 评论区域边框颜色（根据日夜间模式）
+// 评论区域边框颜色（根据实际背景明暗）
 const commentBorderColor = computed(() => {
-  return themeStore.isDark ? 'rgba(75, 85, 99, 0.3)' : 'rgba(229, 231, 235, 0.3)'
+  return contentBackgroundIsDark.value ? 'rgba(75, 85, 99, 0.3)' : 'rgba(229, 231, 235, 0.3)'
 })
 
-// 输入框边框颜色（根据日夜间模式）
+// 输入框边框颜色（根据实际背景明暗）
 const inputBorderColor = computed(() => {
-  return themeStore.isDark ? 'rgb(255 255 255 / 0.3)' : 'rgb(107 114 128 / 0.5)'
+  return contentBackgroundIsDark.value ? 'rgb(255 255 255 / 0.3)' : 'rgb(107 114 128 / 0.5)'
 })
 
 // 计算列数（响应式，与其他页面保持一致）
@@ -2025,13 +2031,30 @@ const loadAlbumPersons = async (id: number) => {
 }
 
 // 颜色处理工具函数
-const hexToRgb = (hex: string) => {
+const hexToRgb = (color: string) => {
+  const hex = color.trim()
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : null
+  if (result) {
+    return {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    }
+  }
+
+  const shortResult = /^#?([a-f\d])([a-f\d])([a-f\d])$/i.exec(hex)
+  if (shortResult) {
+    return {
+      r: parseInt(`${shortResult[1]}${shortResult[1]}`, 16),
+      g: parseInt(`${shortResult[2]}${shortResult[2]}`, 16),
+      b: parseInt(`${shortResult[3]}${shortResult[3]}`, 16)
+    }
+  }
+
+  const rgbResult = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(hex)
+  return rgbResult
+    ? { r: Number(rgbResult[1]), g: Number(rgbResult[2]), b: Number(rgbResult[3]) }
+    : null
 }
 
 // 相册拍摄时间使用紧凑日期显示，放在照片数量之后。
@@ -2070,8 +2093,8 @@ const resetImageLoading = () => {
   // 注意：showComments 由 watch 统一控制，不在这里重置
 }
 
-const getBrightness = (hex: string) => {
-  const rgb = hexToRgb(hex)
+const getBrightness = (color: string) => {
+  const rgb = hexToRgb(color)
   if (!rgb) return 0.5
 
   // 使用相对亮度公式

@@ -1536,7 +1536,9 @@ const initializeBoxStates = () => {
 // 事件处理函数已在下面定义
 
 // 初始化状态
-infoCollapsed.value = localStorage.getItem('pe-info-collapsed') === '1'
+const savedInfoCollapsed = localStorage.getItem('pe-info-collapsed')
+// 首次使用没有保存记录时默认隐藏信息面板；之后才恢复用户上次的选择。
+infoCollapsed.value = savedInfoCollapsed === null ? true : savedInfoCollapsed === '1'
 infoTransparent.value = localStorage.getItem(STORAGE_KEY) === '1'
 // 初始化信息栏宽度
 const savedWidth = localStorage.getItem('pe-info-panel-width')
@@ -2007,15 +2009,6 @@ const onImageContainerClick = (event: MouseEvent) => {
     event.stopPropagation()
     return
   }
-  if (deferredTapAction.value && !swipeTransitioning.value) {
-    event.stopPropagation()
-    flushDeferredTapAction()
-    return
-  }
-  if (swipeTransitioning.value) {
-    event.stopPropagation()
-    return
-  }
   // 如果正在拖拽，不处理点击
   if (wasDragging.value || isImageDragging.value) {
     return
@@ -2023,27 +2016,60 @@ const onImageContainerClick = (event: MouseEvent) => {
 
   event.stopPropagation()
 
-  const target = event.target as HTMLElement
-  const currentTarget = event.currentTarget as HTMLElement
+  // The content area fills the whole space around the image, so event.target
+  // cannot tell whether the user clicked the drawable image or the black
+  // backdrop. Use the rendered image rectangle instead. A backdrop tap is a
+  // single-purpose action and must close immediately; only taps on the image
+  // are delayed to allow the second click of a double-click to cancel them.
+  const action = getTapAction(event.target, event.clientX, event.clientY)
+  if (action === 'close') {
+    if (containerClickTimer) {
+      clearTimeout(containerClickTimer)
+      containerClickTimer = null
+    }
+    close()
+    return
+  }
 
-  // Browser dispatches two click events before dblclick. Defer the single
+  if (deferredTapAction.value && !swipeTransitioning.value) {
+    flushDeferredTapAction()
+    return
+  }
+  if (swipeTransitioning.value) {
+    return
+  }
+
+  // Browser dispatches two click events before dblclick. Defer the image
   // click briefly so a double-click can cancel both and perform only zoom.
   if (containerClickTimer) clearTimeout(containerClickTimer)
-  const action = target === currentTarget ? 'close' : 'toggle-controls'
   containerClickTimer = window.setTimeout(() => {
     containerClickTimer = null
     if (closing.value || !props.visible) return
-    if (action === 'close') close()
-    else controlsVisible.value = !controlsVisible.value
+    controlsVisible.value = !controlsVisible.value
   }, 240)
 }
 
-const getTapAction = (target: EventTarget | null): 'close' | 'toggle-controls' => {
-  // Both the stage and the image viewport are empty black background. A click
-  // on either should close; clicks landing on the image wrapper toggle chrome.
-  return target === mainContentArea.value || target === imageViewport.value
-    ? 'close'
-    : 'toggle-controls'
+const isPointInsideDisplayedImage = (x: number, y: number) => {
+  const imageRect = mainImage.value?.getBoundingClientRect()
+  if (imageRect && imageRect.width > 1 && imageRect.height > 1) {
+    return x >= imageRect.left && x <= imageRect.right && y >= imageRect.top && y <= imageRect.bottom
+  }
+  const wrapperRect = imageWrapper.value?.getBoundingClientRect()
+  return !!wrapperRect && wrapperRect.width > 1 && wrapperRect.height > 1
+    && x >= wrapperRect.left && x <= wrapperRect.right
+    && y >= wrapperRect.top && y <= wrapperRect.bottom
+}
+
+const getTapAction = (target: EventTarget | null, x?: number, y?: number): 'close' | 'toggle-controls' => {
+  // Coordinates are authoritative for the full-size content area. The target
+  // fallback keeps deferred taps working in browsers that omit client coords
+  // on synthetic events.
+  if (typeof x === 'number' && typeof y === 'number') {
+    return isPointInsideDisplayedImage(x, y) ? 'toggle-controls' : 'close'
+  }
+  return target === imageWrapper.value || target === mainImage.value
+    ? 'toggle-controls'
+    : 'close'
 }
 
 const flushDeferredTapAction = () => {
@@ -2251,31 +2277,15 @@ const onImagePointerDown = (e: PointerEvent) => {
     return
   }
   if (swipeTransitioning.value) {
-    // Interrupt the active CSS transition at its current visual position.
-    // The next gesture then starts from that position instead of being
-    // ignored until the old animation finishes.
-    const elapsed = Math.max(0, performance.now() - swipeStartedAt)
-    const progress = Math.min(1, elapsed / 260)
-    const currentOffset = swipeStartOffset + (swipeTargetOffset - swipeStartOffset) * progress
-    if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
-    transitionEpoch += 1
-    navigation.cancel()
-    swipeTransitioning.value = false
-    trackTransitionDisabled.value = false
-    pendingSwipeDirection.value = null
-    touchSwipeOffset.value = currentOffset
-    imageDragOffset.value = currentOffset
-    blockedSwipePointer.value = null
-    activePointers.clear()
-    isPinching.value = false
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-    pointerStartX.value = pointerLastX.value = e.clientX
-    pointerStartY.value = pointerLastY.value = e.clientY
-    pointerStartTime.value = performance.now()
-    pointerGesture.value = 'swipe'
-    isImageDragging.value = true
-    pointerSwipeBaseOffset.value = currentOffset
-    interruptedSwipeDirection.value = swipeTargetOffset < 0 ? 'next' : 'previous'
+    // A transition owns the visual track until its commit frame. Starting a
+    // second gesture by cancelling that transition leaves the incoming slot
+    // and current index out of sync, which causes the image to move a little
+    // and then spring back. Capture the pointer as a pending gesture instead;
+    // its final direction is queued and played after the current commit.
+    blockedSwipePointer.value = e.pointerId
+    blockedSwipeStartX.value = e.clientX
+    blockedSwipeStartY.value = e.clientY
+    blockedSwipeStartTime.value = performance.now()
     const target = e.currentTarget as HTMLElement
     target.setPointerCapture?.(e.pointerId)
     e.preventDefault()
@@ -2422,17 +2432,28 @@ const onImagePointerUp = (e: PointerEvent) => {
     const velocity = Math.abs(dx) / elapsed
     const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
     if (Math.hypot(dx, dy) < 8 && elapsed < 450) {
-      deferredTapAction.value = getTapAction(e.target)
+      const action = getTapAction(e.target, e.clientX, e.clientY)
+      if (action === 'close') {
+        blockedSwipePointer.value = null
+        try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+        close()
+        e.preventDefault()
+        return
+      }
+      deferredTapAction.value = action
     } else if (Math.abs(dx) > threshold || velocity > 0.6) {
-      queuedSwipeDirections.value.push(dx > 0 ? 'previous' : 'next')
+      const direction = dx > 0 ? 'previous' : 'next'
+      navigation.enqueue(direction)
     }
     blockedSwipePointer.value = null
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
     // The pointer may be released after the fixed transition timer has fired.
     // In that case no timer remains to flush the deferred tap, so consume it
     // on the next frame instead of leaving the viewer apparently unresponsive.
-    if (deferredTapAction.value && !swipeTransitioning.value) {
-      requestAnimationFrame(flushDeferredTapAction)
+    if (!swipeTransitioning.value) {
+      const queued = queuedSwipeDirections.value.shift() || null
+      if (queued) requestAnimationFrame(() => finishSwipe(queued))
+      else if (deferredTapAction.value) requestAnimationFrame(flushDeferredTapAction)
     }
     e.preventDefault()
     return

@@ -1,6 +1,6 @@
 <template>
   <div v-show="commentSectionVisible" class="comment-section max-w-4xl mx-auto mt-12 px-4 transition-opacity duration-500 ease-in-out" :class="{ 'opacity-0': !commentSectionVisible, 'opacity-100': commentSectionVisible }">
-    <h2 class="text-2xl font-light mb-8 text-white">评论</h2>
+    <h2 class="text-2xl font-light mb-8" :style="{ color: textColor }">评论</h2>
     <pre v-if="!commentSectionVisible">debug: commentSectionVisible = {{ commentSectionVisible }}, visible = {{ visible }}</pre>
 
     <!-- 评论列表 -->

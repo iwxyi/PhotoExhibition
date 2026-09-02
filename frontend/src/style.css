@@ -5628,12 +5628,14 @@
   max-height: var(--persons-height, 16rem);
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
 }
 
 .album-persons-slot--reserved {
   max-height: var(--persons-height, 16rem);
   opacity: 0;
   transform: translateY(0);
+  pointer-events: none;
 }
 
 .album-persons-section {
