@@ -6,7 +6,7 @@
     <div
       v-if="visible || closing"
       class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
-      :class="{ 'pointer-events-none': closing || !visible }"
+      :class="{ 'pointer-events-none viewer-inert': closing || !visible }"
       style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
@@ -717,6 +717,7 @@ import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { usePhotoViewerAssets } from '@/composables/usePhotoViewerAssets'
 import type { PhotoAssetInput } from '@/composables/usePhotoViewerAssets'
 import { usePhotoViewerNavigation } from '@/composables/usePhotoViewerNavigation'
+import { useFlingTapRepair } from '@/composables/useFlingTapRepair'
 
 type AdminMenuAction = {
   key: string
@@ -938,6 +939,7 @@ const modalStyle = computed(() => ({
 }))
 
 const { viewOriginalEnabled } = useUiSettings()
+const { armFlingTapRepair, disposeFlingTapRepair } = useFlingTapRepair()
 
 // 常量
 const STORAGE_KEY = 'pe-info-transparent'
@@ -2570,6 +2572,8 @@ const onImagePointerUp = (e: PointerEvent) => {
         width: draggedRect.width,
         height: draggedRect.height
       } : undefined)
+      // 带速度松手会让浏览器启动 fling，随后吞掉相册详情页上的第一次点击。
+      if (e.pointerType === 'touch') armFlingTapRepair()
     } else {
       // Keep the dismiss transform mounted while it animates back to center;
       // clearing the mode in the same frame would make the image snap.
@@ -2644,6 +2648,7 @@ const onImagePointerCancel = (e: PointerEvent) => {
       width: draggedRect.width,
       height: draggedRect.height
     } : undefined)
+    if (e.pointerType === 'touch') armFlingTapRepair()
   }
 }
 
@@ -3461,11 +3466,20 @@ onBeforeUnmount(() => {
   document.body.style.userSelect = ''
   activeInfoResizeHandle.value = null
   activeThumbResizeHandle.value = null
+  disposeFlingTapRepair()
   assetManager.clear()
 })
 </script>
 
 <style scoped>
+/* 关闭期间（closing 计时 + leave 过渡，约 540ms）节点还挂在最上层，而根节点上的
+   pointer-events: none 不会覆盖顶部栏、缩略图栏、信息面板上的 pointer-events: auto，
+   这些元素会挡住本该落到相册详情页的点击（顶部栏正好压住返回按钮）。 */
+.viewer-inert,
+.viewer-inert :deep(*) {
+  pointer-events: none !important;
+}
+
 /* 模态框显示/隐藏动画 */
 .modal-enter-active {
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
