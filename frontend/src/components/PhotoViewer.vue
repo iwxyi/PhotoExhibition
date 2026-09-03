@@ -1052,11 +1052,16 @@ const flightBoxStyle = computed(() => {
 const flightImageStyle = computed(() => {
   if (!flight.value) return {}
   return {
+    position: 'absolute' as const,
+    left: '50%',
+    top: '50%',
+    // 这个 translate 是静态的、不参与动画：动画只改 width/height。
+    // 一旦让 transform 参与动画，浏览器会把图层提升并只栅格化一次，
+    // 整段飞行都是 GPU 拉伸出来的软画面，结尾重新栅格化时就会「唰」地变清晰。
+    transform: 'translate(-50%, -50%)',
     width: '100%',
     height: '100%',
-    objectFit: 'cover' as const,
-    transformOrigin: 'center center',
-    willChange: 'transform'
+    objectFit: 'cover' as const
   }
 })
 
@@ -1085,15 +1090,21 @@ const startFlightAnimation = () => {
   if (!img || typeof img.animate !== 'function') return
   // 回弹只发生在图片上：先缩到比「铺满窗口」更小，再弹回来重新铺满。
   // 过冲期间图片比窗口小，四周会短暂露出一点底 —— 这正是「落进框里」的观感来源。
-  // 前半程保持铺满，跟着窗口一起缩；临近落位才缩过头，再弹回来。
-  // 若从一开始就缩过头，整段飞行都镶着一圈底，看起来只是"图片小了一号"，
-  // 而不是"落进框里弹了一下"。
+  // 内容的回弹只能往「放大」方向过冲。
+  //
+  // 取景窗是透明的，所以肉眼看到的「框」其实就是图片的边缘：图片一旦缩得比窗口小，
+  // 露出的底会让可见边缘跟着动，看起来就是「框也在回弹」——这正是拆开两个动画后
+  // 反而更乱的原因。反过来往大了过冲，图片始终盖满窗口，可见边缘完全由窗口决定，
+  // 于是框纹丝不动，回弹只体现在画面内容上（先多裁一点，再松回原本的取景）。
+  //
+  // 用 width/height 百分比而不是 transform: scale：百分比是相对当前窗口解析的，
+  // 每帧按真实尺寸重新栅格化，画面全程清晰；scale 会让图层被提升、只栅格化一次。
+  const zoom = `${(CLOSE_OVERSHOOT * 100).toFixed(2)}%`
   flightImageAnimation?.cancel()
   flightImageAnimation = img.animate([
-    { transform: 'scale(1)', easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
-    { offset: CLOSE_SETTLE_AT, transform: 'scale(1)', easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
-    { offset: CLOSE_OVERSHOOT_AT, transform: `scale(${CLOSE_OVERSHOOT})`, easing: CLOSE_EASE_OUT },
-    { transform: 'scale(1)' }
+    { width: '100%', height: '100%', easing: CLOSE_EASE_IN },
+    { offset: CLOSE_OVERSHOOT_AT, width: zoom, height: zoom, easing: CLOSE_EASE_OUT },
+    { width: '100%', height: '100%' }
   ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 }
 const modalStyle = computed(() => {
@@ -1133,11 +1144,10 @@ const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 于是观感是「窗口稳稳落位，图片落进这个框里弹了一下」。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
 const CLOSE_EASE_OUT = 'cubic-bezier(0.34, 1.1, 0.5, 1)'
-// 图片缩过头到「刚好铺满」的 88%，再弹回 100%。与行程长短无关。
-const CLOSE_OVERSHOOT = 0.88
-// 在此之前图片一直铺满窗口，之后才开始缩过头
-const CLOSE_SETTLE_AT = 0.5
-const CLOSE_OVERSHOOT_AT = 0.74
+// 内容过冲到铺满窗口的 112%（多裁一点），再松回 100%。
+// 必须 > 1：往小了过冲会露出窗口的底，可见边缘就跟着动了，看起来像框在回弹。
+const CLOSE_OVERSHOOT = 1.12
+const CLOSE_OVERSHOOT_AT = 0.55
 const CLOSE_DURATION_MS = 280
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
