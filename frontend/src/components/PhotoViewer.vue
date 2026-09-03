@@ -1041,19 +1041,21 @@ const flightBoxStyle = computed(() => {
   }
 })
 
-// 图片在飞行层里保持固定布局尺寸（等于起点的可见尺寸），只用 transform 缩放。
-// 早先的写法是让图片 width/height: 100% 跟着盒子一起变，于是每一帧都要按新尺寸
-// 重新栅格化一张大图——trace 里 RasterTask 累计 105ms、单帧最高 32ms，动画因此
-// 掉掉一大半帧，看起来就是"一瞬间就变小了"。改成只动 transform 后只栅格化一次。
+// 图片始终铺满取景窗（object-fit: cover），所以窗口怎么变形，画面就怎么跟着走，
+// 裁切也随窗口宽高比连续长出来 —— 不需要把窗口的缓动曲线在 JS 里复刻一遍。
+// 回弹则完全由 transform: scale 承担，叠加在"铺满"之上。
+//
+// 曾经改成固定尺寸 + transform 缩放来省栅格化，但那样图片是按自己的时间线走的，
+// 和窗口对不上：实测飞行途中画面只填满窗口的 63%，四周长期露底，
+// 看起来是"窗口和图片各飞各的"。而 trace 显示这段的栅格化开销主要来自背景淡出时
+// 重绘整个相册瀑布流，不是这张图，所以这里优先保证观感正确。
 const flightImageStyle = computed(() => {
-  const f = flight.value
-  if (!f) return {}
+  if (!flight.value) return {}
   return {
-    position: 'absolute' as const,
-    left: '50%',
-    top: '50%',
-    width: `${f.from.width}px`,
-    height: `${f.from.height}px`,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+    transformOrigin: 'center center',
     willChange: 'transform'
   }
 })
@@ -1064,15 +1066,6 @@ const startFlightAnimation = () => {
   const img = flightImage.value
   if (!f || !el || typeof el.animate !== 'function') return
 
-  // 过冲量按终点尺寸取固定比例，而不是让缓动曲线按行程长度放大：
-  // 桌面端行程很长，纯 bezier 过冲会冲出去一大截，看着像抽了一下。
-  const shrink = (1 - CLOSE_OVERSHOOT) / 2
-  const mid = {
-    left: f.to.left + f.to.width * shrink,
-    top: f.to.top + f.to.height * shrink,
-    width: f.to.width * CLOSE_OVERSHOOT,
-    height: f.to.height * CLOSE_OVERSHOOT
-  }
   const px = (r: FlightRect) => ({
     left: `${r.left}px`,
     top: `${r.top}px`,
@@ -1080,32 +1073,27 @@ const startFlightAnimation = () => {
     height: `${r.height}px`
   })
 
+  // 取景窗单调落位，不回弹：它要给人「一个固定的框」的感觉，
+  // 框自己也弹的话，看起来就成了整体缩放，而不是图片落进框里。
+  // 圆角走完 70% 时长即可，稍早收完不会和图片的回弹抢视线。
   flightAnimation?.cancel()
   flightAnimation = el.animate([
-    { ...px(f.from), borderRadius: '0px', easing: CLOSE_EASE_IN },
-    { offset: CLOSE_OVERSHOOT_AT, ...px(mid), borderRadius: f.radius, easing: CLOSE_EASE_OUT },
+    { ...px(f.from), borderRadius: '0px' },
     { ...px(f.to), borderRadius: f.radius }
-  ], { duration: CLOSE_DURATION_MS, fill: 'both' })
+  ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
   if (!img || typeof img.animate !== 'function') return
-  // 终点要等价于缩略图的 object-fit: cover：等比放大到刚好盖住目标框。
-  const cover = Math.max(f.to.width / f.from.width, f.to.height / f.from.height)
-  // 画面内容和盒子按同一比例过冲：过冲那一刻缩放取 cover * CLOSE_OVERSHOOT，
-  // 于是盒子是 0.94 倍、画面也是 0.94 倍 —— 构图和终点完全一致，只是整体小一点，
-  // 然后一起弹回。
-  //
-  // 之前这里让图片在过冲点就锁死在 cover：结果盒子往里收、画面却不动，
-  // 看起来像窗口被夹了一下，而不是整张图弹了一下。
-  // 同比例过冲还有个好处：盒子缩小时画面同步缩小，边缘不会露出空隙。
+  // 回弹只发生在图片上：先缩到比「铺满窗口」更小，再弹回来重新铺满。
+  // 过冲期间图片比窗口小，四周会短暂露出一点底 —— 这正是「落进框里」的观感来源。
+  // 前半程保持铺满，跟着窗口一起缩；临近落位才缩过头，再弹回来。
+  // 若从一开始就缩过头，整段飞行都镶着一圈底，看起来只是"图片小了一号"，
+  // 而不是"落进框里弹了一下"。
   flightImageAnimation?.cancel()
   flightImageAnimation = img.animate([
-    { transform: 'translate(-50%, -50%) scale(1)', easing: CLOSE_EASE_IN },
-    {
-      offset: CLOSE_OVERSHOOT_AT,
-      transform: `translate(-50%, -50%) scale(${cover * CLOSE_OVERSHOOT})`,
-      easing: CLOSE_EASE_OUT
-    },
-    { transform: `translate(-50%, -50%) scale(${cover})` }
+    { transform: 'scale(1)', easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
+    { offset: CLOSE_SETTLE_AT, transform: 'scale(1)', easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
+    { offset: CLOSE_OVERSHOOT_AT, transform: `scale(${CLOSE_OVERSHOOT})`, easing: CLOSE_EASE_OUT },
+    { transform: 'scale(1)' }
   ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 }
 const modalStyle = computed(() => {
@@ -1139,14 +1127,17 @@ const THUMB_KEY = 'pe-thumb-height'
 const OPENING_INPUT_GUARD_MS = 220
 // 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
 const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 收回分两段：先减速缩到「比缩略图再小一点」，再弹回缩略图的实际尺寸。
-// 盒子和画面内容按同一比例过冲，所以看起来是整张图弹了一下，
-// 而落位尺寸严格等于缩略图。
+// 收回的两层分工：
+//   盒子（取景窗）——单调地从大图的可见框收到缩略图框就停住，不参与回弹；
+//   图片本身——从最大缩到比"填满窗口"更小一点，再弹回来把窗口填满。
+// 于是观感是「窗口稳稳落位，图片落进这个框里弹了一下」。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
-const CLOSE_EASE_OUT = 'cubic-bezier(0.4, 0, 0.35, 1)'
-// 过冲到终点尺寸的 92%，再弹回。固定比例，与行程长短无关。
-const CLOSE_OVERSHOOT = 0.92
-const CLOSE_OVERSHOOT_AT = 0.7
+const CLOSE_EASE_OUT = 'cubic-bezier(0.34, 1.1, 0.5, 1)'
+// 图片缩过头到「刚好铺满」的 88%，再弹回 100%。与行程长短无关。
+const CLOSE_OVERSHOOT = 0.88
+// 在此之前图片一直铺满窗口，之后才开始缩过头
+const CLOSE_SETTLE_AT = 0.5
+const CLOSE_OVERSHOOT_AT = 0.74
 const CLOSE_DURATION_MS = 280
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
@@ -3719,12 +3710,10 @@ onBeforeUnmount(() => {
 /* 收回飞行层：外层负责裁切与圆角，内层图片用 cover 填满，
    于是盒子变形的过程就是裁切逐渐长出来的过程。 */
 .closing-flight-image {
-  /* 尺寸与定位由 flightImageStyle 给出（固定为起点尺寸，只用 transform 缩放）。
-     这里不要写 width/height: 100%，否则图片会随盒子逐帧改变尺寸并重新栅格化。 */
+  /* 尺寸/裁切由 flightImageStyle 给出（铺满取景窗 + cover），回弹由 WAAPI 驱动。 */
   display: block;
   max-width: none;
   max-height: none;
-  object-fit: fill;
   transition: none;
 }
 
