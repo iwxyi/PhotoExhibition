@@ -7859,3 +7859,16 @@
   .admin-photos-table td { padding-right: 0.5rem; padding-left: 0.5rem; }
   .admin-photos-page-numbers { display: none; }
 }
+
+/* 人物工作区的两列是主要操作面板；在后台深色模式下保持明确的深色层级，
+   不受公共页面 .dark 类或旧版浅色回退规则影响。 */
+:root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-sidebar,
+:root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-main-panel,
+:root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-panel.bg-gray-800 {
+  background: #121b2b !important;
+  border-color: #2d3a4f !important;
+}
+
+:root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-threshold-row {
+  background: transparent;
+}

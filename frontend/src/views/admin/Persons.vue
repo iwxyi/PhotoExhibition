@@ -21,7 +21,8 @@
       <!-- 左侧人物头像列表 -->
       <div 
         class="admin-persons-panel admin-persons-sidebar bg-gray-800 rounded-lg p-3 flex flex-col flex-shrink-0 min-h-0"
-        :class="{ 'pointer-events-none opacity-60': loadingPersons }"
+        :class="{ 'pointer-events-none': loadingPersons }"
+        :aria-busy="loadingPersons"
         :style="{ width: leftPanelWidth + 'px', minWidth: '200px', maxWidth: '500px' }"
       >
         <div class="mb-3 space-y-2">
@@ -393,11 +394,11 @@
               </button>
               <button
                 v-if="tab === 'confirmed'"
-                    @click="removeSelectedConfirmed"
-                    :disabled="selectedConfirmed.size === 0"
+                    @click="handleRemoveSelected"
+                    :disabled="getCurrentSelectionCount() === 0"
                     class="admin-button-danger px-2 py-1 rounded text-[10px] disabled:opacity-50"
                   >
-                    移除<template v-if="selectedConfirmed.size > 0"> ({{ selectedConfirmed.size }})</template>
+                    移除<template v-if="getCurrentSelectionCount() > 0"> ({{ getCurrentSelectionCount() }})</template>
                   </button>
                 </div>
           </div>
@@ -1335,7 +1336,8 @@ const filteredClaimDialogPersons = ref<PersonListItem[]>([])
 const loadingClaimDialogPersons = ref(false)
 const selectedClaimPersonId = ref<number | null>(null)
 const claimDialogSearchInput = ref<HTMLInputElement | null>(null)
-const claimDialogSourceTab = ref<'cluster' | 'unassigned' | null>(null) // 记录弹窗来源tab
+const claimDialogSourceTab = ref<'cluster' | 'unassigned' | 'direct' | null>(null) // 记录弹窗来源tab
+const claimDialogFaceIds = ref<number[]>([])
 
 // 查找相似人脸相关状态（从PhotoViewer跳转过来时使用）
 const findSimilarFaceId = ref<number | null>(null)
@@ -1381,6 +1383,7 @@ const applyThresholdFromInput = () => {
 }
 
 let thresholdTimer: number | null = null
+let thresholdSaveTimer: number | null = null
 
 // 左侧人物列表（直接显示所有已加载的人物，无分页）
 const visibleConfirmedPersons = computed(() => persons.value.filter(p => p.type === 'confirmed'))
@@ -1848,6 +1851,11 @@ const loadPersons = async (options?: { restoreClusterPages?: number; autoSelectF
     if (autoSelectFirst && persons.value.length && !selectedItem.value) {
       selectPerson(persons.value[0])
     }
+  } catch (error: any) {
+    if (requestId === personsLoadRequestId) {
+      console.error('加载人物列表失败:', error)
+      alert('加载人物列表失败: ' + (error?.response?.data?.error || error?.message || '请重试'))
+    }
   } finally {
     if (requestId === personsLoadRequestId) loadingPersons.value = false
   }
@@ -2116,6 +2124,7 @@ const loadConfirmedFaces = async (signal?: AbortSignal, clearData = true) => {
 
 const loadAssignedPhotos = async (signal?: AbortSignal, clearData = true) => {
   if (!selectedPersonId.value) return
+  loadingAssignedPhotos.value = true
   try {
     const res = await api.get(`/admin/persons/${selectedPersonId.value}/assigned-photos`, {
       params: { page: 0, size: 5000 }, // 设置足够大的分页大小来获取所有数据
@@ -2132,6 +2141,8 @@ const loadAssignedPhotos = async (signal?: AbortSignal, clearData = true) => {
       console.error('加载已指派照片失败:', error)
     }
     throw error
+  } finally {
+    loadingAssignedPhotos.value = false
   }
 }
 
@@ -2220,8 +2231,11 @@ const loadAlbumPhotos = async (albumId: number, signal?: AbortSignal) => {
     albumAbortController.abort()
     albumAbortController = null
   }
-  albumAbortController = new AbortController()
-  const acSignal = albumAbortController.signal
+  const controller = new AbortController()
+  albumAbortController = controller
+  const acSignal = controller.signal
+  const abortFromParent = () => controller.abort()
+  signal?.addEventListener('abort', abortFromParent, { once: true })
   try {
     // 获取相册中的所有图片
     const photosRes = await api.get(`/photos/album/${albumId}`, { params: { all: true }, signal: acSignal })
@@ -2325,10 +2339,11 @@ const loadAlbumPhotos = async (albumId: number, signal?: AbortSignal) => {
       })
     }
   } catch (error) {
-    if (albumAbortController && albumAbortController.signal.aborted) return
+    if (acSignal.aborted) return
     console.error('加载相册图片失败:', error)
   } finally {
-    if (albumAbortController) {
+    signal?.removeEventListener('abort', abortFromParent)
+    if (albumAbortController === controller) {
       albumAbortController = null
     }
   }
@@ -2341,8 +2356,11 @@ const loadAlbumSimilarFaces = async (albumId: number, signal?: AbortSignal) => {
     albumAbortController.abort()
     albumAbortController = null
   }
-  albumAbortController = new AbortController()
-  const acSignal = albumAbortController.signal
+  const controller = new AbortController()
+  albumAbortController = controller
+  const acSignal = controller.signal
+  const abortFromParent = () => controller.abort()
+  signal?.addEventListener('abort', abortFromParent, { once: true })
   try {
     const res = await api.get(`/admin/persons/${selectedPersonId.value}/albums/${albumId}/similar-faces`, { signal: acSignal })
     if (acSignal.aborted) return
@@ -2357,10 +2375,11 @@ const loadAlbumSimilarFaces = async (albumId: number, signal?: AbortSignal) => {
       })
     }
   } catch (error) {
-    if (albumAbortController && albumAbortController.signal.aborted) return
+    if (acSignal.aborted) return
     console.error('加载相册相似人脸失败:', error)
   } finally {
-    if (albumAbortController) {
+    signal?.removeEventListener('abort', abortFromParent)
+    if (albumAbortController === controller) {
       albumAbortController = null
     }
   }
@@ -2688,6 +2707,10 @@ const createPersonFromSelectedCluster = async () => {
     })
     const faces = facesRes.data || []
     const faceIds = faces.map((f: FaceItem) => f.id)
+    if (faceIds.length === 0) {
+      alert('当前聚类没有可用人脸')
+      return
+    }
 
     let targetPersonId: number
 
@@ -4249,6 +4272,8 @@ const getCurrentSelectionCount = (): number => {
       return selectedAuto.value.size
     case 'similar':
       return selectedSimilar.value.size
+    case 'albums':
+      return selectedAlbumFaces.value.size
     case 'unassigned':
       return selectedUnassigned.value.size
     default:
@@ -4263,6 +4288,7 @@ const getCurrentVisibleFaceList = (): FaceItem[] => {
   switch (tab.value) {
     case 'confirmed': return visibleConfirmedFaces.value
     case 'similar': return visibleSimilarFaces.value
+    case 'albums': return visibleAlbumFaces.value as FaceItem[]
     case 'unassigned': return visibleUnassignedFaces.value
     default: return []
   }
@@ -4280,6 +4306,10 @@ const getCurrentTabFaceCount = (): number => {
       return similarFaces.value.length
     case 'unassigned':
       return unassignedFaces.value.length
+    case 'albums':
+      return selectedAlbum.value?.albumPhotos?.length || 0
+    case 'auto':
+      return autoAssignedFaces.value.length
     default:
       return 0
   }
@@ -4298,6 +4328,12 @@ const getClaimButtonState = computed(() => {
   const currentTabType = getCurrentTabType()
   const selection = getCurrentSelection(currentTabType)
   const hasSelection = selection.value.size > 0
+
+  // 聚类项没有“当前人物”作为认领目标；这类场景应使用“认领为”弹窗，
+  // 避免未分配页上的通用按钮看似可用、点击后才报错。
+  if (!selectedPersonId.value && currentTabType !== 'cluster') {
+    return { text: '请先选择已确认人物', disabled: true, claimType: null }
+  }
 
   // 检查当前tab中是否有任何未认领的项目
   let hasAnyUnclaimedItems = false
@@ -4511,8 +4547,9 @@ const getClaimButtonText = computed(() => getClaimButtonState.value.text)
 
 // 全选当前tab的所有人脸
 const selectAllCurrentTab = () => {
-  const faceList = getCurrentFaceList(tab.value)
-  const selection = getCurrentSelection(tab.value)
+  const tabType = getCurrentTabType()
+  const faceList = getCurrentFaceList(tabType)
+  const selection = getCurrentSelection(tabType)
   const newSelection = new Set<number>()
   
   faceList.forEach(face => {
@@ -5334,6 +5371,7 @@ const openClaimDialog = async (sourceTab: 'cluster' | 'unassigned') => {
   }
   
   claimDialogSourceTab.value = sourceTab
+  claimDialogFaceIds.value = selectedFaceIds
   showClaimDialog.value = true
   claimDialogSearchKeyword.value = ''
   selectedClaimPersonId.value = null
@@ -5412,6 +5450,7 @@ const closeClaimDialog = () => {
   filteredClaimDialogPersons.value = []
   selectedClaimPersonId.value = null
   claimDialogSourceTab.value = null
+  claimDialogFaceIds.value = []
 }
 
 // 为单个人脸打开认领为弹窗
@@ -5421,7 +5460,8 @@ const openClaimDialogForSingleFace = async (faceId: number) => {
     return
   }
 
-  claimDialogSourceTab.value = 'unassigned' // 来源设置为unassigned
+  claimDialogSourceTab.value = 'direct'
+  claimDialogFaceIds.value = [faceId]
   showClaimDialog.value = true
   claimDialogSearchKeyword.value = ''
   selectedClaimPersonId.value = null
@@ -5544,6 +5584,8 @@ const handleCreatePersonFromClaimDialog = async () => {
   } else if (sourceTab === 'unassigned') {
     if (selectedUnassigned.value.size === 0) return
     selectedFaceIds = Array.from(selectedUnassigned.value)
+  } else if (sourceTab === 'direct') {
+    selectedFaceIds = [...claimDialogFaceIds.value]
   } else {
     return
   }
@@ -5607,6 +5649,8 @@ const confirmClaimToPerson = async () => {
   } else if (sourceTab === 'unassigned') {
     if (selectedUnassigned.value.size === 0) return
     selectedFaceIds = Array.from(selectedUnassigned.value)
+  } else if (sourceTab === 'direct') {
+    selectedFaceIds = [...claimDialogFaceIds.value]
   } else {
     return
   }
@@ -5697,14 +5741,23 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 
 onBeforeUnmount(() => {
   if (personSearchTimer !== null) window.clearTimeout(personSearchTimer)
+  if (thresholdTimer !== null) window.clearTimeout(thresholdTimer)
+  if (thresholdSaveTimer !== null) window.clearTimeout(thresholdSaveTimer)
+  if (tabLoadingOverlayTimer !== null) window.clearTimeout(tabLoadingOverlayTimer)
+  abortController?.abort()
+  albumAbortController?.abort()
+  confirmedPrefetchAbort?.abort()
+  stopAutoScroll()
   if (isResizing.value) {
     stopResize()
   }
   if (isResizingAlbums.value) {
     stopResizeAlbums()
   }
-  if (resizeObserver && personListContainer.value) {
-    resizeObserver.unobserve(personListContainer.value)
+  if (resizeObserver) {
+    if (personListContainer.value) resizeObserver.unobserve(personListContainer.value)
+    if (confirmedListContainer.value) resizeObserver.unobserve(confirmedListContainer.value)
+    if (clusterListContainer.value) resizeObserver.unobserve(clusterListContainer.value)
   }
   resizeObserver = null
   if (faceResizeObserver && tabScrollContainer.value) {
@@ -5730,7 +5783,7 @@ onBeforeUnmount(() => {
   }
 })
 
-watch(clusterThreshold, async (v) => {
+watch(clusterThreshold, (v) => {
   // 限制范围，但不再强制吸附，保证 spin 输入的数值可以精确生效
   let val = v || DEFAULT_CLUSTER_THRESHOLD
   if (Number.isNaN(val as any)) {
@@ -5739,14 +5792,20 @@ watch(clusterThreshold, async (v) => {
   val = Math.max(0.1, Math.min(0.9, val))
   clusterThreshold.value = parseFloat(Number(val).toFixed(2))
 
-  // 保存到后端
-  try {
-    await configApi.setFaceClusterThreshold(clusterThreshold.value)
-  } catch (e) {
-    console.error('保存聚类阈值失败:', e)
-    // 备用：保存到本地
-    localStorage.setItem('pe-cluster-threshold', String(clusterThreshold.value))
+  // 拖动滑块时只在停止操作后保存，避免移动端连续请求造成面板反复进入加载态。
+  if (thresholdSaveTimer) {
+    clearTimeout(thresholdSaveTimer)
   }
+  thresholdSaveTimer = window.setTimeout(async () => {
+    try {
+      await configApi.setFaceClusterThreshold(clusterThreshold.value)
+    } catch (e) {
+      console.error('保存聚类阈值失败:', e)
+      // 备用：保存到本地
+      localStorage.setItem('pe-cluster-threshold', String(clusterThreshold.value))
+    }
+    thresholdSaveTimer = null
+  }, 300)
 
   // 清除聚类转人物的临时映射（阈值改变后聚类列表会重新加载）
   convertedClusterIds.value.clear()

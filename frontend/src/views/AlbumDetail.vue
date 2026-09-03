@@ -242,6 +242,7 @@
 import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { prefersReducedMotion } from '@/composables/usePrefersReducedMotion'
+import { consumeDirectAlbumDetailEntry } from '@/utils/documentEntry'
 import { usePhotoStore } from '@/stores/photo'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useThemeStore } from '@/stores/theme'
@@ -1926,10 +1927,11 @@ onMounted(async () => {
 
   backTransitionPrepared = false
 
-  // 刷新后 sessionStorage 里仍留着刷新前首页布局的封面坐标，但首页会重新挂载、
-  // 滚动归零、相册列表重新分页加载，缩回的落点根本对不上。与其播一段错位的
-  // 动画，不如直接丢弃这批坐标走无动画返回。
-  if (performance.getEntriesByType('navigation')[0]?.type === 'reload') {
+  // 直接落在详情页上的文档（刷新、或粘贴链接打开）：sessionStorage 里的封面坐标
+  // 是上一次会话留下的，首页此时会重新挂载、滚动归零、重新分页，缩回的落点根本
+  // 对不上。丢弃它们走无动画导航，而不是播一段飞到错误位置的动画。
+  // 判定在模块加载时完成且只消费一次，原因见 documentEntry.ts。
+  if (consumeDirectAlbumDetailEntry()) {
     Object.keys(sessionStorage)
       .filter(key => key.startsWith('album-cover-rects-'))
       .forEach(key => sessionStorage.removeItem(key))
