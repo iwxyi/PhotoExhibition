@@ -1000,53 +1000,17 @@
     @viewer-index-change="onViewerIndexChange"
   />
 
-  <!-- 删除人物确认对话框 -->
-  <div v-if="deleteDialogVisible" class="fixed inset-0 admin-modal-backdrop flex items-center justify-center z-50" @click.self="deleteDialogVisible = false">
-    <div class="admin-modal-card admin-persons-modal p-6 max-w-md w-full mx-4">
-      <h3 class="text-lg font-semibold mb-4">删除人物</h3>
-      <p class="admin-persons-note mb-6">
-        确定要删除人物 <span class="font-semibold text-[color:var(--pe-admin-text-primary)]">"{{ selectedItem?.name || '未命名' }}"</span> 吗？
-      </p>
-
-      <div class="space-y-3 mb-6">
-        <div class="admin-persons-warning-card p-3 rounded">
-          <div class="font-medium text-amber-400 mb-1">解散人物</div>
-          <div class="text-sm admin-persons-note">将所有关联人脸重新设为未分配状态，然后删除人物记录。</div>
-        </div>
-
-        <div class="admin-persons-danger-card p-3 rounded">
-          <div class="font-medium text-red-400 mb-1">删除人物</div>
-          <div class="text-sm admin-persons-note">直接删除人物记录，人脸仍保持已分配状态但指向不存在的人物。</div>
-        </div>
-      </div>
-
-      <div class="flex gap-3 justify-end">
-        <button
-          @click="deleteDialogVisible = false"
-          class="admin-button-soft px-4 py-2 rounded transition-colors"
-        >
-          取消
-        </button>
-        <button
-          @click="confirmDissolvePerson"
-          class="admin-button-warning px-4 py-2 rounded transition-colors"
-        >
-          解散人物
-        </button>
-        <button
-          @click="confirmDeletePerson"
-          class="admin-button-danger px-4 py-2 rounded transition-colors"
-        >
-          删除人物
-        </button>
-      </div>
-    </div>
-  </div>
+  <PersonsDeleteDialog
+    v-model="deleteDialogVisible"
+    :selected-name="selectedItem?.name"
+    @dissolve="confirmDissolvePerson"
+    @remove="confirmDeletePerson"
+  />
   </div>
 
   <!-- 认领为弹窗 -->
   <div
-    v-if="showClaimDialog"
+    v-if="false && showClaimDialog"
     class="fixed inset-0 z-50 flex items-center justify-center"
     @click.self="closeClaimDialog"
   >
@@ -1154,6 +1118,20 @@
     </div>
   </div>
 
+  <PersonsClaimDialog
+    ref="claimDialogSearchInput"
+    v-model="showClaimDialog"
+    :loading="loadingClaimDialogPersons"
+    :persons="filteredClaimDialogDisplayPersons"
+    :search-keyword="claimDialogSearchKeyword"
+    :selected-person-id="selectedClaimPersonId"
+    :can-create="canCreatePersonFromClaimDialog"
+    @update:search-keyword="onClaimDialogSearchKeywordUpdate"
+    @enter="handleClaimDialogEnter"
+    @action="handleClaimDialogAction"
+    @select="selectClaimPerson"
+  />
+
   <!-- 人物右键菜单（毛玻璃） -->
   <teleport to="body">
     <div
@@ -1196,6 +1174,8 @@ import { api, personApi, configApi } from '@/api'
 import { usePhotoStore } from '@/stores/photo'
 import { useAuthStore } from '@/stores/auth'
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import PersonsDeleteDialog from '@/components/admin/PersonsDeleteDialog.vue'
+import PersonsClaimDialog, { type ClaimPersonItem } from '@/components/admin/PersonsClaimDialog.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { buildPublicPath } from '@/utils/publicRoute'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
@@ -1335,9 +1315,24 @@ const claimDialogPersons = ref<PersonListItem[]>([])
 const filteredClaimDialogPersons = ref<PersonListItem[]>([])
 const loadingClaimDialogPersons = ref(false)
 const selectedClaimPersonId = ref<number | null>(null)
-const claimDialogSearchInput = ref<HTMLInputElement | null>(null)
+const claimDialogSearchInput = ref<InstanceType<typeof PersonsClaimDialog> | null>(null)
 const claimDialogSourceTab = ref<'cluster' | 'unassigned' | 'direct' | null>(null) // 记录弹窗来源tab
 const claimDialogFaceIds = ref<number[]>([])
+
+const filteredClaimDialogDisplayPersons = computed<ClaimPersonItem[]>(() =>
+  filteredClaimDialogPersons.value.map(person => ({
+    id: person.id,
+    name: person.name,
+    faceCount: person.faceCount,
+    similarity: person.similarity,
+    thumbnailUrl: getPersonThumb(person)
+  }))
+)
+
+const onClaimDialogSearchKeywordUpdate = (value: string) => {
+  claimDialogSearchKeyword.value = value
+  filterClaimDialogPersons()
+}
 
 // 查找相似人脸相关状态（从PhotoViewer跳转过来时使用）
 const findSimilarFaceId = ref<number | null>(null)
@@ -5628,7 +5623,7 @@ const handleCreatePersonFromClaimDialog = async () => {
 }
 
 // 选择认领人物（单选）- 点击直接认领
-const selectClaimPerson = async (person: PersonListItem) => {
+const selectClaimPerson = async (person: ClaimPersonItem) => {
   // 设置选中并直接确认认领
   selectedClaimPersonId.value = person.id
   await confirmClaimToPerson()
