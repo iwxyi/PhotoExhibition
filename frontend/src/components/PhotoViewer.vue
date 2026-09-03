@@ -108,11 +108,18 @@
            缩略图的比例，裁切是连续长出来的。 -->
       <div
         v-if="flight"
+        ref="flightLayer"
         class="closing-flight"
         :style="flightBoxStyle"
         aria-hidden="true"
       >
-        <img :src="flight.src" class="closing-flight-image" alt="" />
+        <img
+          ref="flightImage"
+          :src="flight.src"
+          class="closing-flight-image"
+          :style="flightImageStyle"
+          alt=""
+        />
       </div>
 
       <!-- 主要图片显示区域 -->
@@ -1004,30 +1011,94 @@ const returningToThumb = ref(false)
 // 收回动画的飞行层。from = 图片当前在屏幕上的可见框，to = 缩略图框。
 type FlightRect = { left: number; top: number; width: number; height: number }
 const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string } | null>(null)
-const flightAtTarget = ref(false)
+const flightLayer = ref<HTMLElement | null>(null)
+const flightImage = ref<HTMLImageElement | null>(null)
+let flightAnimation: Animation | null = null
+let flightImageAnimation: Animation | null = null
 
+// 飞行层只渲染静态起始几何，动画交给 Web Animations API。
+//
+// 不能用 CSS 过渡：过渡要求「变化前样式」和「变化后样式」分属两次样式解析。
+// Vue 的 DOM 更新是异步的，元素插入（起点几何）和随后改成终点几何这两次
+// patch 之间，浏览器往往一次样式重算都还没做过 —— 于是它只看到一个「一出生
+// 就在终点」的新元素，过渡根本不会创建。实测 getAnimations() 为空，几何直接
+// 跳变；而这取决于两次 patch 之间是否恰好插进了一次重算，所以时好时坏，
+// 表现为「有的关闭方式有动画、有的没有」，不同设备还不一样。
+// WAAPI 的关键帧是显式的，不依赖任何渲染时序。
 const flightBoxStyle = computed(() => {
   const f = flight.value
   if (!f) return {}
-  const box = flightAtTarget.value ? f.to : f.from
   return {
     position: 'fixed' as const,
-    left: `${box.left}px`,
-    top: `${box.top}px`,
-    width: `${box.width}px`,
-    height: `${box.height}px`,
-    borderRadius: flightAtTarget.value ? f.radius : '0px',
+    left: `${f.from.left}px`,
+    top: `${f.from.top}px`,
+    width: `${f.from.width}px`,
+    height: `${f.from.height}px`,
+    borderRadius: '0px',
     overflow: 'hidden' as const,
     zIndex: 70,
-    pointerEvents: 'none' as const,
-    willChange: 'left, top, width, height',
-    transition: flightAtTarget.value
-      ? `left ${CLOSE_DURATION_MS}ms ${CLOSE_EASE}, top ${CLOSE_DURATION_MS}ms ${CLOSE_EASE},`
-        + ` width ${CLOSE_DURATION_MS}ms ${CLOSE_EASE}, height ${CLOSE_DURATION_MS}ms ${CLOSE_EASE},`
-        + ` border-radius ${Math.round(CLOSE_DURATION_MS * 0.7)}ms ${CLOSE_RADIUS_EASE}`
-      : 'none'
+    pointerEvents: 'none' as const
   }
 })
+
+// 图片在飞行层里保持固定布局尺寸（等于起点的可见尺寸），只用 transform 缩放。
+// 早先的写法是让图片 width/height: 100% 跟着盒子一起变，于是每一帧都要按新尺寸
+// 重新栅格化一张大图——trace 里 RasterTask 累计 105ms、单帧最高 32ms，动画因此
+// 掉掉一大半帧，看起来就是"一瞬间就变小了"。改成只动 transform 后只栅格化一次。
+const flightImageStyle = computed(() => {
+  const f = flight.value
+  if (!f) return {}
+  return {
+    position: 'absolute' as const,
+    left: '50%',
+    top: '50%',
+    width: `${f.from.width}px`,
+    height: `${f.from.height}px`,
+    willChange: 'transform'
+  }
+})
+
+const startFlightAnimation = () => {
+  const f = flight.value
+  const el = flightLayer.value
+  const img = flightImage.value
+  if (!f || !el || typeof el.animate !== 'function') return
+
+  // 过冲量按终点尺寸取固定比例，而不是让缓动曲线按行程长度放大：
+  // 桌面端行程很长，纯 bezier 过冲会冲出去一大截，看着像抽了一下。
+  const shrink = (1 - CLOSE_OVERSHOOT) / 2
+  const mid = {
+    left: f.to.left + f.to.width * shrink,
+    top: f.to.top + f.to.height * shrink,
+    width: f.to.width * CLOSE_OVERSHOOT,
+    height: f.to.height * CLOSE_OVERSHOOT
+  }
+  const px = (r: FlightRect) => ({
+    left: `${r.left}px`,
+    top: `${r.top}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`
+  })
+
+  flightAnimation?.cancel()
+  flightAnimation = el.animate([
+    { ...px(f.from), borderRadius: '0px', easing: CLOSE_EASE_IN },
+    { offset: CLOSE_OVERSHOOT_AT, ...px(mid), borderRadius: f.radius, easing: CLOSE_EASE_OUT },
+    { ...px(f.to), borderRadius: f.radius }
+  ], { duration: CLOSE_DURATION_MS, fill: 'both' })
+
+  if (!img || typeof img.animate !== 'function') return
+  // 终点要等价于缩略图的 object-fit: cover：等比放大到刚好盖住目标框。
+  const cover = Math.max(f.to.width / f.from.width, f.to.height / f.from.height)
+  // 缩放用等比，画面不会被压扁；并且在过冲那一刻就已经到位，
+  // 于是盒子缩过头的那一下是「裁得更多」，而不是连图一起缩小。
+  flightImageAnimation?.cancel()
+  flightImageAnimation = img.animate([
+    { transform: 'translate(-50%, -50%) scale(1)', easing: CLOSE_EASE_IN },
+    { offset: CLOSE_OVERSHOOT_AT, transform: `translate(-50%, -50%) scale(${cover})` },
+    { transform: `translate(-50%, -50%) scale(${cover})` }
+  ], { duration: CLOSE_DURATION_MS, fill: 'both' })
+}
 const modalStyle = computed(() => {
   const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
   if (returningToThumb.value) {
@@ -1059,12 +1130,15 @@ const THUMB_KEY = 'pe-thumb-height'
 const OPENING_INPUT_GUARD_MS = 220
 // 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
 const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 收回用带过冲的曲线。位置和宽高共用它，于是「弹过头再回来」同时体现在
-// 落点和裁切上：盒子先缩得比缩略图更小（裁掉更多），再弹回到正确尺寸。
-const CLOSE_EASE = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
-// 圆角用不回弹的曲线并且更快收完，避免和过冲叠加出现"角忽大忽小"。
-const CLOSE_RADIUS_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-const CLOSE_DURATION_MS = 300
+// 收回分两段：先减速冲到「略微缩过头」的位置，再回弹到缩略图。
+// 位置和宽高共用同一组关键帧，所以「弹过头再回来」同时体现在落点和裁切上：
+// 盒子先缩得比缩略图更小（多裁一点），再弹回正确尺寸。
+const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
+const CLOSE_EASE_OUT = 'cubic-bezier(0.4, 0, 0.35, 1)'
+// 过冲到终点尺寸的 94%，再弹回。固定比例，与行程长短无关。
+const CLOSE_OVERSHOOT = 0.94
+const CLOSE_OVERSHOOT_AT = 0.72
+const CLOSE_DURATION_MS = 280
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
 // 宿主没通过 resolveOriginRect 告诉我们缩略图圆角时的兜底值。
@@ -1330,12 +1404,12 @@ const imageTransformStyle = computed(() => {
         opacity: 0
       }
     }
+    // 没有缩略图落点时不做位移动画，只保持当前画面等背景淡出。
+    // originTransform 已经不再由关闭流程写入（收回一律走飞行层）。
     return {
-      transform: originTransform.value || closingStartTransform.value || 'none',
+      transform: closingStartTransform.value || 'none',
       transformOrigin: 'center center',
-      transition: originTransform.value
-        ? `transform ${CLOSE_DURATION_MS}ms ${CLOSE_EASE}`
-        : 'none'
+      transition: 'none'
     }
   }
 
@@ -1812,30 +1886,42 @@ const close = () => {
       to: { left: target.left, top: target.top, width: target.width, height: target.height },
       radius: target.radius || DEFAULT_THUMB_RADIUS
     }
-    flightAtTarget.value = false
     // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
     emit('return-transition', { photoId: closingPhotoId, active: true })
     // Return control to the parent immediately.  The component remains
     // rendered while closing and has pointer-events disabled, so the page
     // below can already receive a new thumbnail click.
     emit('update:visible', false)
-    requestAnimationFrame(() => {
-      if (!closing.value) return
-      // 起点样式已经上屏，这一帧再切到终点，过渡才会真正跑起来。
-      flightAtTarget.value = true
-      closingAnimationStarted.value = true
-    })
-    closeTimer = window.setTimeout(() => {
+    // 收尾：先摘掉飞行层、同时让宿主恢复缩略图（同一次 patch 内完成，不会有空档），
+    // 之后才把 closing 置否让模态走离场过渡。
+    //
+    // 注意不要 cancel 动画：cancel 会让元素回到 inline 的起点几何，而模态一旦进入
+    // 离场过渡，Vue 就不再 patch 这棵子树，v-if 也就摘不掉它了 —— 那张大图会带着
+    // 起点尺寸在原地停留整个离场时长。用 fill: 'both' 让它保持终点，直接移除即可。
+    const finalizeClose = () => {
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
+      flightAnimation = null
+      flightImageAnimation = null
+      flight.value = null
+      returningToThumb.value = false
+      emit('return-transition', { photoId: closingPhotoId, active: false })
       originTransform.value = null
       closingStartTransform.value = null
       closingAnimationStarted.value = false
       closing.value = false
-      returningToThumb.value = false
-      flight.value = null
-      flightAtTarget.value = false
-      closeTimer = null
-      emit('return-transition', { photoId: closingPhotoId, active: false })
-    }, CLOSE_DURATION_MS)
+    }
+
+    // 飞行层挂上 DOM 之后立刻起飞。WAAPI 不要求先上屏一帧。
+    nextTick(() => {
+      if (!closing.value) return
+      startFlightAnimation()
+      closingAnimationStarted.value = true
+      flightAnimation?.finished
+        .then(() => { if (closing.value) finalizeClose() })
+        .catch(() => { /* 被取消（重新打开/卸载），由对应流程收尾 */ })
+    })
+    // 兜底：WAAPI 不可用或 finished 没兑现时仍要收尾，留一点余量避免抢在动画前面。
+    closeTimer = window.setTimeout(finalizeClose, CLOSE_DURATION_MS + 60)
     return
   }
 
@@ -3610,6 +3696,11 @@ onBeforeUnmount(() => {
     returningToThumb.value = false
     emit('return-transition', { photoId: currentPhoto.value?.id ?? null, active: false })
   }
+  flightAnimation?.cancel()
+  flightImageAnimation?.cancel()
+  flightAnimation = null
+  flightImageAnimation = null
+  flight.value = null
   disposeFlingTapRepair()
   assetManager.clear()
 })
@@ -3619,11 +3710,12 @@ onBeforeUnmount(() => {
 /* 收回飞行层：外层负责裁切与圆角，内层图片用 cover 填满，
    于是盒子变形的过程就是裁切逐渐长出来的过程。 */
 .closing-flight-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  /* 尺寸与定位由 flightImageStyle 给出（固定为起点尺寸，只用 transform 缩放）。
+     这里不要写 width/height: 100%，否则图片会随盒子逐帧改变尺寸并重新栅格化。 */
   display: block;
-  /* 飞行层自己已经在做位移/缩放，图片不要再叠加任何过渡 */
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
   transition: none;
 }
 
