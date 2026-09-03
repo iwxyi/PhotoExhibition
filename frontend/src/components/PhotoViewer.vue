@@ -6,7 +6,10 @@
     <div
       v-if="visible || closing"
       class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
-      :class="{ 'pointer-events-none viewer-inert': closing || !visible }"
+      :class="{
+        'pointer-events-none viewer-inert': closing || !visible,
+        'viewer-returning': returningToThumb && closingAnimationStarted
+      }"
       style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
@@ -140,6 +143,7 @@
             v-if="openingPreviewVisible && currentPhoto"
             :src="getDisplayUrl(currentPhoto)"
             :alt="currentPhoto.filename"
+            ref="openingPreviewImage"
             class="absolute left-1/2 top-1/2 z-[3] pointer-events-none select-none opening-preview-image"
             :style="openingPreviewStyle"
           />
@@ -733,6 +737,10 @@ const props = defineProps<{
   autoShowFaces?: boolean
   forceShowFaces?: boolean  // 强制显示人脸框（用于人物管理页面）
   originRect?: { top: number; left: number; width: number; height: number } | null
+  // 关闭时用来定位「当前这张照片」的缩略图。originRect 只记录了打开时点的那一张，
+  // 翻过页之后再关闭就应该收回到当前照片的缩略图上，而不是最初那张。
+  // 宿主页面按 photoId 返回缩略图的位置；返回 null 则退回 originRect。
+  resolveOriginRect?: ((photoId: number, index: number) => { top: number; left: number; width: number; height: number } | null) | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
   adminMenuActions?: AdminMenuAction[] | null
 }>()
@@ -741,6 +749,9 @@ const emit = defineEmits<{
   (e: 'update:visible', val: boolean): void
   (e: 'viewer-index-change', payload: { index: number; photoId?: number; faceIds?: number[] }): void
   (e: 'admin-action', payload: { key: string; photo?: Photo; index: number }): void
+  // 收回动画的起止。宿主页面据此把目标缩略图暂时藏起来，
+  // 避免飞回去的图片和原图叠在一起穿帮。
+  (e: 'return-transition', payload: { photoId: number | null; active: boolean }): void
 }>()
 
 // 核心状态
@@ -763,6 +774,7 @@ const mainImage = ref<HTMLImageElement | null>(null)
 const mainContentArea = ref<HTMLElement | null>(null)
 const imageViewport = ref<HTMLElement | null>(null) // 图片可视区域（不受 transform 影响的参照系）
 const imageWrapper = ref<HTMLElement | null>(null) // 图片包装容器（用于控制动画）
+const openingPreviewImage = ref<HTMLImageElement | null>(null) // 打开动画的 FLIP 预览层
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const imageLoadError = ref(false)
@@ -965,14 +977,29 @@ const closingAnimationStarted = ref(false)
 const closingStartTransform = ref<string | null>(null)
 const activeOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const originTransform = ref<string | null>(null)
-const modalStyle = computed(() => ({
+// 收回到缩略图时，飞行中的图片必须保持不透明直到落位：目标缩略图这段时间被
+// 宿主页面藏起来了，如果图片也淡出，中途会出现一块什么都没有的空白。
+// 所以这种情况只淡出背景和各个操作栏，图片本身不参与淡出。
+const returningToThumb = ref(false)
+const modalStyle = computed(() => {
+  const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
+  if (returningToThumb.value) {
+    return {
+      opacity: 1,
+      backgroundColor: fadedOut ? 'rgba(0, 0, 0, 0)' : undefined,
+      backdropFilter: fadedOut ? 'blur(0px)' : undefined,
+      transition: `background-color ${CLOSE_DURATION_MS}ms ease, backdrop-filter ${CLOSE_DURATION_MS}ms ease`
+    }
+  }
   // Once the parent has released visibility and the handoff animation has
   // finished, keep the leave-transition node transparent.  Otherwise the
   // inline opacity would override Vue's leave class and briefly reveal a
   // fully opaque modal before it is removed.
-  opacity: (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value) ? 0 : 1,
-  transition: 'opacity 260ms cubic-bezier(0.4, 0, 0.2, 1)'
-}))
+  return {
+    opacity: fadedOut ? 0 : 1,
+    transition: 'opacity 260ms cubic-bezier(0.4, 0, 0.2, 1)'
+  }
+})
 
 const { viewOriginalEnabled } = useUiSettings()
 const { armFlingTapRepair, disposeFlingTapRepair } = useFlingTapRepair()
@@ -983,6 +1010,12 @@ const FOCUS_BOX_KEY = 'pe-focus-box-visible'
 const FACE_BOXES_KEY = 'pe-face-boxes-visible'
 const THUMB_KEY = 'pe-thumb-height'
 const OPENING_INPUT_GUARD_MS = 220
+// 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
+const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+// 收回用轻微过冲的曲线，落到缩略图上时有一点"Q弹"的手感。
+// 过冲幅度刻意保守：FLIP 的终点就是缩略图本身，冲过头太多会明显穿帮。
+const CLOSE_EASE = 'cubic-bezier(0.34, 1.35, 0.64, 1)'
+const CLOSE_DURATION_MS = 340
 
 // 计算属性
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
@@ -1110,9 +1143,11 @@ const imageStyle = computed(() => {
 
 const openingPreviewStyle = computed(() => ({
   ...imageStyle.value,
-  transform: openingPreviewTransform.value || 'translate(-50%, -50%)',
+  // 静止态与 FLIP 态保持相同的函数结构（平移+平移+缩放），
+  // 浏览器就能逐项插值，而不用退化成矩阵插值。
+  transform: openingPreviewTransform.value || 'translate(-50%, -50%) translate(0px, 0px) scale(1, 1)',
   transformOrigin: 'center center',
-  transition: openingPreviewTransform.value ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+  transition: openingPreviewTransform.value ? 'none' : `transform 300ms ${OPEN_EASE}`
 }))
 
 // Photo records normally contain the intrinsic dimensions. Use them before
@@ -1179,21 +1214,60 @@ const preloadSwipeNeighbors = () => {
   }
 }
 
+// 主图位于 imageWrapper 内部，后者承载 dismiss / 缩放 / 滑动的 transform，
+// 所以 getBoundingClientRect() 返回的是**已变换后**的框。而关闭动画写入的
+// transform 是相对未变换的布局框解析的，两者混用会让下滑关闭的落点整体偏高
+// 一个 dismissOffset、并且放大 1/scale 倍（实测偏 311px、放大 1.17 倍）。
+// 这里把当前的实时变换还原掉，得到布局框本身的位置与尺寸。
+const getNaturalImageRect = () => {
+  const rect = mainImage.value?.getBoundingClientRect()
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null
+  let tx = 0
+  let ty = 0
+  let liveScale = 1
+  if (isDismissing.value) {
+    ty = dismissOffset.value
+    liveScale = 1 - Math.min(1, dismissOffset.value / Math.max(window.innerHeight * 0.8, 1)) * 0.35
+  } else if (scale.value > 1) {
+    tx = translateX.value
+    ty = translateY.value
+    liveScale = scale.value
+  } else {
+    tx = swipeOffset.value
+  }
+  if (!(liveScale > 0)) liveScale = 1
+  const width = rect.width / liveScale
+  const height = rect.height / liveScale
+  return {
+    left: rect.left + rect.width / 2 - tx - width / 2,
+    top: rect.top + rect.height / 2 - ty - height / 2,
+    width,
+    height
+  }
+}
+
 const preloadAllThumbnails = (photos: Photo[]) => {
   const assets: PhotoAssetInput[] = photos.map(toAssetInput)
   assetManager.preloadThumbnails(assets)
 }
 
 const prepareOpeningTransform = () => {
-  if (openingTransformPrepared.value || !opening.value || !activeOriginRect.value || !imageViewport.value || !openingPreviewVisible.value) return
-  const target = imageViewport.value.getBoundingClientRect()
+  if (openingTransformPrepared.value || !opening.value || !activeOriginRect.value || !openingPreviewVisible.value) return
+  // FLIP 的起始几何必须量预览图**自己**的框，而不是它所在的容器。
+  // 预览图按图片比例缩放居中显示，和铺满视口的容器既不同尺寸也不同位置；
+  // 用容器的宽高算缩放，落点会系统性偏移（实测偏 271px、高度差 79px）。
+  const target = openingPreviewImage.value?.getBoundingClientRect()
   const origin = activeOriginRect.value
-  if (target.width <= 0 || target.height <= 0) return
+  if (!target || target.width <= 0 || target.height <= 0) return
   openingTransformPrepared.value = true
   const epoch = transitionEpoch
   const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
   const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
-  openingPreviewTransform.value = `translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
+  // 预览图靠 left/top 50% 定位，居中完全依赖 translate(-50%, -50%)。
+  // FLIP 变换会整体替换 transform，所以必须把这段居中平移一起写进来，
+  // 否则图片会先跳到容器中心的右下方再飞回来。
+  openingPreviewTransform.value =
+    `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
   opening.value = false
   if (openingPreviewTimer) clearTimeout(openingPreviewTimer)
   requestAnimationFrame(() => {
@@ -1228,7 +1302,7 @@ const imageTransformStyle = computed(() => {
       transform: originTransform.value || closingStartTransform.value || 'none',
       transformOrigin: 'center center',
       transition: originTransform.value
-        ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+        ? `transform ${CLOSE_DURATION_MS}ms ${CLOSE_EASE}`
         : 'none'
     }
   }
@@ -1403,6 +1477,7 @@ watch(() => props.visible, (newVisible) => {
     openingPreviewTransform.value = null
     closingAnimationStarted.value = false
     closingStartTransform.value = null
+    returningToThumb.value = false
     lastTapTime.value = 0
     lastTapX.value = 0
     lastTapY.value = 0
@@ -1659,7 +1734,8 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
     clearTimeout(closeTimer)
     closeTimer = null
   }
-  const measuredRect = visualRect || mainImage.value?.getBoundingClientRect()
+  // 传进来的 visualRect 已经是还原过变换的布局框（见 getNaturalImageRect）。
+  const measuredRect = visualRect || getNaturalImageRect()
   abortNavigation()
   if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
   // Capture the exact transform currently visible on screen before clearing
@@ -1685,14 +1761,24 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
   isImageDragging.value = false
   touchSwipeOffset.value = 0
   imageDragOffset.value = 0
-  if (activeOriginRect.value && measuredRect) {
-    const target = activeOriginRect.value
+  // 收回目标优先取「当前这张照片」的缩略图；宿主页面没提供解析器（或解析不到，
+  // 比如那张照片已被筛掉）时，才退回打开时记录的那一张。
+  const closingPhotoId = currentPhoto.value?.id ?? null
+  const resolved = closingPhotoId !== null
+    ? props.resolveOriginRect?.(closingPhotoId, currentIndex.value) ?? null
+    : null
+  const target = resolved || activeOriginRect.value
+
+  if (target && measuredRect) {
     const current = measuredRect
     if (current.width > 0 && current.height > 0) {
       const dx = target.left + target.width / 2 - (current.left + current.width / 2)
       const dy = target.top + target.height / 2 - (current.top + current.height / 2)
       closing.value = true
+      returningToThumb.value = true
       const targetTransform = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
+      // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
+      emit('return-transition', { photoId: closingPhotoId, active: true })
       // Return control to the parent immediately.  The component remains
       // rendered while closing and has pointer-events disabled, so the page
       // below can already receive a new thumbnail click.
@@ -1707,8 +1793,10 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
         closingStartTransform.value = null
         closingAnimationStarted.value = false
         closing.value = false
+        returningToThumb.value = false
         closeTimer = null
-      }, 280)
+        emit('return-transition', { photoId: closingPhotoId, active: false })
+      }, CLOSE_DURATION_MS)
       return
     }
   }
@@ -2617,14 +2705,10 @@ const onImagePointerUp = (e: PointerEvent) => {
     const velocity = dismissOffset.value / elapsed
     isImageDragging.value = false
     if (progress > 0.22 || velocity > 0.65) {
-      const draggedRect = mainImage.value?.getBoundingClientRect()
-      isDismissing.value = false
-      close(draggedRect ? {
-        left: draggedRect.left,
-        top: draggedRect.top,
-        width: draggedRect.width,
-        height: draggedRect.height
-      } : undefined)
+      // 必须在清理手势状态前取，getNaturalImageRect 要靠 isDismissing/dismissOffset
+      // 把当前的位移和缩放还原掉；close() 自己会负责清理这些状态。
+      const naturalRect = getNaturalImageRect()
+      close(naturalRect ?? undefined)
       // 带速度松手会让浏览器启动 fling，随后吞掉相册详情页上的第一次点击。
       if (e.pointerType === 'touch') armFlingTapRepair()
     } else {
@@ -2688,7 +2772,8 @@ const onImagePointerCancel = (e: PointerEvent) => {
   const mode = pointerGesture.value
   const shouldDismiss = mode === 'dismiss' && dismissOffset.value > 0
     && dismissOffset.value / Math.max(window.innerHeight, 1) > 0.22
-  const draggedRect = shouldDismiss ? mainImage.value?.getBoundingClientRect() : null
+  // 同 pointerup：必须在下面清理手势状态之前还原出布局框。
+  const naturalRect = shouldDismiss ? getNaturalImageRect() : null
 
   activePointers.delete(e.pointerId)
   try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
@@ -2707,12 +2792,7 @@ const onImagePointerCancel = (e: PointerEvent) => {
   lastTapTime.value = 0
 
   if (shouldDismiss) {
-    close(draggedRect && draggedRect.width > 0 && draggedRect.height > 0 ? {
-      left: draggedRect.left,
-      top: draggedRect.top,
-      width: draggedRect.width,
-      height: draggedRect.height
-    } : undefined)
+    close(naturalRect ?? undefined)
     if (e.pointerType === 'touch') armFlingTapRepair()
   }
 }
@@ -3490,12 +3570,26 @@ onBeforeUnmount(() => {
   document.body.style.userSelect = ''
   activeInfoResizeHandle.value = null
   activeThumbResizeHandle.value = null
+  // 收回动画途中被卸载时，结束事件不会由定时器发出；这里补一次，
+  // 否则宿主页面藏起来的那张缩略图会一直不显示。
+  if (returningToThumb.value) {
+    returningToThumb.value = false
+    emit('return-transition', { photoId: currentPhoto.value?.id ?? null, active: false })
+  }
   disposeFlingTapRepair()
   assetManager.clear()
 })
 </script>
 
 <style scoped>
+/* 收回到缩略图期间只淡出操作栏，图片保持不透明飞回去（见 modalStyle 的说明）。 */
+.viewer-returning :deep(.top-bar),
+.viewer-returning :deep(.thumbnail-bar),
+.viewer-returning :deep(.info-panel) {
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
 /* 关闭期间（closing 计时 + leave 过渡，约 540ms）节点还挂在最上层，而根节点上的
    pointer-events: none 不会覆盖顶部栏、缩略图栏、信息面板上的 pointer-events: auto，
    这些元素会挡住本该落到相册详情页的点击（顶部栏正好压住返回按钮）。 */

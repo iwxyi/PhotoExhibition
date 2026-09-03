@@ -230,7 +230,9 @@
       :photos="photos"
       :start-index="viewerIndex"
       :origin-rect="viewerOriginRect"
+      :resolve-origin-rect="resolveViewerOriginRect"
       :auto-show-faces="false"
+      @return-transition="onViewerReturnTransition"
     />
 
     <!-- 氛围特效 -->
@@ -679,6 +681,8 @@ const masonryItems = computed(() => {
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+// 查看器正在收回到哪张缩略图（收回动画期间该缩略图隐藏，避免与飞行中的图片重影）
+const returningPhotoId = ref<number | null>(null)
 
 const photoRefs = ref<Map<number, HTMLElement>>(new Map())
 const isTransitioning = ref(false)
@@ -832,6 +836,14 @@ const getImageUrl = (photo: any) => {
 
 const getPhotoStyle = (photo: any) => {
   const photoId = photo.id
+  // 查看器正收回到这张缩略图上：先藏起来，等飞回来的图片落位后再显示，
+  // 否则两张图会在终点重叠。
+  if (returningPhotoId.value === photoId) {
+    return {
+      visibility: 'hidden' as const,
+      transition: 'none'
+    }
+  }
   // 如果是封面图片且正在过渡，隐藏它们
   if (isTransitioning.value && transitionPhotoIds.value.includes(photoId)) {
     return {
@@ -1093,6 +1105,36 @@ const handlePhotoClick = (photo: any, idx: number, e: MouseEvent) => {
 watch(viewerVisible, (visible) => {
   if (!visible) resetPhotoPressState()
 })
+
+// 关闭查看器时，告诉它当前这张照片的缩略图在哪，好收回到正确的位置和尺寸。
+// 目标不在视口内时先滚动过去：此刻查看器的背景还是不透明的，滚动看不见，
+// 但收回的落点会因此停在用户能看到的地方，而不是飞出屏幕外。
+const resolveViewerOriginRect = (photoId: number) => {
+  const el = photoRefs.value.get(photoId)
+  if (!el || !el.isConnected) return null
+
+  const viewportH = window.innerHeight
+  let rect = el.getBoundingClientRect()
+  if (rect.bottom < 0 || rect.top > viewportH) {
+    el.scrollIntoView({ block: 'center', behavior: 'auto' })
+    rect = el.getBoundingClientRect()
+  }
+  if (rect.width <= 0 || rect.height <= 0) return null
+
+  // 以图片本身为准，和 openViewer 记录起点时保持同一参照物
+  const img = el.querySelector('img')
+  const source = img?.getBoundingClientRect()
+  const from = source && source.width > 0 && source.height > 0 ? source : rect
+  return { top: from.top, left: from.left, width: from.width, height: from.height }
+}
+
+// 收回动画期间把目标缩略图藏起来，避免飞回来的图片和它重影。
+// 必须走响应式状态交给 getPhotoStyle 输出：这些卡片的 style 由 :style 绑定管理
+// （而且 getPhotoStyle 里有 Math.random，每次渲染都会重新 patch），
+// 命令式写 el.style.visibility 会在下一次 patch 时被抹掉。
+const onViewerReturnTransition = ({ photoId, active }: { photoId: number | null; active: boolean }) => {
+  returningPhotoId.value = active ? photoId : null
+}
 
 // bulk actions
 const selectAll = () => {
