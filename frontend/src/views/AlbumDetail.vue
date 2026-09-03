@@ -1121,11 +1121,27 @@ const resolveViewerOriginRect = (photoId: number) => {
   }
   if (rect.width <= 0 || rect.height <= 0) return null
 
-  // 以图片本身为准，和 openViewer 记录起点时保持同一参照物
-  const img = el.querySelector('img')
-  const source = img?.getBoundingClientRect()
-  const from = source && source.width > 0 && source.height > 0 ? source : rect
-  return { top: from.top, left: from.left, width: from.width, height: from.height }
+  // 量卡片而不是里面的 img：卡片是 overflow:hidden + 圆角的那一层，也就是缩略图
+  // 真正占据的视觉区域；而 img 在 hover 时会被放大 1.1 倍（.photo-card:hover
+  // .photo-image），用它当落点会让收回的图片比缩略图大一圈。
+  // 卡片自身的 hover 位移也要去掉，否则落点会偏上几像素。
+  const style = getComputedStyle(el)
+  let left = rect.left
+  let top = rect.top
+  let width = rect.width
+  let height = rect.height
+  const matrix = style.transform && style.transform !== 'none' ? new DOMMatrixReadOnly(style.transform) : null
+  if (matrix) {
+    const sx = matrix.a || 1
+    const sy = matrix.d || 1
+    width = rect.width / sx
+    height = rect.height / sy
+    left = rect.left + rect.width / 2 - matrix.e - width / 2
+    top = rect.top + rect.height / 2 - matrix.f - height / 2
+  }
+  if (width <= 0 || height <= 0) return null
+
+  return { top, left, width, height, radius: style.borderRadius || undefined }
 }
 
 // 收回动画期间把目标缩略图藏起来，避免飞回来的图片和它重影。

@@ -20,7 +20,8 @@
       <!-- 顶部栏 -->
       <div v-show="controlsVisible" class="top-bar absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
         <div class="flex items-center gap-3">
-          <button class="btn-icon" @click="close" title="关闭">
+          <!-- 必须写成 close()：@click="close" 会把 MouseEvent 当成第一个参数传进去 -->
+          <button class="btn-icon" @click="close()" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -95,6 +96,23 @@
             </svg>
           </button>
         </div>
+      </div>
+
+      <!-- 收回到缩略图的飞行层。
+           查看器里的大图是 object-fit: contain、直角；缩略图是 object-fit: cover、
+           8px 圆角且被 overflow:hidden 裁掉。直接把 contain 的图缩放到缩略图框会
+           把画面压扁，而且到终点才突然出现裁切和圆角。
+           这里改成：外层盒子从「图片当前的可见框」变形到「缩略图框」，圆角同步
+           从 0 变到目标值；内层图片始终 object-fit: cover。起点时盒子的宽高比
+           正好等于图片比例，cover 与 contain 等价、看到完整图像；随着盒子变形到
+           缩略图的比例，裁切是连续长出来的。 -->
+      <div
+        v-if="flight"
+        class="closing-flight"
+        :style="flightBoxStyle"
+        aria-hidden="true"
+      >
+        <img :src="flight.src" class="closing-flight-image" alt="" />
       </div>
 
       <!-- 主要图片显示区域 -->
@@ -740,7 +758,8 @@ const props = defineProps<{
   // 关闭时用来定位「当前这张照片」的缩略图。originRect 只记录了打开时点的那一张，
   // 翻过页之后再关闭就应该收回到当前照片的缩略图上，而不是最初那张。
   // 宿主页面按 photoId 返回缩略图的位置；返回 null 则退回 originRect。
-  resolveOriginRect?: ((photoId: number, index: number) => { top: number; left: number; width: number; height: number } | null) | null
+  // radius 是缩略图的圆角（如 '8px'），用于让收回动画把圆角一起补出来。
+  resolveOriginRect?: ((photoId: number, index: number) => { top: number; left: number; width: number; height: number; radius?: string } | null) | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
   adminMenuActions?: AdminMenuAction[] | null
 }>()
@@ -981,6 +1000,34 @@ const originTransform = ref<string | null>(null)
 // 宿主页面藏起来了，如果图片也淡出，中途会出现一块什么都没有的空白。
 // 所以这种情况只淡出背景和各个操作栏，图片本身不参与淡出。
 const returningToThumb = ref(false)
+
+// 收回动画的飞行层。from = 图片当前在屏幕上的可见框，to = 缩略图框。
+type FlightRect = { left: number; top: number; width: number; height: number }
+const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string } | null>(null)
+const flightAtTarget = ref(false)
+
+const flightBoxStyle = computed(() => {
+  const f = flight.value
+  if (!f) return {}
+  const box = flightAtTarget.value ? f.to : f.from
+  return {
+    position: 'fixed' as const,
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    borderRadius: flightAtTarget.value ? f.radius : '0px',
+    overflow: 'hidden' as const,
+    zIndex: 70,
+    pointerEvents: 'none' as const,
+    willChange: 'left, top, width, height',
+    transition: flightAtTarget.value
+      ? `left ${CLOSE_DURATION_MS}ms ${CLOSE_EASE}, top ${CLOSE_DURATION_MS}ms ${CLOSE_EASE},`
+        + ` width ${CLOSE_DURATION_MS}ms ${CLOSE_EASE}, height ${CLOSE_DURATION_MS}ms ${CLOSE_EASE},`
+        + ` border-radius ${Math.round(CLOSE_DURATION_MS * 0.7)}ms ${CLOSE_RADIUS_EASE}`
+      : 'none'
+  }
+})
 const modalStyle = computed(() => {
   const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
   if (returningToThumb.value) {
@@ -1012,10 +1059,18 @@ const THUMB_KEY = 'pe-thumb-height'
 const OPENING_INPUT_GUARD_MS = 220
 // 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
 const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 收回用轻微过冲的曲线，落到缩略图上时有一点"Q弹"的手感。
-// 过冲幅度刻意保守：FLIP 的终点就是缩略图本身，冲过头太多会明显穿帮。
-const CLOSE_EASE = 'cubic-bezier(0.34, 1.35, 0.64, 1)'
-const CLOSE_DURATION_MS = 340
+// 收回用带过冲的曲线。位置和宽高共用它，于是「弹过头再回来」同时体现在
+// 落点和裁切上：盒子先缩得比缩略图更小（裁掉更多），再弹回到正确尺寸。
+const CLOSE_EASE = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+// 圆角用不回弹的曲线并且更快收完，避免和过冲叠加出现"角忽大忽小"。
+const CLOSE_RADIUS_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const CLOSE_DURATION_MS = 300
+// 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
+const CLOSE_FADE_MS = 260
+// 宿主没通过 resolveOriginRect 告诉我们缩略图圆角时的兜底值。
+// 这里不猜：保持直角＝与加飞行层之前的表现一致，不会给其它宿主页面
+// （PhotoWall / Search / RandomGallery，它们只传 originRect）引入错误的圆角。
+const DEFAULT_THUMB_RADIUS = '0px'
 
 // 计算属性
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
@@ -1214,38 +1269,6 @@ const preloadSwipeNeighbors = () => {
   }
 }
 
-// 主图位于 imageWrapper 内部，后者承载 dismiss / 缩放 / 滑动的 transform，
-// 所以 getBoundingClientRect() 返回的是**已变换后**的框。而关闭动画写入的
-// transform 是相对未变换的布局框解析的，两者混用会让下滑关闭的落点整体偏高
-// 一个 dismissOffset、并且放大 1/scale 倍（实测偏 311px、放大 1.17 倍）。
-// 这里把当前的实时变换还原掉，得到布局框本身的位置与尺寸。
-const getNaturalImageRect = () => {
-  const rect = mainImage.value?.getBoundingClientRect()
-  if (!rect || rect.width <= 0 || rect.height <= 0) return null
-  let tx = 0
-  let ty = 0
-  let liveScale = 1
-  if (isDismissing.value) {
-    ty = dismissOffset.value
-    liveScale = 1 - Math.min(1, dismissOffset.value / Math.max(window.innerHeight * 0.8, 1)) * 0.35
-  } else if (scale.value > 1) {
-    tx = translateX.value
-    ty = translateY.value
-    liveScale = scale.value
-  } else {
-    tx = swipeOffset.value
-  }
-  if (!(liveScale > 0)) liveScale = 1
-  const width = rect.width / liveScale
-  const height = rect.height / liveScale
-  return {
-    left: rect.left + rect.width / 2 - tx - width / 2,
-    top: rect.top + rect.height / 2 - ty - height / 2,
-    width,
-    height
-  }
-}
-
 const preloadAllThumbnails = (photos: Photo[]) => {
   const assets: PhotoAssetInput[] = photos.map(toAssetInput)
   assetManager.preloadThumbnails(assets)
@@ -1298,6 +1321,15 @@ const imageTransformStyle = computed(() => {
   // This branch must precede dismiss/zoom branches so those states cannot
   // overwrite the closing animation when the parent sets visible=false.
   if (closing.value) {
+    // 收回到缩略图时由飞行层负责演出，原图层直接隐藏（两者同时可见会重影）。
+    if (flight.value) {
+      return {
+        transform: closingStartTransform.value || 'none',
+        transformOrigin: 'center center',
+        transition: 'none',
+        opacity: 0
+      }
+    }
     return {
       transform: originTransform.value || closingStartTransform.value || 'none',
       transformOrigin: 'center center',
@@ -1727,15 +1759,16 @@ if (savedWidth) {
 // 初始化框体状态已在上面声明
 
 // 基本功能函数
-const close = (visualRect?: { left: number; top: number; width: number; height: number }) => {
+const close = () => {
   showAdminMenu.value = false
   if (closing.value) return
   if (closeTimer) {
     clearTimeout(closeTimer)
     closeTimer = null
   }
-  // 传进来的 visualRect 已经是还原过变换的布局框（见 getNaturalImageRect）。
-  const measuredRect = visualRect || getNaturalImageRect()
+  // 飞行层用绝对坐标，起点直接取图片此刻在屏幕上的可见框即可 —— 不需要再把
+  // dismiss / 缩放 / 滑动的变换还原掉。此时状态尚未清理，DOM 上仍带着手势变换。
+  const measuredRect = mainImage.value?.getBoundingClientRect() ?? null
   abortNavigation()
   if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
   // Capture the exact transform currently visible on screen before clearing
@@ -1769,36 +1802,41 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
     : null
   const target = resolved || activeOriginRect.value
 
-  if (target && measuredRect) {
-    const current = measuredRect
-    if (current.width > 0 && current.height > 0) {
-      const dx = target.left + target.width / 2 - (current.left + current.width / 2)
-      const dy = target.top + target.height / 2 - (current.top + current.height / 2)
-      closing.value = true
-      returningToThumb.value = true
-      const targetTransform = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
-      // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
-      emit('return-transition', { photoId: closingPhotoId, active: true })
-      // Return control to the parent immediately.  The component remains
-      // rendered while closing and has pointer-events disabled, so the page
-      // below can already receive a new thumbnail click.
-      emit('update:visible', false)
-      requestAnimationFrame(() => {
-        if (!closing.value) return
-        originTransform.value = targetTransform
-        closingAnimationStarted.value = true
-      })
-      closeTimer = window.setTimeout(() => {
-        originTransform.value = null
-        closingStartTransform.value = null
-        closingAnimationStarted.value = false
-        closing.value = false
-        returningToThumb.value = false
-        closeTimer = null
-        emit('return-transition', { photoId: closingPhotoId, active: false })
-      }, CLOSE_DURATION_MS)
-      return
+  if (target && measuredRect && measuredRect.width > 0 && measuredRect.height > 0) {
+    closing.value = true
+    returningToThumb.value = true
+    // 大图交给飞行层去演，原来的图片层立刻藏起来，避免两份图叠在一起。
+    flight.value = {
+      src: displayedImageUrl.value,
+      from: { left: measuredRect.left, top: measuredRect.top, width: measuredRect.width, height: measuredRect.height },
+      to: { left: target.left, top: target.top, width: target.width, height: target.height },
+      radius: target.radius || DEFAULT_THUMB_RADIUS
     }
+    flightAtTarget.value = false
+    // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
+    emit('return-transition', { photoId: closingPhotoId, active: true })
+    // Return control to the parent immediately.  The component remains
+    // rendered while closing and has pointer-events disabled, so the page
+    // below can already receive a new thumbnail click.
+    emit('update:visible', false)
+    requestAnimationFrame(() => {
+      if (!closing.value) return
+      // 起点样式已经上屏，这一帧再切到终点，过渡才会真正跑起来。
+      flightAtTarget.value = true
+      closingAnimationStarted.value = true
+    })
+    closeTimer = window.setTimeout(() => {
+      originTransform.value = null
+      closingStartTransform.value = null
+      closingAnimationStarted.value = false
+      closing.value = false
+      returningToThumb.value = false
+      flight.value = null
+      flightAtTarget.value = false
+      closeTimer = null
+      emit('return-transition', { photoId: closingPhotoId, active: false })
+    }, CLOSE_DURATION_MS)
+    return
   }
 
   // No origin rectangle (keyboard/backdrop close): still use the same
@@ -1813,7 +1851,7 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
     closingAnimationStarted.value = false
     closing.value = false
     closeTimer = null
-  }, 280)
+  }, CLOSE_FADE_MS)
 }
 
 const toggleFullscreen = () => {
@@ -2705,10 +2743,8 @@ const onImagePointerUp = (e: PointerEvent) => {
     const velocity = dismissOffset.value / elapsed
     isImageDragging.value = false
     if (progress > 0.22 || velocity > 0.65) {
-      // 必须在清理手势状态前取，getNaturalImageRect 要靠 isDismissing/dismissOffset
-      // 把当前的位移和缩放还原掉；close() 自己会负责清理这些状态。
-      const naturalRect = getNaturalImageRect()
-      close(naturalRect ?? undefined)
+      // close() 会自己读取图片此刻的可见框，并负责清理手势状态。
+      close()
       // 带速度松手会让浏览器启动 fling，随后吞掉相册详情页上的第一次点击。
       if (e.pointerType === 'touch') armFlingTapRepair()
     } else {
@@ -2772,8 +2808,6 @@ const onImagePointerCancel = (e: PointerEvent) => {
   const mode = pointerGesture.value
   const shouldDismiss = mode === 'dismiss' && dismissOffset.value > 0
     && dismissOffset.value / Math.max(window.innerHeight, 1) > 0.22
-  // 同 pointerup：必须在下面清理手势状态之前还原出布局框。
-  const naturalRect = shouldDismiss ? getNaturalImageRect() : null
 
   activePointers.delete(e.pointerId)
   try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
@@ -2792,7 +2826,7 @@ const onImagePointerCancel = (e: PointerEvent) => {
   lastTapTime.value = 0
 
   if (shouldDismiss) {
-    close(naturalRect ?? undefined)
+    close()
     if (e.pointerType === 'touch') armFlingTapRepair()
   }
 }
@@ -3582,6 +3616,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 收回飞行层：外层负责裁切与圆角，内层图片用 cover 填满，
+   于是盒子变形的过程就是裁切逐渐长出来的过程。 */
+.closing-flight-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* 飞行层自己已经在做位移/缩放，图片不要再叠加任何过渡 */
+  transition: none;
+}
+
 /* 收回到缩略图期间只淡出操作栏，图片保持不透明飞回去（见 modalStyle 的说明）。 */
 .viewer-returning :deep(.top-bar),
 .viewer-returning :deep(.thumbnail-bar),
