@@ -105,7 +105,7 @@
               rel="noopener noreferrer"
               class="album-person-card"
               :class="{ 'album-person-card--highlighted': hoveredPhotoPersonIds.has(person.id) }"
-              :style="{ '--delay': `${index * 80}ms` }"
+              :style="{ '--delay': `${Math.min(index, 8) * 55}ms` }"
               @click="handlePersonClick(person, $event)"
             >
               <div class="person-avatar-wrapper">
@@ -240,7 +240,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { prefersReducedMotion } from '@/composables/usePrefersReducedMotion'
 import { usePhotoStore } from '@/stores/photo'
 import { useUiSettings } from '@/composables/useUiSettings'
 import { useThemeStore } from '@/stores/theme'
@@ -412,10 +413,8 @@ const showComments = ref(false)
 
 // 监听照片数量变化，API返回照片后显示评论区
 watch(() => photos.value.length, (newCount) => {
-  console.log('[AlbumDetail] photos.length 变化:', newCount)
   if (newCount > 0) {
     showComments.value = true
-    console.log('[AlbumDetail] showComments 设为 true')
   }
 })
 
@@ -1252,7 +1251,6 @@ const handleBack = async () => {
   const entrySource = sessionStorage.getItem('album-entry-source')
   const shouldAnimate = entrySource === 'home' && !fromParam
   
-  console.log('[AlbumDetail] handleBack - fromParam:', fromParam, 'entryPage:', entryPage, 'shouldAnimate:', shouldAnimate)
 
   // 清理临时状态
   cleanupAnimationState()
@@ -1378,6 +1376,8 @@ let transitionViewportSnapshot: { width: number; height: number; offsetTop: numb
 const performCoverTransition = async (): Promise<boolean> => {
   const targetAlbumId = albumId.value
   if (!targetAlbumId) return false
+  // 开启「减弱动态效果」时不播这段横跨屏幕的飞行动画，直接呈现详情页
+  if (prefersReducedMotion()) return false
 
   const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
@@ -1598,200 +1598,185 @@ const performCoverTransition = async (): Promise<boolean> => {
   }
 }
 
-// 启动返回相册列表时的克隆动画（真正的缩回动画在 Home 页执行）
-const startBackTransitionAndNavigate = () => {
+// 本次离开是否已经准备过返回动画的克隆。返回按钮路径会先准备再 router.back()，
+// 那次回退同样会触发路由守卫，用这个标记避免重复创建两套克隆。
+let backTransitionPrepared = false
+
+// 同步创建返回动画的克隆元素，并把数据交给 Home 页去执行真正的缩回动画。
+//
+// 必须同步完成：系统/浏览器返回键走 popstate，本组件（不在 KeepAlive 名单里）
+// 会立刻卸载，放在 requestAnimationFrame 里创建的话回调执行时 photoRefs 已经失效。
+// getBoundingClientRect 本来就是同步读取，没有延迟的必要。
+const prepareBackTransitionClones = (): boolean => {
+  if (backTransitionPrepared) return true
+  if (prefersReducedMotion()) return false
+
   const targetAlbumId = albumId.value
-  if (!targetAlbumId) {
-    router.push(buildPublicPath('/', route.path))
-    return
-  }
+  if (!targetAlbumId) return false
+  // 只有从首页点进来才有封面可以缩回去
+  if (sessionStorage.getItem('album-entry-source') !== 'home') return false
+  if (photos.value.length === 0) return false
 
   const storageKey = `album-cover-rects-${targetAlbumId}`
   const storedData = sessionStorage.getItem(storageKey)
-  const isFromDirectUrl = sessionStorage.getItem('album-entry-source') !== 'home'
-
-  console.log('[返回动画] 启动，返回方式:', isFromDirectUrl ? '直接URL进入' : '正常导航')
-
-  // 如果没有封面位置信息，直接跳转
-  if (!storedData || photos.value.length === 0) {
-    console.log('[返回动画] 无封面数据，直接跳转')
-    sessionStorage.removeItem('album-back-transition')
-    sessionStorage.removeItem('album-animation-performed')
-    sessionStorage.removeItem('album-navigation-active')
-    sessionStorage.removeItem('album-entry-page')
-    sessionStorage.removeItem('album-entry-source')
-    
-    // 根据来源决定去向
-    const entryPage = sessionStorage.getItem('album-entry-page')
-    if (entryPage && stripPublicSlug(entryPage) !== '/') {
-      router.push(buildPublicPath(entryPage, route.path))
-    } else {
-      router.push(buildPublicPath('/', route.path))
-    }
-    return
-  }
+  if (!storedData) return false
 
   try {
     const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
     const usedPhotoIds: number[] = []
 
-    // 保存当前滚动位置
-    const currentScrollTop = window.scrollY || document.documentElement.scrollTop
-    const currentScrollLeft = window.scrollX || document.documentElement.scrollLeft
+    // 为三张封面对应的照片创建克隆元素，停留在当前详情页的位置
+    for (const { photoId } of coverRects) {
+      const photoElement = photoRefs.value.get(photoId)
+      if (!photoElement) continue
 
-    // scroll position saved
+      const img = photoElement.querySelector('img') as HTMLImageElement
+      if (!img) continue
 
-    // 临时禁用滚动
-    const preventScroll = (e: Event) => {
-      e.preventDefault()
-      window.scrollTo(currentScrollLeft, currentScrollTop)
+      const fromRect = photoElement.getBoundingClientRect()
+
+      // 创建图片克隆
+      const clone = img.cloneNode(true) as HTMLImageElement
+      clone.src = img.src
+      clone.style.position = 'fixed'
+      clone.style.top = `${fromRect.top}px`
+      clone.style.left = `${fromRect.left}px`
+      clone.style.width = `${fromRect.width}px`
+      clone.style.height = `${fromRect.height}px`
+      clone.style.objectFit = 'cover'
+      clone.style.zIndex = '9999'
+      clone.style.pointerEvents = 'none'
+      clone.style.borderRadius = '8px'
+      clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+      // 使用带轻微回弹效果
+      clone.style.transition = 'all 340ms cubic-bezier(0.34, 1.4, 0.63, 1)'
+      clone.style.willChange = 'transform, width, height, top, left'
+      clone.classList.add('album-back-clone')
+      clone.dataset.albumId = String(targetAlbumId)
+      clone.dataset.photoId = String(photoId)
+
+      document.body.appendChild(clone)
+      usedPhotoIds.push(photoId)
+
+      // 查找"共x张"覆盖层并克隆
+      const overlay = photoElement.closest('.cover-display')?.querySelector('.album-cover-overlay') as HTMLElement
+      if (overlay) {
+        const overlayRect = overlay.getBoundingClientRect()
+        const overlayClone = overlay.cloneNode(true) as HTMLElement
+        overlayClone.style.position = 'fixed'
+        overlayClone.style.top = `${overlayRect.top}px`
+        overlayClone.style.left = `${overlayRect.left}px`
+        overlayClone.style.width = `${overlayRect.width}px`
+        overlayClone.style.height = `${overlayRect.height}px`
+        overlayClone.style.zIndex = '10000'
+        overlayClone.style.pointerEvents = 'none'
+        overlayClone.style.borderRadius = overlay.style.borderRadius || '4px'
+        // 初始状态：缩小并向下偏移，准备向上出现的动画
+        overlayClone.style.transform = 'scale(0.95) translateY(8px)'
+        overlayClone.style.opacity = '0'
+        // 使用非线性 ease 曲线
+        overlayClone.style.transition = 'all 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease-out'
+        overlayClone.style.willChange = 'transform, width, height, top, left'
+        overlayClone.classList.add('album-back-overlay-clone')
+        overlayClone.dataset.albumId = String(targetAlbumId)
+        overlayClone.dataset.photoId = String(photoId)
+
+        document.body.appendChild(overlayClone)
+      }
     }
 
-    // 添加滚动事件监听器，强制保持滚动位置
-    window.addEventListener('scroll', preventScroll, { passive: false })
-    window.addEventListener('wheel', preventScroll, { passive: false })
-    window.addEventListener('touchmove', preventScroll, { passive: false })
+    // 一张克隆都没建成，没有可播放的动画
+    if (usedPhotoIds.length === 0) return false
 
-    // scroll protection added
-
-    // 在返回前，保存 coverRects 数据到 backTransitionData（因为详情页会在动画完成后清理它）
-    const backTransitionData = {
+    // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画。
+    // 包含 coverRects 数据，因为详情页会在动画完成后清理它。
+    sessionStorage.setItem('album-back-transition', JSON.stringify({
       albumId: targetAlbumId,
-      photoIds: [],  // 稍后填充
-      scrollTop: currentScrollTop,
-      scrollLeft: currentScrollLeft,
-      coverRects: coverRects  // 保存封面位置数据，用于 Home 页执行缩回动画
-    }
+      photoIds: usedPhotoIds,
+      scrollTop: window.scrollY || document.documentElement.scrollTop,
+      scrollLeft: window.scrollX || document.documentElement.scrollLeft,
+      coverRects
+    }))
 
-    // 使用 requestAnimationFrame 延迟创建克隆元素，避免影响当前页面布局
-    requestAnimationFrame(() => {
-      // requestAnimationFrame callback
-
-      // 为三张封面对应的照片创建克隆元素，停留在当前详情页的位置
-      for (const { photoId } of coverRects) {
-        const photoElement = photoRefs.value.get(photoId)
-        if (!photoElement) continue
-
-        const img = photoElement.querySelector('img') as HTMLImageElement
-        if (!img) continue
-
-        const fromRect = photoElement.getBoundingClientRect()
-
-        // 创建图片克隆
-        const clone = img.cloneNode(true) as HTMLImageElement
-        clone.src = img.src
-        clone.style.position = 'fixed'
-        clone.style.top = `${fromRect.top}px`
-        clone.style.left = `${fromRect.left}px`
-        clone.style.width = `${fromRect.width}px`
-        clone.style.height = `${fromRect.height}px`
-        clone.style.objectFit = 'cover'
-        clone.style.zIndex = '9999'
-        clone.style.pointerEvents = 'none'
-        clone.style.borderRadius = '8px'
-        clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-        // 使用带轻微回弹效果
-        clone.style.transition = 'all 340ms cubic-bezier(0.34, 1.4, 0.63, 1)'
-        clone.style.willChange = 'transform, width, height, top, left'
-        clone.classList.add('album-back-clone')
-        clone.dataset.albumId = String(targetAlbumId)
-        clone.dataset.photoId = String(photoId)
-
-        document.body.appendChild(clone)
-        usedPhotoIds.push(photoId)
-
-        // 查找"共x张"覆盖层并克隆
-        const overlay = photoElement.closest('.cover-display')?.querySelector('.album-cover-overlay') as HTMLElement
-        if (overlay) {
-          const overlayRect = overlay.getBoundingClientRect()
-          const overlayClone = overlay.cloneNode(true) as HTMLElement
-          overlayClone.style.position = 'fixed'
-          overlayClone.style.top = `${overlayRect.top}px`
-          overlayClone.style.left = `${overlayRect.left}px`
-          overlayClone.style.width = `${overlayRect.width}px`
-          overlayClone.style.height = `${overlayRect.height}px`
-          overlayClone.style.zIndex = '10000'
-          overlayClone.style.pointerEvents = 'none'
-          overlayClone.style.borderRadius = overlay.style.borderRadius || '4px'
-          // 初始状态：缩小并向下偏移，准备向上出现的动画
-          overlayClone.style.transform = 'scale(0.95) translateY(8px)'
-          overlayClone.style.opacity = '0'
-          // 使用非线性 ease 曲线
-          overlayClone.style.transition = 'all 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease-out'
-          overlayClone.style.willChange = 'transform, width, height, top, left'
-          overlayClone.classList.add('album-back-overlay-clone')
-          overlayClone.dataset.albumId = String(targetAlbumId)
-          overlayClone.dataset.photoId = String(photoId)
-
-          document.body.appendChild(overlayClone)
-        }
-      }
-
-      // clones created
-
-      console.log('[返回动画] 克隆数量:', usedPhotoIds.length)
-
-      // 如果没有创建任何克隆，直接跳转
-      if (usedPhotoIds.length === 0) {
-        sessionStorage.removeItem('album-back-transition')
-        sessionStorage.removeItem('album-animation-performed')
-        sessionStorage.removeItem('album-navigation-active')
-        sessionStorage.removeItem('album-entry-page')
-
-        const entryPage = sessionStorage.getItem('album-entry-page')
-        if (entryPage && stripPublicSlug(entryPage) !== '/') {
-          router.push(buildPublicPath(entryPage, route.path))
-        } else {
-          router.push(buildPublicPath('/', route.path))
-        }
-        return
-      }
-
-      // 记录本次返回动画需要用到的相册和照片 ID，供 Home 页继续执行缩回动画
-      // 包含 coverRects 数据，因为详情页会在动画完成后清理它
-      backTransitionData.photoIds = usedPhotoIds
-      backTransitionData.coverRects = coverRects
-      sessionStorage.setItem('album-back-transition', JSON.stringify(backTransitionData))
-
-      // 清理已使用的数据
-      sessionStorage.removeItem(storageKey)
-      // 清理 entry-page，让 Home 页能正常恢复滚动位置
-      sessionStorage.removeItem('album-entry-page')
-      sessionStorage.removeItem('album-entry-source')
-
-      // session storage set
-
-      // 正常从首页进入时使用历史回退，交给浏览器/KeepAlive 保留首页
-      // 原始滚动位置；只有没有可回退历史时才使用首页路径兜底。
-      console.log('[返回动画] 导航到 Home，使用历史回退保留原位置')
-      if (window.history.length > 1) router.back()
-      else router.push(buildPublicPath('/', route.path))
-
-      // 在路由切换后移除滚动防护（使用 setTimeout 确保在下一事件循环中执行）
-      setTimeout(() => {
-        // remove scroll protection
-        window.removeEventListener('scroll', preventScroll)
-        window.removeEventListener('wheel', preventScroll)
-        window.removeEventListener('touchmove', preventScroll)
-      }, 0)
-    })
-  } catch (error) {
-    console.error('启动返回相册列表动画失败:', error)
-    // 出错时导航到主页
-    sessionStorage.removeItem('album-back-transition')
-    sessionStorage.removeItem('album-animation-performed')
-    sessionStorage.removeItem('album-navigation-active')
+    // 清理已使用的数据。entry-page 也要清，Home 页才能正常恢复滚动位置。
+    sessionStorage.removeItem(storageKey)
     sessionStorage.removeItem('album-entry-page')
     sessionStorage.removeItem('album-entry-source')
-    
-    const entryPage = sessionStorage.getItem('album-entry-page')
+
+    backTransitionPrepared = true
+    return true
+  } catch (error) {
+    console.error('准备返回动画克隆失败:', error)
+    // 别把半成品克隆留在页面上
+    document.querySelectorAll('.album-back-clone, .album-back-overlay-clone').forEach(el => el.remove())
+    sessionStorage.removeItem('album-back-transition')
+    return false
+  }
+}
+
+// 清掉返回动画相关的所有 sessionStorage 状态
+const clearBackTransitionState = () => {
+  sessionStorage.removeItem('album-back-transition')
+  sessionStorage.removeItem('album-animation-performed')
+  sessionStorage.removeItem('album-navigation-active')
+  sessionStorage.removeItem('album-entry-page')
+  sessionStorage.removeItem('album-entry-source')
+}
+
+// 启动返回相册列表时的克隆动画（真正的缩回动画在 Home 页执行）
+const startBackTransitionAndNavigate = () => {
+  // 先读来源再清理：旧实现是先 removeItem 再读同一个 key，永远拿到 null，
+  // 于是从其它页面进来的返回也一律回到首页。
+  const entryPage = sessionStorage.getItem('album-entry-page')
+  const navigateAway = () => {
     if (entryPage && stripPublicSlug(entryPage) !== '/') {
       router.push(buildPublicPath(entryPage, route.path))
     } else {
       router.push(buildPublicPath('/', route.path))
     }
   }
+
+  if (!prepareBackTransitionClones()) {
+    clearBackTransitionState()
+    navigateAway()
+    return
+  }
+
+  // 导航期间锁住滚动位置，避免克隆的 fixed 定位与页面滚动脱节
+  const currentScrollTop = window.scrollY || document.documentElement.scrollTop
+  const currentScrollLeft = window.scrollX || document.documentElement.scrollLeft
+  const preventScroll = (e: Event) => {
+    e.preventDefault()
+    window.scrollTo(currentScrollLeft, currentScrollTop)
+  }
+  window.addEventListener('scroll', preventScroll, { passive: false })
+  window.addEventListener('wheel', preventScroll, { passive: false })
+  window.addEventListener('touchmove', preventScroll, { passive: false })
+
+  // 正常从首页进入时使用历史回退，交给浏览器/KeepAlive 保留首页
+  // 原始滚动位置；只有没有可回退历史时才使用首页路径兜底。
+  if (window.history.length > 1) router.back()
+  else router.push(buildPublicPath('/', route.path))
+
+  setTimeout(() => {
+    window.removeEventListener('scroll', preventScroll)
+    window.removeEventListener('wheel', preventScroll)
+    window.removeEventListener('touchmove', preventScroll)
+  }, 0)
 }
+
+// 系统返回键 / 浏览器后退按钮走 popstate，不经过 handleBack，
+// 所以返回动画的克隆必须在这里同步补上。
+onBeforeRouteLeave((to) => {
+  if (backTransitionPrepared) return true
+  const target = stripPublicSlug(to.path || '')
+  // 只有回到相册列表才有封面可缩回
+  if (target !== '/' && target !== '') return true
+  if (multiSelectActive.value || viewerVisible.value) return true
+  cleanupAnimationState()
+  prepareBackTransitionClones()
+  return true
+})
 
 // 加载相册数据的主要函数（onMounted 和 onActivated 都会调用）
 const loadAlbumData = async () => {
@@ -1818,7 +1803,6 @@ const loadAlbumData = async () => {
   const fromParam = route.query.from as string
   let savedEntryPage = sessionStorage.getItem('album-entry-page')
 
-  console.log('[AlbumDetail] loadAlbumData - fromParam:', fromParam, 'savedEntryPage:', savedEntryPage)
 
   if (fromParam) {
     sessionStorage.setItem('album-entry-page', fromParam)
@@ -1830,7 +1814,6 @@ const loadAlbumData = async () => {
         if (referrerPath && referrerPath !== route.path && !referrerPath.match(/^\/(album|person|photo|a|p)\/\d+$/)) {
           savedEntryPage = referrerPath
           sessionStorage.setItem('album-entry-page', savedEntryPage)
-          console.log('[AlbumDetail] loadAlbumData - saved from referrer:', savedEntryPage)
         }
       } catch {
         // ignore
@@ -1853,7 +1836,6 @@ const loadAlbumData = async () => {
   const storedBgColor = sessionStorage.getItem(`album-atmosphere-bg-${targetAlbumId}`)
   if (storedBgColor && atmosphereEnabled.value) {
     presetAtmosphereBg.value = storedBgColor
-    console.log('[AlbumDetail] 已读取预存氛围背景色:', storedBgColor)
   }
 
   await photoStore.fetchAlbumById(targetAlbumId)
@@ -1905,7 +1887,6 @@ const loadAlbumData = async () => {
 
   // 执行封面动画
   const hasCoverTransition = isFromNavigation ? await performCoverTransition() : false
-  console.log('[详情页] 展开动画结果:', { isFromNavigation, hasCoverTransition })
 
   if (hasCoverTransition) {
     sessionStorage.setItem('album-animation-performed', 'true')
@@ -1916,12 +1897,14 @@ const loadAlbumData = async () => {
     remainingPhotosVisible.value = true
   }
 
-  // 人物栏可能改变瀑布流整体起点，统一在封面动画结束后再显示。
-  // 数据即使已经返回，也不会在过渡过程中造成页面跳动。
+  // 在封面 FLIP（400ms）走到约 65% 时就开始逐个揭示人物栏，两段动画重叠，
+  // 观感更连贯。这不会造成页面跳动：album-persons-slot--reserved 在数据一到
+  // 就用 --persons-height 预留了高度，瀑布流起点与 showAlbumPersons 无关，
+  // 揭示只改变透明度和位移。
   if (albumPersonsRevealTimer) window.clearTimeout(albumPersonsRevealTimer)
   albumPersonsRevealTimer = window.setTimeout(() => {
     if (!isDisposed) showAlbumPersons.value = true
-  }, hasCoverTransition ? 430 : 120)
+  }, hasCoverTransition ? 260 : 120)
 
   // 评论数不参与首屏布局，动画启动后再补齐，避免阻塞封面展开。
   loadCommentCount(targetAlbumId).catch(() => undefined)
@@ -1940,6 +1923,19 @@ onMounted(async () => {
   if (document.scrollingElement) document.scrollingElement.scrollTop = 0
   document.documentElement.scrollTop = 0
   document.body.scrollTop = 0
+
+  backTransitionPrepared = false
+
+  // 刷新后 sessionStorage 里仍留着刷新前首页布局的封面坐标，但首页会重新挂载、
+  // 滚动归零、相册列表重新分页加载，缩回的落点根本对不上。与其播一段错位的
+  // 动画，不如直接丢弃这批坐标走无动画返回。
+  if (performance.getEntriesByType('navigation')[0]?.type === 'reload') {
+    Object.keys(sessionStorage)
+      .filter(key => key.startsWith('album-cover-rects-'))
+      .forEach(key => sessionStorage.removeItem(key))
+    sessionStorage.removeItem('album-entry-source')
+    sessionStorage.removeItem('album-navigation-active')
+  }
 
   // 从组件挂载开始就监听 ESC，避免网络请求/图片加载期间无法退出详情页。
   // addEventListener 对同一函数引用是幂等的，后续流程无需重复注册。
@@ -1971,7 +1967,6 @@ onActivated(async () => {
 
   // 如果没有数据或 ID 不匹配，需要重新加载
   if (!storeAlbum || storeAlbum.id !== currentAlbumId) {
-    console.log('[AlbumDetail] onActivated - 需要重新加载数据')
     await loadAlbumData()
   } else {
     // 即使数据匹配，也重置滚动位置
@@ -1979,7 +1974,6 @@ onActivated(async () => {
     if (document.scrollingElement) document.scrollingElement.scrollTop = 0
     document.documentElement.scrollTop = 0
     document.body.scrollTop = 0
-    console.log('[AlbumDetail] onActivated - 数据已存在，使用缓存')
   }
 })
 
@@ -2108,14 +2102,11 @@ const formatAlbumTakenAt = (dateStr: string) => {
 const handleImageLoaded = () => {
   // 图片加载完成后可能需要重新计算布局
   loadedImagesCount.value++
-  console.log(`[CommentSection] 图片加载完成: ${loadedImagesCount.value}/${totalImages.value}`)
 
   // 使用更宽松的判断：当至少 80% 的图片加载完成时，或者超过 3 秒后，自动标记为已加载
   // 这样可以避免 lazy loading 导致永远无法达到 100% 的问题
   const loadedRatio = totalImages.value > 0 ? loadedImagesCount.value / totalImages.value : 0
-  console.log(`[CommentSection] loadedRatio: ${loadedRatio}, threshold: ${Math.min(20, totalImages.value)}`)
   if (loadedRatio >= 0.8 || loadedImagesCount.value >= Math.min(20, totalImages.value)) {
-    console.log('[CommentSection] 设置 imagesLoaded = true')
     imagesLoaded.value = true
   }
 }

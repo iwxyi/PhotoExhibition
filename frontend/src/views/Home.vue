@@ -295,6 +295,63 @@ const enterPublicSite = (slug: string) => {
   router.push(`/${slug}`)
 }
 
+// 相册卡片渲染前的等待上限。刷新后进入首页时相册列表是异步请求的，
+// 缩回动画的目标卡片会晚一些才出现。
+const ALBUM_CARD_WAIT_MS = 600
+// 找不到目标时克隆的淡出时长——冻结在原地再突然消失是最糟的观感。
+const CLONE_FADE_MS = 150
+
+// 移除页面上残留的返回动画克隆。fade 为 true 时先淡出再移除。
+const discardBackTransitionClones = (albumId?: number, fade = false) => {
+  const selector = albumId === undefined
+    ? '.album-back-clone, .album-back-overlay-clone'
+    : `.album-back-clone[data-album-id="${albumId}"], .album-back-overlay-clone[data-album-id="${albumId}"]`
+  const clones = Array.from(document.querySelectorAll<HTMLElement>(selector))
+  if (!clones.length) return
+  if (!fade) {
+    clones.forEach(clone => clone.remove())
+    return
+  }
+  clones.forEach(clone => {
+    clone.style.transition = `opacity ${CLONE_FADE_MS}ms ease-out`
+    clone.style.opacity = '0'
+  })
+  window.setTimeout(() => clones.forEach(clone => clone.remove()), CLONE_FADE_MS + 30)
+}
+
+// 任何一条放弃执行缩回动画的路径都必须走这里。早期版本直接 return，克隆就
+// 永远留在页面上，冻结在详情页的位置，直到某个兜底定时器把它们瞬间抹掉。
+const abortBackTransition = (albumId?: number) => {
+  discardBackTransitionClones(albumId, true)
+  sessionStorage.removeItem('album-back-transition')
+  sessionStorage.removeItem('album-navigation-active')
+  sessionStorage.removeItem('album-animation-performed')
+}
+
+// 等待目标相册卡片出现，最多 ALBUM_CARD_WAIT_MS。
+const waitForAlbumCard = (albumId: number): Promise<HTMLElement | null> => {
+  const find = () => document.querySelector<HTMLElement>(`.photo-card[data-album-id="${albumId}"]`)
+  const immediate = find()
+  if (immediate) return Promise.resolve(immediate)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (el: HTMLElement | null) => {
+      if (settled) return
+      settled = true
+      observer.disconnect()
+      window.clearTimeout(timer)
+      resolve(el)
+    }
+    const observer = new MutationObserver(() => {
+      const el = find()
+      if (el) finish(el)
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    const timer = window.setTimeout(() => finish(find()), ALBUM_CARD_WAIT_MS)
+  })
+}
+
 // 从相册详情返回时，让三张封面原图在列表页缩回到封面
 const performAlbumBackTransitionIfNeeded = async () => {
 
@@ -318,8 +375,9 @@ const performAlbumBackTransitionIfNeeded = async () => {
   })
 
   const raw = sessionStorage.getItem('album-back-transition')
-  console.log('[Home] 检测返回动画数据:', { hasData: !!raw })
   if (!raw) {
+    // 没有本次返回的数据，但可能有上一次遗留的孤儿克隆，一并清掉。
+    discardBackTransitionClones()
     return
   }
 
@@ -328,11 +386,8 @@ const performAlbumBackTransitionIfNeeded = async () => {
     const albumId = data.albumId
     const coverRects = data.coverRects || []
 
-    console.log('[Home] 返回动画数据:', { albumId, coverRectsCount: coverRects.length })
-
     if (coverRects.length === 0) {
-      sessionStorage.removeItem('album-back-transition')
-      sessionStorage.removeItem('album-animation-performed')
+      abortBackTransition(albumId)
       return
     }
 
@@ -342,17 +397,15 @@ const performAlbumBackTransitionIfNeeded = async () => {
     )
 
     if (!clones.length) {
-      sessionStorage.removeItem('album-back-transition')
-      sessionStorage.removeItem('album-navigation-active')
-      sessionStorage.removeItem('album-animation-performed')
+      abortBackTransition(albumId)
       return
     }
 
-    // 立即开始动画，不需要等待（路由切换已经完成，DOM 已就绪）
-    // 获取目标相册卡片，用于动画计算
-    const albumCard = document.querySelector<HTMLElement>(`.photo-card[data-album-id="${albumId}"]`)
+    // 获取目标相册卡片，用于动画计算。刷新后进入首页时列表是异步加载的，
+    // 卡片可能还没渲染出来——等它出现再开始，而不是立刻放弃把克隆丢在页面上。
+    const albumCard = await waitForAlbumCard(albumId)
     if (!albumCard) {
-      sessionStorage.removeItem('album-back-transition')
+      abortBackTransition(albumId)
       return
     }
 
@@ -435,7 +488,12 @@ const performAlbumBackTransitionIfNeeded = async () => {
     clones.forEach((clone) => {
       const photoId = Number(clone.dataset.photoId || '0')
       const targetRect = targetRects.get(photoId) || coverRects.find((r) => r.photoId === photoId)?.rect
-      if (!targetRect) return
+      if (!targetRect) {
+        // 这一张没有落点可去，单独淡出，不能留在页面上不动。
+        clone.style.transition = `opacity ${CLONE_FADE_MS}ms ease-out`
+        clone.style.opacity = '0'
+        return
+      }
 
       // 根据 slot 或 photoId 决定最终的圆角样式，避免中间交界处出现不一致的圆角
       const coverEntry = coverRects.find((r) => r.photoId === photoId)
@@ -517,7 +575,7 @@ const performAlbumBackTransitionIfNeeded = async () => {
     }, 320)
   } catch (e) {
     console.error('执行相册返回封面动画失败:', e)
-    sessionStorage.removeItem('album-back-transition')
+    abortBackTransition()
   }
 }
 
@@ -732,14 +790,10 @@ const loadAlbumSortOrder = async () => {
 
 onMounted(async () => {
   window.addEventListener('pagehide', persistCurrentScroll)
-  // 清理可能残留的克隆元素（处理直接URL进入后返回或页面刷新等情况）
-  // 注意：不要清理 sessionStorage 数据，因为 performAlbumBackTransitionIfNeeded 需要用到它们
-  // 使用 setTimeout 延迟清理，确保动画有足够时间运行
-  setTimeout(() => {
-    document.querySelectorAll('.album-back-clone, .album-back-overlay-clone').forEach(clone => {
-      clone.remove()
-    })
-  }, 500)
+  // 这里曾有一个 500ms 的兜底清理，用来抹掉 performAlbumBackTransitionIfNeeded
+  // 提前返回时遗留的孤儿克隆——那正是「三张缩略图卡住不动、然后突然消失」的来源。
+  // 现在每条放弃路径都会自己淡出并移除克隆（见 abortBackTransition），
+  // 不需要也不应该再有这个会掩盖问题的兜底。
 
   // 刷新首页时始终从顶部开始。正常从详情页返回走 onActivated，
   // 由 KeepAlive 恢复点击前的位置，不经过这里。

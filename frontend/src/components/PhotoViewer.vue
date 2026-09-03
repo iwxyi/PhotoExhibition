@@ -718,6 +718,7 @@ import { usePhotoViewerAssets } from '@/composables/usePhotoViewerAssets'
 import type { PhotoAssetInput } from '@/composables/usePhotoViewerAssets'
 import { usePhotoViewerNavigation } from '@/composables/usePhotoViewerNavigation'
 import { useFlingTapRepair } from '@/composables/useFlingTapRepair'
+import { prefersReducedMotion } from '@/composables/usePrefersReducedMotion'
 
 type AdminMenuAction = {
   key: string
@@ -862,7 +863,31 @@ const pointerPinchScale = ref(1)
 const pointerPinchTranslate = ref({ x: 0, y: 0 })
 const pointerPinchCenter = ref({ x: 0, y: 0 })
 const pointerSwipeBaseOffset = ref(0)
-const interruptedSwipeDirection = ref<'previous' | 'next' | null>(null)
+// 松手瞬时速度（px/ms，带符号）。不能用「总位移 / 总时长」代替：接管一次过渡后
+// 轨道偏移里含有重新基准化的那一屏宽，它不是手指走过的距离。
+let swipeVelocity = 0
+let swipeVelocitySampleX = 0
+let swipeVelocitySampleAt = 0
+// 索引提交后要保留的轨道偏移量（中断过渡时重新基准化的结果）。
+// null 表示按常规归零。由监听 currentPhoto 的 watcher 消费。
+let pendingTrackOffset: number | null = null
+
+const resetSwipeVelocity = (x: number) => {
+  swipeVelocity = 0
+  swipeVelocitySampleX = x
+  swipeVelocitySampleAt = performance.now()
+}
+
+const sampleSwipeVelocity = (x: number) => {
+  const now = performance.now()
+  const dt = now - swipeVelocitySampleAt
+  if (dt < 12) return
+  const instant = (x - swipeVelocitySampleX) / dt
+  // 轻度平滑，避免最后一两个抖动样本主导判定。
+  swipeVelocity = swipeVelocity * 0.4 + instant * 0.6
+  swipeVelocitySampleX = x
+  swipeVelocitySampleAt = now
+}
 
 // 单指滑动切换照片相关
 const touchSwipeStartX = ref(0)
@@ -877,10 +902,21 @@ let transitionEpoch = 0
 let swipeStartedAt = 0
 let swipeStartOffset = 0
 let swipeTargetOffset = 0
-const blockedSwipePointer = ref<number | null>(null)
-const blockedSwipeStartX = ref(0)
-const blockedSwipeStartY = ref(0)
-const blockedSwipeStartTime = ref(0)
+// 切图动画时长由松手速度决定：轻推从容、快甩利落。同一个值同时驱动 CSS
+// transition 和提交定时器，两者必须一致，否则会回到 waitForTrackSettle 在
+// 补偿的那种"定时器早于动画结束"的错位。
+const SWIPE_DURATION_MIN = 170
+const SWIPE_DURATION_MAX = 280
+const swipeDurationMs = ref(SWIPE_DURATION_MAX)
+
+// distance: 还需要走完的像素；velocity: 松手速度（px/ms）。
+const computeSwipeDuration = (distance: number, velocity: number) => {
+  // 开启「减弱动态效果」时退化为近乎即时的切换，仍保留一帧过渡避免闪烁。
+  if (prefersReducedMotion()) return 1
+  const speed = Math.max(Math.abs(velocity), 0.4)
+  const estimate = Math.abs(distance) / speed
+  return Math.round(Math.min(SWIPE_DURATION_MAX, Math.max(SWIPE_DURATION_MIN, estimate)))
+}
 // Navigation composable owns the FIFO queue; this alias keeps the existing
 // rendering/gesture code readable without maintaining a second queue.
 const queuedSwipeDirections = navigation.queue
@@ -1104,6 +1140,45 @@ const waitForTrackSettle = () => new Promise<void>((resolve) => {
   requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
 })
 
+// 读取切图轨道当前真实的动画位置（而不是它的目标值）。滑动时 scale 恒为 1，
+// imageTransformStyle 就是纯 translateX，所以矩阵的 m41 即当前偏移量。
+// 中断一次进行中的过渡时必须用这个真实值，否则重新基准化会算错、画面跳变。
+const readLiveTrackOffset = () => {
+  const el = imageWrapper.value
+  if (el) {
+    try {
+      const transform = window.getComputedStyle(el).transform
+      if (transform && transform !== 'none') {
+        const m41 = new DOMMatrixReadOnly(transform).m41
+        if (Number.isFinite(m41)) return m41
+      } else {
+        return 0
+      }
+    } catch {
+      // 读不到就退回下面的时间估算
+    }
+  }
+  // 兜底：按已过时间在起点和终点之间线性取值。只有拿不到计算样式时才会走到
+  // 这里；曲线不精确会让接手瞬间有微小偏差，但不会卡住手势。
+  if (!swipeTransitioning.value) return swipeOffset.value
+  const elapsed = performance.now() - swipeStartedAt
+  const progress = Math.min(1, Math.max(0, elapsed / Math.max(swipeDurationMs.value, 1)))
+  return swipeStartOffset + (swipeTargetOffset - swipeStartOffset) * progress
+}
+
+// 预热当前位置往外两张的缩略图。连滑不再需要等待后会更快到达 index±2，
+// 只预热相邻一张的话，新露出的那张可能来不及解码。
+// 这里逐张调用 loadQuality 而不是 preloadThumbnails：后者会自增 preloadEpoch，
+// 把打开时启动的整册预热批次取消掉；loadQuality 对已就绪/在途的槽位是幂等的。
+const preloadSwipeNeighbors = () => {
+  const photos = props.photos
+  if (!photos?.length) return
+  for (const delta of [1, -1, 2, -2]) {
+    const photo = photos[currentIndex.value + delta]
+    if (photo) void assetManager.loadQuality(toAssetInput(photo), 'thumbnail')
+  }
+}
+
 const preloadAllThumbnails = (photos: Photo[]) => {
   const assets: PhotoAssetInput[] = photos.map(toAssetInput)
   assetManager.preloadThumbnails(assets)
@@ -1190,7 +1265,7 @@ const imageTransformStyle = computed(() => {
       transform: `translateX(${dragOffsetX}px)`,
       transformOrigin: 'center center',
       // 拖拽跟手；松手时由同一条轨道完成滑入或弹回
-      transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' : (isInteracting ? 'none' : 'transform 0.3s ease'))
+      transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? `transform ${swipeDurationMs.value}ms cubic-bezier(0.22, 1, 0.36, 1)` : (isInteracting ? 'none' : 'transform 0.3s ease'))
     }
   }
 })
@@ -1207,7 +1282,11 @@ const getAdjacentImageStyle = (direction: 'previous' | 'next') => {
     objectFit: 'contain',
     transform: `translate(calc(-50% + ${base + offset}px), -50%)`,
     opacity: Math.min(1, Math.max(0, Math.abs(offset) / Math.max(width * 0.35, 1))),
-    transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease' : 'none')
+    transition: trackTransitionDisabled.value
+      ? 'none'
+      : (swipeTransitioning.value
+        ? `transform ${swipeDurationMs.value}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${Math.round(swipeDurationMs.value * 0.85)}ms ease`
+        : 'none')
   }
 }
 
@@ -1317,7 +1396,7 @@ watch(() => props.visible, (newVisible) => {
     trackTransitionDisabled.value = false
     pendingSwipeDirection.value = null
     queuedSwipeDirections.value = []
-    blockedSwipePointer.value = null
+    pendingTrackOffset = null
     deferredTapAction.value = null
     openingTransformPrepared.value = false
     openingPreviewVisible.value = !!props.originRect
@@ -1363,11 +1442,6 @@ watch(() => props.visible, (newVisible) => {
       prepareOpeningTransform()
     })
     // 图片自身尺寸可用后再计算信息栏偏移，避免沿用上一张的几何信息。
-    console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
-      startIndex: props.startIndex,
-      currentIndex: currentIndex.value,
-      forceShowFaces: props.forceShowFaces
-    })
   } else {
     // Parent-driven close must invalidate pending transition callbacks too;
     // otherwise a late timer can mutate state while the viewer is hidden.
@@ -1400,10 +1474,6 @@ watch(() => props.startIndex, (newStartIndex) => {
     nextTick(() => {
       imageLoaded.value = false
     })
-    console.log('🔄 PhotoViewer: startIndex 变化，更新当前索引', {
-      newStartIndex,
-      currentIndex: currentIndex.value
-    })
   }
 })
 
@@ -1425,8 +1495,12 @@ watch(() => [currentPhoto.value?.id, viewingOriginal.value, props.photos.length]
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
-  touchSwipeOffset.value = 0
-  imageDragOffset.value = 0
+  // 提交索引时通常轨道就该归零；但中断过渡接手时，偏移量被重新基准化成了一个
+  // 非零值来保持画面不动，这里必须沿用它，否则轨道会被拉回中心、画面跳一下。
+  const preservedOffset = pendingTrackOffset
+  pendingTrackOffset = null
+  touchSwipeOffset.value = preservedOffset ?? 0
+  imageDragOffset.value = preservedOffset ?? 0
   displayedImageUrl.value = currentPhoto.value ? getDisplayUrl(currentPhoto.value) : ''
   largeImagePreloadUrl.value = currentPhoto.value ? getImageUrl(currentPhoto.value) : ''
   largeImageReady.value = false
@@ -1462,7 +1536,6 @@ watch(() => props.photos, (nextPhotos) => {
 // 监听图片加载状态变化，确保人脸框在图片加载完成后重新计算
 watch(() => imageLoaded.value, (newLoaded) => {
   if (newLoaded) {
-    console.log('🔄 PhotoViewer: 图片加载完成，人脸框将重新计算')
   // 人脸框现在直接绑定在图片内部，会自动更新
   } else {
     // 人脸框现在直接绑定在图片内部，无需清理
@@ -1695,11 +1768,6 @@ const prev = (alreadyAtIndex = false) => {
 
   // 人脸框和焦点框现在直接绑定在图片内部，会自动更新
 
-  console.log('⬅️ PhotoViewer: 切换到上一张', {
-    from: oldIndex,
-    to: currentIndex.value,
-    filename: currentPhoto.value?.filename
-  })
 }
 
 const next = (alreadyAtIndex = false) => {
@@ -1729,14 +1797,79 @@ const next = (alreadyAtIndex = false) => {
     imageLoaded.value = false
   })
   scrollThumbIntoView()
-  console.log('➡️ PhotoViewer: 切换到下一张', {
-    from: oldIndex,
-    to: currentIndex.value,
-    filename: currentPhoto.value?.filename
-  })
 }
 
-const finishSwipe = (direction: 'previous' | 'next') => {
+// 把索引提交推进一格，并把轨道偏移设为 nextOffset。
+// 正常动画结束时 nextOffset 是 0；中断接手时是重新基准化后的值，见
+// interruptSwipeTransition。两条路径共用这一段，避免提交序列出现两份实现。
+const commitSwipeIndex = (direction: 'previous' | 'next', nextOffset: number) => {
+  const targetPhoto = navigation.incomingIndex.value !== null
+    ? props.photos[navigation.incomingIndex.value] || null
+    : (direction === 'previous' ? previousPhoto.value : nextPhoto.value)
+  // 不要为了等图片解码而锁住交互状态：那会让下一次 pointerdown 看起来像
+  // 动画被打断，从而丢掉后续的滑动动画。资源管理器同步提供缩略图兜底。
+  if (targetPhoto) void waitForPhotoReady(targetPhoto, 'thumbnail')
+  // 让 currentPhoto 的 watcher 知道这次提交后轨道不该归零
+  pendingTrackOffset = nextOffset !== 0 ? nextOffset : null
+  pendingSwipeDirection.value = null
+  // End the outgoing transform before changing currentIndex. If the index
+  // watcher resets the offset while this flag is still true, CSS animates
+  // the old image back toward center (the occasional right-then-left jump).
+  trackTransitionDisabled.value = true
+  swipeTransitioning.value = false
+  touchSwipeOffset.value = nextOffset
+  imageDragOffset.value = nextOffset
+  // Prime the main slot with the already decoded target thumbnail before
+  // committing the index. This keeps one stable drawable in the main image
+  // element while Vue applies the new photo geometry.
+  if (targetPhoto) {
+    displayedImageUrl.value = getDisplayUrl(targetPhoto)
+    largeImagePreloadUrl.value = getImageUrl(targetPhoto)
+    imageLoaded.value = true
+  }
+  navigation.commit()
+  direction === 'previous' ? prev(true) : next(true)
+  preloadSwipeNeighbors()
+}
+
+// 在过渡进行中按下手指时接管当前动画，而不是把手势挡住、等动画播完。
+//
+// 轨道是三槽结构：相邻图位于 base + offset，base = ∓屏宽。向后切换时 offset
+// 从 0 走向 -W，在中途位置 o 时 next 图正好位于 W + o。此刻提交索引并把偏移
+// 重新基准化为 o + W，新当前图就仍在 W + o，旧当前图落到 -W + (W+o) = o，
+// 也就是它原来的位置 —— 像素级恒等，不可能跳变。向前切换同理取 o - W。
+//
+// 返回重新基准化后的偏移量；没有过渡在进行时返回 null。
+const interruptSwipeTransition = (): number | null => {
+  if (!swipeTransitioning.value) return null
+
+  const live = readLiveTrackOffset()
+  const direction = pendingSwipeDirection.value
+
+  // 作废在途定时器与其 epoch 校验，接下来由手势接管。
+  transitionEpoch += 1
+  if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
+
+  let rebased = live
+  if (direction) {
+    // 会提交的过渡：提前完成它，偏移量平移一个屏宽保持画面不动。
+    rebased = direction === 'previous' ? live - window.innerWidth : live + window.innerWidth
+    commitSwipeIndex(direction, rebased)
+  } else {
+    // 回弹或到头的过渡：没有索引变化，就地接手当前位置。
+    swipeTransitioning.value = false
+    trackTransitionDisabled.value = true
+    touchSwipeOffset.value = live
+    imageDragOffset.value = live
+    navigation.cancel()
+  }
+
+  // 重新基准化的这一帧不能带过渡，否则会从旧目标值平滑滑过来。
+  requestAnimationFrame(() => { trackTransitionDisabled.value = false })
+  return rebased
+}
+
+const finishSwipe = (direction: 'previous' | 'next', releaseVelocity = 0) => {
   const navDirection = direction
   if (swipeTransitioning.value) {
     queuedSwipeDirections.value.push(direction)
@@ -1750,6 +1883,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
     swipeStartedAt = performance.now()
     swipeStartOffset = touchSwipeOffset.value || imageDragOffset.value
     swipeTargetOffset = 0
+    swipeDurationMs.value = computeSwipeDuration(swipeStartOffset, releaseVelocity)
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
     if (swipeTimer) clearTimeout(swipeTimer)
@@ -1762,7 +1896,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
       const queued = queuedSwipeDirections.value.shift() || null
       if (queued) requestAnimationFrame(() => finishSwipe(queued))
       else flushDeferredTapAction()
-    }, 260)
+    }, swipeDurationMs.value)
     return
   }
 
@@ -1779,6 +1913,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   swipeStartedAt = performance.now()
   swipeStartOffset = touchSwipeOffset.value
   swipeTargetOffset = target
+  swipeDurationMs.value = computeSwipeDuration(target - swipeStartOffset, releaseVelocity)
   touchSwipeOffset.value = target
   imageDragOffset.value = target
   if (swipeTimer) clearTimeout(swipeTimer)
@@ -1789,45 +1924,18 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   openingPreviewTransform.value = null
   opening.value = false
   if (closeTimer) clearTimeout(closeTimer)
-  blockedSwipePointer.value = null
   swipeTimer = window.setTimeout(async () => {
     // Let the browser present the final transform frame before replacing the
     // current slot/index. Committing at the exact CSS duration can race the
     // compositor and briefly repaint the outgoing image in reverse.
     await waitForTrackSettle()
-    const targetPhoto = navigation.incomingIndex.value !== null
-      ? props.photos[navigation.incomingIndex.value] || null
-      : (direction === 'previous' ? previousPhoto.value : nextPhoto.value)
     if (epoch !== transitionEpoch || !props.visible || pendingSwipeDirection.value !== direction) {
       swipeTransitioning.value = false
       pendingSwipeDirection.value = null
       swipeTimer = null
       return
     }
-    // The gesture transition is complete at this point. Do not keep the
-    // interaction state locked while an image request is decoding: doing so
-    // makes the next pointerdown look like an animation interruption and
-    // drops subsequent swipe animations. The asset manager already exposes a
-    // thumbnail fallback synchronously; warm the target in the background.
-    if (targetPhoto) void waitForPhotoReady(targetPhoto, 'thumbnail')
-    pendingSwipeDirection.value = null
-    // End the outgoing transform before changing currentIndex. If the index
-    // watcher resets the offset while this flag is still true, CSS animates
-    // the old image back toward center (the occasional right-then-left jump).
-    trackTransitionDisabled.value = true
-    swipeTransitioning.value = false
-    touchSwipeOffset.value = 0
-    imageDragOffset.value = 0
-    // Prime the main slot with the already decoded target thumbnail before
-    // committing the index. This keeps one stable drawable in the main image
-    // element while Vue applies the new photo geometry.
-    if (targetPhoto) {
-      displayedImageUrl.value = getDisplayUrl(targetPhoto)
-      largeImagePreloadUrl.value = getImageUrl(targetPhoto)
-      imageLoaded.value = true
-    }
-    navigation.commit()
-    direction === 'previous' ? prev(true) : next(true)
+    commitSwipeIndex(direction, 0)
     swipeTimer = null
     requestAnimationFrame(() => {
       trackTransitionDisabled.value = false
@@ -1845,11 +1953,12 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   }, 260)
 }
 
-const cancelSwipe = () => {
+const cancelSwipe = (releaseVelocity = 0) => {
   const epoch = ++transitionEpoch
   swipeStartedAt = performance.now()
   swipeStartOffset = touchSwipeOffset.value || imageDragOffset.value
   swipeTargetOffset = 0
+  swipeDurationMs.value = computeSwipeDuration(swipeStartOffset, releaseVelocity)
   trackTransitionDisabled.value = false
   swipeTransitioning.value = true
   pendingSwipeDirection.value = null
@@ -1865,11 +1974,12 @@ const cancelSwipe = () => {
     const queued = queuedSwipeDirections.value.shift() || null
     if (queued) requestAnimationFrame(() => finishSwipe(queued))
     else flushDeferredTapAction()
-  }, 260)
+  }, swipeDurationMs.value)
 }
 
 const abortNavigation = () => {
   transitionEpoch += 1
+  pendingTrackOffset = null
   if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
   pendingSwipeDirection.value = null
   swipeTransitioning.value = false
@@ -1901,11 +2011,6 @@ const jump = (idx: number) => {
     imageLoaded.value = false
   })
   scrollThumbIntoView()
-  console.log('🔄 PhotoViewer: 跳转到指定图片', {
-    from: oldIndex,
-    to: idx,
-    filename: currentPhoto.value?.filename
-  })
 }
 
 // 计算信息栏显示时的图片偏移（确保图片不被遮挡）
@@ -2217,12 +2322,6 @@ const onImageLoad = async (event?: Event) => {
       }
       prepareOpeningTransform()
 
-      console.log('📸 PhotoViewer 图片加载完成:', {
-        filename: currentPhoto.value?.filename,
-        naturalSize: `${img.naturalWidth}x${img.naturalHeight}`,
-        windowSize: `${window.innerWidth}x${window.innerHeight}`,
-        url: getImageUrl(currentPhoto.value!)
-      })
     }
   }
 }
@@ -2353,21 +2452,9 @@ const onImagePointerDown = (e: PointerEvent) => {
     e.preventDefault()
     return
   }
-  if (swipeTransitioning.value) {
-    // A transition owns the visual track until its commit frame. Starting a
-    // second gesture by cancelling that transition leaves the incoming slot
-    // and current index out of sync, which causes the image to move a little
-    // and then spring back. Capture the pointer as a pending gesture instead;
-    // its final direction is queued and played after the current commit.
-    blockedSwipePointer.value = e.pointerId
-    blockedSwipeStartX.value = e.clientX
-    blockedSwipeStartY.value = e.clientY
-    blockedSwipeStartTime.value = performance.now()
-    const target = e.currentTarget as HTMLElement
-    target.setPointerCapture?.(e.pointerId)
-    e.preventDefault()
-    return
-  }
+  // 过渡进行中按下手指时接管当前动画，让连续滑动不必等上一次播完。
+  // 提交索引 + 重新基准化偏移量后画面像素位置不变，手势从这里直接续上。
+  const rebasedOffset = interruptSwipeTransition()
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture?.(e.pointerId)
   // 清理浏览器未发送 pointerup 的陈旧指针，避免下一次单指被误判为双指。
@@ -2408,20 +2495,18 @@ const onImagePointerDown = (e: PointerEvent) => {
   pointerStartX.value = pointerLastX.value = e.clientX
   pointerStartY.value = pointerLastY.value = e.clientY
   pointerStartTime.value = performance.now()
-  pointerSwipeBaseOffset.value = 0
-  interruptedSwipeDirection.value = null
-  imageDragOffset.value = 0
-  touchSwipeOffset.value = 0
+  // 接管了一次过渡时，偏移量必须保留重新基准化后的值，手势从当前画面位置
+  // 继续；清零会让画面瞬间跳回中心，正是要避免的那种跳变。
+  pointerSwipeBaseOffset.value = rebasedOffset ?? 0
+  imageDragOffset.value = rebasedOffset ?? 0
+  touchSwipeOffset.value = rebasedOffset ?? 0
   isImageDragging.value = false
+  resetSwipeVelocity(e.clientX)
   e.preventDefault()
 }
 
 const onImagePointerMove = (e: PointerEvent) => {
   if (ignoredPointerIds.has(e.pointerId)) {
-    e.preventDefault()
-    return
-  }
-  if (blockedSwipePointer.value === e.pointerId) {
     e.preventDefault()
     return
   }
@@ -2485,6 +2570,7 @@ const onImagePointerMove = (e: PointerEvent) => {
       : rawOffset
     imageDragOffset.value = bounded
     touchSwipeOffset.value = bounded
+    sampleSwipeVelocity(e.clientX)
   } else if (pointerGesture.value === 'dismiss') {
     dismissOffset.value = Math.max(0, dy)
   } else if (pointerGesture.value === 'holdZoom') {
@@ -2499,39 +2585,6 @@ const onImagePointerMove = (e: PointerEvent) => {
 const onImagePointerUp = (e: PointerEvent) => {
   if (ignoredPointerIds.delete(e.pointerId)) {
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-    e.preventDefault()
-    return
-  }
-  if (blockedSwipePointer.value === e.pointerId) {
-    const dx = e.clientX - blockedSwipeStartX.value
-    const dy = e.clientY - blockedSwipeStartY.value
-    const elapsed = Math.max(1, performance.now() - blockedSwipeStartTime.value)
-    const velocity = Math.abs(dx) / elapsed
-    const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
-    if (Math.hypot(dx, dy) < 8 && elapsed < 450) {
-      const action = getTapAction(e.target, e.clientX, e.clientY)
-      if (action === 'close') {
-        blockedSwipePointer.value = null
-        try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-        close()
-        e.preventDefault()
-        return
-      }
-      deferredTapAction.value = action
-    } else if (Math.abs(dx) > threshold || velocity > 0.6) {
-      const direction = dx > 0 ? 'previous' : 'next'
-      navigation.enqueue(direction)
-    }
-    blockedSwipePointer.value = null
-    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-    // The pointer may be released after the fixed transition timer has fired.
-    // In that case no timer remains to flush the deferred tap, so consume it
-    // on the next frame instead of leaving the viewer apparently unresponsive.
-    if (!swipeTransitioning.value) {
-      const queued = queuedSwipeDirections.value.shift() || null
-      if (queued) requestAnimationFrame(() => finishSwipe(queued))
-      else if (deferredTapAction.value) requestAnimationFrame(flushDeferredTapAction)
-    }
     e.preventDefault()
     return
   }
@@ -2582,14 +2635,33 @@ const onImagePointerUp = (e: PointerEvent) => {
     }
   } else if (mode === 'swipe') {
     const offset = touchSwipeOffset.value
-    const moved = Math.abs(e.clientX - pointerStartX.value) > 8 || Math.abs(e.clientY - pointerStartY.value) > 8
-    const elapsed = Math.max(1, performance.now() - pointerStartTime.value)
-    const velocity = Math.abs(offset) / elapsed
+    // 本次手势自身走过的距离。接管过渡时 pointerSwipeBaseOffset 是重新基准化
+    // 后的起点，所以它和轨道总偏移不是一回事。
+    const dragDelta = offset - pointerSwipeBaseOffset.value
     const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
-    if (!moved && interruptedSwipeDirection.value) finishSwipe(interruptedSwipeDirection.value)
-    else if (Math.abs(offset) > threshold || velocity > 0.6) finishSwipe(offset > 0 ? 'previous' : 'next')
-    else cancelSwipe()
-    interruptedSwipeDirection.value = null
+    const halfWidth = window.innerWidth / 2
+
+    if (Math.abs(swipeVelocity) > 0.6) {
+      // 甩动优先：方向由速度决定，哪怕位移还很小。
+      finishSwipe(swipeVelocity > 0 ? 'previous' : 'next', swipeVelocity)
+    } else if (Math.abs(dragDelta) > threshold) {
+      finishSwipe(dragDelta > 0 ? 'previous' : 'next', swipeVelocity)
+    } else if (Math.abs(offset) > halfWidth) {
+      // 接管过渡后手指几乎没动：就近吸附，而不是硬拉回接管前的那一张。
+      finishSwipe(offset > 0 ? 'previous' : 'next', swipeVelocity)
+    } else {
+      cancelSwipe(swipeVelocity)
+    }
+  } else if (touchSwipeOffset.value !== 0 || imageDragOffset.value !== 0) {
+    // 点按接管了一次过渡（手指没移动，但轨道停在重新基准化后的位置）。
+    // 直接清零会让主图带过渡缓动、相邻图却瞬间归位；交给 cancelSwipe 走
+    // 同一条轨道动画，整体一起落位。
+    cancelSwipe(0)
+    if (mode === 'pending') {
+      lastTapTime.value = performance.now()
+      lastTapX.value = e.clientX
+      lastTapY.value = e.clientY
+    }
   } else {
     imageDragOffset.value = 0
     touchSwipeOffset.value = 0
@@ -2613,12 +2685,6 @@ const onImagePointerCancel = (e: PointerEvent) => {
     return
   }
 
-  if (blockedSwipePointer.value === e.pointerId) {
-    blockedSwipePointer.value = null
-    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-    return
-  }
-
   const mode = pointerGesture.value
   const shouldDismiss = mode === 'dismiss' && dismissOffset.value > 0
     && dismissOffset.value / Math.max(window.innerHeight, 1) > 0.22
@@ -2637,7 +2703,6 @@ const onImagePointerCancel = (e: PointerEvent) => {
   dismissOffset.value = 0
   imageDragOffset.value = 0
   touchSwipeOffset.value = 0
-  interruptedSwipeDirection.value = null
   deferredTapAction.value = null
   lastTapTime.value = 0
 
@@ -2695,11 +2760,6 @@ const onImageMouseMove = (e: MouseEvent) => {
 
     // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随移动
 
-    console.log('🖱️ PhotoViewer: 拖拽移动图片', {
-      deltaX, deltaY,
-      translateX: translateX.value,
-      translateY: translateY.value
-    })
     } else {
     // 原始大小状态下，如果是水平拖拽且距离足够，准备切换图片
     if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
@@ -2764,10 +2824,6 @@ const onImageTouchStart = (e: TouchEvent) => {
     isPinching.value = true
     isImageDragging.value = false
     
-    console.log('🤏 PhotoViewer: 开始双指触摸', {
-      distance: distance,
-      center: { x: centerX, y: centerY }
-    })
   } else if (e.touches.length === 1) {
     // 记录滑动开始的X坐标
     touchSwipeStartX.value = e.touches[0].clientX
@@ -2782,10 +2838,6 @@ const onImageTouchStart = (e: TouchEvent) => {
       initialTranslateX.value = translateX.value
       initialTranslateY.value = translateY.value
 
-      console.log('👆 PhotoViewer: 开始单指触摸拖拽', {
-        startX: imageDragStartX.value,
-        startY: imageDragStartY.value
-      })
     }
     isPinching.value = false
   }
@@ -2844,10 +2896,6 @@ const onImageTouchMove = (e: TouchEvent) => {
         translateY.value = py - newScale * qy
       }
       
-      console.log('🤏 PhotoViewer: 双指缩放', {
-        scale: newScale,
-        distanceChange: distanceChange.toFixed(1)
-      })
     } else if (centerMoveDistance > 5 && scale.value > 1) {
       // 双指移动（平移）
       isPinching.value = false
@@ -2856,10 +2904,6 @@ const onImageTouchMove = (e: TouchEvent) => {
       translateX.value = initialTranslateX.value + centerDeltaX
       translateY.value = initialTranslateY.value + centerDeltaY
       
-      console.log('👆 PhotoViewer: 双指移动', {
-        deltaX: centerDeltaX.toFixed(1),
-        deltaY: centerDeltaY.toFixed(1)
-      })
     }
     
     // 更新中心点
@@ -2872,12 +2916,6 @@ const onImageTouchMove = (e: TouchEvent) => {
     translateX.value = initialTranslateX.value + deltaX
     translateY.value = initialTranslateY.value + deltaY
 
-    console.log('👆 PhotoViewer: 单指拖拽移动', {
-      deltaX: deltaX.toFixed(1),
-      deltaY: deltaY.toFixed(1),
-      translateX: translateX.value.toFixed(1),
-      translateY: translateY.value.toFixed(1)
-    })
   } else if (e.touches.length === 1 && scale.value <= 1) {
     // 单指水平滑动（仅在未放大状态下，用于切换照片）
     const currentX = e.touches[0].clientX
@@ -2958,14 +2996,10 @@ const onImageTouchEnd = (e: TouchEvent) => {
     // 所有触摸点都离开
     if (isPinching.value) {
       isPinching.value = false
-      console.log('🤏 PhotoViewer: 结束捏合缩放', {
-        finalScale: scale.value
-      })
     }
 
     if (isImageDragging.value) {
       isImageDragging.value = false
-      console.log('👆 PhotoViewer: 结束触摸拖拽')
     }
   }
 
@@ -3108,10 +3142,6 @@ const onKeyDown = (e: KeyboardEvent) => {
       } else if (newScale === 1) {
         userHasManuallyZoomed.value = false
       }
-      console.log('⌨️ 键盘缩放', {
-        key: e.key,
-        scale: newScale
-      })
     }
   }
 
@@ -3430,12 +3460,6 @@ onMounted(() => {
     initializeBoxStates()
 
     // 输出容器尺寸信息用于调试
-    console.log('🏗️ PhotoViewer 容器信息:', {
-      windowSize: `${window.innerWidth}x${window.innerHeight}`,
-      imageContainerStyle: imageContainerStyle.value,
-      visible: props.visible,
-      currentPhoto: currentPhoto.value?.filename
-    })
   })
 
   window.addEventListener('keydown', onKeyDown)
