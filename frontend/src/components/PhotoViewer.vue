@@ -1090,12 +1090,21 @@ const startFlightAnimation = () => {
   if (!img || typeof img.animate !== 'function') return
   // 终点要等价于缩略图的 object-fit: cover：等比放大到刚好盖住目标框。
   const cover = Math.max(f.to.width / f.from.width, f.to.height / f.from.height)
-  // 缩放用等比，画面不会被压扁；并且在过冲那一刻就已经到位，
-  // 于是盒子缩过头的那一下是「裁得更多」，而不是连图一起缩小。
+  // 画面内容和盒子按同一比例过冲：过冲那一刻缩放取 cover * CLOSE_OVERSHOOT，
+  // 于是盒子是 0.94 倍、画面也是 0.94 倍 —— 构图和终点完全一致，只是整体小一点，
+  // 然后一起弹回。
+  //
+  // 之前这里让图片在过冲点就锁死在 cover：结果盒子往里收、画面却不动，
+  // 看起来像窗口被夹了一下，而不是整张图弹了一下。
+  // 同比例过冲还有个好处：盒子缩小时画面同步缩小，边缘不会露出空隙。
   flightImageAnimation?.cancel()
   flightImageAnimation = img.animate([
     { transform: 'translate(-50%, -50%) scale(1)', easing: CLOSE_EASE_IN },
-    { offset: CLOSE_OVERSHOOT_AT, transform: `translate(-50%, -50%) scale(${cover})` },
+    {
+      offset: CLOSE_OVERSHOOT_AT,
+      transform: `translate(-50%, -50%) scale(${cover * CLOSE_OVERSHOOT})`,
+      easing: CLOSE_EASE_OUT
+    },
     { transform: `translate(-50%, -50%) scale(${cover})` }
   ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 }
@@ -1130,14 +1139,14 @@ const THUMB_KEY = 'pe-thumb-height'
 const OPENING_INPUT_GUARD_MS = 220
 // 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
 const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 收回分两段：先减速冲到「略微缩过头」的位置，再回弹到缩略图。
-// 位置和宽高共用同一组关键帧，所以「弹过头再回来」同时体现在落点和裁切上：
-// 盒子先缩得比缩略图更小（多裁一点），再弹回正确尺寸。
+// 收回分两段：先减速缩到「比缩略图再小一点」，再弹回缩略图的实际尺寸。
+// 盒子和画面内容按同一比例过冲，所以看起来是整张图弹了一下，
+// 而落位尺寸严格等于缩略图。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
 const CLOSE_EASE_OUT = 'cubic-bezier(0.4, 0, 0.35, 1)'
-// 过冲到终点尺寸的 94%，再弹回。固定比例，与行程长短无关。
-const CLOSE_OVERSHOOT = 0.94
-const CLOSE_OVERSHOOT_AT = 0.72
+// 过冲到终点尺寸的 92%，再弹回。固定比例，与行程长短无关。
+const CLOSE_OVERSHOOT = 0.92
+const CLOSE_OVERSHOOT_AT = 0.7
 const CLOSE_DURATION_MS = 280
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
