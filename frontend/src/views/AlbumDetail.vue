@@ -1839,17 +1839,16 @@ const loadAlbumData = async () => {
     presetAtmosphereBg.value = storedBgColor
   }
 
-  await photoStore.fetchAlbumById(targetAlbumId)
-  if (isDisposed) return
-
-  const album = photoStore.currentAlbum
-
-  // 首屏照片与人物栏并行请求。人物栏会影响瀑布流起始位置，需在测量动画目标前完成；
-  // 评论数不影响布局，延后到动画开始后再后台加载。
+  // 相册元数据与首屏照片只依赖 albumId，彼此无关，并行发出即可少等一个来回。
+  // 瀑布流布局只来自 photos 的宽高（见 masonryItems），不依赖相册元数据，
+  // 所以两者到达的先后不会影响 FLIP 终点的测量。
+  // 人物栏同样并行；评论数不影响布局，留到动画开始后再后台加载。
   const initialLoadSize = 50
-  // 详情首屏动画只依赖照片元数据；人物栏并行加载但不阻塞封面过渡。
   void loadAlbumPersons(targetAlbumId).catch(() => undefined)
-  const result = await photoStore.fetchPhotosByAlbum(targetAlbumId, 0, initialLoadSize)
+  const [, result] = await Promise.all([
+    photoStore.fetchAlbumById(targetAlbumId),
+    photoStore.fetchPhotosByAlbum(targetAlbumId, 0, initialLoadSize)
+  ])
   if (isDisposed) return
   hasMore.value = !result.last
 
@@ -1943,18 +1942,20 @@ onMounted(async () => {
   // addEventListener 对同一函数引用是幂等的，后续流程无需重复注册。
   window.addEventListener('keydown', handleKeydown)
 
-  // 获取全局下载权限设置
-  try {
-    const response = await api.get('/admin/config/global-download-allowed')
-    if (isDisposed) return
-    globalDownloadAllowed.value = response.data.globalDownloadAllowed !== false
-  } catch (error) {
-    console.warn('获取全局下载权限设置失败:', error)
-    globalDownloadAllowed.value = false
-  }
+  // 全局下载权限只影响长按下载/多选，与首屏布局和封面动画无关，不要 await：
+  // 它挡在 loadAlbumData 前面时，会把后面整条请求链连同展开动画一起推迟一个来回。
+  // 照片渲染出来（用户能长按）远晚于这个请求返回，所以不存在读到默认值的窗口。
+  api.get('/admin/config/global-download-allowed')
+    .then((response) => {
+      if (isDisposed) return
+      globalDownloadAllowed.value = response.data.globalDownloadAllowed !== false
+    })
+    .catch((error) => {
+      console.warn('获取全局下载权限设置失败:', error)
+      globalDownloadAllowed.value = false
+    })
 
   // 添加窗口大小监听（实时响应）
-  if (isDisposed) return
   window.addEventListener('resize', handleResize)
 
   // 加载相册数据
