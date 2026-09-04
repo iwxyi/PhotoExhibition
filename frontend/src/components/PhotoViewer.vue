@@ -1102,8 +1102,8 @@ const startFlightAnimation = () => {
   const zoom = `${(CLOSE_OVERSHOOT * 100).toFixed(2)}%`
   flightImageAnimation?.cancel()
   flightImageAnimation = img.animate([
-    { width: '100%', height: '100%', easing: CLOSE_EASE_IN },
-    { offset: CLOSE_OVERSHOOT_AT, width: zoom, height: zoom, easing: CLOSE_EASE_OUT },
+    { width: '100%', height: '100%', easing: 'cubic-bezier(0.5, 0, 0.7, 0.4)' },
+    { offset: CLOSE_OVERSHOOT_AT, width: zoom, height: zoom, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
     { width: '100%', height: '100%' }
   ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 }
@@ -1144,10 +1144,12 @@ const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 于是观感是「窗口稳稳落位，图片落进这个框里弹了一下」。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
 const CLOSE_EASE_OUT = 'cubic-bezier(0.34, 1.1, 0.5, 1)'
-// 内容过冲到铺满窗口的 112%（多裁一点），再松回 100%。
+// 内容过冲到铺满窗口的 118%（多裁一点），再松回 100%。
 // 必须 > 1：往小了过冲会露出窗口的底，可见边缘就跟着动了，看起来像框在回弹。
-const CLOSE_OVERSHOOT = 1.12
-const CLOSE_OVERSHOOT_AT = 0.55
+const CLOSE_OVERSHOOT = 1.18
+// 过冲的峰值放在窗口已经基本落位之后：窗口还在大幅收缩时，画面本来就在快速变化，
+// 叠在上面的回弹根本看不出来。等框停稳了再弹，才有「照片落进窗口」的那一下。
+const CLOSE_OVERSHOOT_AT = 0.72
 const CLOSE_DURATION_MS = 280
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260

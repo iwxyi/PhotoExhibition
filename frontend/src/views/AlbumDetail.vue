@@ -683,6 +683,9 @@ const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 // 查看器正在收回到哪张缩略图（收回动画期间该缩略图隐藏，避免与飞行中的图片重影）
 const returningPhotoId = ref<number | null>(null)
+// 刚收回完成的那张：短暂保持静止，避免紧接着播入场/hover 动画
+const justReturnedPhotoId = ref<number | null>(null)
+let justReturnedTimer: number | null = null
 
 const photoRefs = ref<Map<number, HTMLElement>>(new Map())
 const isTransitioning = ref(false)
@@ -844,6 +847,16 @@ const getPhotoStyle = (photo: any) => {
       transition: 'none'
     }
   }
+  // 刚刚收回到这张卡片：让它静止就位。否则它会落进下面的入场动画分支，
+  // 带着 transition: all 0.5s 出现——此时鼠标多半正停在它上面，hover 的
+  // translateY(-4px) 和图片 scale(1.1) 就会在落位后紧接着animate 一遍，
+  // 看起来就是画面又动了几个像素。
+  if (justReturnedPhotoId.value === photoId) {
+    return {
+      opacity: '1',
+      transition: 'none'
+    }
+  }
   // 如果是封面图片且正在过渡，隐藏它们
   if (isTransitioning.value && transitionPhotoIds.value.includes(photoId)) {
     return {
@@ -866,7 +879,10 @@ const getPhotoStyle = (photo: any) => {
     const index = remainingPhotoIndexes.value.get(photoId) || 0
     // 使用非线性延迟：前面的图片延迟少，后面的图片延迟相对更多，但不是完全线性
     const baseDelay = Math.min(index * 20, 80) // 最大延迟80ms，比之前更短
-    const randomFactor = Math.random() * 15 // 添加轻微的随机性使动画更自然
+    // 轻微随机让入场更自然。必须由 photoId 决定而不是 Math.random()：
+    // getPhotoStyle 每次渲染都会重跑，用随机数会让每次渲染都产出新的 delay，
+    // 于是 Vue 每帧都在 patch transitionDelay，动画期间尤其浪费。
+    const randomFactor = (photoId * 37 % 15)
     const delay = Math.max(0, baseDelay + randomFactor - 7)
 
     return {
@@ -1150,6 +1166,14 @@ const resolveViewerOriginRect = (photoId: number) => {
 // 命令式写 el.style.visibility 会在下一次 patch 时被抹掉。
 const onViewerReturnTransition = ({ photoId, active }: { photoId: number | null; active: boolean }) => {
   returningPhotoId.value = active ? photoId : null
+  if (active) return
+  // 落位后先静止一小会，再交还给正常的 hover/入场样式
+  justReturnedPhotoId.value = photoId
+  if (justReturnedTimer) clearTimeout(justReturnedTimer)
+  justReturnedTimer = window.setTimeout(() => {
+    justReturnedPhotoId.value = null
+    justReturnedTimer = null
+  }, 400)
 }
 
 // bulk actions
