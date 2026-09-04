@@ -139,6 +139,7 @@
           <template #default="{ item: photo, index }">
             <div
               class="photo-card cursor-pointer"
+              :class="{ 'photo-card--returned': justReturnedPhotoId === photo.id }"
               :style="getPhotoStyle(photo)"
               :data-photo-id="photo.id"
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
@@ -683,7 +684,9 @@ const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 // 查看器正在收回到哪张缩略图（收回动画期间该缩略图隐藏，避免与飞行中的图片重影）
 const returningPhotoId = ref<number | null>(null)
-// 刚收回完成的那张：短暂保持静止，避免紧接着播入场/hover 动画
+// 刚收回完成的那张：由它自己把最后一下回弹演完（见 .photo-card--returned），
+// 期间屏蔽入场/hover 动画。时长需与 style.css 里的 photoReturnSettle 一致。
+const RETURN_SETTLE_MS = 260
 const justReturnedPhotoId = ref<number | null>(null)
 let justReturnedTimer: number | null = null
 
@@ -847,10 +850,10 @@ const getPhotoStyle = (photo: any) => {
       transition: 'none'
     }
   }
-  // 刚刚收回到这张卡片：让它静止就位。否则它会落进下面的入场动画分支，
-  // 带着 transition: all 0.5s 出现——此时鼠标多半正停在它上面，hover 的
-  // translateY(-4px) 和图片 scale(1.1) 就会在落位后紧接着animate 一遍，
-  // 看起来就是画面又动了几个像素。
+  // 刚刚收回到这张卡片：交给 photo-card--returned 的关键帧把最后一下回弹演完。
+  // 这里要屏蔽 transition，否则它会落进下面的入场动画分支，带着 transition: all 0.5s
+  // 出现——此时鼠标多半正停在它上面，hover 的 translateY(-4px) 和图片 scale(1.1)
+  // 会在落位后紧接着 animate 一遍，看起来就是画面又动了几个像素。
   if (justReturnedPhotoId.value === photoId) {
     return {
       opacity: '1',
@@ -1173,7 +1176,7 @@ const onViewerReturnTransition = ({ photoId, active }: { photoId: number | null;
   justReturnedTimer = window.setTimeout(() => {
     justReturnedPhotoId.value = null
     justReturnedTimer = null
-  }, 400)
+  }, RETURN_SETTLE_MS + 40)
 }
 
 // bulk actions

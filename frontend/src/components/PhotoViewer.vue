@@ -1077,14 +1077,16 @@ const startFlightAnimation = () => {
   // 元素上的圆角会被 scale 一起缩小，想让落位时看起来是 8px，元素上就得写 8/scale。
   const endRadius = `${(parseFloat(f.radius) || 0) / scale}px`
 
-  // 整体轨迹：大图 → 缩略图尺寸 → 再缩小一点 → 弹回缩略图尺寸。
-  // 过冲发生在盒子上，图片全程铺满盒子跟着一起缩放，所以四周不会露底、
-  // 构图也始终不变 —— 观感就是整张照片落位时轻轻回弹了一下。
-  //
-  // 过冲这一帧要与终点同心，否则回弹会带着画面往一侧偏。
-  const k = CLOSE_OVERSHOOT
-  const dipX = f.to.left + f.to.width * (1 - k) / 2 - f.from.left
-  const dipY = f.to.top + f.to.height * (1 - k) / 2 - f.from.top
+  // 飞行层只负责「大图 → 比缩略图略小一点」这一段，单调收缩、不回弹，到位即交棒；
+  // 最后「略小 → 缩略图原尺寸」的那一下回弹由列表里的缩略图本体去演（见
+  // AlbumDetail 的 photo-card--returned）。这样分工有两个好处：
+  //   1. 盒子自己不再有回弹，观感上框是一路收拢到位的；
+  //   2. 飞行层是 position: fixed 的，关闭后立刻滚动页面它不会跟着走。交棒越早，
+  //      这个不跟随滚动的层存活时间越短，剩下的动画由在文档流里的缩略图承担。
+  // 交棒点就是缩略图的原尺寸：飞行层收到位即退场，缩略图从同样的比例接手。
+  // 不在飞行层里停在「略小」的状态——主线程一忙，交棒会晚几百毫秒，那期间画面
+  // 就会僵在一个偏小的尺寸上，然后突然弹到正常大小（实测僵住约 360ms）。
+  // 落位尺寸与缩略图一致时，交棒晚了也只是回弹晚一点开始，不会出现错误的尺寸。
 
   // transform 必须单独成一条动画：border-radius 不是可合成属性，和 transform 放在
   // 同一条里会把整条动画拉回主线程。实测那样时动画的 currentTime 会跟着主线程一起
@@ -1092,10 +1094,9 @@ const startFlightAnimation = () => {
   // 拆开之后位移/缩放跑在合成器线程，圆角即使卡住也只是圆角本身晚一点到位。
   flightAnimation?.cancel()
   flightAnimation = el.animate([
-    { transform: 'translate(0px, 0px) scale(1)', easing: 'cubic-bezier(0.32, 0, 0.28, 1)' },
-    { offset: CLOSE_OVERSHOOT_AT, transform: `translate(${dipX}px, ${dipY}px) scale(${scale * k})`, easing: 'cubic-bezier(0.34, 0, 0.2, 1)' },
+    { transform: 'translate(0px, 0px) scale(1)' },
     { transform: `translate(${dx}px, ${dy}px) scale(${scale})` }
-  ], { duration: CLOSE_DURATION_MS, fill: 'both' })
+  ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
   flightRadiusAnimation?.cancel()
   flightRadiusAnimation = el.animate([
@@ -1140,13 +1141,9 @@ const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 //   图片本身——从最大缩到比"填满窗口"更小一点，再弹回来把窗口填满。
 // 于是观感是「窗口稳稳落位，图片落进这个框里弹了一下」。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
-// 先缩到缩略图尺寸的 94%，再弹回 100%。整个盒子（连同铺满它的图片）一起缩放，
-// 所以是「照片整体缩过头再弹回来」，不会露底、构图也不变。
-const CLOSE_OVERSHOOT = 0.94
-// 过冲点放在靠后的位置：此时盒子已经收得接近缩略图，这一下回弹才看得清楚；
-// 放在中段会被大幅收缩本身淹没。
-const CLOSE_OVERSHOOT_AT = 0.76
-const CLOSE_DURATION_MS = 280
+// 回弹幅度由缩略图本体负责（AlbumDetail 的 photo-card--returned），
+// 飞行层只管单调收拢到位。
+const CLOSE_DURATION_MS = 230
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
 // 宿主没通过 resolveOriginRect 告诉我们缩略图圆角时的兜底值。
@@ -1902,7 +1899,11 @@ const close = () => {
     // 注意不要 cancel 动画：cancel 会让元素回到 inline 的起点几何，而模态一旦进入
     // 离场过渡，Vue 就不再 patch 这棵子树，v-if 也就摘不掉它了 —— 那张大图会带着
     // 起点尺寸在原地停留整个离场时长。用 fill: 'both' 让它保持终点，直接移除即可。
+    let finalized = false
     const finalizeClose = () => {
+      // 兜底计时器和动画的 finished 都会调它，只允许生效一次
+      if (finalized) return
+      finalized = true
       if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
       flightAnimation = null
       flightRadiusAnimation = null
