@@ -1016,6 +1016,9 @@ const flightImage = ref<HTMLImageElement | null>(null)
 let flightAnimation: Animation | null = null
 let flightRadiusAnimation: Animation | null = null
 let flightImageAnimation: Animation | null = null
+// 这次收回是替哪张照片飞的。撤销飞行层时要拿它去通知宿主把缩略图放出来，
+// 而那时 currentPhoto 可能已经被新一轮 navigation.reset 改掉了。
+let flightPhotoId: number | null = null
 
 // 飞行层只渲染静态起始几何，动画交给 Web Animations API。
 //
@@ -1197,6 +1200,28 @@ const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: n
   flightImageAnimation?.cancel()
   // 关键帧之间用 linear：曲线本身已经采样进关键帧了，再叠一层缓动会把它扭歪。
   flightImageAnimation = img.animate(frames, { duration: total, easing: 'linear', fill: 'both' })
+}
+
+// 收回还没演完就被打断（重新打开、组件卸载）时的强拆。
+//
+// 正常收尾走 finalizeClose，它由兜底计时器和动画的 finished 触发，两者都带
+// `closing.value` 的守卫。而重新打开会先清掉计时器、再把 closing 置否，于是两条
+// 路径同时失效——飞行层就永远留在 DOM 里了。动画本身还会跑完，然后 fill: 'both'
+// 把它钉死在缩略图的落点上，看着就是「动画停住了，还赖着不走」；底下真正的缩略图
+// 又因为没人发 return-transition 而一直 visibility: hidden。
+const cancelFlight = () => {
+  flightAnimation?.cancel()
+  flightRadiusAnimation?.cancel()
+  flightImageAnimation?.cancel()
+  flightAnimation = null
+  flightRadiusAnimation = null
+  flightImageAnimation = null
+  flight.value = null
+  if (returningToThumb.value) {
+    returningToThumb.value = false
+    emit('return-transition', { photoId: flightPhotoId, active: false })
+  }
+  flightPhotoId = null
 }
 const modalStyle = computed(() => {
   const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
@@ -1671,6 +1696,9 @@ const currentAlbumPath = computed(() => {
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
     transitionEpoch += 1
+    // 必须赶在下面清 closeTimer / closing / returningToThumb 之前——那三行会让
+    // finalizeClose 的两条触发路径同时失效，飞行层就没人管了。
+    cancelFlight()
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
     if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
     if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
@@ -1989,6 +2017,7 @@ const close = () => {
   if (target && measuredRect && measuredRect.width > 0 && measuredRect.height > 0) {
     closing.value = true
     returningToThumb.value = true
+    flightPhotoId = closingPhotoId
     // 大图交给飞行层去演，原来的图片层立刻藏起来，避免两份图叠在一起。
     flight.value = {
       src: displayedImageUrl.value,
@@ -2013,6 +2042,7 @@ const close = () => {
       flightAnimation = null
       flightRadiusAnimation = null
       flightImageAnimation = null
+      flightPhotoId = null
       flight.value = null
       returningToThumb.value = false
       emit('return-transition', { photoId: closingPhotoId, active: false })
@@ -3815,19 +3845,9 @@ onBeforeUnmount(() => {
   document.body.style.userSelect = ''
   activeInfoResizeHandle.value = null
   activeThumbResizeHandle.value = null
-  // 收回动画途中被卸载时，结束事件不会由定时器发出；这里补一次，
+  // 收回动画途中被卸载时，结束事件不会由定时器发出；cancelFlight 会补发，
   // 否则宿主页面藏起来的那张缩略图会一直不显示。
-  if (returningToThumb.value) {
-    returningToThumb.value = false
-    emit('return-transition', { photoId: currentPhoto.value?.id ?? null, active: false })
-  }
-  flightAnimation?.cancel()
-  flightRadiusAnimation?.cancel()
-  flightImageAnimation?.cancel()
-  flightAnimation = null
-  flightRadiusAnimation = null
-  flightImageAnimation = null
-  flight.value = null
+  cancelFlight()
   disposeFlingTapRepair()
   assetManager.clear()
 })
