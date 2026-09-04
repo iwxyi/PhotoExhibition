@@ -122,7 +122,8 @@
      立刻生效，卡片带着 -4px 位移、图片带着 1.1 倍缩放冒出来，和飞行层差开一截，
      于是摘掉飞行层的那一下画面「跳一点、又大一点」。
      用关闭按钮或点空白关闭时指针落在别处，所以只有手势关闭会撞上。
-     窗口结束后类名撤掉，hover 按自己的 300ms / 500ms 过渡缓缓抬起，不是瞬间弹到位。 */
+     冻到指针自己动过为止（见 armThumbHoverRelease），届时 hover 按它自己的
+     300ms / 500ms 过渡缓缓抬起，不是瞬间弹到位。 */
   .photo-card--settling,
   .photo-card--settling:hover {
     transform: translateZ(0);

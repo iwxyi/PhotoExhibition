@@ -139,7 +139,7 @@
           <template #default="{ item: photo, index }">
             <div
               class="photo-card cursor-pointer"
-              :class="{ 'photo-card--settling': returningPhotoId === photo.id || justReturnedPhotoId === photo.id }"
+              :class="{ 'photo-card--settling': returningPhotoId === photo.id || justReturnedPhotoId === photo.id || hoverFrozenPhotoId === photo.id }"
               :style="getPhotoStyle(photo)"
               :data-photo-id="photo.id"
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
@@ -684,8 +684,8 @@ const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 // 查看器正在收回到哪张缩略图（收回动画期间该缩略图隐藏，避免与飞行中的图片重影）
 const returningPhotoId = ref<number | null>(null)
-// 刚收回完成的那张：飞行层撤走、缩略图重新露面的那一小会儿屏蔽过渡与 hover。
-// 见 getPhotoStyle 与 .photo-card--settling 的说明——此时指针多半正停在它上面。
+// 刚收回完成的那张：飞行层撤走、缩略图重新露面的那一小会儿屏蔽过渡。
+// 见 getPhotoStyle 的说明。
 //
 // 必须盖过查看器的离场淡出。收回结束时飞行层虽然被 v-if 摘掉了，但模态一旦进入
 // 离场过渡，Vue 就不再 patch 这棵子树，它实际还要在屏幕上多留一个淡出的时长
@@ -694,6 +694,27 @@ const returningPhotoId = ref<number | null>(null)
 const RETURN_SETTLE_MS = 300
 const justReturnedPhotoId = ref<number | null>(null)
 let justReturnedTimer: number | null = null
+
+// hover 冻结比静置窗口活得更久：一直冻到指针真的动过为止。
+// 静置窗口一到就放开的话，指针还压在原地不动，缩略图却自己抬起来放大了一下——
+// 用户什么都没做，画面却动了。移动端更明显：手指抬起后 :hover 会粘在最后触摸的
+// 位置上，不点别处就一直不掉。
+const hoverFrozenPhotoId = ref<number | null>(null)
+let unfreezeThumbHover: (() => void) | null = null
+
+// 指针真的动了（或者按下去了）才把这张卡片交还给正常的 hover。
+const armThumbHoverRelease = () => {
+  if (hoverFrozenPhotoId.value === null || unfreezeThumbHover) return
+  const release = () => unfreezeThumbHover?.()
+  window.addEventListener('pointermove', release, { passive: true })
+  window.addEventListener('pointerdown', release, { passive: true })
+  unfreezeThumbHover = () => {
+    window.removeEventListener('pointermove', release)
+    window.removeEventListener('pointerdown', release)
+    unfreezeThumbHover = null
+    hoverFrozenPhotoId.value = null
+  }
+}
 
 const photoRefs = ref<Map<number, HTMLElement>>(new Map())
 const isTransitioning = ref(false)
@@ -1175,13 +1196,20 @@ const resolveViewerOriginRect = (photoId: number, _index?: number, opts?: { allo
 // 命令式写 el.style.visibility 会在下一次 patch 时被抹掉。
 const onViewerReturnTransition = ({ photoId, active }: { photoId: number | null; active: boolean }) => {
   returningPhotoId.value = active ? photoId : null
-  if (active) return
-  // 落位后短暂静止，再交还给正常的 hover/入场样式
+  if (active) {
+    // 收回一开始就冻上，而且这期间不挂放开的监听：飞行途中指针动一下就解冻的话，
+    // 缩略图会在露面的那一刻已经是 hover 态，等于没冻。
+    unfreezeThumbHover?.()
+    hoverFrozenPhotoId.value = photoId
+    return
+  }
+  // 落位后短暂静止，再交还给正常的入场样式；hover 则要等指针自己动。
   justReturnedPhotoId.value = photoId
   if (justReturnedTimer) clearTimeout(justReturnedTimer)
   justReturnedTimer = window.setTimeout(() => {
     justReturnedPhotoId.value = null
     justReturnedTimer = null
+    armThumbHoverRelease()
   }, RETURN_SETTLE_MS)
 }
 
@@ -2075,6 +2103,9 @@ onUnmounted(() => {
   isDisposed = true
 
   resetPhotoPressState()
+  // hover 冻结的放开监听挂在 window 上，卸载时要摘干净
+  if (justReturnedTimer) { clearTimeout(justReturnedTimer); justReturnedTimer = null }
+  unfreezeThumbHover?.()
 
   // 清理滚动节流定时器，防止组件卸载后定时器回调仍执行
   if (scrollThrottleTimer) {
