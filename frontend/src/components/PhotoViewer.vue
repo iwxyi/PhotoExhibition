@@ -114,7 +114,6 @@
         aria-hidden="true"
       >
         <img
-          ref="flightImage"
           :src="flight.src"
           class="closing-flight-image"
           :style="flightImageStyle"
@@ -1012,9 +1011,7 @@ const returningToThumb = ref(false)
 type FlightRect = { left: number; top: number; width: number; height: number }
 const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string } | null>(null)
 const flightLayer = ref<HTMLElement | null>(null)
-const flightImage = ref<HTMLImageElement | null>(null)
 let flightAnimation: Animation | null = null
-let flightImageAnimation: Animation | null = null
 let flightRadiusAnimation: Animation | null = null
 
 // 飞行层只渲染静态起始几何，动画交给 Web Animations API。
@@ -1070,7 +1067,6 @@ const flightImageStyle = computed(() => {
 const startFlightAnimation = () => {
   const f = flight.value
   const el = flightLayer.value
-  const img = flightImage.value
   if (!f || !el || typeof el.animate !== 'function') return
 
   // 起点与终点的宽高比几乎总是一致（瀑布流卡片高度就是按照片比例算的），
@@ -1081,18 +1077,25 @@ const startFlightAnimation = () => {
   // 元素上的圆角会被 scale 一起缩小，想让落位时看起来是 8px，元素上就得写 8/scale。
   const endRadius = `${(parseFloat(f.radius) || 0) / scale}px`
 
-  // 取景窗单调落位，不回弹：它要给人「一个固定的框」的感觉，
-  // 框自己也弹的话，看起来就成了整体缩放，而不是图片落进框里。
+  // 整体轨迹：大图 → 缩略图尺寸 → 再缩小一点 → 弹回缩略图尺寸。
+  // 过冲发生在盒子上，图片全程铺满盒子跟着一起缩放，所以四周不会露底、
+  // 构图也始终不变 —— 观感就是整张照片落位时轻轻回弹了一下。
   //
+  // 过冲这一帧要与终点同心，否则回弹会带着画面往一侧偏。
+  const k = CLOSE_OVERSHOOT
+  const dipX = f.to.left + f.to.width * (1 - k) / 2 - f.from.left
+  const dipY = f.to.top + f.to.height * (1 - k) / 2 - f.from.top
+
   // transform 必须单独成一条动画：border-radius 不是可合成属性，和 transform 放在
   // 同一条里会把整条动画拉回主线程。实测那样时动画的 currentTime 会跟着主线程一起
   // 停住（卡顿 161ms 期间 currentTime 纹丝不动），于是关闭瞬间的重绘直接冻结动画。
   // 拆开之后位移/缩放跑在合成器线程，圆角即使卡住也只是圆角本身晚一点到位。
   flightAnimation?.cancel()
   flightAnimation = el.animate([
-    { transform: 'translate(0px, 0px) scale(1)' },
+    { transform: 'translate(0px, 0px) scale(1)', easing: 'cubic-bezier(0.32, 0, 0.28, 1)' },
+    { offset: CLOSE_OVERSHOOT_AT, transform: `translate(${dipX}px, ${dipY}px) scale(${scale * k})`, easing: 'cubic-bezier(0.34, 0, 0.2, 1)' },
     { transform: `translate(${dx}px, ${dy}px) scale(${scale})` }
-  ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
+  ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 
   flightRadiusAnimation?.cancel()
   flightRadiusAnimation = el.animate([
@@ -1100,25 +1103,6 @@ const startFlightAnimation = () => {
     { borderRadius: endRadius }
   ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
-  if (!img || typeof img.animate !== 'function') return
-  // 回弹只发生在图片上：先缩到比「铺满窗口」更小，再弹回来重新铺满。
-  // 过冲期间图片比窗口小，四周会短暂露出一点底 —— 这正是「落进框里」的观感来源。
-  // 内容的回弹只能往「放大」方向过冲。
-  //
-  // 取景窗是透明的，所以肉眼看到的「框」其实就是图片的边缘：图片一旦缩得比窗口小，
-  // 露出的底会让可见边缘跟着动，看起来就是「框也在回弹」——这正是拆开两个动画后
-  // 反而更乱的原因。反过来往大了过冲，图片始终盖满窗口，可见边缘完全由窗口决定，
-  // 于是框纹丝不动，回弹只体现在画面内容上（先多裁一点，再松回原本的取景）。
-  //
-  // 用 width/height 百分比而不是 transform: scale：百分比是相对当前窗口解析的，
-  // 每帧按真实尺寸重新栅格化，画面全程清晰；scale 会让图层被提升、只栅格化一次。
-  // 回弹同样走 transform，才能在主线程繁忙时照常推进。
-  flightImageAnimation?.cancel()
-  flightImageAnimation = img.animate([
-    { transform: 'scale(1)', easing: 'cubic-bezier(0.5, 0, 0.7, 0.4)' },
-    { offset: CLOSE_OVERSHOOT_AT, transform: `scale(${CLOSE_OVERSHOOT})`, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
-    { transform: 'scale(1)' }
-  ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 }
 const modalStyle = computed(() => {
   const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
@@ -1156,13 +1140,12 @@ const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 //   图片本身——从最大缩到比"填满窗口"更小一点，再弹回来把窗口填满。
 // 于是观感是「窗口稳稳落位，图片落进这个框里弹了一下」。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
-const CLOSE_EASE_OUT = 'cubic-bezier(0.34, 1.1, 0.5, 1)'
-// 内容过冲到铺满窗口的 118%（多裁一点），再松回 100%。
-// 必须 > 1：往小了过冲会露出窗口的底，可见边缘就跟着动了，看起来像框在回弹。
-const CLOSE_OVERSHOOT = 1.18
-// 过冲的峰值放在窗口已经基本落位之后：窗口还在大幅收缩时，画面本来就在快速变化，
-// 叠在上面的回弹根本看不出来。等框停稳了再弹，才有「照片落进窗口」的那一下。
-const CLOSE_OVERSHOOT_AT = 0.72
+// 先缩到缩略图尺寸的 94%，再弹回 100%。整个盒子（连同铺满它的图片）一起缩放，
+// 所以是「照片整体缩过头再弹回来」，不会露底、构图也不变。
+const CLOSE_OVERSHOOT = 0.94
+// 过冲点放在靠后的位置：此时盒子已经收得接近缩略图，这一下回弹才看得清楚；
+// 放在中段会被大幅收缩本身淹没。
+const CLOSE_OVERSHOOT_AT = 0.76
 const CLOSE_DURATION_MS = 280
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
@@ -1922,7 +1905,6 @@ const close = () => {
     const finalizeClose = () => {
       if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
       flightAnimation = null
-      flightImageAnimation = null
       flightRadiusAnimation = null
       flight.value = null
       returningToThumb.value = false
@@ -3728,10 +3710,8 @@ onBeforeUnmount(() => {
     emit('return-transition', { photoId: currentPhoto.value?.id ?? null, active: false })
   }
   flightAnimation?.cancel()
-  flightImageAnimation?.cancel()
   flightRadiusAnimation?.cancel()
   flightAnimation = null
-  flightImageAnimation = null
   flightRadiusAnimation = null
   flight.value = null
   disposeFlingTapRepair()
