@@ -1015,6 +1015,7 @@ const flightLayer = ref<HTMLElement | null>(null)
 const flightImage = ref<HTMLImageElement | null>(null)
 let flightAnimation: Animation | null = null
 let flightImageAnimation: Animation | null = null
+let flightRadiusAnimation: Animation | null = null
 
 // 飞行层只渲染静态起始几何，动画交给 Web Animations API。
 //
@@ -1028,13 +1029,18 @@ let flightImageAnimation: Animation | null = null
 const flightBoxStyle = computed(() => {
   const f = flight.value
   if (!f) return {}
+  // 布局尺寸固定为起点，位移和缩放全部交给 transform（合成器线程）。
+  // 之前用 width/height 做动画，每帧都要主线程重排+重栅格化；而关闭这一刻主线程
+  // 正忙着拆查看器、重绘整个相册网格，动画就整段卡住——实测 280ms 的动画只画出 3 帧，
+  // 开头有 170ms 一帧不动，移除时还停在回弹中途，于是"掉帧 / 看不到回弹 / 结尾突然
+  // 变小"三个现象其实是同一个原因。
   return {
     position: 'fixed' as const,
     left: `${f.from.left}px`,
     top: `${f.from.top}px`,
     width: `${f.from.width}px`,
     height: `${f.from.height}px`,
-    borderRadius: '0px',
+    transformOrigin: 'top left',
     overflow: 'hidden' as const,
     zIndex: 70,
     pointerEvents: 'none' as const
@@ -1051,17 +1057,13 @@ const flightBoxStyle = computed(() => {
 // 重绘整个相册瀑布流，不是这张图，所以这里优先保证观感正确。
 const flightImageStyle = computed(() => {
   if (!flight.value) return {}
+  // 图片铺满取景窗，回弹叠在上面。整段飞行是把大图往下缩，栅格化一次再降采样，
+  // 观感是清晰的（放大才会糊）。
   return {
-    position: 'absolute' as const,
-    left: '50%',
-    top: '50%',
-    // 这个 translate 是静态的、不参与动画：动画只改 width/height。
-    // 一旦让 transform 参与动画，浏览器会把图层提升并只栅格化一次，
-    // 整段飞行都是 GPU 拉伸出来的软画面，结尾重新栅格化时就会「唰」地变清晰。
-    transform: 'translate(-50%, -50%)',
     width: '100%',
     height: '100%',
-    objectFit: 'cover' as const
+    objectFit: 'cover' as const,
+    transformOrigin: 'center center'
   }
 })
 
@@ -1071,20 +1073,31 @@ const startFlightAnimation = () => {
   const img = flightImage.value
   if (!f || !el || typeof el.animate !== 'function') return
 
-  const px = (r: FlightRect) => ({
-    left: `${r.left}px`,
-    top: `${r.top}px`,
-    width: `${r.width}px`,
-    height: `${r.height}px`
-  })
+  // 起点与终点的宽高比几乎总是一致（瀑布流卡片高度就是按照片比例算的），
+  // 所以等比缩放不会让画面变形。
+  const scale = f.to.width / f.from.width
+  const dx = f.to.left - f.from.left
+  const dy = f.to.top - f.from.top
+  // 元素上的圆角会被 scale 一起缩小，想让落位时看起来是 8px，元素上就得写 8/scale。
+  const endRadius = `${(parseFloat(f.radius) || 0) / scale}px`
 
   // 取景窗单调落位，不回弹：它要给人「一个固定的框」的感觉，
   // 框自己也弹的话，看起来就成了整体缩放，而不是图片落进框里。
-  // 圆角走完 70% 时长即可，稍早收完不会和图片的回弹抢视线。
+  //
+  // transform 必须单独成一条动画：border-radius 不是可合成属性，和 transform 放在
+  // 同一条里会把整条动画拉回主线程。实测那样时动画的 currentTime 会跟着主线程一起
+  // 停住（卡顿 161ms 期间 currentTime 纹丝不动），于是关闭瞬间的重绘直接冻结动画。
+  // 拆开之后位移/缩放跑在合成器线程，圆角即使卡住也只是圆角本身晚一点到位。
   flightAnimation?.cancel()
   flightAnimation = el.animate([
-    { ...px(f.from), borderRadius: '0px' },
-    { ...px(f.to), borderRadius: f.radius }
+    { transform: 'translate(0px, 0px) scale(1)' },
+    { transform: `translate(${dx}px, ${dy}px) scale(${scale})` }
+  ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
+
+  flightRadiusAnimation?.cancel()
+  flightRadiusAnimation = el.animate([
+    { borderRadius: '0px' },
+    { borderRadius: endRadius }
   ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
   if (!img || typeof img.animate !== 'function') return
@@ -1099,12 +1112,12 @@ const startFlightAnimation = () => {
   //
   // 用 width/height 百分比而不是 transform: scale：百分比是相对当前窗口解析的，
   // 每帧按真实尺寸重新栅格化，画面全程清晰；scale 会让图层被提升、只栅格化一次。
-  const zoom = `${(CLOSE_OVERSHOOT * 100).toFixed(2)}%`
+  // 回弹同样走 transform，才能在主线程繁忙时照常推进。
   flightImageAnimation?.cancel()
   flightImageAnimation = img.animate([
-    { width: '100%', height: '100%', easing: 'cubic-bezier(0.5, 0, 0.7, 0.4)' },
-    { offset: CLOSE_OVERSHOOT_AT, width: zoom, height: zoom, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
-    { width: '100%', height: '100%' }
+    { transform: 'scale(1)', easing: 'cubic-bezier(0.5, 0, 0.7, 0.4)' },
+    { offset: CLOSE_OVERSHOOT_AT, transform: `scale(${CLOSE_OVERSHOOT})`, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
+    { transform: 'scale(1)' }
   ], { duration: CLOSE_DURATION_MS, fill: 'both' })
 }
 const modalStyle = computed(() => {
@@ -1900,10 +1913,6 @@ const close = () => {
     }
     // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
     emit('return-transition', { photoId: closingPhotoId, active: true })
-    // Return control to the parent immediately.  The component remains
-    // rendered while closing and has pointer-events disabled, so the page
-    // below can already receive a new thumbnail click.
-    emit('update:visible', false)
     // 收尾：先摘掉飞行层、同时让宿主恢复缩略图（同一次 patch 内完成，不会有空档），
     // 之后才把 closing 置否让模态走离场过渡。
     //
@@ -1914,6 +1923,7 @@ const close = () => {
       if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
       flightAnimation = null
       flightImageAnimation = null
+      flightRadiusAnimation = null
       flight.value = null
       returningToThumb.value = false
       emit('return-transition', { photoId: closingPhotoId, active: false })
@@ -1928,12 +1938,21 @@ const close = () => {
       if (!closing.value) return
       startFlightAnimation()
       closingAnimationStarted.value = true
+
+      // 兜底计时器必须从动画真正开始的时刻算起。之前从 close() 调用时刻起算，
+      // 而动画要等 Vue 渲染 + 主线程空闲才开始（实测晚了 128ms），
+      // 于是计时器抢在动画结束前就把飞行层摘掉，画面停在回弹中途然后突然变小。
+      if (closeTimer) clearTimeout(closeTimer)
+      closeTimer = window.setTimeout(finalizeClose, CLOSE_DURATION_MS + 80)
       flightAnimation?.finished
         .then(() => { if (closing.value) finalizeClose() })
         .catch(() => { /* 被取消（重新打开/卸载），由对应流程收尾 */ })
+
+      // 立刻把控制权交还父组件。曾经尝试等 animation.ready 之后再 emit，想让动画
+      // 抢在相册网格重绘之前起跑——既没有缩短起跑延迟（仍是 ~148ms），又会在关闭
+      // 动画被中途打断时把这次 emit 丢掉，查看器就再也关不上了。
+      emit('update:visible', false)
     })
-    // 兜底：WAAPI 不可用或 finished 没兑现时仍要收尾，留一点余量避免抢在动画前面。
-    closeTimer = window.setTimeout(finalizeClose, CLOSE_DURATION_MS + 60)
     return
   }
 
@@ -3710,8 +3729,10 @@ onBeforeUnmount(() => {
   }
   flightAnimation?.cancel()
   flightImageAnimation?.cancel()
+  flightRadiusAnimation?.cancel()
   flightAnimation = null
   flightImageAnimation = null
+  flightRadiusAnimation = null
   flight.value = null
   disposeFlingTapRepair()
   assetManager.clear()
