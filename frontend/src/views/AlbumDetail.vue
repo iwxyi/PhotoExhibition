@@ -141,6 +141,7 @@
               class="photo-card cursor-pointer"
               :class="{ 'photo-card--returned': justReturnedPhotoId === photo.id }"
               :style="getPhotoStyle(photo)"
+              @animationend="onPhotoAnimationEnd(photo.id, $event)"
               :data-photo-id="photo.id"
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
               @pointerup="onPhotoPointerUp(photo, index, $event)"
@@ -1167,16 +1168,28 @@ const resolveViewerOriginRect = (photoId: number) => {
 // 必须走响应式状态交给 getPhotoStyle 输出：这些卡片的 style 由 :style 绑定管理
 // （而且 getPhotoStyle 里有 Math.random，每次渲染都会重新 patch），
 // 命令式写 el.style.visibility 会在下一次 patch 时被抹掉。
+// 回弹播完才撤掉标记，这样它无论多晚开始都能完整播一遍
+const onPhotoAnimationEnd = (photoId: number, e: AnimationEvent) => {
+  if (e.animationName !== 'photoReturnSettle') return
+  if (justReturnedPhotoId.value !== photoId) return
+  if (justReturnedTimer) { clearTimeout(justReturnedTimer); justReturnedTimer = null }
+  justReturnedPhotoId.value = null
+}
+
 const onViewerReturnTransition = ({ photoId, active }: { photoId: number | null; active: boolean }) => {
   returningPhotoId.value = active ? photoId : null
   if (active) return
   // 落位后先静止一小会，再交还给正常的 hover/入场样式
   justReturnedPhotoId.value = photoId
   if (justReturnedTimer) clearTimeout(justReturnedTimer)
+  // 用 animationend 收尾，不要用固定计时器：关闭瞬间主线程会被阻塞一百多毫秒，
+  // 动画要等第一帧渲染出来才真正开始跑。按固定时长撤类，会在它还停在第 0 毫秒时
+  // 就把类摘掉——实测只渲染出 2 帧、且 currentTime 始终为 0，等于整段回弹没播。
+  // 这里只留一个宽松的兜底，防止 animationend 因故不触发时状态卡住。
   justReturnedTimer = window.setTimeout(() => {
     justReturnedPhotoId.value = null
     justReturnedTimer = null
-  }, RETURN_SETTLE_MS + 40)
+  }, RETURN_SETTLE_MS + 1200)
 }
 
 // bulk actions
