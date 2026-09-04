@@ -1095,11 +1095,30 @@ const startFlightAnimation = () => {
   // 同一条里会把整条动画拉回主线程。实测那样时动画的 currentTime 会跟着主线程一起
   // 停住（卡顿 161ms 期间 currentTime 纹丝不动），于是关闭瞬间的重绘直接冻结动画。
   // 拆开之后位移/缩放跑在合成器线程，圆角即使卡住也只是圆角本身晚一点到位。
+  // 三条曲线各走各的：横向略快、纵向略慢、缩放走中间那条。
+  //
+  // 单曲线的位移是一条直线，位移和缩放又完全同步，看着像整块东西被拽过去。把两个
+  // 轴错开一点，路径就成了一段很浅的弧——横向先让出去，纵向随后落下来；缩放夹在
+  // 两者中间，于是"飞"和"收"是两件有关联但不同步的事。这就是松弛感的来源，
+  // 不用把动画拉长。
+  //
+  // 幅度刻意压得很小：两条曲线只在第一个控制点上对称错开 ±0.14，斜向行程时偏离
+  // 直线约 6%，正横/正竖方向自动趋近于 0（那种时候本来也不该拐弯）。再大就从
+  // "松弛"变成"甩"了。
+  const steps = 30
+  const boxFrames: Keyframe[] = []
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps
+    // 端点不做任何舍入：落位尺寸/位置与缩略图的精确一致是这套动画的前提。
+    const tx = i === steps ? dx : dx * flightEaseX(u)
+    const ty = i === steps ? dy : dy * flightEaseY(u)
+    const s = i === steps ? scale : 1 + (scale - 1) * boxProgress(u)
+    boxFrames.push({ offset: u, transform: `translate(${tx}px, ${ty}px) scale(${s})` })
+  }
+
   flightAnimation?.cancel()
-  flightAnimation = el.animate([
-    { transform: 'translate(0px, 0px) scale(1)' },
-    { transform: `translate(${dx}px, ${dy}px) scale(${scale})` }
-  ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
+  // 曲线已经采样进关键帧，帧间必须 linear，否则等于再叠一层缓动。
+  flightAnimation = el.animate(boxFrames, { duration: CLOSE_DURATION_MS, easing: 'linear', fill: 'both' })
 
   flightRadiusAnimation?.cancel()
   flightRadiusAnimation = el.animate([
@@ -1131,8 +1150,14 @@ const cubicBezierEasing = (x1: number, y1: number, x2: number, y2: number) => {
     return curve(y1, y2, t)
   }
 }
+// 必须和 CLOSE_EASE_IN 是同一条曲线：圆角动画用字符串走 CSS，
+// 缩放采样和视差推算用这个函数，两边对不上视差就算错了。
 const boxProgress = cubicBezierEasing(0.35, 0.6, 0.35, 1)
 const imageProgress = cubicBezierEasing(0.4, 0.35, 0.45, 1)
+// 位移的两个轴：围绕 boxProgress 对称地一前一后，只动第一个控制点的 y。
+// 这样两条曲线的端点、单调性和整体性格都和缩放一致，只是一个稍快一个稍慢。
+const flightEaseX = cubicBezierEasing(0.35, 0.74, 0.35, 1)
+const flightEaseY = cubicBezierEasing(0.35, 0.46, 0.35, 1)
 
 // 视差：取景窗和画面各走各的曲线，但走的是同一段路。
 //
