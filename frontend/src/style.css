@@ -116,6 +116,22 @@
     transform: translateY(0);
   }
 
+  /* 收回落位期间冻结这张卡片的 hover。
+     飞行层是照着卡片的「静止」位置落位的（resolveViewerOriginRect 会把 hover 变换
+     算掉），可是下滑关闭时手指松开的位置多半就压在这张卡上——查看器一撤，:hover
+     立刻生效，卡片带着 -4px 位移、图片带着 1.1 倍缩放冒出来，和飞行层差开一截，
+     于是摘掉飞行层的那一下画面「跳一点、又大一点」。
+     用关闭按钮或点空白关闭时指针落在别处，所以只有手势关闭会撞上。
+     窗口结束后类名撤掉，hover 按自己的 300ms / 500ms 过渡缓缓抬起，不是瞬间弹到位。 */
+  .photo-card--settling,
+  .photo-card--settling:hover {
+    transform: translateZ(0);
+  }
+
+  .photo-card--settling:hover .photo-image {
+    transform: translateZ(0);
+  }
+
   .gradient-overlay {
     @apply absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300;
     will-change: opacity;

@@ -139,6 +139,7 @@
           <template #default="{ item: photo, index }">
             <div
               class="photo-card cursor-pointer"
+              :class="{ 'photo-card--settling': returningPhotoId === photo.id || justReturnedPhotoId === photo.id }"
               :style="getPhotoStyle(photo)"
               :data-photo-id="photo.id"
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
@@ -683,9 +684,14 @@ const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 // 查看器正在收回到哪张缩略图（收回动画期间该缩略图隐藏，避免与飞行中的图片重影）
 const returningPhotoId = ref<number | null>(null)
-// 刚收回完成的那张：飞行层撤走、缩略图重新露面的那一小会儿屏蔽过渡。
-// 见 getPhotoStyle 里的说明——此时鼠标多半正停在它上面。
-const RETURN_SETTLE_MS = 150
+// 刚收回完成的那张：飞行层撤走、缩略图重新露面的那一小会儿屏蔽过渡与 hover。
+// 见 getPhotoStyle 与 .photo-card--settling 的说明——此时指针多半正停在它上面。
+//
+// 必须盖过查看器的离场淡出。收回结束时飞行层虽然被 v-if 摘掉了，但模态一旦进入
+// 离场过渡，Vue 就不再 patch 这棵子树，它实际还要在屏幕上多留一个淡出的时长
+// （PhotoViewer 的 CLOSE_FADE_MS，260ms）。这段时间里飞行层和缩略图是叠着的，
+// 谁先动一下都会被看见。
+const RETURN_SETTLE_MS = 300
 const justReturnedPhotoId = ref<number | null>(null)
 let justReturnedTimer: number | null = null
 
@@ -850,8 +856,9 @@ const getPhotoStyle = (photo: any) => {
     }
   }
   // 刚刚收回到这张卡片：屏蔽 transition，否则它会落进下面的入场动画分支，带着
-  // transition: all 0.5s 出现——此时鼠标多半正停在它上面，hover 的 translateY(-4px)
-  // 和图片 scale(1.1) 会在落位后紧接着 animate 一遍，看起来就是画面又动了几个像素。
+  // transition: all 0.5s 出现，opacity / transform 又 animate 一遍。
+  // hover 本身由 .photo-card--settling 冻结（光屏蔽 transition 只会让 hover 瞬间
+  // 到位，反而更跳），窗口结束后再放开，让它按自己的过渡缓缓抬起。
   if (justReturnedPhotoId.value === photoId) {
     return {
       opacity: '1',
