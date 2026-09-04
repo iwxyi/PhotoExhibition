@@ -1126,13 +1126,15 @@ watch(viewerVisible, (visible) => {
 // 关闭查看器时，告诉它当前这张照片的缩略图在哪，好收回到正确的位置和尺寸。
 // 目标不在视口内时先滚动过去：此刻查看器的背景还是不透明的，滚动看不见，
 // 但收回的落点会因此停在用户能看到的地方，而不是飞出屏幕外。
-const resolveViewerOriginRect = (photoId: number) => {
+// allowScroll 默认为真（打开/关闭那一次要把卡片滚进视野再量）。收回途中每帧的
+// 跟随重测传 false —— 那时用户可能正在滚页面，把他拽回去就成了新 bug。
+const resolveViewerOriginRect = (photoId: number, _index?: number, opts?: { allowScroll?: boolean }) => {
   const el = photoRefs.value.get(photoId)
   if (!el || !el.isConnected) return null
 
   const viewportH = window.innerHeight
   let rect = el.getBoundingClientRect()
-  if (rect.bottom < 0 || rect.top > viewportH) {
+  if ((rect.bottom < 0 || rect.top > viewportH) && opts?.allowScroll !== false) {
     el.scrollIntoView({ block: 'center', behavior: 'auto' })
     rect = el.getBoundingClientRect()
   }

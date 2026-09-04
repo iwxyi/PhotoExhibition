@@ -106,20 +106,20 @@
            从 0 变到目标值；内层图片始终 object-fit: cover。起点时盒子的宽高比
            正好等于图片比例，cover 与 contain 等价、看到完整图像；随着盒子变形到
            缩略图的比例，裁切是连续长出来的。 -->
-      <div
-        v-if="flight"
-        ref="flightLayer"
-        class="closing-flight"
-        :style="flightBoxStyle"
-        aria-hidden="true"
-      >
-        <img
-          :src="flight.src"
-          ref="flightImage"
-          class="closing-flight-image"
-          :style="flightImageStyle"
-          alt=""
-        />
+      <div v-if="flight" ref="flightAnchor" class="closing-flight-anchor" aria-hidden="true">
+        <div
+          ref="flightLayer"
+          class="closing-flight"
+          :style="flightBoxStyle"
+        >
+          <img
+            :src="flight.src"
+            ref="flightImage"
+            class="closing-flight-image"
+            :style="flightImageStyle"
+            alt=""
+          />
+        </div>
       </div>
 
       <!-- 主要图片显示区域 -->
@@ -766,7 +766,9 @@ const props = defineProps<{
   // 翻过页之后再关闭就应该收回到当前照片的缩略图上，而不是最初那张。
   // 宿主页面按 photoId 返回缩略图的位置；返回 null 则退回 originRect。
   // radius 是缩略图的圆角（如 '8px'），用于让收回动画把圆角一起补出来。
-  resolveOriginRect?: ((photoId: number, index: number) => { top: number; left: number; width: number; height: number; radius?: string } | null) | null
+  // opts.allowScroll = false：只量不滚。收回途中每帧都要重新量目标缩略图，
+  // 这时候绝不能把用户正在滚的页面拽回去。
+  resolveOriginRect?: ((photoId: number, index: number, opts?: { allowScroll?: boolean }) => { top: number; left: number; width: number; height: number; radius?: string } | null) | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
   adminMenuActions?: AdminMenuAction[] | null
 }>()
@@ -1013,6 +1015,8 @@ type FlightRect = { left: number; top: number; width: number; height: number }
 const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string } | null>(null)
 const flightLayer = ref<HTMLElement | null>(null)
 const flightImage = ref<HTMLImageElement | null>(null)
+const flightAnchor = ref<HTMLElement | null>(null)
+let flightTrackRaf: number | null = null
 let flightAnimation: Animation | null = null
 let flightRadiusAnimation: Animation | null = null
 let flightImageAnimation: Animation | null = null
@@ -1202,6 +1206,36 @@ const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: n
   flightImageAnimation = img.animate(frames, { duration: total, easing: 'linear', fill: 'both' })
 }
 
+// 每帧重新量一次目标缩略图，把它这段时间里挪动的距离补到锚层上。
+//
+// 飞行层是 position: fixed 的，落点 f.to 又是关闭那一刻记下的视口坐标，所以只要
+// 页面在这 380ms 里动过，落点就是错的：收回途中滚动相册，飞行层会僵在原地不跟着走；
+// 瀑布流因为图片陆续加载重排、或者滚动条出现导致居中容器左右挪一点，落位就会和
+// 缩略图差开几像素——摘掉飞行层的那一帧看着就是"图片忽然错位一下"。
+//
+// 补偿只做平移：卡片尺寸变化极罕见，而缩放已经烘进关键帧里了，中途改它会破坏
+// 落位尺寸的精确匹配。写 DOM 而不是走响应式，避免每帧触发一次组件重渲染。
+const trackFlightTarget = () => {
+  flightTrackRaf = null
+  const f = flight.value
+  const anchor = flightAnchor.value
+  if (!f || !anchor || flightPhotoId === null) return
+  const now = props.resolveOriginRect?.(flightPhotoId, currentIndex.value, { allowScroll: false })
+  if (now) {
+    const ox = now.left - f.to.left
+    const oy = now.top - f.to.top
+    anchor.style.transform = ox || oy ? `translate3d(${ox}px, ${oy}px, 0)` : ''
+  }
+  flightTrackRaf = requestAnimationFrame(trackFlightTarget)
+}
+
+const stopFlightTracking = () => {
+  if (flightTrackRaf !== null) {
+    cancelAnimationFrame(flightTrackRaf)
+    flightTrackRaf = null
+  }
+}
+
 // 收回还没演完就被打断（重新打开、组件卸载）时的强拆。
 //
 // 正常收尾走 finalizeClose，它由兜底计时器和动画的 finished 触发，两者都带
@@ -1210,6 +1244,7 @@ const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: n
 // 把它钉死在缩略图的落点上，看着就是「动画停住了，还赖着不走」；底下真正的缩略图
 // 又因为没人发 return-transition 而一直 visibility: hidden。
 const cancelFlight = () => {
+  stopFlightTracking()
   flightAnimation?.cancel()
   flightRadiusAnimation?.cancel()
   flightImageAnimation?.cancel()
@@ -2039,6 +2074,7 @@ const close = () => {
       if (finalized) return
       finalized = true
       if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
+      stopFlightTracking()
       flightAnimation = null
       flightRadiusAnimation = null
       flightImageAnimation = null
@@ -2056,6 +2092,7 @@ const close = () => {
     nextTick(() => {
       if (!closing.value) return
       startFlightAnimation()
+      trackFlightTarget()
       closingAnimationStarted.value = true
 
       // 摘掉飞行层要等最后落地的那条动画——是画面（晚 CLOSE_IMAGE_LAG_MS），
@@ -3854,6 +3891,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 锚层：铺满视口、不吃事件，只承担"跟住缩略图"的那点补偿位移（见 trackFlightTarget）。
+   它一旦带上 transform 就成了内部 position: fixed 的包含块，所以必须严格等于视口，
+   inset: 0 保证飞行层里写的 left/top 仍然是视口坐标。 */
+.closing-flight-anchor {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  will-change: transform;
+}
+
 /* 收回飞行层：外层负责裁切与圆角，内层图片用 cover 填满，
    于是盒子变形的过程就是裁切逐渐长出来的过程。 */
 .closing-flight-image {
