@@ -68,23 +68,6 @@
     -ms-user-select: none;
   }
 
-  /* 查看器收回后的「Q弹」由缩略图本体完成：飞行层单调收到缩略图原尺寸就退场，
-     这里从同样的尺寸接手，先缩一点再弹回去。
-     放在缩略图上而不是那个 position: fixed 的飞行层里，有两个原因：
-       1. 关闭后立刻滚动页面时，这段动画在文档流内会跟着一起滚，不会钉在屏幕上；
-       2. 起止都是原尺寸，即使交棒因为主线程繁忙而晚到，也只是回弹晚一点开始，
-          不会让画面僵在一个偏小的尺寸上再突然弹回。
-     duration 需与 AlbumDetail 的 RETURN_SETTLE_MS 保持一致。 */
-  .photo-card--returned {
-    animation: photoReturnSettle 260ms cubic-bezier(0.33, 0, 0.3, 1) both;
-  }
-
-  @keyframes photoReturnSettle {
-    0% { transform: scale(1); }
-    42% { transform: scale(0.94); }
-    100% { transform: scale(1); }
-  }
-
   /* 瀑布流容器 */
   .masonry-container {
     column-count: 1;

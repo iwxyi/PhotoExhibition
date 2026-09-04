@@ -115,6 +115,7 @@
       >
         <img
           :src="flight.src"
+          ref="flightImage"
           class="closing-flight-image"
           :style="flightImageStyle"
           alt=""
@@ -1011,8 +1012,10 @@ const returningToThumb = ref(false)
 type FlightRect = { left: number; top: number; width: number; height: number }
 const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string } | null>(null)
 const flightLayer = ref<HTMLElement | null>(null)
+const flightImage = ref<HTMLImageElement | null>(null)
 let flightAnimation: Animation | null = null
 let flightRadiusAnimation: Animation | null = null
+let flightImageAnimation: Animation | null = null
 
 // 飞行层只渲染静态起始几何，动画交给 Web Animations API。
 //
@@ -1045,8 +1048,8 @@ const flightBoxStyle = computed(() => {
 })
 
 // 图片始终铺满取景窗（object-fit: cover），所以窗口怎么变形，画面就怎么跟着走，
-// 裁切也随窗口宽高比连续长出来 —— 不需要把窗口的缓动曲线在 JS 里复刻一遍。
-// 回弹则完全由 transform: scale 承担，叠加在"铺满"之上。
+// 裁切也随窗口宽高比连续长出来。视差的那点滞后叠在"铺满"之上，
+// 由 transform: scale 单独承担（见 startFlightImageAnimation）。
 //
 // 曾经改成固定尺寸 + transform 缩放来省栅格化，但那样图片是按自己的时间线走的，
 // 和窗口对不上：实测飞行途中画面只填满窗口的 63%，四周长期露底，
@@ -1054,7 +1057,7 @@ const flightBoxStyle = computed(() => {
 // 重绘整个相册瀑布流，不是这张图，所以这里优先保证观感正确。
 const flightImageStyle = computed(() => {
   if (!flight.value) return {}
-  // 图片铺满取景窗，回弹叠在上面。整段飞行是把大图往下缩，栅格化一次再降采样，
+  // 图片铺满取景窗，视差滞后叠在上面。整段飞行是把大图往下缩，栅格化一次再降采样，
   // 观感是清晰的（放大才会糊）。
   return {
     width: '100%',
@@ -1077,17 +1080,10 @@ const startFlightAnimation = () => {
   // 元素上的圆角会被 scale 一起缩小，想让落位时看起来是 8px，元素上就得写 8/scale。
   const endRadius = `${(parseFloat(f.radius) || 0) / scale}px`
 
-  // 飞行层只负责「大图 → 比缩略图略小一点」这一段，单调收缩、不回弹，到位即交棒；
-  // 最后「略小 → 缩略图原尺寸」的那一下回弹由列表里的缩略图本体去演（见
-  // AlbumDetail 的 photo-card--returned）。这样分工有两个好处：
-  //   1. 盒子自己不再有回弹，观感上框是一路收拢到位的；
-  //   2. 飞行层是 position: fixed 的，关闭后立刻滚动页面它不会跟着走。交棒越早，
-  //      这个不跟随滚动的层存活时间越短，剩下的动画由在文档流里的缩略图承担。
-  // 交棒点就是缩略图的原尺寸：飞行层收到位即退场，缩略图从同样的比例接手。
-  // 不在飞行层里停在「略小」的状态——主线程一忙，交棒会晚几百毫秒，那期间画面
-  // 就会僵在一个偏小的尺寸上，然后突然弹到正常大小（实测僵住约 360ms）。
-  // 落位尺寸与缩略图一致时，交棒晚了也只是回弹晚一点开始，不会出现错误的尺寸。
-
+  // 盒子（取景窗）单调地从大图可见框收到缩略图框就停住，没有任何回弹。
+  // 飞行层是 position: fixed 的，关闭后立刻滚动页面它不会跟着走，所以它该短命；
+  // 落位尺寸与缩略图完全一致，摘掉它的那一帧不会有尺寸跳变。
+  //
   // transform 必须单独成一条动画：border-radius 不是可合成属性，和 transform 放在
   // 同一条里会把整条动画拉回主线程。实测那样时动画的 currentTime 会跟着主线程一起
   // 停住（卡顿 161ms 期间 currentTime 纹丝不动），于是关闭瞬间的重绘直接冻结动画。
@@ -1104,6 +1100,37 @@ const startFlightAnimation = () => {
     { borderRadius: endRadius }
   ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
+  startFlightImageAnimation()
+}
+
+// 视差：画面比取景窗晚 CLOSE_IMAGE_LAG_MS 收完。
+//
+// 图片是 object-fit: cover 铺满盒子的，盒子怎么变形画面就跟着怎么走——两者天然
+// 同步、严丝合缝。想让画面「慢半拍」，就在它自己的 transform 上补一个相对缩放
+// rel：rel > 1 表示此刻画面比窗口大一圈、被多裁掉一点。
+//
+//   rel 从 1 涨到 CLOSE_IMAGE_PARALLAX —— 与盒子同一条曲线、同一段时间，
+//   于是「画面绝对尺寸 = 盒子 × rel」全程单调收缩，不会出现先缩过头再弹回来；
+//   盒子落位后，rel 再用 CLOSE_IMAGE_LAG_MS 收回 1。
+//
+// 起点和终点 rel 都严格是 1：出发时画面正好铺满、落位时又正好铺满，
+// 所以摘掉飞行层换回真缩略图的那一帧不会有任何跳变。
+//
+// 直接写死 rel（而不是「把盒子的曲线拉长、再反解出补偿量」）有两个好处：
+// 视差幅度是个常数，不随缩略图大小飘；而且「拉长同一条曲线」的做法里，
+// 这条曲线前段极陡，落差几乎全发生在头 60ms，盒子落位后只剩 1% 的尾巴——
+// 实测峰值只有 1.01，等于看不见。
+const startFlightImageAnimation = () => {
+  const img = flightImage.value
+  if (!img || typeof img.animate !== 'function') return
+
+  const total = CLOSE_DURATION_MS + CLOSE_IMAGE_LAG_MS
+  flightImageAnimation?.cancel()
+  flightImageAnimation = img.animate([
+    { offset: 0, transform: 'scale(1)', easing: CLOSE_EASE_IN },
+    { offset: CLOSE_DURATION_MS / total, transform: `scale(${CLOSE_IMAGE_PARALLAX})`, easing: CLOSE_PARALLAX_SETTLE_EASE },
+    { offset: 1, transform: 'scale(1)' }
+  ], { duration: total, fill: 'both' })
 }
 const modalStyle = computed(() => {
   const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
@@ -1137,13 +1164,19 @@ const OPENING_INPUT_GUARD_MS = 220
 // 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
 const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 收回的两层分工：
-//   盒子（取景窗）——单调地从大图的可见框收到缩略图框就停住，不参与回弹；
-//   图片本身——从最大缩到比"填满窗口"更小一点，再弹回来把窗口填满。
-// 于是观感是「窗口稳稳落位，图片落进这个框里弹了一下」。
+//   盒子（取景窗）——单调地从大图的可见框收到缩略图框就停住；
+//   画面本身——沿同一条曲线、但晚 CLOSE_IMAGE_LAG_MS 才收完。
+// 于是观感是「窗口先稳稳落位，画面再收进这个框里」，有层次而不晃。
 const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
-// 回弹幅度由缩略图本体负责（AlbumDetail 的 photo-card--returned），
-// 飞行层只管单调收拢到位。
 const CLOSE_DURATION_MS = 230
+// 画面比取景窗慢多少。它也是飞行层（position: fixed）的额外存活时间，
+// 关闭后立刻滚动页面这段是不跟随滚动的，所以别太长。
+const CLOSE_IMAGE_LAG_MS = 100
+// 盒子落位那一刻画面比窗口大多少。1.09 ≈ 四周各多裁掉 4%：够看出层次，
+// 又不至于让人觉得落位时尺寸不对。
+const CLOSE_IMAGE_PARALLAX = 1.09
+// 视差收尾用平缓的 ease-out：这一段是「画面轻轻沉进已经停稳的窗口」，不该再有冲劲。
+const CLOSE_PARALLAX_SETTLE_EASE = 'cubic-bezier(0.33, 0, 0.2, 1)'
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
 // 宿主没通过 resolveOriginRect 告诉我们缩略图圆角时的兜底值。
@@ -1907,6 +1940,7 @@ const close = () => {
       if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
       flightAnimation = null
       flightRadiusAnimation = null
+      flightImageAnimation = null
       flight.value = null
       returningToThumb.value = false
       emit('return-transition', { photoId: closingPhotoId, active: false })
@@ -1922,12 +1956,17 @@ const close = () => {
       startFlightAnimation()
       closingAnimationStarted.value = true
 
-      // 兜底计时器必须从动画真正开始的时刻算起。之前从 close() 调用时刻起算，
+      // 摘掉飞行层要等最后落地的那条动画——是画面（晚 CLOSE_IMAGE_LAG_MS），
+      // 不是盒子。按盒子的时长摘会把视差那一小段直接切掉。
+      //
+      // 兜底计时器也必须从动画真正开始的时刻算起。之前从 close() 调用时刻起算，
       // 而动画要等 Vue 渲染 + 主线程空闲才开始（实测晚了 128ms），
-      // 于是计时器抢在动画结束前就把飞行层摘掉，画面停在回弹中途然后突然变小。
+      // 于是计时器抢在动画结束前就把飞行层摘掉，画面停在中途然后突然变小。
+      const settleAnimation = flightImageAnimation || flightAnimation
+      const settleMs = flightImageAnimation ? CLOSE_DURATION_MS + CLOSE_IMAGE_LAG_MS : CLOSE_DURATION_MS
       if (closeTimer) clearTimeout(closeTimer)
-      closeTimer = window.setTimeout(finalizeClose, CLOSE_DURATION_MS + 80)
-      flightAnimation?.finished
+      closeTimer = window.setTimeout(finalizeClose, settleMs + 80)
+      settleAnimation?.finished
         .then(() => { if (closing.value) finalizeClose() })
         .catch(() => { /* 被取消（重新打开/卸载），由对应流程收尾 */ })
 
@@ -3712,8 +3751,10 @@ onBeforeUnmount(() => {
   }
   flightAnimation?.cancel()
   flightRadiusAnimation?.cancel()
+  flightImageAnimation?.cancel()
   flightAnimation = null
   flightRadiusAnimation = null
+  flightImageAnimation = null
   flight.value = null
   disposeFlingTapRepair()
   assetManager.clear()

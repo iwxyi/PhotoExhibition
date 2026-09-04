@@ -139,9 +139,7 @@
           <template #default="{ item: photo, index }">
             <div
               class="photo-card cursor-pointer"
-              :class="{ 'photo-card--returned': justReturnedPhotoId === photo.id }"
               :style="getPhotoStyle(photo)"
-              @animationend="onPhotoAnimationEnd(photo.id, $event)"
               :data-photo-id="photo.id"
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
               @pointerup="onPhotoPointerUp(photo, index, $event)"
@@ -685,9 +683,9 @@ const viewerIndex = ref(0)
 const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 // 查看器正在收回到哪张缩略图（收回动画期间该缩略图隐藏，避免与飞行中的图片重影）
 const returningPhotoId = ref<number | null>(null)
-// 刚收回完成的那张：由它自己把最后一下回弹演完（见 .photo-card--returned），
-// 期间屏蔽入场/hover 动画。时长需与 style.css 里的 photoReturnSettle 一致。
-const RETURN_SETTLE_MS = 260
+// 刚收回完成的那张：飞行层撤走、缩略图重新露面的那一小会儿屏蔽过渡。
+// 见 getPhotoStyle 里的说明——此时鼠标多半正停在它上面。
+const RETURN_SETTLE_MS = 150
 const justReturnedPhotoId = ref<number | null>(null)
 let justReturnedTimer: number | null = null
 
@@ -851,10 +849,9 @@ const getPhotoStyle = (photo: any) => {
       transition: 'none'
     }
   }
-  // 刚刚收回到这张卡片：交给 photo-card--returned 的关键帧把最后一下回弹演完。
-  // 这里要屏蔽 transition，否则它会落进下面的入场动画分支，带着 transition: all 0.5s
-  // 出现——此时鼠标多半正停在它上面，hover 的 translateY(-4px) 和图片 scale(1.1)
-  // 会在落位后紧接着 animate 一遍，看起来就是画面又动了几个像素。
+  // 刚刚收回到这张卡片：屏蔽 transition，否则它会落进下面的入场动画分支，带着
+  // transition: all 0.5s 出现——此时鼠标多半正停在它上面，hover 的 translateY(-4px)
+  // 和图片 scale(1.1) 会在落位后紧接着 animate 一遍，看起来就是画面又动了几个像素。
   if (justReturnedPhotoId.value === photoId) {
     return {
       opacity: '1',
@@ -1165,31 +1162,18 @@ const resolveViewerOriginRect = (photoId: number) => {
 }
 
 // 收回动画期间把目标缩略图藏起来，避免飞回来的图片和它重影。
-// 必须走响应式状态交给 getPhotoStyle 输出：这些卡片的 style 由 :style 绑定管理
-// （而且 getPhotoStyle 里有 Math.random，每次渲染都会重新 patch），
+// 必须走响应式状态交给 getPhotoStyle 输出：这些卡片的 style 由 :style 绑定管理，
 // 命令式写 el.style.visibility 会在下一次 patch 时被抹掉。
-// 回弹播完才撤掉标记，这样它无论多晚开始都能完整播一遍
-const onPhotoAnimationEnd = (photoId: number, e: AnimationEvent) => {
-  if (e.animationName !== 'photoReturnSettle') return
-  if (justReturnedPhotoId.value !== photoId) return
-  if (justReturnedTimer) { clearTimeout(justReturnedTimer); justReturnedTimer = null }
-  justReturnedPhotoId.value = null
-}
-
 const onViewerReturnTransition = ({ photoId, active }: { photoId: number | null; active: boolean }) => {
   returningPhotoId.value = active ? photoId : null
   if (active) return
-  // 落位后先静止一小会，再交还给正常的 hover/入场样式
+  // 落位后短暂静止，再交还给正常的 hover/入场样式
   justReturnedPhotoId.value = photoId
   if (justReturnedTimer) clearTimeout(justReturnedTimer)
-  // 用 animationend 收尾，不要用固定计时器：关闭瞬间主线程会被阻塞一百多毫秒，
-  // 动画要等第一帧渲染出来才真正开始跑。按固定时长撤类，会在它还停在第 0 毫秒时
-  // 就把类摘掉——实测只渲染出 2 帧、且 currentTime 始终为 0，等于整段回弹没播。
-  // 这里只留一个宽松的兜底，防止 animationend 因故不触发时状态卡住。
   justReturnedTimer = window.setTimeout(() => {
     justReturnedPhotoId.value = null
     justReturnedTimer = null
-  }, RETURN_SETTLE_MS + 1200)
+  }, RETURN_SETTLE_MS)
 }
 
 // bulk actions
