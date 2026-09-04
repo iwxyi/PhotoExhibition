@@ -1100,37 +1100,103 @@ const startFlightAnimation = () => {
     { borderRadius: endRadius }
   ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
-  startFlightImageAnimation()
+  startFlightImageAnimation(f, scale, dx, dy)
 }
 
-// 视差：画面比取景窗晚 CLOSE_IMAGE_LAG_MS 收完。
+// 把 CSS 的 cubic-bezier 求成 y = f(x)。二分而不是牛顿法：迭代次数固定、
+// 没有导数为 0 时的发散分支，30 次已到 1e-9，画关键帧绰绰有余。
+const cubicBezierEasing = (x1: number, y1: number, x2: number, y2: number) => {
+  const curve = (a: number, b: number, t: number) => {
+    const mt = 1 - t
+    return 3 * mt * mt * t * a + 3 * mt * t * t * b + t * t * t
+  }
+  return (u: number) => {
+    if (u <= 0) return 0
+    if (u >= 1) return 1
+    let lo = 0
+    let hi = 1
+    let t = u
+    for (let i = 0; i < 30; i++) {
+      if (curve(x1, x2, t) < u) lo = t
+      else hi = t
+      t = (lo + hi) / 2
+    }
+    return curve(y1, y2, t)
+  }
+}
+const boxProgress = cubicBezierEasing(0.35, 0.6, 0.35, 1)
+const imageProgress = cubicBezierEasing(0.4, 0.35, 0.45, 1)
+
+// 视差：取景窗和画面各走各的曲线，但走的是同一段路。
 //
-// 图片是 object-fit: cover 铺满盒子的，盒子怎么变形画面就跟着怎么走——两者天然
-// 同步、严丝合缝。想让画面「慢半拍」，就在它自己的 transform 上补一个相对缩放
-// rel：rel > 1 表示此刻画面比窗口大一圈、被多裁掉一点。
+// 图片 object-fit: cover 铺满盒子，所以盒子怎么变形画面就跟着怎么走——两者天然
+// 严丝合缝。要让画面「慢半拍」，就给它自己的 transform 补上两者的差：
 //
-//   rel 从 1 涨到 CLOSE_IMAGE_PARALLAX —— 与盒子同一条曲线、同一段时间，
-//   于是「画面绝对尺寸 = 盒子 × rel」全程单调收缩，不会出现先缩过头再弹回来；
-//   盒子落位后，rel 再用 CLOSE_IMAGE_LAG_MS 收回 1。
+//   取景窗   eB = boxProgress(t / D)            —— D 毫秒走完
+//   画面     eV = imageProgress(t / (D+LAG))    —— 晚 LAG 毫秒走完
+//   相对缩放 rel   = (1+(s-1)eV) / (1+(s-1)eB)   > 1，画面比窗口大一圈、被多裁一点
+//   相对位移 shift ∝ (rel-1)，方向与飞行方向相反 —— 画面被落在后面
 //
-// 起点和终点 rel 都严格是 1：出发时画面正好铺满、落位时又正好铺满，
-// 所以摘掉飞行层换回真缩略图的那一帧不会有任何跳变。
+// eB、eV 在 0 和 1 处都相等，所以起飞时画面正好铺满窗口、落位时又正好铺满，
+// 摘掉飞行层换回真缩略图的那一帧没有任何跳变。
 //
-// 直接写死 rel（而不是「把盒子的曲线拉长、再反解出补偿量」）有两个好处：
-// 视差幅度是个常数，不随缩略图大小飘；而且「拉长同一条曲线」的做法里，
-// 这条曲线前段极陡，落差几乎全发生在头 60ms，盒子落位后只剩 1% 的尾巴——
-// 实测峰值只有 1.01，等于看不见。
-const startFlightImageAnimation = () => {
+// 为什么画面的尺寸必须由 eV 推出来，而不能自己写死一条 rel 曲线：
+// 画面在屏幕上的绝对尺寸是 rel × eB，要它全程只缩不涨，就得 rel'/rel ≤ -eB'/eB
+// ——rel 能涨多快，被盒子当下的收缩速度卡死。试过直接写 rel 的三关键帧（线性上升
+// 到峰值再回落），峰值前画面反而变大了：那会儿盒子已经在减速，rel 还在匀速涨。
+// 现在 eV 是一条独立的单调曲线，rel = eV/eB 只是个记账结果，单调性白送。
+//
+// 峰值封顶。rel 的峰值随 s 变——窗口大、缩略图小的时候 s 小，两条曲线拉得更开。
+// 阻尼 Vd = (1-k)·B + k·V 是两条单调曲线的凸组合，端点、单调性都不受影响，而且
+//   Vd/B - 1 = k · (V/B - 1)
+// ——阻尼正好把整条 rel-1 曲线等比缩放。所以先采一遍求原始峰值，再取
+// k = CLOSE_IMAGE_PEAK / 峰值 封顶，任何 s 下都稳定在这个幅度。
+//
+// 位移量按「当前可用的溢出量」给：rel 比 1 大多少，画面四周就富余多少，
+// 位移取其中的 CLOSE_IMAGE_SHIFT。这样它永远不可能把窗口推出画面边缘露白，
+// 而且天然与缩放联动——两条动画是分开算的，却始终一起涨、一起收。
+const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: number, dy: number) => {
   const img = flightImage.value
   if (!img || typeof img.animate !== 'function') return
 
   const total = CLOSE_DURATION_MS + CLOSE_IMAGE_LAG_MS
+  // 位移方向与飞行方向相反：盒子往左上走，画面被落在右下，
+  // 于是窗口取到的是画面偏左上的那一块——正是「窗口在画面上缓缓平移」的观感。
+  const travel = Math.hypot(dx, dy) || 1
+  const ux = -dx / travel
+  const uy = -dy / travel
+
+  const steps = 30
+  const sample = (offset: number) => {
+    const t = total * offset
+    return {
+      box: 1 + (scale - 1) * boxProgress(Math.min(t / CLOSE_DURATION_MS, 1)),
+      visual: 1 + (scale - 1) * imageProgress(offset)
+    }
+  }
+
+  let peak = 0
+  for (let i = 0; i <= steps; i++) {
+    const { box, visual } = sample(i / steps)
+    peak = Math.max(peak, visual / box - 1)
+  }
+  const damping = peak > CLOSE_IMAGE_PEAK ? CLOSE_IMAGE_PEAK / peak : 1
+
+  const frames: Keyframe[] = []
+  for (let i = 0; i <= steps; i++) {
+    const offset = i / steps
+    const { box, visual } = sample(offset)
+    const rel = 1 + damping * (visual / box - 1)
+    const overflow = (rel - 1) / 2 * CLOSE_IMAGE_SHIFT
+    frames.push({
+      offset,
+      transform: `translate(${(ux * overflow * f.from.width).toFixed(2)}px, ${(uy * overflow * f.from.height).toFixed(2)}px) scale(${rel.toFixed(5)})`
+    })
+  }
+
   flightImageAnimation?.cancel()
-  flightImageAnimation = img.animate([
-    { offset: 0, transform: 'scale(1)', easing: CLOSE_EASE_IN },
-    { offset: CLOSE_DURATION_MS / total, transform: `scale(${CLOSE_IMAGE_PARALLAX})`, easing: CLOSE_PARALLAX_SETTLE_EASE },
-    { offset: 1, transform: 'scale(1)' }
-  ], { duration: total, fill: 'both' })
+  // 关键帧之间用 linear：曲线本身已经采样进关键帧了，再叠一层缓动会把它扭歪。
+  flightImageAnimation = img.animate(frames, { duration: total, easing: 'linear', fill: 'both' })
 }
 const modalStyle = computed(() => {
   const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
@@ -1165,18 +1231,24 @@ const OPENING_INPUT_GUARD_MS = 220
 const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 收回的两层分工：
 //   盒子（取景窗）——单调地从大图的可见框收到缩略图框就停住；
-//   画面本身——沿同一条曲线、但晚 CLOSE_IMAGE_LAG_MS 才收完。
+//   画面本身——沿另一条曲线、晚 CLOSE_IMAGE_LAG_MS 才收完。
 // 于是观感是「窗口先稳稳落位，画面再收进这个框里」，有层次而不晃。
-const CLOSE_EASE_IN = 'cubic-bezier(0.33, 0.9, 0.2, 1)'
+//
+// 这条曲线别再调得更陡了。原来是 cubic-bezier(0.33, 0.9, 0.2, 1)，前 40% 的时间
+// 就走掉 90% 的路，剩下 140ms 基本在爬——画面正好要在这段里做视差，盒子却已经
+// 不动了，两个近乎静止叠在一起，看着就是「顿一下」。换成这条之后落位时刻画面
+// 还留着约四分之一的峰值速度（实测 0.16~0.28，原来只有 0.02~0.12）。
+const CLOSE_EASE_IN = 'cubic-bezier(0.35, 0.6, 0.35, 1)'
 const CLOSE_DURATION_MS = 230
 // 画面比取景窗慢多少。它也是飞行层（position: fixed）的额外存活时间，
 // 关闭后立刻滚动页面这段是不跟随滚动的，所以别太长。
-const CLOSE_IMAGE_LAG_MS = 100
-// 盒子落位那一刻画面比窗口大多少。1.09 ≈ 四周各多裁掉 4%：够看出层次，
-// 又不至于让人觉得落位时尺寸不对。
-const CLOSE_IMAGE_PARALLAX = 1.09
-// 视差收尾用平缓的 ease-out：这一段是「画面轻轻沉进已经停稳的窗口」，不该再有冲劲。
-const CLOSE_PARALLAX_SETTLE_EASE = 'cubic-bezier(0.33, 0, 0.2, 1)'
+const CLOSE_IMAGE_LAG_MS = 150
+// rel（画面 / 窗口）的峰值封顶。再大画面中段就被裁得太狠，
+// 窗口里只剩一小块，看着不像视差像穿帮。见 startFlightImageAnimation 的阻尼。
+const CLOSE_IMAGE_PEAK = 0.2
+// 画面相对窗口的横移量，取「此刻可用溢出量」的比例。留出余量，
+// 免得取整误差把窗口推到画面外面去露白边。
+const CLOSE_IMAGE_SHIFT = 0.75
 // 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
 const CLOSE_FADE_MS = 260
 // 宿主没通过 resolveOriginRect 告诉我们缩略图圆角时的兜底值。
