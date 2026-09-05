@@ -173,7 +173,7 @@ const getImageUrl = (photo: any) => {
 
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
-const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number; radius?: string } | null>(null)
 const gridClass = computed(() => {
   if (previewSize.value === 'sm') return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
   if (previewSize.value === 'md') return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
@@ -308,15 +308,17 @@ const handleFiltersApplied = () => {
 const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
 
-  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
-  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  const rectSource = ((e.target as HTMLElement).closest('.aspect-square') as HTMLElement | null)
+    || (e.currentTarget as HTMLElement | null)
   if (rectSource) {
     const rect = rectSource.getBoundingClientRect()
+    const radius = getComputedStyle(rectSource).borderRadius
     viewerOriginRect.value = {
       top: rect.top,
       left: rect.left,
       width: rect.width,
-      height: rect.height
+      height: rect.height,
+      radius
     }
   } else {
     viewerOriginRect.value = null

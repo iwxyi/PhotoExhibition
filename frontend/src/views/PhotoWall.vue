@@ -109,6 +109,7 @@
       :photos="photos"
       :start-index="viewerIndex"
       :origin-rect="viewerOriginRect"
+      :resolve-origin-rect="resolveViewerOriginRect"
       :auto-show-faces="false"
     />
 
@@ -151,7 +152,7 @@ const hasMore = ref(true)
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
 const showFilter = ref(false)
-const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number; radius?: string } | null>(null)
 const savedScrollTop = ref(0)
 const masonryContainer = ref<HTMLElement | null>(null)
 const isLoadingMore = ref(false)
@@ -778,21 +779,49 @@ const getImageUrl = (photo: any) => {
 const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
 
-  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
-  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  const rectSource = ((e.target as HTMLElement).closest('.masonry-image-wrapper') as HTMLElement | null)
+    || (e.currentTarget as HTMLElement | null)
   if (rectSource) {
     const rect = rectSource.getBoundingClientRect()
+    const image = rectSource.querySelector('img') as HTMLImageElement | null
+    const imageStyle = image ? getComputedStyle(image) : null
+    const radius = getComputedStyle(rectSource).borderRadius
     viewerOriginRect.value = {
       top: rect.top,
       left: rect.left,
       width: rect.width,
-      height: rect.height
+      height: rect.height,
+      radius,
+      imageTransform: imageStyle?.transform,
+      objectPosition: imageStyle?.objectPosition
     }
   } else {
     viewerOriginRect.value = null
   }
 
   viewerVisible.value = true
+}
+
+// PhotoViewer 打开后浏览器可能隐藏滚动条，瀑布流宽度会随之变化；关闭时
+// 必须重新读取当前缩略图框，否则会飞回打开前的旧尺寸，最终看起来偏小。
+const resolveViewerOriginRect = (photoId: number, index: number) => {
+  const item = itemRefs.value[index]
+  const frame = item?.querySelector('.masonry-image-wrapper') as HTMLElement | null
+  const target = frame || item
+  if (!target) return null
+  const rect = target.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  const image = target.querySelector('img') as HTMLImageElement | null
+  const imageStyle = image ? getComputedStyle(image) : null
+  return {
+    top: rect.top,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
+    radius: getComputedStyle(target).borderRadius,
+    imageTransform: imageStyle?.transform,
+    objectPosition: imageStyle?.objectPosition
+  }
 }
 
 const onImageLoad = (idx: number) => {

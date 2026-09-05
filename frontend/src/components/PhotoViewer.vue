@@ -761,14 +761,14 @@ const props = defineProps<{
   startIndex?: number
   autoShowFaces?: boolean
   forceShowFaces?: boolean  // 强制显示人脸框（用于人物管理页面）
-  originRect?: { top: number; left: number; width: number; height: number } | null
+  originRect?: { top: number; left: number; width: number; height: number; radius?: string; imageTransform?: string; objectPosition?: string } | null
   // 关闭时用来定位「当前这张照片」的缩略图。originRect 只记录了打开时点的那一张，
   // 翻过页之后再关闭就应该收回到当前照片的缩略图上，而不是最初那张。
   // 宿主页面按 photoId 返回缩略图的位置；返回 null 则退回 originRect。
   // radius 是缩略图的圆角（如 '8px'），用于让收回动画把圆角一起补出来。
   // opts.allowScroll = false：只量不滚。收回途中每帧都要重新量目标缩略图，
   // 这时候绝不能把用户正在滚的页面拽回去。
-  resolveOriginRect?: ((photoId: number, index: number, opts?: { allowScroll?: boolean }) => { top: number; left: number; width: number; height: number; radius?: string } | null) | null
+  resolveOriginRect?: ((photoId: number, index: number, opts?: { allowScroll?: boolean }) => { top: number; left: number; width: number; height: number; radius?: string; imageTransform?: string; objectPosition?: string } | null) | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
   adminMenuActions?: AdminMenuAction[] | null
 }>()
@@ -1012,7 +1012,7 @@ const returningToThumb = ref(false)
 
 // 收回动画的飞行层。from = 图片当前在屏幕上的可见框，to = 缩略图框。
 type FlightRect = { left: number; top: number; width: number; height: number }
-const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string } | null>(null)
+const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string; imageTransform?: string; objectPosition?: string } | null>(null)
 const flightLayer = ref<HTMLElement | null>(null)
 const flightImage = ref<HTMLImageElement | null>(null)
 const flightAnchor = ref<HTMLElement | null>(null)
@@ -1036,11 +1036,6 @@ let flightPhotoId: number | null = null
 const flightBoxStyle = computed(() => {
   const f = flight.value
   if (!f) return {}
-  // 布局尺寸固定为起点，位移和缩放全部交给 transform（合成器线程）。
-  // 之前用 width/height 做动画，每帧都要主线程重排+重栅格化；而关闭这一刻主线程
-  // 正忙着拆查看器、重绘整个相册网格，动画就整段卡住——实测 280ms 的动画只画出 3 帧，
-  // 开头有 170ms 一帧不动，移除时还停在回弹中途，于是"掉帧 / 看不到回弹 / 结尾突然
-  // 变小"三个现象其实是同一个原因。
   return {
     position: 'fixed' as const,
     left: `${f.from.left}px`,
@@ -1070,6 +1065,8 @@ const flightImageStyle = computed(() => {
     width: '100%',
     height: '100%',
     objectFit: 'cover' as const,
+    objectPosition: flight.value.objectPosition || 'center center',
+    transform: flight.value.imageTransform || 'none',
     transformOrigin: 'center center'
   }
 })
@@ -1081,11 +1078,13 @@ const startFlightAnimation = () => {
 
   // 起点与终点的宽高比几乎总是一致（瀑布流卡片高度就是按照片比例算的），
   // 所以等比缩放不会让画面变形。
-  const scale = f.to.width / f.from.width
+  // 缩略图和查看器大图的比例可能不同，不能用单一 scale 推导终点，
+  // 否则最终高度会偏小或偏大。直接插值真实外框几何，内部图片用 cover
+  // 保持比例，裁切随外框变化而变化。
+  const endRadius = f.radius || DEFAULT_THUMB_RADIUS
+  const scale = f.to.width / Math.max(f.from.width, 1)
   const dx = f.to.left - f.from.left
   const dy = f.to.top - f.from.top
-  // 元素上的圆角会被 scale 一起缩小，想让落位时看起来是 8px，元素上就得写 8/scale。
-  const endRadius = `${(parseFloat(f.radius) || 0) / scale}px`
 
   // 盒子（取景窗）单调地从大图可见框收到缩略图框就停住，没有任何回弹。
   // 飞行层是 position: fixed 的，关闭后立刻滚动页面它不会跟着走，所以它该短命；
@@ -1110,10 +1109,14 @@ const startFlightAnimation = () => {
   for (let i = 0; i <= steps; i++) {
     const u = i / steps
     // 端点不做任何舍入：落位尺寸/位置与缩略图的精确一致是这套动画的前提。
-    const tx = i === steps ? dx : dx * flightEaseX(u)
-    const ty = i === steps ? dy : dy * flightEaseY(u)
-    const s = i === steps ? scale : 1 + (scale - 1) * boxProgress(u)
-    boxFrames.push({ offset: u, transform: `translate(${tx}px, ${ty}px) scale(${s})` })
+    const progress = i === steps ? 1 : boxProgress(u)
+    boxFrames.push({
+      offset: u,
+      left: `${f.from.left + (f.to.left - f.from.left) * progress}px`,
+      top: `${f.from.top + (f.to.top - f.from.top) * progress}px`,
+      width: `${f.from.width + (f.to.width - f.from.width) * progress}px`,
+      height: `${f.from.height + (f.to.height - f.from.height) * progress}px`
+    })
   }
 
   flightAnimation?.cancel()
@@ -1126,6 +1129,8 @@ const startFlightAnimation = () => {
     { borderRadius: endRadius }
   ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
 
+  // 恢复图片层的独立组合动画：外框负责真实尺寸/裁切，图片负责轻微
+  // 滞后和回弹。这样不会把原图拉伸，同时保留原先的组合运动质感。
   startFlightImageAnimation(f, scale, dx, dy)
 }
 
@@ -2083,7 +2088,9 @@ const close = () => {
       src: displayedImageUrl.value,
       from: { left: measuredRect.left, top: measuredRect.top, width: measuredRect.width, height: measuredRect.height },
       to: { left: target.left, top: target.top, width: target.width, height: target.height },
-      radius: target.radius || DEFAULT_THUMB_RADIUS
+      radius: target.radius || DEFAULT_THUMB_RADIUS,
+      imageTransform: target.imageTransform,
+      objectPosition: target.objectPosition
     }
     // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
     emit('return-transition', { photoId: closingPhotoId, active: true })
