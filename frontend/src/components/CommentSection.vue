@@ -117,6 +117,8 @@ const inputBorderColor = computed(() => props.inputBorderColor)
 const loadComments = async (page = 0) => {
   // 如果组件不可见，不加载评论
   if (!props.visible) return
+  // 相册详情异步加载时 albumId 会先是 0；不要向无效相册发请求。
+  if (!props.albumId || props.albumId <= 0) return
   if (loading.value) return
 
   loading.value = true

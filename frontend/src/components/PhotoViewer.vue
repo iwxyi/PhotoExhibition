@@ -164,14 +164,20 @@
               :style="getAdjacentImageStyle('next')"
             />
           </div>
-          <img
+          <div
             v-if="openingPreviewVisible && currentPhoto"
-            :src="getDisplayUrl(currentPhoto)"
-            :alt="currentPhoto.filename"
-            ref="openingPreviewImage"
-            class="absolute left-1/2 top-1/2 z-[3] pointer-events-none select-none opening-preview-image"
-            :style="openingPreviewStyle"
-          />
+            ref="openingPreviewFrame"
+            class="fixed z-[3] overflow-hidden pointer-events-none opening-preview-frame"
+            :style="openingPreviewFrameStyle"
+          >
+            <img
+              :src="getDisplayUrl(currentPhoto)"
+              :alt="currentPhoto.filename"
+              ref="openingPreviewImage"
+              class="block w-full h-full select-none opening-preview-image"
+              :style="{ objectFit: 'cover', objectPosition: activeOriginRect?.objectPosition || 'center center' }"
+            />
+          </div>
           <!-- 图片包装容器 - 应用变换，使人脸框和 -->
           <div
             class="relative photo-viewer-img-wrapper"
@@ -803,6 +809,7 @@ const mainContentArea = ref<HTMLElement | null>(null)
 const imageViewport = ref<HTMLElement | null>(null) // 图片可视区域（不受 transform 影响的参照系）
 const imageWrapper = ref<HTMLElement | null>(null) // 图片包装容器（用于控制动画）
 const openingPreviewImage = ref<HTMLImageElement | null>(null) // 打开动画的 FLIP 预览层
+const openingPreviewFrame = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const imageLoadError = ref(false)
@@ -995,6 +1002,8 @@ const wasDragging = ref(false)
 const opening = ref(false)
 const openingPreviewVisible = ref(false)
 const openingPreviewTransform = ref<string | null>(null)
+const openingFrameGeometry = ref<any>(null)
+let openingFrameAnimation: Animation | null = null
 let openingPreviewTimer: ReturnType<typeof setTimeout> | null = null
 const closing = ref(false)
 // Closing is deliberately split into two render phases.  The first phase
@@ -1003,7 +1012,7 @@ const closing = ref(false)
 // one Vue patch makes browsers skip the transform transition.
 const closingAnimationStarted = ref(false)
 const closingStartTransform = ref<string | null>(null)
-const activeOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+const activeOriginRect = ref<{ top: number; left: number; width: number; height: number; radius?: string; objectPosition?: string } | null>(null)
 const originTransform = ref<string | null>(null)
 // 收回到缩略图时，飞行中的图片必须保持不透明直到落位：目标缩略图这段时间被
 // 宿主页面藏起来了，如果图片也淡出，中途会出现一块什么都没有的空白。
@@ -1131,7 +1140,7 @@ const startFlightAnimation = () => {
 
   // 恢复图片层的独立组合动画：外框负责真实尺寸/裁切，图片负责轻微
   // 滞后和回弹。这样不会把原图拉伸，同时保留原先的组合运动质感。
-  startFlightImageAnimation(f, scale, dx, dy)
+  startFlightImageAnimation(f, scale, dx, dy, f.imageTransform)
 }
 
 // 把 CSS 的 cubic-bezier 求成 y = f(x)。二分而不是牛顿法：迭代次数固定、
@@ -1192,7 +1201,7 @@ const flightEaseY = cubicBezierEasing(0.35, 0.46, 0.35, 1)
 // 位移量按「当前可用的溢出量」给：rel 比 1 大多少，画面四周就富余多少，
 // 位移取其中的 CLOSE_IMAGE_SHIFT。这样它永远不可能把窗口推出画面边缘露白，
 // 而且天然与缩放联动——两条动画是分开算的，却始终一起涨、一起收。
-const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: number, dy: number) => {
+const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: number, dy: number, targetTransform?: string) => {
   const img = flightImage.value
   if (!img || typeof img.animate !== 'function') return
 
@@ -1202,6 +1211,23 @@ const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: n
   const travel = Math.hypot(dx, dy) || 1
   const ux = -dx / travel
   const uy = -dy / travel
+
+  // 图墙缩略图本身可能带有 translateY + scale 视差变换。不要只在
+  // 最后一帧突然套上目标 transform；把它拆成平移/缩放，沿整段动画
+  // 渐进叠加，避免结尾跳位。
+  let targetTx = 0
+  let targetTy = 0
+  let targetScale = 1
+  if (targetTransform && targetTransform !== 'none' && typeof DOMMatrixReadOnly !== 'undefined') {
+    try {
+      const matrix = new DOMMatrixReadOnly(targetTransform)
+      targetTx = matrix.e
+      targetTy = matrix.f
+      targetScale = Math.sqrt(matrix.a * matrix.a + matrix.b * matrix.b) || 1
+    } catch {
+      // 非矩阵 transform 时保持默认值，避免影响关闭动画。
+    }
+  }
 
   const steps = 30
   const sample = (offset: number) => {
@@ -1225,9 +1251,18 @@ const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: n
     const { box, visual } = sample(offset)
     const rel = 1 + damping * (visual / box - 1)
     const overflow = (rel - 1) / 2 * CLOSE_IMAGE_SHIFT
+    const baseTx = ux * overflow * f.from.width
+    const baseTy = uy * overflow * f.from.height
+    const blendedTx = baseTx + targetTx * offset
+    const blendedTy = baseTy + targetTy * offset
+    const blendedScale = rel * (1 + (targetScale - 1) * offset)
+    const baseTransform = `translate(${blendedTx.toFixed(2)}px, ${blendedTy.toFixed(2)}px) scale(${blendedScale.toFixed(5)})`
     frames.push({
       offset,
-      transform: `translate(${(ux * overflow * f.from.width).toFixed(2)}px, ${(uy * overflow * f.from.height).toFixed(2)}px) scale(${rel.toFixed(5)})`
+      // 最终帧精确使用页面提供的 transform，之前的帧使用连续插值。
+      transform: offset === 1 && targetTransform && targetTransform !== 'none'
+        ? targetTransform
+        : baseTransform
     })
   }
 
@@ -1479,6 +1514,12 @@ const openingPreviewStyle = computed(() => ({
   transition: openingPreviewTransform.value ? 'none' : `transform 300ms ${OPEN_EASE}`
 }))
 
+const openingPreviewFrameStyle = computed(() => {
+  const g = openingFrameGeometry.value
+  if (!g) return { left: '50%', top: '50%', width: '0px', height: '0px' }
+  return { left: `${g.left}px`, top: `${g.top}px`, width: `${g.width}px`, height: `${g.height}px`, borderRadius: g.radius || '0px' }
+})
+
 // Photo records normally contain the intrinsic dimensions. Use them before
 // the large asset finishes loading so the image box has a stable aspect ratio
 // from the first paint (otherwise an <img> with no dimensions briefly lays out
@@ -1553,18 +1594,23 @@ const prepareOpeningTransform = () => {
   // FLIP 的起始几何必须量预览图**自己**的框，而不是它所在的容器。
   // 预览图按图片比例缩放居中显示，和铺满视口的容器既不同尺寸也不同位置；
   // 用容器的宽高算缩放，落点会系统性偏移（实测偏 271px、高度差 79px）。
-  const target = openingPreviewImage.value?.getBoundingClientRect()
+  const target = mainImage.value?.getBoundingClientRect()
   const origin = activeOriginRect.value
   if (!target || target.width <= 0 || target.height <= 0) return
   openingTransformPrepared.value = true
+  openingFrameGeometry.value = { ...origin }
+  openingFrameAnimation?.cancel()
+  if (openingPreviewFrame.value?.animate) {
+    openingFrameAnimation = openingPreviewFrame.value.animate([
+      { left: `${origin.left}px`, top: `${origin.top}px`, width: `${origin.width}px`, height: `${origin.height}px`, borderRadius: origin.radius || '8px' },
+      { left: `${target.left}px`, top: `${target.top}px`, width: `${target.width}px`, height: `${target.height}px`, borderRadius: '0px' }
+    ], { duration: 300, easing: OPEN_EASE, fill: 'both' })
+  }
   const epoch = transitionEpoch
-  const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
-  const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
   // 预览图靠 left/top 50% 定位，居中完全依赖 translate(-50%, -50%)。
   // FLIP 变换会整体替换 transform，所以必须把这段居中平移一起写进来，
   // 否则图片会先跳到容器中心的右下方再飞回来。
-  openingPreviewTransform.value =
-    `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
+  openingPreviewTransform.value = null
   opening.value = false
   if (openingPreviewTimer) clearTimeout(openingPreviewTimer)
   requestAnimationFrame(() => {
@@ -1837,7 +1883,7 @@ watch(() => props.visible, (newVisible) => {
     showAdminMenu.value = false
     // 人脸框现在直接绑定在图片内部，无需清理
   }
-})
+}, { immediate: true })
 
 // 监听 startIndex 变化
 watch(() => props.startIndex, (newStartIndex) => {
