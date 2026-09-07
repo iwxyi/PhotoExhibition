@@ -6,7 +6,10 @@
     <div
       v-if="visible || closing"
       class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
-      :class="{ 'pointer-events-none viewer-inert': closing || !visible }"
+      :class="{
+        'pointer-events-none viewer-inert': closing || !visible,
+        'viewer-returning': returningToThumb && closingAnimationStarted
+      }"
       style="overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none;"
       @keydown.stop.prevent="onKeydown"
       @click="onBackdropClick"
@@ -17,7 +20,8 @@
       <!-- 顶部栏 -->
       <div v-show="controlsVisible" class="top-bar absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-3 text-white text-sm pointer-events-auto bg-black/40 backdrop-blur-md">
         <div class="flex items-center gap-3">
-          <button class="btn-icon" @click="close" title="关闭">
+          <!-- 必须写成 close()：@click="close" 会把 MouseEvent 当成第一个参数传进去 -->
+          <button class="btn-icon" @click="close()" title="关闭">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -94,6 +98,30 @@
         </div>
       </div>
 
+      <!-- 收回到缩略图的飞行层。
+           查看器里的大图是 object-fit: contain、直角；缩略图是 object-fit: cover、
+           8px 圆角且被 overflow:hidden 裁掉。直接把 contain 的图缩放到缩略图框会
+           把画面压扁，而且到终点才突然出现裁切和圆角。
+           这里改成：外层盒子从「图片当前的可见框」变形到「缩略图框」，圆角同步
+           从 0 变到目标值；内层图片始终 object-fit: cover。起点时盒子的宽高比
+           正好等于图片比例，cover 与 contain 等价、看到完整图像；随着盒子变形到
+           缩略图的比例，裁切是连续长出来的。 -->
+      <div v-if="flight" ref="flightAnchor" class="closing-flight-anchor" aria-hidden="true">
+        <div
+          ref="flightLayer"
+          class="closing-flight"
+          :style="flightBoxStyle"
+        >
+          <img
+            :src="flight.src"
+            ref="flightImage"
+            class="closing-flight-image"
+            :style="flightImageStyle"
+            alt=""
+          />
+        </div>
+      </div>
+
       <!-- 主要图片显示区域 -->
       <div
         class="flex-1 relative min-h-0 touch-none"
@@ -136,13 +164,20 @@
               :style="getAdjacentImageStyle('next')"
             />
           </div>
-          <img
+          <div
             v-if="openingPreviewVisible && currentPhoto"
-            :src="getDisplayUrl(currentPhoto)"
-            :alt="currentPhoto.filename"
-            class="absolute left-1/2 top-1/2 z-[3] pointer-events-none select-none opening-preview-image"
-            :style="openingPreviewStyle"
-          />
+            ref="openingPreviewFrame"
+            class="fixed z-[3] overflow-hidden pointer-events-none opening-preview-frame"
+            :style="openingPreviewFrameStyle"
+          >
+            <img
+              :src="getDisplayUrl(currentPhoto)"
+              :alt="currentPhoto.filename"
+              ref="openingPreviewImage"
+              class="block w-full h-full select-none opening-preview-image"
+              :style="{ objectFit: 'cover', objectPosition: activeOriginRect?.objectPosition || 'center center' }"
+            />
+          </div>
           <!-- 图片包装容器 - 应用变换，使人脸框和 -->
           <div
             class="relative photo-viewer-img-wrapper"
@@ -718,6 +753,7 @@ import { usePhotoViewerAssets } from '@/composables/usePhotoViewerAssets'
 import type { PhotoAssetInput } from '@/composables/usePhotoViewerAssets'
 import { usePhotoViewerNavigation } from '@/composables/usePhotoViewerNavigation'
 import { useFlingTapRepair } from '@/composables/useFlingTapRepair'
+import { prefersReducedMotion } from '@/composables/usePrefersReducedMotion'
 
 type AdminMenuAction = {
   key: string
@@ -731,7 +767,14 @@ const props = defineProps<{
   startIndex?: number
   autoShowFaces?: boolean
   forceShowFaces?: boolean  // 强制显示人脸框（用于人物管理页面）
-  originRect?: { top: number; left: number; width: number; height: number } | null
+  originRect?: { top: number; left: number; width: number; height: number; radius?: string; imageTransform?: string; objectPosition?: string } | null
+  // 关闭时用来定位「当前这张照片」的缩略图。originRect 只记录了打开时点的那一张，
+  // 翻过页之后再关闭就应该收回到当前照片的缩略图上，而不是最初那张。
+  // 宿主页面按 photoId 返回缩略图的位置；返回 null 则退回 originRect。
+  // radius 是缩略图的圆角（如 '8px'），用于让收回动画把圆角一起补出来。
+  // opts.allowScroll = false：只量不滚。收回途中每帧都要重新量目标缩略图，
+  // 这时候绝不能把用户正在滚的页面拽回去。
+  resolveOriginRect?: ((photoId: number, index: number, opts?: { allowScroll?: boolean }) => { top: number; left: number; width: number; height: number; radius?: string; imageTransform?: string; objectPosition?: string } | null) | null
   openOptions?: { highlightedFaceId?: number; highlightedClusterId?: number; highlightedPersonId?: number; highlightedFaceIds?: number[]; preferredFaceId?: number } | null
   adminMenuActions?: AdminMenuAction[] | null
 }>()
@@ -740,6 +783,9 @@ const emit = defineEmits<{
   (e: 'update:visible', val: boolean): void
   (e: 'viewer-index-change', payload: { index: number; photoId?: number; faceIds?: number[] }): void
   (e: 'admin-action', payload: { key: string; photo?: Photo; index: number }): void
+  // 收回动画的起止。宿主页面据此把目标缩略图暂时藏起来，
+  // 避免飞回去的图片和原图叠在一起穿帮。
+  (e: 'return-transition', payload: { photoId: number | null; active: boolean }): void
 }>()
 
 // 核心状态
@@ -762,6 +808,8 @@ const mainImage = ref<HTMLImageElement | null>(null)
 const mainContentArea = ref<HTMLElement | null>(null)
 const imageViewport = ref<HTMLElement | null>(null) // 图片可视区域（不受 transform 影响的参照系）
 const imageWrapper = ref<HTMLElement | null>(null) // 图片包装容器（用于控制动画）
+const openingPreviewImage = ref<HTMLImageElement | null>(null) // 打开动画的 FLIP 预览层
+const openingPreviewFrame = ref<HTMLElement | null>(null)
 const imageSize = ref({ width: 0, height: 0 })
 const imageLoaded = ref(false)
 const imageLoadError = ref(false)
@@ -862,7 +910,31 @@ const pointerPinchScale = ref(1)
 const pointerPinchTranslate = ref({ x: 0, y: 0 })
 const pointerPinchCenter = ref({ x: 0, y: 0 })
 const pointerSwipeBaseOffset = ref(0)
-const interruptedSwipeDirection = ref<'previous' | 'next' | null>(null)
+// 松手瞬时速度（px/ms，带符号）。不能用「总位移 / 总时长」代替：接管一次过渡后
+// 轨道偏移里含有重新基准化的那一屏宽，它不是手指走过的距离。
+let swipeVelocity = 0
+let swipeVelocitySampleX = 0
+let swipeVelocitySampleAt = 0
+// 索引提交后要保留的轨道偏移量（中断过渡时重新基准化的结果）。
+// null 表示按常规归零。由监听 currentPhoto 的 watcher 消费。
+let pendingTrackOffset: number | null = null
+
+const resetSwipeVelocity = (x: number) => {
+  swipeVelocity = 0
+  swipeVelocitySampleX = x
+  swipeVelocitySampleAt = performance.now()
+}
+
+const sampleSwipeVelocity = (x: number) => {
+  const now = performance.now()
+  const dt = now - swipeVelocitySampleAt
+  if (dt < 12) return
+  const instant = (x - swipeVelocitySampleX) / dt
+  // 轻度平滑，避免最后一两个抖动样本主导判定。
+  swipeVelocity = swipeVelocity * 0.4 + instant * 0.6
+  swipeVelocitySampleX = x
+  swipeVelocitySampleAt = now
+}
 
 // 单指滑动切换照片相关
 const touchSwipeStartX = ref(0)
@@ -877,10 +949,21 @@ let transitionEpoch = 0
 let swipeStartedAt = 0
 let swipeStartOffset = 0
 let swipeTargetOffset = 0
-const blockedSwipePointer = ref<number | null>(null)
-const blockedSwipeStartX = ref(0)
-const blockedSwipeStartY = ref(0)
-const blockedSwipeStartTime = ref(0)
+// 切图动画时长由松手速度决定：轻推从容、快甩利落。同一个值同时驱动 CSS
+// transition 和提交定时器，两者必须一致，否则会回到 waitForTrackSettle 在
+// 补偿的那种"定时器早于动画结束"的错位。
+const SWIPE_DURATION_MIN = 170
+const SWIPE_DURATION_MAX = 280
+const swipeDurationMs = ref(SWIPE_DURATION_MAX)
+
+// distance: 还需要走完的像素；velocity: 松手速度（px/ms）。
+const computeSwipeDuration = (distance: number, velocity: number) => {
+  // 开启「减弱动态效果」时退化为近乎即时的切换，仍保留一帧过渡避免闪烁。
+  if (prefersReducedMotion()) return 1
+  const speed = Math.max(Math.abs(velocity), 0.4)
+  const estimate = Math.abs(distance) / speed
+  return Math.round(Math.min(SWIPE_DURATION_MAX, Math.max(SWIPE_DURATION_MIN, estimate)))
+}
 // Navigation composable owns the FIFO queue; this alias keeps the existing
 // rendering/gesture code readable without maintaining a second queue.
 const queuedSwipeDirections = navigation.queue
@@ -919,6 +1002,8 @@ const wasDragging = ref(false)
 const opening = ref(false)
 const openingPreviewVisible = ref(false)
 const openingPreviewTransform = ref<string | null>(null)
+const openingFrameGeometry = ref<any>(null)
+let openingFrameAnimation: Animation | null = null
 let openingPreviewTimer: ReturnType<typeof setTimeout> | null = null
 const closing = ref(false)
 // Closing is deliberately split into two render phases.  The first phase
@@ -927,16 +1012,336 @@ const closing = ref(false)
 // one Vue patch makes browsers skip the transform transition.
 const closingAnimationStarted = ref(false)
 const closingStartTransform = ref<string | null>(null)
-const activeOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+const activeOriginRect = ref<{ top: number; left: number; width: number; height: number; radius?: string; objectPosition?: string } | null>(null)
 const originTransform = ref<string | null>(null)
-const modalStyle = computed(() => ({
+// 收回到缩略图时，飞行中的图片必须保持不透明直到落位：目标缩略图这段时间被
+// 宿主页面藏起来了，如果图片也淡出，中途会出现一块什么都没有的空白。
+// 所以这种情况只淡出背景和各个操作栏，图片本身不参与淡出。
+const returningToThumb = ref(false)
+
+// 收回动画的飞行层。from = 图片当前在屏幕上的可见框，to = 缩略图框。
+type FlightRect = { left: number; top: number; width: number; height: number }
+const flight = ref<{ src: string; from: FlightRect; to: FlightRect; radius: string; imageTransform?: string; objectPosition?: string } | null>(null)
+const flightLayer = ref<HTMLElement | null>(null)
+const flightImage = ref<HTMLImageElement | null>(null)
+const flightAnchor = ref<HTMLElement | null>(null)
+let flightTrackRaf: number | null = null
+let flightAnimation: Animation | null = null
+let flightRadiusAnimation: Animation | null = null
+let flightImageAnimation: Animation | null = null
+// 这次收回是替哪张照片飞的。撤销飞行层时要拿它去通知宿主把缩略图放出来，
+// 而那时 currentPhoto 可能已经被新一轮 navigation.reset 改掉了。
+let flightPhotoId: number | null = null
+
+// 飞行层只渲染静态起始几何，动画交给 Web Animations API。
+//
+// 不能用 CSS 过渡：过渡要求「变化前样式」和「变化后样式」分属两次样式解析。
+// Vue 的 DOM 更新是异步的，元素插入（起点几何）和随后改成终点几何这两次
+// patch 之间，浏览器往往一次样式重算都还没做过 —— 于是它只看到一个「一出生
+// 就在终点」的新元素，过渡根本不会创建。实测 getAnimations() 为空，几何直接
+// 跳变；而这取决于两次 patch 之间是否恰好插进了一次重算，所以时好时坏，
+// 表现为「有的关闭方式有动画、有的没有」，不同设备还不一样。
+// WAAPI 的关键帧是显式的，不依赖任何渲染时序。
+const flightBoxStyle = computed(() => {
+  const f = flight.value
+  if (!f) return {}
+  return {
+    position: 'fixed' as const,
+    left: `${f.from.left}px`,
+    top: `${f.from.top}px`,
+    width: `${f.from.width}px`,
+    height: `${f.from.height}px`,
+    transformOrigin: 'top left',
+    overflow: 'hidden' as const,
+    zIndex: 70,
+    pointerEvents: 'none' as const
+  }
+})
+
+// 图片始终铺满取景窗（object-fit: cover），所以窗口怎么变形，画面就怎么跟着走，
+// 裁切也随窗口宽高比连续长出来。视差的那点滞后叠在"铺满"之上，
+// 由 transform: scale 单独承担（见 startFlightImageAnimation）。
+//
+// 曾经改成固定尺寸 + transform 缩放来省栅格化，但那样图片是按自己的时间线走的，
+// 和窗口对不上：实测飞行途中画面只填满窗口的 63%，四周长期露底，
+// 看起来是"窗口和图片各飞各的"。而 trace 显示这段的栅格化开销主要来自背景淡出时
+// 重绘整个相册瀑布流，不是这张图，所以这里优先保证观感正确。
+const flightImageStyle = computed(() => {
+  if (!flight.value) return {}
+  // 图片铺满取景窗，视差滞后叠在上面。整段飞行是把大图往下缩，栅格化一次再降采样，
+  // 观感是清晰的（放大才会糊）。
+  return {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+    objectPosition: flight.value.objectPosition || 'center center',
+    transform: flight.value.imageTransform || 'none',
+    transformOrigin: 'center center'
+  }
+})
+
+const startFlightAnimation = () => {
+  const f = flight.value
+  const el = flightLayer.value
+  if (!f || !el || typeof el.animate !== 'function') return
+
+  // 起点与终点的宽高比几乎总是一致（瀑布流卡片高度就是按照片比例算的），
+  // 所以等比缩放不会让画面变形。
+  // 缩略图和查看器大图的比例可能不同，不能用单一 scale 推导终点，
+  // 否则最终高度会偏小或偏大。直接插值真实外框几何，内部图片用 cover
+  // 保持比例，裁切随外框变化而变化。
+  const endRadius = f.radius || DEFAULT_THUMB_RADIUS
+  const scale = f.to.width / Math.max(f.from.width, 1)
+  const dx = f.to.left - f.from.left
+  const dy = f.to.top - f.from.top
+
+  // 盒子（取景窗）单调地从大图可见框收到缩略图框就停住，没有任何回弹。
+  // 飞行层是 position: fixed 的，关闭后立刻滚动页面它不会跟着走，所以它该短命；
+  // 落位尺寸与缩略图完全一致，摘掉它的那一帧不会有尺寸跳变。
+  //
+  // transform 必须单独成一条动画：border-radius 不是可合成属性，和 transform 放在
+  // 同一条里会把整条动画拉回主线程。实测那样时动画的 currentTime 会跟着主线程一起
+  // 停住（卡顿 161ms 期间 currentTime 纹丝不动），于是关闭瞬间的重绘直接冻结动画。
+  // 拆开之后位移/缩放跑在合成器线程，圆角即使卡住也只是圆角本身晚一点到位。
+  // 三条曲线各走各的：横向略快、纵向略慢、缩放走中间那条。
+  //
+  // 单曲线的位移是一条直线，位移和缩放又完全同步，看着像整块东西被拽过去。把两个
+  // 轴错开一点，路径就成了一段很浅的弧——横向先让出去，纵向随后落下来；缩放夹在
+  // 两者中间，于是"飞"和"收"是两件有关联但不同步的事。这就是松弛感的来源，
+  // 不用把动画拉长。
+  //
+  // 幅度刻意压得很小：两条曲线只在第一个控制点上对称错开 ±0.14，斜向行程时偏离
+  // 直线约 6%，正横/正竖方向自动趋近于 0（那种时候本来也不该拐弯）。再大就从
+  // "松弛"变成"甩"了。
+  const steps = 30
+  const boxFrames: Keyframe[] = []
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps
+    // 端点不做任何舍入：落位尺寸/位置与缩略图的精确一致是这套动画的前提。
+    const progress = i === steps ? 1 : boxProgress(u)
+    boxFrames.push({
+      offset: u,
+      left: `${f.from.left + (f.to.left - f.from.left) * progress}px`,
+      top: `${f.from.top + (f.to.top - f.from.top) * progress}px`,
+      width: `${f.from.width + (f.to.width - f.from.width) * progress}px`,
+      height: `${f.from.height + (f.to.height - f.from.height) * progress}px`
+    })
+  }
+
+  flightAnimation?.cancel()
+  // 曲线已经采样进关键帧，帧间必须 linear，否则等于再叠一层缓动。
+  flightAnimation = el.animate(boxFrames, { duration: CLOSE_DURATION_MS, easing: 'linear', fill: 'both' })
+
+  flightRadiusAnimation?.cancel()
+  flightRadiusAnimation = el.animate([
+    { borderRadius: '0px' },
+    { borderRadius: endRadius }
+  ], { duration: CLOSE_DURATION_MS, easing: CLOSE_EASE_IN, fill: 'both' })
+
+  // 恢复图片层的独立组合动画：外框负责真实尺寸/裁切，图片负责轻微
+  // 滞后和回弹。这样不会把原图拉伸，同时保留原先的组合运动质感。
+  startFlightImageAnimation(f, scale, dx, dy, f.imageTransform)
+}
+
+// 把 CSS 的 cubic-bezier 求成 y = f(x)。二分而不是牛顿法：迭代次数固定、
+// 没有导数为 0 时的发散分支，30 次已到 1e-9，画关键帧绰绰有余。
+const cubicBezierEasing = (x1: number, y1: number, x2: number, y2: number) => {
+  const curve = (a: number, b: number, t: number) => {
+    const mt = 1 - t
+    return 3 * mt * mt * t * a + 3 * mt * t * t * b + t * t * t
+  }
+  return (u: number) => {
+    if (u <= 0) return 0
+    if (u >= 1) return 1
+    let lo = 0
+    let hi = 1
+    let t = u
+    for (let i = 0; i < 30; i++) {
+      if (curve(x1, x2, t) < u) lo = t
+      else hi = t
+      t = (lo + hi) / 2
+    }
+    return curve(y1, y2, t)
+  }
+}
+// 必须和 CLOSE_EASE_IN 是同一条曲线：圆角动画用字符串走 CSS，
+// 缩放采样和视差推算用这个函数，两边对不上视差就算错了。
+const boxProgress = cubicBezierEasing(0.35, 0.6, 0.35, 1)
+const imageProgress = cubicBezierEasing(0.4, 0.35, 0.45, 1)
+// 位移的两个轴：围绕 boxProgress 对称地一前一后，只动第一个控制点的 y。
+// 这样两条曲线的端点、单调性和整体性格都和缩放一致，只是一个稍快一个稍慢。
+const flightEaseX = cubicBezierEasing(0.35, 0.74, 0.35, 1)
+const flightEaseY = cubicBezierEasing(0.35, 0.46, 0.35, 1)
+
+// 视差：取景窗和画面各走各的曲线，但走的是同一段路。
+//
+// 图片 object-fit: cover 铺满盒子，所以盒子怎么变形画面就跟着怎么走——两者天然
+// 严丝合缝。要让画面「慢半拍」，就给它自己的 transform 补上两者的差：
+//
+//   取景窗   eB = boxProgress(t / D)            —— D 毫秒走完
+//   画面     eV = imageProgress(t / (D+LAG))    —— 晚 LAG 毫秒走完
+//   相对缩放 rel   = (1+(s-1)eV) / (1+(s-1)eB)   > 1，画面比窗口大一圈、被多裁一点
+//   相对位移 shift ∝ (rel-1)，方向与飞行方向相反 —— 画面被落在后面
+//
+// eB、eV 在 0 和 1 处都相等，所以起飞时画面正好铺满窗口、落位时又正好铺满，
+// 摘掉飞行层换回真缩略图的那一帧没有任何跳变。
+//
+// 为什么画面的尺寸必须由 eV 推出来，而不能自己写死一条 rel 曲线：
+// 画面在屏幕上的绝对尺寸是 rel × eB，要它全程只缩不涨，就得 rel'/rel ≤ -eB'/eB
+// ——rel 能涨多快，被盒子当下的收缩速度卡死。试过直接写 rel 的三关键帧（线性上升
+// 到峰值再回落），峰值前画面反而变大了：那会儿盒子已经在减速，rel 还在匀速涨。
+// 现在 eV 是一条独立的单调曲线，rel = eV/eB 只是个记账结果，单调性白送。
+//
+// 峰值封顶。rel 的峰值随 s 变——窗口大、缩略图小的时候 s 小，两条曲线拉得更开。
+// 阻尼 Vd = (1-k)·B + k·V 是两条单调曲线的凸组合，端点、单调性都不受影响，而且
+//   Vd/B - 1 = k · (V/B - 1)
+// ——阻尼正好把整条 rel-1 曲线等比缩放。所以先采一遍求原始峰值，再取
+// k = CLOSE_IMAGE_PEAK / 峰值 封顶，任何 s 下都稳定在这个幅度。
+//
+// 位移量按「当前可用的溢出量」给：rel 比 1 大多少，画面四周就富余多少，
+// 位移取其中的 CLOSE_IMAGE_SHIFT。这样它永远不可能把窗口推出画面边缘露白，
+// 而且天然与缩放联动——两条动画是分开算的，却始终一起涨、一起收。
+const startFlightImageAnimation = (f: { from: FlightRect }, scale: number, dx: number, dy: number, targetTransform?: string) => {
+  const img = flightImage.value
+  if (!img || typeof img.animate !== 'function') return
+
+  const total = CLOSE_DURATION_MS + CLOSE_IMAGE_LAG_MS
+  // 位移方向与飞行方向相反：盒子往左上走，画面被落在右下，
+  // 于是窗口取到的是画面偏左上的那一块——正是「窗口在画面上缓缓平移」的观感。
+  const travel = Math.hypot(dx, dy) || 1
+  const ux = -dx / travel
+  const uy = -dy / travel
+
+  // 图墙缩略图本身可能带有 translateY + scale 视差变换。不要只在
+  // 最后一帧突然套上目标 transform；把它拆成平移/缩放，沿整段动画
+  // 渐进叠加，避免结尾跳位。
+  let targetTx = 0
+  let targetTy = 0
+  let targetScale = 1
+  if (targetTransform && targetTransform !== 'none' && typeof DOMMatrixReadOnly !== 'undefined') {
+    try {
+      const matrix = new DOMMatrixReadOnly(targetTransform)
+      targetTx = matrix.e
+      targetTy = matrix.f
+      targetScale = Math.sqrt(matrix.a * matrix.a + matrix.b * matrix.b) || 1
+    } catch {
+      // 非矩阵 transform 时保持默认值，避免影响关闭动画。
+    }
+  }
+
+  const steps = 30
+  const sample = (offset: number) => {
+    const t = total * offset
+    return {
+      box: 1 + (scale - 1) * boxProgress(Math.min(t / CLOSE_DURATION_MS, 1)),
+      visual: 1 + (scale - 1) * imageProgress(offset)
+    }
+  }
+
+  let peak = 0
+  for (let i = 0; i <= steps; i++) {
+    const { box, visual } = sample(i / steps)
+    peak = Math.max(peak, visual / box - 1)
+  }
+  const damping = peak > CLOSE_IMAGE_PEAK ? CLOSE_IMAGE_PEAK / peak : 1
+
+  const frames: Keyframe[] = []
+  for (let i = 0; i <= steps; i++) {
+    const offset = i / steps
+    const { box, visual } = sample(offset)
+    const rel = 1 + damping * (visual / box - 1)
+    const overflow = (rel - 1) / 2 * CLOSE_IMAGE_SHIFT
+    const baseTx = ux * overflow * f.from.width
+    const baseTy = uy * overflow * f.from.height
+    const blendedTx = baseTx + targetTx * offset
+    const blendedTy = baseTy + targetTy * offset
+    const blendedScale = rel * (1 + (targetScale - 1) * offset)
+    const baseTransform = `translate(${blendedTx.toFixed(2)}px, ${blendedTy.toFixed(2)}px) scale(${blendedScale.toFixed(5)})`
+    frames.push({
+      offset,
+      // 最终帧精确使用页面提供的 transform，之前的帧使用连续插值。
+      transform: offset === 1 && targetTransform && targetTransform !== 'none'
+        ? targetTransform
+        : baseTransform
+    })
+  }
+
+  flightImageAnimation?.cancel()
+  // 关键帧之间用 linear：曲线本身已经采样进关键帧了，再叠一层缓动会把它扭歪。
+  flightImageAnimation = img.animate(frames, { duration: total, easing: 'linear', fill: 'both' })
+}
+
+// 每帧重新量一次目标缩略图，把它这段时间里挪动的距离补到锚层上。
+//
+// 飞行层是 position: fixed 的，落点 f.to 又是关闭那一刻记下的视口坐标，所以只要
+// 页面在这 380ms 里动过，落点就是错的：收回途中滚动相册，飞行层会僵在原地不跟着走；
+// 瀑布流因为图片陆续加载重排、或者滚动条出现导致居中容器左右挪一点，落位就会和
+// 缩略图差开几像素——摘掉飞行层的那一帧看着就是"图片忽然错位一下"。
+//
+// 补偿只做平移：卡片尺寸变化极罕见，而缩放已经烘进关键帧里了，中途改它会破坏
+// 落位尺寸的精确匹配。写 DOM 而不是走响应式，避免每帧触发一次组件重渲染。
+const trackFlightTarget = () => {
+  flightTrackRaf = null
+  const f = flight.value
+  const anchor = flightAnchor.value
+  if (!f || !anchor || flightPhotoId === null) return
+  const now = props.resolveOriginRect?.(flightPhotoId, currentIndex.value, { allowScroll: false })
+  if (now) {
+    const ox = now.left - f.to.left
+    const oy = now.top - f.to.top
+    anchor.style.transform = ox || oy ? `translate3d(${ox}px, ${oy}px, 0)` : ''
+  }
+  flightTrackRaf = requestAnimationFrame(trackFlightTarget)
+}
+
+const stopFlightTracking = () => {
+  if (flightTrackRaf !== null) {
+    cancelAnimationFrame(flightTrackRaf)
+    flightTrackRaf = null
+  }
+}
+
+// 收回还没演完就被打断（重新打开、组件卸载）时的强拆。
+//
+// 正常收尾走 finalizeClose，它由兜底计时器和动画的 finished 触发，两者都带
+// `closing.value` 的守卫。而重新打开会先清掉计时器、再把 closing 置否，于是两条
+// 路径同时失效——飞行层就永远留在 DOM 里了。动画本身还会跑完，然后 fill: 'both'
+// 把它钉死在缩略图的落点上，看着就是「动画停住了，还赖着不走」；底下真正的缩略图
+// 又因为没人发 return-transition 而一直 visibility: hidden。
+const cancelFlight = () => {
+  stopFlightTracking()
+  flightAnimation?.cancel()
+  flightRadiusAnimation?.cancel()
+  flightImageAnimation?.cancel()
+  flightAnimation = null
+  flightRadiusAnimation = null
+  flightImageAnimation = null
+  flight.value = null
+  if (returningToThumb.value) {
+    returningToThumb.value = false
+    emit('return-transition', { photoId: flightPhotoId, active: false })
+  }
+  flightPhotoId = null
+}
+const modalStyle = computed(() => {
+  const fadedOut = (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value)
+  if (returningToThumb.value) {
+    return {
+      opacity: 1,
+      backgroundColor: fadedOut ? 'rgba(0, 0, 0, 0)' : undefined,
+      backdropFilter: fadedOut ? 'blur(0px)' : undefined,
+      transition: `background-color ${CLOSE_DURATION_MS}ms ease, backdrop-filter ${CLOSE_DURATION_MS}ms ease`
+    }
+  }
   // Once the parent has released visibility and the handoff animation has
   // finished, keep the leave-transition node transparent.  Otherwise the
   // inline opacity would override Vue's leave class and briefly reveal a
   // fully opaque modal before it is removed.
-  opacity: (!props.visible && !closing.value) || (closing.value && closingAnimationStarted.value) ? 0 : 1,
-  transition: 'opacity 260ms cubic-bezier(0.4, 0, 0.2, 1)'
-}))
+  return {
+    opacity: fadedOut ? 0 : 1,
+    transition: 'opacity 260ms cubic-bezier(0.4, 0, 0.2, 1)'
+  }
+})
 
 const { viewOriginalEnabled } = useUiSettings()
 const { armFlingTapRepair, disposeFlingTapRepair } = useFlingTapRepair()
@@ -947,6 +1352,34 @@ const FOCUS_BOX_KEY = 'pe-focus-box-visible'
 const FACE_BOXES_KEY = 'pe-face-boxes-visible'
 const THUMB_KEY = 'pe-thumb-height'
 const OPENING_INPUT_GUARD_MS = 220
+// 展开用不回弹的减速曲线：图片正在变大，回弹会显得晃。
+const OPEN_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+// 收回的两层分工：
+//   盒子（取景窗）——单调地从大图的可见框收到缩略图框就停住；
+//   画面本身——沿另一条曲线、晚 CLOSE_IMAGE_LAG_MS 才收完。
+// 于是观感是「窗口先稳稳落位，画面再收进这个框里」，有层次而不晃。
+//
+// 这条曲线别再调得更陡了。原来是 cubic-bezier(0.33, 0.9, 0.2, 1)，前 40% 的时间
+// 就走掉 90% 的路，剩下 140ms 基本在爬——画面正好要在这段里做视差，盒子却已经
+// 不动了，两个近乎静止叠在一起，看着就是「顿一下」。换成这条之后落位时刻画面
+// 还留着约四分之一的峰值速度（实测 0.16~0.28，原来只有 0.02~0.12）。
+const CLOSE_EASE_IN = 'cubic-bezier(0.35, 0.6, 0.35, 1)'
+const CLOSE_DURATION_MS = 230
+// 画面比取景窗慢多少。它也是飞行层（position: fixed）的额外存活时间，
+// 关闭后立刻滚动页面这段是不跟随滚动的，所以别太长。
+const CLOSE_IMAGE_LAG_MS = 150
+// rel（画面 / 窗口）的峰值封顶。再大画面中段就被裁得太狠，
+// 窗口里只剩一小块，看着不像视差像穿帮。见 startFlightImageAnimation 的阻尼。
+const CLOSE_IMAGE_PEAK = 0.2
+// 画面相对窗口的横移量，取「此刻可用溢出量」的比例。留出余量，
+// 免得取整误差把窗口推到画面外面去露白边。
+const CLOSE_IMAGE_SHIFT = 0.75
+// 没有缩略图落点时（键盘/无 originRect）纯淡出的时长
+const CLOSE_FADE_MS = 260
+// 宿主没通过 resolveOriginRect 告诉我们缩略图圆角时的兜底值。
+// 这里不猜：保持直角＝与加飞行层之前的表现一致，不会给其它宿主页面
+// （PhotoWall / Search / RandomGallery，它们只传 originRect）引入错误的圆角。
+const DEFAULT_THUMB_RADIUS = '0px'
 
 // 计算属性
 const currentPhoto = computed(() => props.photos?.[currentIndex.value] || null)
@@ -1074,10 +1507,18 @@ const imageStyle = computed(() => {
 
 const openingPreviewStyle = computed(() => ({
   ...imageStyle.value,
-  transform: openingPreviewTransform.value || 'translate(-50%, -50%)',
+  // 静止态与 FLIP 态保持相同的函数结构（平移+平移+缩放），
+  // 浏览器就能逐项插值，而不用退化成矩阵插值。
+  transform: openingPreviewTransform.value || 'translate(-50%, -50%) translate(0px, 0px) scale(1, 1)',
   transformOrigin: 'center center',
-  transition: openingPreviewTransform.value ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+  transition: openingPreviewTransform.value ? 'none' : `transform 300ms ${OPEN_EASE}`
 }))
+
+const openingPreviewFrameStyle = computed(() => {
+  const g = openingFrameGeometry.value
+  if (!g) return { left: '50%', top: '50%', width: '0px', height: '0px' }
+  return { left: `${g.left}px`, top: `${g.top}px`, width: `${g.width}px`, height: `${g.height}px`, borderRadius: g.radius || '0px' }
+})
 
 // Photo records normally contain the intrinsic dimensions. Use them before
 // the large asset finishes loading so the image box has a stable aspect ratio
@@ -1104,21 +1545,72 @@ const waitForTrackSettle = () => new Promise<void>((resolve) => {
   requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
 })
 
+// 读取切图轨道当前真实的动画位置（而不是它的目标值）。滑动时 scale 恒为 1，
+// imageTransformStyle 就是纯 translateX，所以矩阵的 m41 即当前偏移量。
+// 中断一次进行中的过渡时必须用这个真实值，否则重新基准化会算错、画面跳变。
+const readLiveTrackOffset = () => {
+  const el = imageWrapper.value
+  if (el) {
+    try {
+      const transform = window.getComputedStyle(el).transform
+      if (transform && transform !== 'none') {
+        const m41 = new DOMMatrixReadOnly(transform).m41
+        if (Number.isFinite(m41)) return m41
+      } else {
+        return 0
+      }
+    } catch {
+      // 读不到就退回下面的时间估算
+    }
+  }
+  // 兜底：按已过时间在起点和终点之间线性取值。只有拿不到计算样式时才会走到
+  // 这里；曲线不精确会让接手瞬间有微小偏差，但不会卡住手势。
+  if (!swipeTransitioning.value) return swipeOffset.value
+  const elapsed = performance.now() - swipeStartedAt
+  const progress = Math.min(1, Math.max(0, elapsed / Math.max(swipeDurationMs.value, 1)))
+  return swipeStartOffset + (swipeTargetOffset - swipeStartOffset) * progress
+}
+
+// 预热当前位置往外两张的缩略图。连滑不再需要等待后会更快到达 index±2，
+// 只预热相邻一张的话，新露出的那张可能来不及解码。
+// 这里逐张调用 loadQuality 而不是 preloadThumbnails：后者会自增 preloadEpoch，
+// 把打开时启动的整册预热批次取消掉；loadQuality 对已就绪/在途的槽位是幂等的。
+const preloadSwipeNeighbors = () => {
+  const photos = props.photos
+  if (!photos?.length) return
+  for (const delta of [1, -1, 2, -2]) {
+    const photo = photos[currentIndex.value + delta]
+    if (photo) void assetManager.loadQuality(toAssetInput(photo), 'thumbnail')
+  }
+}
+
 const preloadAllThumbnails = (photos: Photo[]) => {
   const assets: PhotoAssetInput[] = photos.map(toAssetInput)
   assetManager.preloadThumbnails(assets)
 }
 
 const prepareOpeningTransform = () => {
-  if (openingTransformPrepared.value || !opening.value || !activeOriginRect.value || !imageViewport.value || !openingPreviewVisible.value) return
-  const target = imageViewport.value.getBoundingClientRect()
+  if (openingTransformPrepared.value || !opening.value || !activeOriginRect.value || !openingPreviewVisible.value) return
+  // FLIP 的起始几何必须量预览图**自己**的框，而不是它所在的容器。
+  // 预览图按图片比例缩放居中显示，和铺满视口的容器既不同尺寸也不同位置；
+  // 用容器的宽高算缩放，落点会系统性偏移（实测偏 271px、高度差 79px）。
+  const target = mainImage.value?.getBoundingClientRect()
   const origin = activeOriginRect.value
-  if (target.width <= 0 || target.height <= 0) return
+  if (!target || target.width <= 0 || target.height <= 0) return
   openingTransformPrepared.value = true
+  openingFrameGeometry.value = { ...origin }
+  openingFrameAnimation?.cancel()
+  if (openingPreviewFrame.value?.animate) {
+    openingFrameAnimation = openingPreviewFrame.value.animate([
+      { left: `${origin.left}px`, top: `${origin.top}px`, width: `${origin.width}px`, height: `${origin.height}px`, borderRadius: origin.radius || '8px' },
+      { left: `${target.left}px`, top: `${target.top}px`, width: `${target.width}px`, height: `${target.height}px`, borderRadius: '0px' }
+    ], { duration: 300, easing: OPEN_EASE, fill: 'both' })
+  }
   const epoch = transitionEpoch
-  const dx = origin.left + origin.width / 2 - (target.left + target.width / 2)
-  const dy = origin.top + origin.height / 2 - (target.top + target.height / 2)
-  openingPreviewTransform.value = `translate(${dx}px, ${dy}px) scale(${origin.width / target.width}, ${origin.height / target.height})`
+  // 预览图靠 left/top 50% 定位，居中完全依赖 translate(-50%, -50%)。
+  // FLIP 变换会整体替换 transform，所以必须把这段居中平移一起写进来，
+  // 否则图片会先跳到容器中心的右下方再飞回来。
+  openingPreviewTransform.value = null
   opening.value = false
   if (openingPreviewTimer) clearTimeout(openingPreviewTimer)
   requestAnimationFrame(() => {
@@ -1149,12 +1641,21 @@ const imageTransformStyle = computed(() => {
   // This branch must precede dismiss/zoom branches so those states cannot
   // overwrite the closing animation when the parent sets visible=false.
   if (closing.value) {
+    // 收回到缩略图时由飞行层负责演出，原图层直接隐藏（两者同时可见会重影）。
+    if (flight.value) {
+      return {
+        transform: closingStartTransform.value || 'none',
+        transformOrigin: 'center center',
+        transition: 'none',
+        opacity: 0
+      }
+    }
+    // 没有缩略图落点时不做位移动画，只保持当前画面等背景淡出。
+    // originTransform 已经不再由关闭流程写入（收回一律走飞行层）。
     return {
-      transform: originTransform.value || closingStartTransform.value || 'none',
+      transform: closingStartTransform.value || 'none',
       transformOrigin: 'center center',
-      transition: originTransform.value
-        ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
-        : 'none'
+      transition: 'none'
     }
   }
 
@@ -1190,7 +1691,7 @@ const imageTransformStyle = computed(() => {
       transform: `translateX(${dragOffsetX}px)`,
       transformOrigin: 'center center',
       // 拖拽跟手；松手时由同一条轨道完成滑入或弹回
-      transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' : (isInteracting ? 'none' : 'transform 0.3s ease'))
+      transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? `transform ${swipeDurationMs.value}ms cubic-bezier(0.22, 1, 0.36, 1)` : (isInteracting ? 'none' : 'transform 0.3s ease'))
     }
   }
 })
@@ -1207,7 +1708,11 @@ const getAdjacentImageStyle = (direction: 'previous' | 'next') => {
     objectFit: 'contain',
     transform: `translate(calc(-50% + ${base + offset}px), -50%)`,
     opacity: Math.min(1, Math.max(0, Math.abs(offset) / Math.max(width * 0.35, 1))),
-    transition: trackTransitionDisabled.value ? 'none' : (swipeTransitioning.value ? 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease' : 'none')
+    transition: trackTransitionDisabled.value
+      ? 'none'
+      : (swipeTransitioning.value
+        ? `transform ${swipeDurationMs.value}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${Math.round(swipeDurationMs.value * 0.85)}ms ease`
+        : 'none')
   }
 }
 
@@ -1302,6 +1807,9 @@ const currentAlbumPath = computed(() => {
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
     transitionEpoch += 1
+    // 必须赶在下面清 closeTimer / closing / returningToThumb 之前——那三行会让
+    // finalizeClose 的两条触发路径同时失效，飞行层就没人管了。
+    cancelFlight()
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
     if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
     if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
@@ -1317,13 +1825,14 @@ watch(() => props.visible, (newVisible) => {
     trackTransitionDisabled.value = false
     pendingSwipeDirection.value = null
     queuedSwipeDirections.value = []
-    blockedSwipePointer.value = null
+    pendingTrackOffset = null
     deferredTapAction.value = null
     openingTransformPrepared.value = false
     openingPreviewVisible.value = !!props.originRect
     openingPreviewTransform.value = null
     closingAnimationStarted.value = false
     closingStartTransform.value = null
+    returningToThumb.value = false
     lastTapTime.value = 0
     lastTapX.value = 0
     lastTapY.value = 0
@@ -1363,11 +1872,6 @@ watch(() => props.visible, (newVisible) => {
       prepareOpeningTransform()
     })
     // 图片自身尺寸可用后再计算信息栏偏移，避免沿用上一张的几何信息。
-    console.log('👁️ PhotoViewer: 打开查看器，设置起始索引', {
-      startIndex: props.startIndex,
-      currentIndex: currentIndex.value,
-      forceShowFaces: props.forceShowFaces
-    })
   } else {
     // Parent-driven close must invalidate pending transition callbacks too;
     // otherwise a late timer can mutate state while the viewer is hidden.
@@ -1379,7 +1883,7 @@ watch(() => props.visible, (newVisible) => {
     showAdminMenu.value = false
     // 人脸框现在直接绑定在图片内部，无需清理
   }
-})
+}, { immediate: true })
 
 // 监听 startIndex 变化
 watch(() => props.startIndex, (newStartIndex) => {
@@ -1399,10 +1903,6 @@ watch(() => props.startIndex, (newStartIndex) => {
     // 重置图片加载状态，确保人脸框重新计算
     nextTick(() => {
       imageLoaded.value = false
-    })
-    console.log('🔄 PhotoViewer: startIndex 变化，更新当前索引', {
-      newStartIndex,
-      currentIndex: currentIndex.value
     })
   }
 })
@@ -1425,8 +1925,12 @@ watch(() => [currentPhoto.value?.id, viewingOriginal.value, props.photos.length]
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
-  touchSwipeOffset.value = 0
-  imageDragOffset.value = 0
+  // 提交索引时通常轨道就该归零；但中断过渡接手时，偏移量被重新基准化成了一个
+  // 非零值来保持画面不动，这里必须沿用它，否则轨道会被拉回中心、画面跳一下。
+  const preservedOffset = pendingTrackOffset
+  pendingTrackOffset = null
+  touchSwipeOffset.value = preservedOffset ?? 0
+  imageDragOffset.value = preservedOffset ?? 0
   displayedImageUrl.value = currentPhoto.value ? getDisplayUrl(currentPhoto.value) : ''
   largeImagePreloadUrl.value = currentPhoto.value ? getImageUrl(currentPhoto.value) : ''
   largeImageReady.value = false
@@ -1462,7 +1966,6 @@ watch(() => props.photos, (nextPhotos) => {
 // 监听图片加载状态变化，确保人脸框在图片加载完成后重新计算
 watch(() => imageLoaded.value, (newLoaded) => {
   if (newLoaded) {
-    console.log('🔄 PhotoViewer: 图片加载完成，人脸框将重新计算')
   // 人脸框现在直接绑定在图片内部，会自动更新
   } else {
     // 人脸框现在直接绑定在图片内部，无需清理
@@ -1579,14 +2082,16 @@ if (savedWidth) {
 // 初始化框体状态已在上面声明
 
 // 基本功能函数
-const close = (visualRect?: { left: number; top: number; width: number; height: number }) => {
+const close = () => {
   showAdminMenu.value = false
   if (closing.value) return
   if (closeTimer) {
     clearTimeout(closeTimer)
     closeTimer = null
   }
-  const measuredRect = visualRect || mainImage.value?.getBoundingClientRect()
+  // 飞行层用绝对坐标，起点直接取图片此刻在屏幕上的可见框即可 —— 不需要再把
+  // dismiss / 缩放 / 滑动的变换还原掉。此时状态尚未清理，DOM 上仍带着手势变换。
+  const measuredRect = mainImage.value?.getBoundingClientRect() ?? null
   abortNavigation()
   if (openingPreviewTimer) { clearTimeout(openingPreviewTimer); openingPreviewTimer = null }
   // Capture the exact transform currently visible on screen before clearing
@@ -1612,32 +2117,82 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
   isImageDragging.value = false
   touchSwipeOffset.value = 0
   imageDragOffset.value = 0
-  if (activeOriginRect.value && measuredRect) {
-    const target = activeOriginRect.value
-    const current = measuredRect
-    if (current.width > 0 && current.height > 0) {
-      const dx = target.left + target.width / 2 - (current.left + current.width / 2)
-      const dy = target.top + target.height / 2 - (current.top + current.height / 2)
-      closing.value = true
-      const targetTransform = `translate(${dx}px, ${dy}px) scale(${target.width / current.width}, ${target.height / current.height})`
-      // Return control to the parent immediately.  The component remains
-      // rendered while closing and has pointer-events disabled, so the page
-      // below can already receive a new thumbnail click.
-      emit('update:visible', false)
-      requestAnimationFrame(() => {
-        if (!closing.value) return
-        originTransform.value = targetTransform
-        closingAnimationStarted.value = true
-      })
-      closeTimer = window.setTimeout(() => {
-        originTransform.value = null
-        closingStartTransform.value = null
-        closingAnimationStarted.value = false
-        closing.value = false
-        closeTimer = null
-      }, 280)
-      return
+  // 收回目标优先取「当前这张照片」的缩略图；宿主页面没提供解析器（或解析不到，
+  // 比如那张照片已被筛掉）时，才退回打开时记录的那一张。
+  const closingPhotoId = currentPhoto.value?.id ?? null
+  const resolved = closingPhotoId !== null
+    ? props.resolveOriginRect?.(closingPhotoId, currentIndex.value) ?? null
+    : null
+  const target = resolved || activeOriginRect.value
+
+  if (target && measuredRect && measuredRect.width > 0 && measuredRect.height > 0) {
+    closing.value = true
+    returningToThumb.value = true
+    flightPhotoId = closingPhotoId
+    // 大图交给飞行层去演，原来的图片层立刻藏起来，避免两份图叠在一起。
+    flight.value = {
+      src: displayedImageUrl.value,
+      from: { left: measuredRect.left, top: measuredRect.top, width: measuredRect.width, height: measuredRect.height },
+      to: { left: target.left, top: target.top, width: target.width, height: target.height },
+      radius: target.radius || DEFAULT_THUMB_RADIUS,
+      imageTransform: target.imageTransform,
+      objectPosition: target.objectPosition
     }
+    // 让宿主页面把目标缩略图藏起来，收回的图片落位时才不会和原图重影。
+    emit('return-transition', { photoId: closingPhotoId, active: true })
+    // 收尾：先摘掉飞行层、同时让宿主恢复缩略图（同一次 patch 内完成，不会有空档），
+    // 之后才把 closing 置否让模态走离场过渡。
+    //
+    // 注意不要 cancel 动画：cancel 会让元素回到 inline 的起点几何，而模态一旦进入
+    // 离场过渡，Vue 就不再 patch 这棵子树，v-if 也就摘不掉它了 —— 那张大图会带着
+    // 起点尺寸在原地停留整个离场时长。用 fill: 'both' 让它保持终点，直接移除即可。
+    let finalized = false
+    const finalizeClose = () => {
+      // 兜底计时器和动画的 finished 都会调它，只允许生效一次
+      if (finalized) return
+      finalized = true
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
+      stopFlightTracking()
+      flightAnimation = null
+      flightRadiusAnimation = null
+      flightImageAnimation = null
+      flightPhotoId = null
+      flight.value = null
+      returningToThumb.value = false
+      emit('return-transition', { photoId: closingPhotoId, active: false })
+      originTransform.value = null
+      closingStartTransform.value = null
+      closingAnimationStarted.value = false
+      closing.value = false
+    }
+
+    // 飞行层挂上 DOM 之后立刻起飞。WAAPI 不要求先上屏一帧。
+    nextTick(() => {
+      if (!closing.value) return
+      startFlightAnimation()
+      trackFlightTarget()
+      closingAnimationStarted.value = true
+
+      // 摘掉飞行层要等最后落地的那条动画——是画面（晚 CLOSE_IMAGE_LAG_MS），
+      // 不是盒子。按盒子的时长摘会把视差那一小段直接切掉。
+      //
+      // 兜底计时器也必须从动画真正开始的时刻算起。之前从 close() 调用时刻起算，
+      // 而动画要等 Vue 渲染 + 主线程空闲才开始（实测晚了 128ms），
+      // 于是计时器抢在动画结束前就把飞行层摘掉，画面停在中途然后突然变小。
+      const settleAnimation = flightImageAnimation || flightAnimation
+      const settleMs = flightImageAnimation ? CLOSE_DURATION_MS + CLOSE_IMAGE_LAG_MS : CLOSE_DURATION_MS
+      if (closeTimer) clearTimeout(closeTimer)
+      closeTimer = window.setTimeout(finalizeClose, settleMs + 80)
+      settleAnimation?.finished
+        .then(() => { if (closing.value) finalizeClose() })
+        .catch(() => { /* 被取消（重新打开/卸载），由对应流程收尾 */ })
+
+      // 立刻把控制权交还父组件。曾经尝试等 animation.ready 之后再 emit，想让动画
+      // 抢在相册网格重绘之前起跑——既没有缩短起跑延迟（仍是 ~148ms），又会在关闭
+      // 动画被中途打断时把这次 emit 丢掉，查看器就再也关不上了。
+      emit('update:visible', false)
+    })
+    return
   }
 
   // No origin rectangle (keyboard/backdrop close): still use the same
@@ -1652,7 +2207,7 @@ const close = (visualRect?: { left: number; top: number; width: number; height: 
     closingAnimationStarted.value = false
     closing.value = false
     closeTimer = null
-  }, 280)
+  }, CLOSE_FADE_MS)
 }
 
 const toggleFullscreen = () => {
@@ -1695,11 +2250,6 @@ const prev = (alreadyAtIndex = false) => {
 
   // 人脸框和焦点框现在直接绑定在图片内部，会自动更新
 
-  console.log('⬅️ PhotoViewer: 切换到上一张', {
-    from: oldIndex,
-    to: currentIndex.value,
-    filename: currentPhoto.value?.filename
-  })
 }
 
 const next = (alreadyAtIndex = false) => {
@@ -1729,14 +2279,79 @@ const next = (alreadyAtIndex = false) => {
     imageLoaded.value = false
   })
   scrollThumbIntoView()
-  console.log('➡️ PhotoViewer: 切换到下一张', {
-    from: oldIndex,
-    to: currentIndex.value,
-    filename: currentPhoto.value?.filename
-  })
 }
 
-const finishSwipe = (direction: 'previous' | 'next') => {
+// 把索引提交推进一格，并把轨道偏移设为 nextOffset。
+// 正常动画结束时 nextOffset 是 0；中断接手时是重新基准化后的值，见
+// interruptSwipeTransition。两条路径共用这一段，避免提交序列出现两份实现。
+const commitSwipeIndex = (direction: 'previous' | 'next', nextOffset: number) => {
+  const targetPhoto = navigation.incomingIndex.value !== null
+    ? props.photos[navigation.incomingIndex.value] || null
+    : (direction === 'previous' ? previousPhoto.value : nextPhoto.value)
+  // 不要为了等图片解码而锁住交互状态：那会让下一次 pointerdown 看起来像
+  // 动画被打断，从而丢掉后续的滑动动画。资源管理器同步提供缩略图兜底。
+  if (targetPhoto) void waitForPhotoReady(targetPhoto, 'thumbnail')
+  // 让 currentPhoto 的 watcher 知道这次提交后轨道不该归零
+  pendingTrackOffset = nextOffset !== 0 ? nextOffset : null
+  pendingSwipeDirection.value = null
+  // End the outgoing transform before changing currentIndex. If the index
+  // watcher resets the offset while this flag is still true, CSS animates
+  // the old image back toward center (the occasional right-then-left jump).
+  trackTransitionDisabled.value = true
+  swipeTransitioning.value = false
+  touchSwipeOffset.value = nextOffset
+  imageDragOffset.value = nextOffset
+  // Prime the main slot with the already decoded target thumbnail before
+  // committing the index. This keeps one stable drawable in the main image
+  // element while Vue applies the new photo geometry.
+  if (targetPhoto) {
+    displayedImageUrl.value = getDisplayUrl(targetPhoto)
+    largeImagePreloadUrl.value = getImageUrl(targetPhoto)
+    imageLoaded.value = true
+  }
+  navigation.commit()
+  direction === 'previous' ? prev(true) : next(true)
+  preloadSwipeNeighbors()
+}
+
+// 在过渡进行中按下手指时接管当前动画，而不是把手势挡住、等动画播完。
+//
+// 轨道是三槽结构：相邻图位于 base + offset，base = ∓屏宽。向后切换时 offset
+// 从 0 走向 -W，在中途位置 o 时 next 图正好位于 W + o。此刻提交索引并把偏移
+// 重新基准化为 o + W，新当前图就仍在 W + o，旧当前图落到 -W + (W+o) = o，
+// 也就是它原来的位置 —— 像素级恒等，不可能跳变。向前切换同理取 o - W。
+//
+// 返回重新基准化后的偏移量；没有过渡在进行时返回 null。
+const interruptSwipeTransition = (): number | null => {
+  if (!swipeTransitioning.value) return null
+
+  const live = readLiveTrackOffset()
+  const direction = pendingSwipeDirection.value
+
+  // 作废在途定时器与其 epoch 校验，接下来由手势接管。
+  transitionEpoch += 1
+  if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
+
+  let rebased = live
+  if (direction) {
+    // 会提交的过渡：提前完成它，偏移量平移一个屏宽保持画面不动。
+    rebased = direction === 'previous' ? live - window.innerWidth : live + window.innerWidth
+    commitSwipeIndex(direction, rebased)
+  } else {
+    // 回弹或到头的过渡：没有索引变化，就地接手当前位置。
+    swipeTransitioning.value = false
+    trackTransitionDisabled.value = true
+    touchSwipeOffset.value = live
+    imageDragOffset.value = live
+    navigation.cancel()
+  }
+
+  // 重新基准化的这一帧不能带过渡，否则会从旧目标值平滑滑过来。
+  requestAnimationFrame(() => { trackTransitionDisabled.value = false })
+  return rebased
+}
+
+const finishSwipe = (direction: 'previous' | 'next', releaseVelocity = 0) => {
   const navDirection = direction
   if (swipeTransitioning.value) {
     queuedSwipeDirections.value.push(direction)
@@ -1750,6 +2365,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
     swipeStartedAt = performance.now()
     swipeStartOffset = touchSwipeOffset.value || imageDragOffset.value
     swipeTargetOffset = 0
+    swipeDurationMs.value = computeSwipeDuration(swipeStartOffset, releaseVelocity)
     touchSwipeOffset.value = 0
     imageDragOffset.value = 0
     if (swipeTimer) clearTimeout(swipeTimer)
@@ -1762,7 +2378,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
       const queued = queuedSwipeDirections.value.shift() || null
       if (queued) requestAnimationFrame(() => finishSwipe(queued))
       else flushDeferredTapAction()
-    }, 260)
+    }, swipeDurationMs.value)
     return
   }
 
@@ -1779,6 +2395,7 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   swipeStartedAt = performance.now()
   swipeStartOffset = touchSwipeOffset.value
   swipeTargetOffset = target
+  swipeDurationMs.value = computeSwipeDuration(target - swipeStartOffset, releaseVelocity)
   touchSwipeOffset.value = target
   imageDragOffset.value = target
   if (swipeTimer) clearTimeout(swipeTimer)
@@ -1789,45 +2406,18 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   openingPreviewTransform.value = null
   opening.value = false
   if (closeTimer) clearTimeout(closeTimer)
-  blockedSwipePointer.value = null
   swipeTimer = window.setTimeout(async () => {
     // Let the browser present the final transform frame before replacing the
     // current slot/index. Committing at the exact CSS duration can race the
     // compositor and briefly repaint the outgoing image in reverse.
     await waitForTrackSettle()
-    const targetPhoto = navigation.incomingIndex.value !== null
-      ? props.photos[navigation.incomingIndex.value] || null
-      : (direction === 'previous' ? previousPhoto.value : nextPhoto.value)
     if (epoch !== transitionEpoch || !props.visible || pendingSwipeDirection.value !== direction) {
       swipeTransitioning.value = false
       pendingSwipeDirection.value = null
       swipeTimer = null
       return
     }
-    // The gesture transition is complete at this point. Do not keep the
-    // interaction state locked while an image request is decoding: doing so
-    // makes the next pointerdown look like an animation interruption and
-    // drops subsequent swipe animations. The asset manager already exposes a
-    // thumbnail fallback synchronously; warm the target in the background.
-    if (targetPhoto) void waitForPhotoReady(targetPhoto, 'thumbnail')
-    pendingSwipeDirection.value = null
-    // End the outgoing transform before changing currentIndex. If the index
-    // watcher resets the offset while this flag is still true, CSS animates
-    // the old image back toward center (the occasional right-then-left jump).
-    trackTransitionDisabled.value = true
-    swipeTransitioning.value = false
-    touchSwipeOffset.value = 0
-    imageDragOffset.value = 0
-    // Prime the main slot with the already decoded target thumbnail before
-    // committing the index. This keeps one stable drawable in the main image
-    // element while Vue applies the new photo geometry.
-    if (targetPhoto) {
-      displayedImageUrl.value = getDisplayUrl(targetPhoto)
-      largeImagePreloadUrl.value = getImageUrl(targetPhoto)
-      imageLoaded.value = true
-    }
-    navigation.commit()
-    direction === 'previous' ? prev(true) : next(true)
+    commitSwipeIndex(direction, 0)
     swipeTimer = null
     requestAnimationFrame(() => {
       trackTransitionDisabled.value = false
@@ -1845,11 +2435,12 @@ const finishSwipe = (direction: 'previous' | 'next') => {
   }, 260)
 }
 
-const cancelSwipe = () => {
+const cancelSwipe = (releaseVelocity = 0) => {
   const epoch = ++transitionEpoch
   swipeStartedAt = performance.now()
   swipeStartOffset = touchSwipeOffset.value || imageDragOffset.value
   swipeTargetOffset = 0
+  swipeDurationMs.value = computeSwipeDuration(swipeStartOffset, releaseVelocity)
   trackTransitionDisabled.value = false
   swipeTransitioning.value = true
   pendingSwipeDirection.value = null
@@ -1865,11 +2456,12 @@ const cancelSwipe = () => {
     const queued = queuedSwipeDirections.value.shift() || null
     if (queued) requestAnimationFrame(() => finishSwipe(queued))
     else flushDeferredTapAction()
-  }, 260)
+  }, swipeDurationMs.value)
 }
 
 const abortNavigation = () => {
   transitionEpoch += 1
+  pendingTrackOffset = null
   if (swipeTimer) { clearTimeout(swipeTimer); swipeTimer = null }
   pendingSwipeDirection.value = null
   swipeTransitioning.value = false
@@ -1901,11 +2493,6 @@ const jump = (idx: number) => {
     imageLoaded.value = false
   })
   scrollThumbIntoView()
-  console.log('🔄 PhotoViewer: 跳转到指定图片', {
-    from: oldIndex,
-    to: idx,
-    filename: currentPhoto.value?.filename
-  })
 }
 
 // 计算信息栏显示时的图片偏移（确保图片不被遮挡）
@@ -2217,12 +2804,6 @@ const onImageLoad = async (event?: Event) => {
       }
       prepareOpeningTransform()
 
-      console.log('📸 PhotoViewer 图片加载完成:', {
-        filename: currentPhoto.value?.filename,
-        naturalSize: `${img.naturalWidth}x${img.naturalHeight}`,
-        windowSize: `${window.innerWidth}x${window.innerHeight}`,
-        url: getImageUrl(currentPhoto.value!)
-      })
     }
   }
 }
@@ -2353,21 +2934,9 @@ const onImagePointerDown = (e: PointerEvent) => {
     e.preventDefault()
     return
   }
-  if (swipeTransitioning.value) {
-    // A transition owns the visual track until its commit frame. Starting a
-    // second gesture by cancelling that transition leaves the incoming slot
-    // and current index out of sync, which causes the image to move a little
-    // and then spring back. Capture the pointer as a pending gesture instead;
-    // its final direction is queued and played after the current commit.
-    blockedSwipePointer.value = e.pointerId
-    blockedSwipeStartX.value = e.clientX
-    blockedSwipeStartY.value = e.clientY
-    blockedSwipeStartTime.value = performance.now()
-    const target = e.currentTarget as HTMLElement
-    target.setPointerCapture?.(e.pointerId)
-    e.preventDefault()
-    return
-  }
+  // 过渡进行中按下手指时接管当前动画，让连续滑动不必等上一次播完。
+  // 提交索引 + 重新基准化偏移量后画面像素位置不变，手势从这里直接续上。
+  const rebasedOffset = interruptSwipeTransition()
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture?.(e.pointerId)
   // 清理浏览器未发送 pointerup 的陈旧指针，避免下一次单指被误判为双指。
@@ -2408,20 +2977,18 @@ const onImagePointerDown = (e: PointerEvent) => {
   pointerStartX.value = pointerLastX.value = e.clientX
   pointerStartY.value = pointerLastY.value = e.clientY
   pointerStartTime.value = performance.now()
-  pointerSwipeBaseOffset.value = 0
-  interruptedSwipeDirection.value = null
-  imageDragOffset.value = 0
-  touchSwipeOffset.value = 0
+  // 接管了一次过渡时，偏移量必须保留重新基准化后的值，手势从当前画面位置
+  // 继续；清零会让画面瞬间跳回中心，正是要避免的那种跳变。
+  pointerSwipeBaseOffset.value = rebasedOffset ?? 0
+  imageDragOffset.value = rebasedOffset ?? 0
+  touchSwipeOffset.value = rebasedOffset ?? 0
   isImageDragging.value = false
+  resetSwipeVelocity(e.clientX)
   e.preventDefault()
 }
 
 const onImagePointerMove = (e: PointerEvent) => {
   if (ignoredPointerIds.has(e.pointerId)) {
-    e.preventDefault()
-    return
-  }
-  if (blockedSwipePointer.value === e.pointerId) {
     e.preventDefault()
     return
   }
@@ -2485,6 +3052,7 @@ const onImagePointerMove = (e: PointerEvent) => {
       : rawOffset
     imageDragOffset.value = bounded
     touchSwipeOffset.value = bounded
+    sampleSwipeVelocity(e.clientX)
   } else if (pointerGesture.value === 'dismiss') {
     dismissOffset.value = Math.max(0, dy)
   } else if (pointerGesture.value === 'holdZoom') {
@@ -2499,39 +3067,6 @@ const onImagePointerMove = (e: PointerEvent) => {
 const onImagePointerUp = (e: PointerEvent) => {
   if (ignoredPointerIds.delete(e.pointerId)) {
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-    e.preventDefault()
-    return
-  }
-  if (blockedSwipePointer.value === e.pointerId) {
-    const dx = e.clientX - blockedSwipeStartX.value
-    const dy = e.clientY - blockedSwipeStartY.value
-    const elapsed = Math.max(1, performance.now() - blockedSwipeStartTime.value)
-    const velocity = Math.abs(dx) / elapsed
-    const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
-    if (Math.hypot(dx, dy) < 8 && elapsed < 450) {
-      const action = getTapAction(e.target, e.clientX, e.clientY)
-      if (action === 'close') {
-        blockedSwipePointer.value = null
-        try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-        close()
-        e.preventDefault()
-        return
-      }
-      deferredTapAction.value = action
-    } else if (Math.abs(dx) > threshold || velocity > 0.6) {
-      const direction = dx > 0 ? 'previous' : 'next'
-      navigation.enqueue(direction)
-    }
-    blockedSwipePointer.value = null
-    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-    // The pointer may be released after the fixed transition timer has fired.
-    // In that case no timer remains to flush the deferred tap, so consume it
-    // on the next frame instead of leaving the viewer apparently unresponsive.
-    if (!swipeTransitioning.value) {
-      const queued = queuedSwipeDirections.value.shift() || null
-      if (queued) requestAnimationFrame(() => finishSwipe(queued))
-      else if (deferredTapAction.value) requestAnimationFrame(flushDeferredTapAction)
-    }
     e.preventDefault()
     return
   }
@@ -2564,14 +3099,8 @@ const onImagePointerUp = (e: PointerEvent) => {
     const velocity = dismissOffset.value / elapsed
     isImageDragging.value = false
     if (progress > 0.22 || velocity > 0.65) {
-      const draggedRect = mainImage.value?.getBoundingClientRect()
-      isDismissing.value = false
-      close(draggedRect ? {
-        left: draggedRect.left,
-        top: draggedRect.top,
-        width: draggedRect.width,
-        height: draggedRect.height
-      } : undefined)
+      // close() 会自己读取图片此刻的可见框，并负责清理手势状态。
+      close()
       // 带速度松手会让浏览器启动 fling，随后吞掉相册详情页上的第一次点击。
       if (e.pointerType === 'touch') armFlingTapRepair()
     } else {
@@ -2582,14 +3111,33 @@ const onImagePointerUp = (e: PointerEvent) => {
     }
   } else if (mode === 'swipe') {
     const offset = touchSwipeOffset.value
-    const moved = Math.abs(e.clientX - pointerStartX.value) > 8 || Math.abs(e.clientY - pointerStartY.value) > 8
-    const elapsed = Math.max(1, performance.now() - pointerStartTime.value)
-    const velocity = Math.abs(offset) / elapsed
+    // 本次手势自身走过的距离。接管过渡时 pointerSwipeBaseOffset 是重新基准化
+    // 后的起点，所以它和轨道总偏移不是一回事。
+    const dragDelta = offset - pointerSwipeBaseOffset.value
     const threshold = Math.min(140, Math.max(64, window.innerWidth * 0.18))
-    if (!moved && interruptedSwipeDirection.value) finishSwipe(interruptedSwipeDirection.value)
-    else if (Math.abs(offset) > threshold || velocity > 0.6) finishSwipe(offset > 0 ? 'previous' : 'next')
-    else cancelSwipe()
-    interruptedSwipeDirection.value = null
+    const halfWidth = window.innerWidth / 2
+
+    if (Math.abs(swipeVelocity) > 0.6) {
+      // 甩动优先：方向由速度决定，哪怕位移还很小。
+      finishSwipe(swipeVelocity > 0 ? 'previous' : 'next', swipeVelocity)
+    } else if (Math.abs(dragDelta) > threshold) {
+      finishSwipe(dragDelta > 0 ? 'previous' : 'next', swipeVelocity)
+    } else if (Math.abs(offset) > halfWidth) {
+      // 接管过渡后手指几乎没动：就近吸附，而不是硬拉回接管前的那一张。
+      finishSwipe(offset > 0 ? 'previous' : 'next', swipeVelocity)
+    } else {
+      cancelSwipe(swipeVelocity)
+    }
+  } else if (touchSwipeOffset.value !== 0 || imageDragOffset.value !== 0) {
+    // 点按接管了一次过渡（手指没移动，但轨道停在重新基准化后的位置）。
+    // 直接清零会让主图带过渡缓动、相邻图却瞬间归位；交给 cancelSwipe 走
+    // 同一条轨道动画，整体一起落位。
+    cancelSwipe(0)
+    if (mode === 'pending') {
+      lastTapTime.value = performance.now()
+      lastTapX.value = e.clientX
+      lastTapY.value = e.clientY
+    }
   } else {
     imageDragOffset.value = 0
     touchSwipeOffset.value = 0
@@ -2613,16 +3161,9 @@ const onImagePointerCancel = (e: PointerEvent) => {
     return
   }
 
-  if (blockedSwipePointer.value === e.pointerId) {
-    blockedSwipePointer.value = null
-    try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-    return
-  }
-
   const mode = pointerGesture.value
   const shouldDismiss = mode === 'dismiss' && dismissOffset.value > 0
     && dismissOffset.value / Math.max(window.innerHeight, 1) > 0.22
-  const draggedRect = shouldDismiss ? mainImage.value?.getBoundingClientRect() : null
 
   activePointers.delete(e.pointerId)
   try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
@@ -2637,17 +3178,11 @@ const onImagePointerCancel = (e: PointerEvent) => {
   dismissOffset.value = 0
   imageDragOffset.value = 0
   touchSwipeOffset.value = 0
-  interruptedSwipeDirection.value = null
   deferredTapAction.value = null
   lastTapTime.value = 0
 
   if (shouldDismiss) {
-    close(draggedRect && draggedRect.width > 0 && draggedRect.height > 0 ? {
-      left: draggedRect.left,
-      top: draggedRect.top,
-      width: draggedRect.width,
-      height: draggedRect.height
-    } : undefined)
+    close()
     if (e.pointerType === 'touch') armFlingTapRepair()
   }
 }
@@ -2695,11 +3230,6 @@ const onImageMouseMove = (e: MouseEvent) => {
 
     // 人脸框和焦点框现在直接绑定在图片内部，会自动跟随移动
 
-    console.log('🖱️ PhotoViewer: 拖拽移动图片', {
-      deltaX, deltaY,
-      translateX: translateX.value,
-      translateY: translateY.value
-    })
     } else {
     // 原始大小状态下，如果是水平拖拽且距离足够，准备切换图片
     if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
@@ -2764,10 +3294,6 @@ const onImageTouchStart = (e: TouchEvent) => {
     isPinching.value = true
     isImageDragging.value = false
     
-    console.log('🤏 PhotoViewer: 开始双指触摸', {
-      distance: distance,
-      center: { x: centerX, y: centerY }
-    })
   } else if (e.touches.length === 1) {
     // 记录滑动开始的X坐标
     touchSwipeStartX.value = e.touches[0].clientX
@@ -2782,10 +3308,6 @@ const onImageTouchStart = (e: TouchEvent) => {
       initialTranslateX.value = translateX.value
       initialTranslateY.value = translateY.value
 
-      console.log('👆 PhotoViewer: 开始单指触摸拖拽', {
-        startX: imageDragStartX.value,
-        startY: imageDragStartY.value
-      })
     }
     isPinching.value = false
   }
@@ -2844,10 +3366,6 @@ const onImageTouchMove = (e: TouchEvent) => {
         translateY.value = py - newScale * qy
       }
       
-      console.log('🤏 PhotoViewer: 双指缩放', {
-        scale: newScale,
-        distanceChange: distanceChange.toFixed(1)
-      })
     } else if (centerMoveDistance > 5 && scale.value > 1) {
       // 双指移动（平移）
       isPinching.value = false
@@ -2856,10 +3374,6 @@ const onImageTouchMove = (e: TouchEvent) => {
       translateX.value = initialTranslateX.value + centerDeltaX
       translateY.value = initialTranslateY.value + centerDeltaY
       
-      console.log('👆 PhotoViewer: 双指移动', {
-        deltaX: centerDeltaX.toFixed(1),
-        deltaY: centerDeltaY.toFixed(1)
-      })
     }
     
     // 更新中心点
@@ -2872,12 +3386,6 @@ const onImageTouchMove = (e: TouchEvent) => {
     translateX.value = initialTranslateX.value + deltaX
     translateY.value = initialTranslateY.value + deltaY
 
-    console.log('👆 PhotoViewer: 单指拖拽移动', {
-      deltaX: deltaX.toFixed(1),
-      deltaY: deltaY.toFixed(1),
-      translateX: translateX.value.toFixed(1),
-      translateY: translateY.value.toFixed(1)
-    })
   } else if (e.touches.length === 1 && scale.value <= 1) {
     // 单指水平滑动（仅在未放大状态下，用于切换照片）
     const currentX = e.touches[0].clientX
@@ -2958,14 +3466,10 @@ const onImageTouchEnd = (e: TouchEvent) => {
     // 所有触摸点都离开
     if (isPinching.value) {
       isPinching.value = false
-      console.log('🤏 PhotoViewer: 结束捏合缩放', {
-        finalScale: scale.value
-      })
     }
 
     if (isImageDragging.value) {
       isImageDragging.value = false
-      console.log('👆 PhotoViewer: 结束触摸拖拽')
     }
   }
 
@@ -3108,10 +3612,6 @@ const onKeyDown = (e: KeyboardEvent) => {
       } else if (newScale === 1) {
         userHasManuallyZoomed.value = false
       }
-      console.log('⌨️ 键盘缩放', {
-        key: e.key,
-        scale: newScale
-      })
     }
   }
 
@@ -3430,12 +3930,6 @@ onMounted(() => {
     initializeBoxStates()
 
     // 输出容器尺寸信息用于调试
-    console.log('🏗️ PhotoViewer 容器信息:', {
-      windowSize: `${window.innerWidth}x${window.innerHeight}`,
-      imageContainerStyle: imageContainerStyle.value,
-      visible: props.visible,
-      currentPhoto: currentPhoto.value?.filename
-    })
   })
 
   window.addEventListener('keydown', onKeyDown)
@@ -3466,12 +3960,44 @@ onBeforeUnmount(() => {
   document.body.style.userSelect = ''
   activeInfoResizeHandle.value = null
   activeThumbResizeHandle.value = null
+  // 收回动画途中被卸载时，结束事件不会由定时器发出；cancelFlight 会补发，
+  // 否则宿主页面藏起来的那张缩略图会一直不显示。
+  cancelFlight()
   disposeFlingTapRepair()
   assetManager.clear()
 })
 </script>
 
 <style scoped>
+/* 锚层：铺满视口、不吃事件，只承担"跟住缩略图"的那点补偿位移（见 trackFlightTarget）。
+   它一旦带上 transform 就成了内部 position: fixed 的包含块，所以必须严格等于视口，
+   inset: 0 保证飞行层里写的 left/top 仍然是视口坐标。 */
+.closing-flight-anchor {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* 收回飞行层：外层负责裁切与圆角，内层图片用 cover 填满，
+   于是盒子变形的过程就是裁切逐渐长出来的过程。 */
+.closing-flight-image {
+  /* 尺寸/裁切由 flightImageStyle 给出（铺满取景窗 + cover），回弹由 WAAPI 驱动。 */
+  display: block;
+  max-width: none;
+  max-height: none;
+  transition: none;
+}
+
+/* 收回到缩略图期间只淡出操作栏，图片保持不透明飞回去（见 modalStyle 的说明）。 */
+.viewer-returning :deep(.top-bar),
+.viewer-returning :deep(.thumbnail-bar),
+.viewer-returning :deep(.info-panel) {
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
 /* 关闭期间（closing 计时 + leave 过渡，约 540ms）节点还挂在最上层，而根节点上的
    pointer-events: none 不会覆盖顶部栏、缩略图栏、信息面板上的 pointer-events: auto，
    这些元素会挡住本该落到相册详情页的点击（顶部栏正好压住返回按钮）。 */

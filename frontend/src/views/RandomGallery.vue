@@ -120,7 +120,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Random' })
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhotoStore } from '@/stores/photo'
 import { useThemeStore } from '@/stores/theme'
@@ -173,7 +173,7 @@ const getImageUrl = (photo: any) => {
 
 const viewerVisible = ref(false)
 const viewerIndex = ref(0)
-const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
+const viewerOriginRect = ref<{ top: number; left: number; width: number; height: number; radius?: string } | null>(null)
 const gridClass = computed(() => {
   if (previewSize.value === 'sm') return 'grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
   if (previewSize.value === 'md') return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
@@ -308,15 +308,20 @@ const handleFiltersApplied = () => {
 const openViewer = (idx: number, e: MouseEvent) => {
   viewerIndex.value = idx
 
-  const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
-  const rectSource = img || (e.currentTarget as HTMLElement | null)
+  const rectSource = ((e.target as HTMLElement).closest('.aspect-square') as HTMLElement | null)
+    || (e.currentTarget as HTMLElement | null)
   if (rectSource) {
     const rect = rectSource.getBoundingClientRect()
+    const image = rectSource.querySelector('img') as HTMLImageElement | null
+    const imageStyle = image ? getComputedStyle(image) : null
+    const radius = getComputedStyle(rectSource).borderRadius
     viewerOriginRect.value = {
       top: rect.top,
       left: rect.left,
       width: rect.width,
-      height: rect.height
+      height: rect.height,
+      radius,
+      objectPosition: imageStyle?.objectPosition
     }
   } else {
     viewerOriginRect.value = null
@@ -337,10 +342,25 @@ const failedImageIds = ref<Set<number>>(new Set())
 
 // 获取图片样式（智能聚焦主体）
 const getImageStyle = (photo: any) => {
-  // 如果有焦点位置信息，使用智能裁剪
-  if (photo.focusX !== undefined && photo.focusY !== undefined) {
+  const width = Number(photo.width || 0)
+  const height = Number(photo.height || 0)
+  const focusX = Number(photo.focusX)
+  const focusY = Number(photo.focusY)
+
+  // object-position 的百分比表示“可溢出区域的偏移”，并不是主体在原图
+  // 中的百分比坐标。直接写 focusX% 会让横图/竖图的主体明显偏移。
+  // 方形卡片中先求实际可见的原图比例，再把焦点换算成正确的偏移量。
+  if (width > 0 && height > 0 && Number.isFinite(focusX) && Number.isFinite(focusY)) {
+    const visibleWidth = Math.min(1, height / width)
+    const visibleHeight = Math.min(1, width / height)
+    const x = visibleWidth >= 1
+      ? 50
+      : Math.max(0, Math.min(100, ((focusX / 100 - visibleWidth / 2) / (1 - visibleWidth)) * 100))
+    const y = visibleHeight >= 1
+      ? 50
+      : Math.max(0, Math.min(100, ((focusY / 100 - visibleHeight / 2) / (1 - visibleHeight)) * 100))
     return {
-      objectPosition: `${photo.focusX}% ${photo.focusY}%`,
+      objectPosition: `${x}% ${y}%`,
       objectFit: 'cover'
     }
   }
@@ -554,8 +574,6 @@ const triggerCanvasBurstFor = (photoId: number, clientX?: number, clientY?: numb
 }
 
 // 初始化 likesMap
-import { watch } from 'vue'
-
 watch(() => photos.value, (photos) => {
   photos.forEach(photo => {
     const pid = photo?.id
@@ -672,6 +690,11 @@ const loadInitial = async () => {
       photoStore.fetchCategories(),
       loadCategorySortOrder()
     ])
+    // Route transitions can leave the store's view guard one tick behind the
+    // component mount. Reassert the active view immediately before the photo
+    // request, after auxiliary metadata has finished.
+    photoStore.setCurrentView('random')
+    await nextTick()
     currentPage.value = 0
     hasMore.value = true
     // 每次重新开始随机会话时重置去重集合，避免旧筛选结果影响新结果
@@ -719,6 +742,17 @@ const loadInitial = async () => {
       data = await photoStore.fetchRandomPhotos(0, 20, 70)
     }
 
+    // If the guard observed the previous route during a transition, the store
+    // returns an empty sentinel instead of throwing. Retry once on the active
+    // random route so navigation from another page cannot leave a blank grid.
+    if ((!data?.content || data.content.length === 0) && route.path.startsWith('/random') && !loadError.value) {
+      await new Promise(resolve => window.setTimeout(resolve, 80))
+      photoStore.setCurrentView('random')
+      data = filtersFromUrl
+        ? await photoStore.filterPhotos(filtersFromUrl, 0, 20)
+        : await photoStore.fetchRandomPhotos(0, 20, 70)
+    }
+
     // 记录已查看的图片ID
     if (data.content && data.content.length > 0) {
       data.content.forEach((photo: any) => {
@@ -736,6 +770,15 @@ const loadInitial = async () => {
     hasMore.value = false
   }
 }
+
+// Keep-alive route switches can occur before the shared store finishes clearing
+// the previous view. Reload once the random route is active instead of leaving
+// an empty grid from the transient state.
+watch(() => route.fullPath, () => {
+  if (!route.path.startsWith('/random')) return
+  photoStore.setCurrentView('random')
+  if (photos.value.length === 0 && !loading.value) void loadInitial()
+})
 
 onMounted(() => {
   (async () => {

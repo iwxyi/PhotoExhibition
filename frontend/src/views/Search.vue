@@ -330,11 +330,12 @@ onMounted(async () => {
 
 // 监听路由变化，支持 /search?q=xxx 和 /s/xxx 之间的切换
 watch(
-  () => [route.query.q, route.params.keyword, route.query.faceId, route.query.tagId],
+  () => [route.query.q, route.params.keyword, route.query.faceId, route.query.tagId, route.query.tagName],
   async ([newQ, newKeyword, newFaceId, newTagId]) => {
     const newKeywordValue = (newQ as string) || (newKeyword as string) || ''
     const newFaceIdValue = newFaceId ? parseInt(newFaceId as string, 10) : null
     const newTagIdValue = newTagId ? parseInt(newTagId as string, 10) : null
+    tagName.value = (route.query.tagName as string) || ''
 
     keyword.value = newKeywordValue
     faceId.value = newFaceIdValue && !isNaN(newFaceIdValue) ? newFaceIdValue : null
@@ -1057,7 +1058,12 @@ const getBarHeight = (avgFaceArea: number) => {
 
 // 打开 PhotoViewer
 const openViewer = (index: number, e: MouseEvent) => {
-  viewerIndex.value = index
+  // viewerPhotos 会过滤掉没有 photoId 的人脸，不能直接复用原列表索引
+  const face = similarFaces.value[index]
+  const photoIndex = face?.photoId
+    ? viewerPhotos.value.findIndex(photo => photo.id === face.photoId)
+    : -1
+  viewerIndex.value = photoIndex >= 0 ? photoIndex : 0
   const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
   const rectSource = img || (e.currentTarget as HTMLElement | null)
   if (rectSource) {
@@ -1218,7 +1224,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-white dark:bg-gray-900">
+  <div class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
     <!-- 导航栏 -->
     <nav
       class="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 safe-area-inset-top transition-transform duration-300 ease-in-out transform-gpu"
@@ -1235,37 +1241,40 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
     </nav>
 
     <!-- 内容区域 -->
-    <main class="container mx-auto px-4 py-8" :class="{ 'pt-6 pb-12': true }">
+    <main class="container mx-auto px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-8">
       <div class="mb-8">
-        <div v-if="searchMode === 'keyword'" class="flex flex-col sm:flex-row gap-3">
-          <div class="flex-1 flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
-            <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+        <div v-if="searchMode === 'keyword'" class="flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm transition focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900">
+          <div class="flex min-w-0 flex-1 items-center rounded-lg bg-slate-50 px-4 py-2.5 dark:bg-slate-950/60">
             <div class="flex-1">
-              <div class="text-xs text-gray-400 dark:text-gray-500 mb-1">搜索关键词</div>
               <input
                 v-model="editableKeyword"
                 type="text"
                 placeholder="输入相册、人物或照片关键词"
-                class="w-full bg-transparent text-base text-gray-800 dark:text-white outline-none placeholder-gray-400 dark:placeholder-gray-500"
+                aria-label="搜索关键词"
+                class="w-full bg-transparent text-[15px] text-slate-800 outline-none placeholder-slate-400 dark:text-white dark:placeholder-slate-500"
                 @keyup.enter="submitKeywordSearch"
               />
             </div>
           </div>
           <button
             @click="submitKeywordSearch"
-            class="px-5 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl text-sm font-medium transition-colors"
+            aria-label="搜索"
+            title="搜索"
+            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white transition hover:bg-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/20 dark:bg-white dark:text-slate-900 dark:hover:bg-blue-400"
           >
-            搜索
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-4.35-4.35m2.1-5.4a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" />
+            </svg>
           </button>
         </div>
-        <p class="text-gray-600 dark:text-gray-400" v-else-if="faceId">
-          相似人脸搜索 (人脸ID: {{ faceId }})
-        </p>
-        <p class="text-gray-600 dark:text-gray-400" v-else-if="tagId">
-          标签: {{ tagName || ('#' + tagId) }}
-        </p>
+        <div v-else-if="faceId || tagId" class="text-sm text-slate-600 dark:text-slate-400">
+          {{ faceId ? `相似人脸搜索 (人脸ID: ${faceId})` : `标签: ${tagName || ('#' + tagId)}` }}
+        </div>
+        <div v-if="faceId || tagId" class="mt-3 flex flex-wrap items-center gap-2">
+          <span class="text-xs text-slate-400 dark:text-slate-500">当前筛选</span>
+          <span v-if="faceId" class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-300">人脸 · {{ faceId }}</span>
+          <span v-if="tagId" class="rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 dark:border-purple-900/70 dark:bg-purple-950/40 dark:text-purple-300">标签 · {{ tagName || ('#' + tagId) }}</span>
+        </div>
       </div>
 
       <!-- 加载状态 -->
@@ -1480,7 +1489,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
           </div>
 
           <details
-            v-if="hasExecutionPlan"
+            v-if="false && hasExecutionPlan"
             class="group mb-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 dark:border-slate-700/80 dark:bg-slate-900/70"
           >
             <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 marker:hidden dark:text-slate-200">
@@ -1581,7 +1590,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
               :href="buildPublicPath(`/photo/${photo.id}`, route.path)"
               target="_blank"
               rel="noopener noreferrer"
-              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
+              class="group block overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
                 <img
@@ -1630,7 +1639,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             <div
               v-for="(face, index) in similarFaces"
               :key="face.id"
-              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group"
+              class="group overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900"
               @click="face.photoId && openViewer(index, $event)"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
@@ -1688,7 +1697,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
               :href="buildPublicPath(`/photo/${photo.id}`, route.path)"
               target="_blank"
               rel="noopener noreferrer"
-              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group block"
+              class="group block overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
                 <img
@@ -1744,7 +1753,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
               :to="buildPublicPath(`/p/${person.id}`, route.path)"
               class="block group"
             >
-              <div class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">
+              <div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900">
                 <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
                   <img
                     v-if="getPersonPhotoUrl(person)"
@@ -1822,7 +1831,7 @@ const openKeywordPhotoViewer = (index: number, e: MouseEvent) => {
             <div
               v-for="(photo, index) in keywordPhotoResults"
               :key="photo.id"
-              class="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow cursor-pointer group"
+              class="group overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900"
               @click="openKeywordPhotoViewer(index, $event)"
             >
               <div class="aspect-square bg-gray-200 dark:bg-gray-700 relative">
