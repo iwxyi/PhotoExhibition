@@ -487,6 +487,39 @@ public class PhotoService {
         return result;
     }
 
+    /**
+     * 将相册中尚未归属任何人物的照片批量指派给指定人物。
+     * 已存在人物人脸绑定，或已有图片级指派的照片会保留不动。
+     */
+    @Transactional
+    public int assignUnassignedPhotosInAlbum(Long albumId, Long personId, Long userId) {
+        PersonProfile person = personProfileRepository.findById(personId)
+            .orElseThrow(() -> new RuntimeException("人物不存在"));
+        if (userId != null && !Objects.equals(person.getUserId(), userId)) {
+            throw new RuntimeException("人物不存在");
+        }
+
+        List<Photo> photos = photoRepository.findByAlbumId(albumId, PageRequest.of(0, 10000)).getContent();
+        int count = 0;
+        for (Photo photo : photos) {
+            validatePhotoOwnership(photo, userId);
+            if (photoAssignmentRepository.findByPhotoId(photo.getId()).isPresent()) {
+                continue;
+            }
+            boolean hasAssignedFace = faceRepository.findByPhotoId(photo.getId()).stream()
+                .anyMatch(face -> face.getPerson() != null);
+            if (hasAssignedFace) {
+                continue;
+            }
+            com.photoexhibition.entity.PhotoAssignment assignment = new com.photoexhibition.entity.PhotoAssignment();
+            assignment.setPhotoId(photo.getId());
+            assignment.setPersonId(personId);
+            photoAssignmentRepository.save(assignment);
+            count++;
+        }
+        return count;
+    }
+
     @Transactional
     public void unassignPhoto(Long photoId) {
         unassignPhoto(photoId, null);

@@ -54,20 +54,15 @@
         </div>
       </div>
 
-      <!-- 初始加载状态 - 固定定位，不影响布局 -->
-      <div v-if="isInitialLoading" class="fixed left-1/2 top-[200px] -translate-x-1/2 z-40">
-        <div class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-gray-400 dark:border-gray-500"></div>
-      </div>
-
       <!-- 相册内容 -->
       <div v-if="album" class="album-content-wrapper">
-        <!-- 相册信息 - 居中显示 -->
-        <div class="album-header-center">
-          <h1 class="album-title" :style="titleStyle">{{ album.displayName || album.name }}</h1>
-          <p v-if="album.description" class="album-description">{{ album.description }}</p>
-          <!-- 分割线：位于备注和照片数量之间 -->
-          <div class="album-header-divider"></div>
-          <p class="album-meta" :style="{ ...textStyle, opacity: 0.8 }">
+        <!-- 相册头部：总高度稳定，人物栏只在内部替换分割线，不推动照片瀑布流 -->
+        <div class="album-header-shell" :class="{ 'album-header-shell--has-persons': albumPersons.length > 0 && showAlbumPersons }">
+          <!-- 相册信息 - 居中显示 -->
+          <div class="album-header-center">
+            <h1 class="album-title" :style="titleStyle">{{ album.displayName || album.name }}</h1>
+            <p v-if="album.description" class="album-description">{{ album.description }}</p>
+            <p class="album-meta" :style="{ ...textStyle, opacity: 0.8 }">
             <svg class="w-4 h-4 album-meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
               <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -78,25 +73,24 @@
             <span v-if="album.takenAt">{{ formatAlbumTakenAt(album.takenAt) }}</span>
             <span v-if="commentCount > 0" class="text-gray-400">·</span>
             <span v-if="commentCount > 0">{{ commentCount }} 条评论</span>
-          </p>
-        </div>
+            </p>
+          </div>
 
-        <!-- 人物列表 - 横向可滚动 -->
-        <div
-          class="album-persons-slot"
-          :class="{
-            'album-persons-slot--reserved': albumPersons.length > 0 && !showAlbumPersons,
-            'album-persons-slot--visible': albumPersons.length > 0 && showAlbumPersons
-          }"
-          ref="albumPersonsSlotRef"
-          :style="{ '--persons-height': `${albumPersonsHeight}px` }"
-        >
-        <div
-          v-if="albumPersons.length > 0"
-          class="album-persons-section"
-          :class="{ 'album-persons-section--dark': atmosphereEnabled && hasAtmosphereColors && themeStore.isDark, 'album-persons-section--light': atmosphereEnabled && hasAtmosphereColors && !themeStore.isDark }"
-        >
-          <div class="album-persons-scroll">
+          <div class="album-header-bottom">
+            <!-- 无人物时保留视觉分隔；有人物时由人物栏承担分隔作用 -->
+            <div class="album-header-divider" :class="{ 'album-header-divider--hidden': albumPersons.length > 0 && showAlbumPersons }"></div>
+
+            <!-- 人物列表 - 横向可滚动；绝对定位在头部预留区域内 -->
+            <div
+              class="album-persons-slot"
+              :class="{ 'album-persons-slot--visible': albumPersons.length > 0 && showAlbumPersons }"
+            >
+              <div
+                v-if="albumPersons.length > 0"
+                class="album-persons-section"
+                :class="{ 'album-persons-section--dark': atmosphereEnabled && hasAtmosphereColors && themeStore.isDark, 'album-persons-section--light': atmosphereEnabled && hasAtmosphereColors && !themeStore.isDark }"
+              >
+                <div class="album-persons-scroll">
             <a
               v-for="(person, index) in albumPersons"
               :key="person.id"
@@ -125,17 +119,24 @@
               <span class="person-name">{{ person.name }}</span>
               <span class="person-count">{{ person.faceCount }} 张</span>
             </a>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        </div>
 
-        <MasonryLayout
-          :items="masonryItems"
-          :column-count="columnCount"
-          :gap="8"
-          :show-like-button="!multiSelectActive"
-          @image-loaded="handleImageLoaded"
-        >
+        <div class="album-photo-stage">
+          <!-- 加载指示器定位在照片区域，而不是固定在视口顶部。 -->
+          <div v-if="isInitialLoading" class="album-loading-indicator" aria-label="正在加载">
+            <div class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-gray-400 dark:border-gray-500"></div>
+          </div>
+          <MasonryLayout
+            :items="masonryItems"
+            :column-count="columnCount"
+            :gap="8"
+            :show-like-button="!multiSelectActive"
+            @image-loaded="handleImageLoaded"
+          >
           <template #default="{ item: photo, index }">
             <div
               class="photo-card cursor-pointer"
@@ -186,7 +187,8 @@
               </div>
             </div>
           </template>
-        </MasonryLayout>
+          </MasonryLayout>
+        </div>
 
         <!-- 加载更多状态 -->
         <div v-if="loadingMore" class="mt-8 text-center">
@@ -361,16 +363,9 @@ interface AlbumPerson {
 }
 const albumPersons = ref<AlbumPerson[]>([])
 const albumPersonsLoading = ref(false)
-// 人物栏会改变照片瀑布流的起始位置，等封面过渡完成后再渲染，避免动画中途整体下移。
+// 人物栏位于头部预留区域内，不参与照片瀑布流的布局高度。
 const showAlbumPersons = ref(false)
-const albumPersonsSlotRef = ref<HTMLElement | null>(null)
-const albumPersonsHeight = ref(0)
 let albumPersonsRevealTimer: number | null = null
-
-watch(albumPersons, async () => {
-  await nextTick()
-  albumPersonsHeight.value = albumPersonsSlotRef.value?.scrollHeight || 0
-})
 
 // 当前悬浮的照片关联的人物ID集合
 const hoveredPhotoPersonIds = ref<Set<number>>(new Set())
@@ -446,7 +441,6 @@ commentCount.value = 0
 albumPersons.value = []
 albumPersonsLoading.value = false
 showAlbumPersons.value = false
-albumPersonsHeight.value = 0
 imagesLoaded.value = false
 loadedImagesCount.value = 0
 totalImages.value = 0
@@ -1548,11 +1542,13 @@ const performCoverTransition = async (): Promise<boolean> => {
         }
       } while ((toRect.width <= 1 || toRect.height <= 1) && attempts < maxAttempts)
 
-      // 如果仍然没有有效的尺寸，使用默认的合理尺寸
+      // 如果仍然没有有效的尺寸，跳过该张封面 FLIP。
+      // 慢网络下图片/瀑布流卡片可能还没完成首帧布局，不能用 height=0 的终点启动动画。
       if (toRect.width <= 1 || toRect.height <= 1) {
-        console.warn(`目标元素尺寸无效，使用默认尺寸 (photoId: ${photoId}, width: ${toRect.width}, height: ${toRect.height})`)
-        // 使用原始尺寸作为默认值，避免动画变成一条线
-        toRect = new DOMRect(toRect.left, toRect.top, fromRectData.width, fromRectData.height)
+        console.warn(`目标元素尺寸未就绪，跳过封面动画 (photoId: ${photoId}, width: ${toRect.width}, height: ${toRect.height})`)
+        photoElement.style.visibility = ''
+        photoElement.style.pointerEvents = ''
+        continue
       }
       
       transitions.push({
@@ -1596,9 +1592,13 @@ const performCoverTransition = async (): Promise<boolean> => {
     }
 
     
+    // 只保留实际具有有效终点的封面 ID，避免被跳过的卡片继续保持 hidden。
+    transitionPhotoIds.value = transitions.map(({ photoId }) => photoId)
+
     if (transitions.length === 0) {
+      isTransitioning.value = false
       sessionStorage.removeItem(storageKey)
-      return true
+      return false
     }
     
     // 创建临时克隆元素
@@ -2016,10 +2016,8 @@ const loadAlbumData = async () => {
     remainingPhotosVisible.value = true
   }
 
-  // 在封面 FLIP（400ms）走到约 65% 时就开始逐个揭示人物栏，两段动画重叠，
-  // 观感更连贯。这不会造成页面跳动：album-persons-slot--reserved 在数据一到
-  // 就用 --persons-height 预留了高度，瀑布流起点与 showAlbumPersons 无关，
-  // 揭示只改变透明度和位移。
+  // 头部已经预留了人物区域，人物栏的揭示只改变头部内部的视觉内容，
+  // 不会改变照片瀑布流的起点或封面 FLIP 的终点。
   if (albumPersonsRevealTimer) window.clearTimeout(albumPersonsRevealTimer)
   albumPersonsRevealTimer = window.setTimeout(() => {
     if (!isDisposed) showAlbumPersons.value = true
@@ -2120,7 +2118,6 @@ onUnmounted(() => {
   albumPersons.value = []
   albumPersonsLoading.value = false
   showAlbumPersons.value = false
-  albumPersonsHeight.value = 0
   imagesLoaded.value = false
   loadedImagesCount.value = 0
   totalImages.value = 0

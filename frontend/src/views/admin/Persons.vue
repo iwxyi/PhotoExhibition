@@ -512,8 +512,8 @@
                 >
                     <div class="relative h-32 bg-gray-800 overflow-hidden" @dblclick.stop="openViewerForPhoto(photo.id)">
                     <img
-                        v-if="photo.thumbnailPath"
-                        :src="getImageUrl(photo.thumbnailPath)"
+                        v-if="photo.id || photo.thumbnailPath"
+                        :src="getFaceThumb({ photoId: photo.id, thumbnailPath: photo.thumbnailPath, originalPath: photo.originalPath })"
                       class="w-full h-full object-cover pointer-events-none"
                       loading="lazy"
                     />

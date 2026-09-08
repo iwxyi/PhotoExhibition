@@ -109,6 +109,16 @@ public class UserPathService {
             } else {
                 String clean = requestedPath.trim().replace('\\', '/');
                 while (clean.startsWith("/")) clean = clean.substring(1);
+                // 历史数据库路径可能包含照片根目录前缀（如 /data/photos/1/...）。
+                // 该前缀是展示路径，不应再次拼接到 photoBase 下面。
+                String baseName = photoBase.getFileName() == null ? "" : photoBase.getFileName().toString();
+                if (!baseName.isBlank() && (clean.equals(baseName) || clean.startsWith(baseName + "/"))) {
+                    clean = clean.length() == baseName.length() ? "" : clean.substring(baseName.length() + 1);
+                }
+                String marker = "data/photos/";
+                if (clean.startsWith(marker)) {
+                    clean = clean.substring(marker.length());
+                }
                 Path relative = Paths.get(clean).normalize();
                 if (shouldStripUserSegment(user)) {
                     relative = stripLeadingUserSegment(relative, user.getId());

@@ -179,6 +179,16 @@
               </svg>
               添加标签
             </button>
+            <!-- 归属人物菜单项 -->
+            <button
+              @click="openAlbumPersonDialog(showMenuForAlbum)"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19a3 3 0 00-6 0m9-8a3 3 0 11-6 0 3 3 0 016 0zm-9 0a3 3 0 11-6 0 3 3 0 016 0zm-3 8a3 3 0 00-3 3h6a3 3 0 00-3-3z" />
+              </svg>
+              归属人物
+            </button>
             <!-- 编辑备注菜单项 -->
             <button
               @click="editDescription(showMenuForAlbum)"
@@ -1199,6 +1209,20 @@
     <div v-if="albums.length === 0 && !loading" class="admin-albums-empty-state text-center py-4 text-gray-500 text-sm">
       没有找到相册
     </div>
+
+    <PersonsClaimDialog
+      ref="albumPersonDialogRef"
+      v-model="albumPersonDialogVisible"
+      :loading="albumPersonDialogLoading"
+      :persons="filteredAlbumPersons"
+      :search-keyword="albumPersonSearchKeyword"
+      :selected-person-id="selectedAlbumPersonId"
+      :can-create="canCreateAlbumPerson"
+      @update:search-keyword="albumPersonSearchKeyword = $event"
+      @select="selectedAlbumPersonId = $event.id"
+      @action="confirmAlbumPerson"
+      @enter="confirmAlbumPerson"
+    />
   </div>
 </template>
 
@@ -1212,6 +1236,7 @@ import { shaderParamDefs, isShaderEffect } from '@/config/shaderEffects'
 import CoverDisplay from '@/components/CoverDisplay.vue'
 import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import DropMenu from '@/components/DropMenu.vue'
+import PersonsClaimDialog from '@/components/admin/PersonsClaimDialog.vue'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
 
 const router = useRouter()
@@ -1260,6 +1285,23 @@ const tagKeyword = ref('')
 const tagInputRef = ref<HTMLInputElement | null>(null)
 const currentAlbum = ref<any>(null)
 const selectedAlbumForTags = ref<any>(null)
+
+// 相册归属人物
+const albumPersonDialogVisible = ref(false)
+const albumPersonDialogLoading = ref(false)
+const albumPersonDialogRef = ref<InstanceType<typeof PersonsClaimDialog> | null>(null)
+const albumPersonSearchKeyword = ref('')
+const albumPersonItems = ref<any[]>([])
+const selectedAlbumPersonId = ref<number | null>(null)
+const albumPersonTargetAlbum = ref<any>(null)
+const filteredAlbumPersons = computed(() => {
+  const keyword = albumPersonSearchKeyword.value.trim().toLowerCase()
+  return albumPersonItems.value.filter(person => !keyword || String(person.name || '').toLowerCase().includes(keyword))
+})
+const canCreateAlbumPerson = computed(() => {
+  const keyword = albumPersonSearchKeyword.value.trim()
+  return !!keyword && !albumPersonItems.value.some(person => String(person.name || '').trim().toLowerCase() === keyword.toLowerCase())
+})
 
 // 备注编辑相关
 const descriptionDialogVisible = ref(false)
@@ -1703,6 +1745,84 @@ const confirmAddTag = async () => {
     console.error('添加标签失败:', e)
     const errorMsg = e.response?.data?.message || e.response?.data?.error || e.message
     alert('添加标签失败: ' + errorMsg)
+  }
+}
+
+const openAlbumPersonDialog = async (album: any) => {
+  albumPersonTargetAlbum.value = album
+  selectedAlbumPersonId.value = null
+  albumPersonSearchKeyword.value = ''
+  albumPersonDialogVisible.value = true
+  albumPersonDialogLoading.value = true
+  showMenuForAlbum.value = null
+  try {
+    const res = await api.get('/admin/persons/with-sample?page=0&size=1000')
+    const persons = res.data?.content || res.data || []
+    albumPersonItems.value = persons.map((person: any) => ({
+      id: person.id,
+      name: person.name,
+      faceCount: person.faceCount,
+      thumbnailUrl: buildPhotoAssetUrl({
+        id: person.samplePhotoId,
+        mediumThumbPath: person.sampleThumbnailPath,
+        originalPath: person.sampleOriginalPath
+      }, 'small') || undefined
+    }))
+    await nextTick()
+    albumPersonDialogRef.value?.focus()
+  } catch (e: any) {
+    albumPersonDialogVisible.value = false
+    alert('加载人物失败: ' + (e.response?.data?.message || e.message))
+  } finally {
+    albumPersonDialogLoading.value = false
+  }
+}
+
+const confirmAlbumPerson = async () => {
+  const album = albumPersonTargetAlbum.value
+  const name = albumPersonSearchKeyword.value.trim()
+  if (!album || (!selectedAlbumPersonId.value && !name)) return
+  albumPersonDialogLoading.value = true
+  try {
+    let personId = selectedAlbumPersonId.value
+    if (!personId) {
+      const exact = albumPersonItems.value.find(person => String(person.name || '').trim().toLowerCase() === name.toLowerCase())
+      if (exact) {
+        personId = exact.id
+      } else {
+        const created = await api.post('/admin/persons', { name })
+        personId = created.data?.id
+      }
+    }
+    if (!personId) throw new Error('人物创建失败')
+    let res
+    try {
+      res = await api.post(`/admin/albums/${album.id}/assign-person`, selectedAlbumPersonId.value ? { personId } : { personName: name })
+    } catch (requestError: any) {
+      // 兼容尚未重载新后端路由的旧实例：使用现有相册照片和批量指派接口。
+      if (requestError.response?.status !== 404) throw requestError
+      if (!selectedAlbumPersonId.value) {
+        const created = await api.post('/admin/persons', { name })
+        personId = created.data?.id
+      }
+      const photosResponse = await api.get(`/albums/${album.id}/first-page?size=1000`)
+      const photos = photosResponse.data?.photos || []
+      if (!photos.length) {
+        res = { data: { count: 0 } }
+      } else {
+        res = await api.post('/admin/photos/batch-assign', {
+          photoIds: photos.map((photo: any) => photo.id),
+          personId
+        })
+        res.data = { count: photos.length }
+      }
+    }
+    albumPersonDialogVisible.value = false
+    notify(`已将 ${res.data?.count || 0} 张未绑定人物的照片归属给人物`, 'success')
+  } catch (e: any) {
+    alert('归属人物失败: ' + (e.response?.data?.message || e.response?.data?.error || e.message))
+  } finally {
+    albumPersonDialogLoading.value = false
   }
 }
 

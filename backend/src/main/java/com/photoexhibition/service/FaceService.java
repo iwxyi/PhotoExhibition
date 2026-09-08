@@ -1185,7 +1185,10 @@ public class FaceService {
             item.setCreatedAt(person.getCreatedAt());
             item.setUpdatedAt(person.getUpdatedAt());
 
-            item.setFaceCount(faceCountMap.getOrDefault(person.getId(), 0));
+            long claimedCount = userId == null
+                ? photoAssignmentRepository.countClaimedPhotosByPersonId(person.getId())
+                : photoAssignmentRepository.countClaimedPhotosByPersonIdAndUserId(person.getId(), userId);
+            item.setFaceCount((int) claimedCount);
 
             Object[] sampleData = getPersonSamplePhoto(person.getId());
             if (sampleData[0] != null) {
@@ -2344,11 +2347,21 @@ public class FaceService {
     public List<PersonSummaryDTO> getPersonsInAlbum(Long albumId, boolean visibleOnly, Long userId) {
         validateAlbumOwnership(albumId, userId);
         List<Object[]> rows = faceRepository.findPersonIdsWithFaceCountByAlbumId(albumId);
+        // 图片级“直接指派”没有 photo_face 记录，也必须显示在相册人物栏。
+        Map<Long, Integer> personCounts = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            personCounts.put(((Number) row[0]).longValue(), ((Number) row[1]).intValue());
+        }
+        for (Object[] row : photoAssignmentRepository.countClaimedPhotosByAlbumIdsForAllPersons(albumId)) {
+            Long personId = ((Number) row[0]).longValue();
+            int count = ((Number) row[1]).intValue();
+            personCounts.merge(personId, count, Integer::sum);
+        }
         List<PersonSummaryDTO> result = new ArrayList<>();
 
-        for (Object[] row : rows) {
-            Long personId = ((Number) row[0]).longValue();
-            Integer faceCount = ((Number) row[1]).intValue();
+        for (Map.Entry<Long, Integer> entry : personCounts.entrySet()) {
+            Long personId = entry.getKey();
+            Integer faceCount = entry.getValue();
 
             PersonProfile person = personProfileRepository.findById(personId).orElse(null);
             if (person == null) continue;
@@ -2588,6 +2601,18 @@ public class FaceService {
             };
         }
 
+        // 没有人脸样例时，回退到该人物第一张直接指派照片
+        PhotoAssignmentRepository assignmentRepository = photoAssignmentRepository;
+        Optional<com.photoexhibition.entity.PhotoAssignment> assignment = assignmentRepository.findTopByPersonIdOrderByCreatedAtAsc(personId);
+        if (assignment.isPresent()) {
+            Photo assignedPhoto = photoRepository.findById(assignment.get().getPhotoId()).orElse(null);
+            if (assignedPhoto != null) {
+                return new Object[]{null, assignedPhoto.getId(),
+                    convertToRelativePath(assignedPhoto.getMediumThumbPath() != null ? assignedPhoto.getMediumThumbPath() : assignedPhoto.getThumbnailPath()),
+                    convertToRelativePath(assignedPhoto.getOriginalPath()), null};
+            }
+        }
+
         return new Object[]{null, null, null, null, null};
     }
 
@@ -2600,8 +2625,10 @@ public class FaceService {
         dto.setUpdatedAt(person.getUpdatedAt());
 
         // 使用 count 优化人脸数量查询
-        long faceCount = faceRepository.countByPersonId(person.getId());
-        dto.setFaceCount((int) faceCount);
+        long claimedPhotoCount = person.getUserId() == null
+            ? photoAssignmentRepository.countClaimedPhotosByPersonId(person.getId())
+            : photoAssignmentRepository.countClaimedPhotosByPersonIdAndUserId(person.getId(), person.getUserId());
+        dto.setFaceCount((int) claimedPhotoCount);
 
         // 使用 distinct 查询优化相册数量
         List<Long> albumIds = faceRepository.findDistinctAlbumIdsByPersonId(person.getId());

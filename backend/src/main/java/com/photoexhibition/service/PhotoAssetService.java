@@ -73,7 +73,13 @@ public class PhotoAssetService {
 
     private ResponseEntity<Resource> readLocalPath(String path) {
         try {
-            Path resolved = userPathService.resolveStoredPhotoPath(path);
+            // 数据库中的本地照片路径通常是以 / 开头的“照片根目录相对展示路径”，
+            // 例如 /1/人像/...，不能直接按操作系统绝对路径 /1/... 读取。
+            // resolveScopedPath 会将这类路径安全地映射到 photo.scan.base-path；
+            // storage:// 引用则继续通过 resolveStoredPhotoPath 解析存储提供者目录。
+            Path resolved = userPathService.isStoragePathReference(path)
+                ? userPathService.resolveStoredPhotoPath(path)
+                : userPathService.resolveScopedPath(path, null);
             if (!Files.exists(resolved) || !Files.isRegularFile(resolved)) {
                 throw new RuntimeException("文件不存在");
             }

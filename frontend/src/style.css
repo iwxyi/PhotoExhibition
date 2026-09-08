@@ -3740,6 +3740,71 @@
     background: color-mix(in srgb, var(--pe-admin-soft-bg) 84%, rgba(15, 23, 42, 0.16)) !important;
   }
 
+  /* 人物照片/头像容器在深色主题下保持深色底，避免图片加载中或破损时露出白色。 */
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-avatar,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-face-card > .bg-gray-800,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-face-card > div.relative {
+    background: #111827 !important;
+    background-color: #111827 !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page img {
+    background: #111827;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card.bg-gray-800\/70,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card.bg-gray-800\/60 {
+    background: color-mix(in srgb, var(--pe-surface-bg) 88%, #0b1220 12%) !important;
+    color: var(--pe-admin-text-primary) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card:hover,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card.hover\:bg-gray-700\/80:hover,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card.hover\:bg-gray-700\/70:hover {
+    background: color-mix(in srgb, var(--pe-theme-primary) 14%, var(--pe-surface-bg)) !important;
+    border-color: color-mix(in srgb, var(--pe-theme-primary) 30%, var(--pe-surface-border)) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-list-card.bg-gray-700\/80 {
+    background: color-mix(in srgb, var(--pe-theme-primary) 20%, var(--pe-surface-bg)) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-face-card,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-face-card.bg-gray-700 {
+    background: color-mix(in srgb, var(--pe-surface-bg) 90%, #0b1220 10%) !important;
+    color: var(--pe-admin-text-primary) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-detail-tab--idle:hover,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-sidebar-tab--idle:hover {
+    color: var(--pe-admin-text-primary) !important;
+    background: color-mix(in srgb, var(--pe-theme-primary) 12%, var(--pe-surface-bg)) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-detail-tab.bg-gray-700,
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-sidebar-tab--idle.bg-gray-700 {
+    background: color-mix(in srgb, var(--pe-surface-bg) 92%, #0b1220 8%) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-context-menu__button:hover {
+    background: color-mix(in srgb, var(--pe-theme-primary) 14%, var(--pe-surface-bg)) !important;
+    color: var(--pe-admin-text-primary) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-field,
+  :root[data-admin-color-mode='dark'] .admin-persons-page input,
+  :root[data-admin-color-mode='dark'] .admin-persons-page textarea {
+    background-color: color-mix(in srgb, var(--pe-surface-bg) 92%, #0b1220 8%) !important;
+    color: var(--pe-admin-text-primary) !important;
+    border-color: var(--pe-surface-border) !important;
+  }
+
+  :root[data-admin-color-mode='dark'] .admin-persons-page input::placeholder,
+  :root[data-admin-color-mode='dark'] .admin-persons-page textarea::placeholder {
+    color: var(--pe-admin-text-muted) !important;
+  }
+
   .admin-persons-page .text-gray-300,
   .admin-persons-page .text-gray-400,
   .admin-persons-page .text-gray-500 {
@@ -5557,10 +5622,39 @@
 /* 相册标题区域居中样式 */
 .album-header-center {
   text-align: center;
-  margin-bottom: 3rem;
   margin-top: 1rem;
+  margin-bottom: 0;
+  transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
   /* 入场动画 */
   animation: headerFadeIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* 头部为人物栏预留稳定空间。人物数据到达后只在此区域内重排，
+   不改变下面照片瀑布流的起点。 */
+.album-header-shell {
+  --album-persons-reserved-height: 11.5rem;
+  position: relative;
+  min-height: calc(4.5rem + var(--album-persons-reserved-height));
+}
+
+@media (max-width: 640px) {
+  .album-header-shell {
+    --album-persons-reserved-height: 10rem;
+  }
+
+  .album-loading-indicator {
+    top: 1.75rem;
+  }
+}
+
+.album-header-shell--has-persons .album-header-center {
+  transform: translateY(-0.5rem);
+}
+
+.album-header-bottom {
+  position: relative;
+  height: var(--album-persons-reserved-height);
+  margin-top: 0.25rem;
 }
 
 @keyframes headerFadeIn {
@@ -5577,7 +5671,7 @@
 .album-title {
   font-size: 1.875rem;
   font-weight: 600;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   letter-spacing: 0.02em;
   /* 文字阴影增加层次感 */
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
@@ -5590,7 +5684,7 @@
 .album-description {
   font-size: 0.95rem;
   color: #9ca3af;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   font-style: italic;
   max-width: 500px;
   margin-left: auto;
@@ -5604,7 +5698,18 @@
   height: 2px;
   border-radius: 2px;
   background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.5), transparent);
-  margin: 1.25rem auto;
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 360ms ease, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.album-header-divider--hidden {
+  opacity: 0;
+  transform: translate(-50%, -70%);
+  pointer-events: none;
 }
 
 .album-meta {
@@ -5615,6 +5720,19 @@
   color: #9ca3af;
   /* 延迟入场动画 */
   animation: metaFadeIn 0.8s 0.2s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.album-photo-stage {
+  position: relative;
+}
+
+.album-loading-indicator {
+  position: absolute;
+  top: 2.5rem;
+  left: 50%;
+  z-index: 5;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 @keyframes metaFadeIn {
@@ -5634,25 +5752,19 @@
 
 /* 人物列表区域 */
 .album-persons-slot {
-  max-height: 0;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   opacity: 0;
-  transform: translateY(-10px);
-  transition: max-height 460ms cubic-bezier(0.22, 1, 0.36, 1), opacity 360ms ease-out, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity 360ms ease-out, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .album-persons-slot--visible {
-  max-height: var(--persons-height, 16rem);
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
-}
-
-.album-persons-slot--reserved {
-  max-height: var(--persons-height, 16rem);
-  opacity: 0;
-  transform: translateY(0);
-  pointer-events: none;
 }
 
 .album-persons-section {
@@ -5744,14 +5856,14 @@
    就会在看不见的时候播完，用户只看到整条一起淡入。绑定到 --visible 之后，
    错位入场与淡入同时开始，才真正看得到逐个出现。 */
 .album-persons-slot--visible .album-person-card {
-  animation: personCardEnter 0.52s cubic-bezier(0.34, 1.4, 0.64, 1) backwards;
+  animation: personCardEnter 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: var(--delay, 0ms);
 }
 
 /* 头像比卡片本体多走一点、也晚一点落位，形成轻微视差层次 */
 .album-persons-slot--visible .person-avatar-wrapper {
-  animation: personAvatarEnter 0.58s cubic-bezier(0.34, 1.4, 0.64, 1) backwards;
-  animation-delay: calc(var(--delay, 0ms) + 40ms);
+  animation: personAvatarEnter 0.38s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--delay, 0ms) + 20ms);
 }
 
 @keyframes personCardEnter {
@@ -5784,12 +5896,11 @@
 /* 开启「减弱动态效果」时去掉位移和错位，只保留高度展开与淡入 */
 @media (prefers-reduced-motion: reduce) {
   .album-persons-slot {
-    transition: max-height 200ms ease-out, opacity 200ms ease-out;
+    transition: opacity 200ms ease-out;
     transform: none;
   }
 
-  .album-persons-slot--visible,
-  .album-persons-slot--reserved {
+  .album-persons-slot--visible {
     transform: none;
   }
 

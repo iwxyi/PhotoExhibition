@@ -380,6 +380,40 @@ public class FaceController {
     }
 
     /**
+     * 将相册中尚未绑定人物的照片归属给指定人物。
+     * payload: { personId: 123 }
+     */
+    @PostMapping("/albums/{albumId}/assign-person")
+    public ResponseEntity<Map<String, Object>> assignAlbumPhotosToPerson(
+            @RequestHeader("Authorization") String authorization,
+            @PathVariable Long albumId,
+            @RequestBody Map<String, Object> payload) {
+        Object rawPersonId = payload.get("personId");
+        Long userId = scopedUserId(authorization);
+        Long personId = null;
+        if (rawPersonId != null) {
+            try {
+                personId = rawPersonId instanceof Number
+                    ? ((Number) rawPersonId).longValue()
+                    : Long.valueOf(String.valueOf(rawPersonId));
+            } catch (NumberFormatException ex) {
+                return ResponseEntity.badRequest().body(Map.of("error", "personId 无效"));
+            }
+        } else {
+            String personName = String.valueOf(payload.getOrDefault("personName", "")).trim();
+            if (personName.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "personId 或 personName 不能为空"));
+            }
+            PersonDTO createPayload = new PersonDTO();
+            createPayload.setName(personName);
+            PersonDTO created = faceService.createOrUpdatePerson(null, createPayload, userId);
+            personId = created.getId();
+        }
+        int count = photoService.assignUnassignedPhotosInAlbum(albumId, personId, userId);
+        return ResponseEntity.ok(Map.of("count", count, "personId", personId, "albumId", albumId));
+    }
+
+    /**
      * 取消图片指派
      */
     @DeleteMapping("/photos/{photoId}/assign-person")

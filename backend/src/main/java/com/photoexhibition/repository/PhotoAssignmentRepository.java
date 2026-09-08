@@ -24,6 +24,20 @@ public interface PhotoAssignmentRepository extends JpaRepository<PhotoAssignment
 
     List<PhotoAssignment> findByPersonId(Long personId);
 
+    Optional<PhotoAssignment> findTopByPersonIdOrderByCreatedAtAsc(Long personId);
+
+    @Query(value = "SELECT COUNT(DISTINCT p.id) FROM photo p "
+        + "LEFT JOIN photo_face pf ON pf.photo_id = p.id AND pf.person_id = :personId "
+        + "LEFT JOIN photo_assignment pa ON pa.photo_id = p.id AND pa.person_id = :personId "
+        + "WHERE pf.id IS NOT NULL OR pa.id IS NOT NULL", nativeQuery = true)
+    long countClaimedPhotosByPersonId(@Param("personId") Long personId);
+
+    @Query(value = "SELECT COUNT(DISTINCT p.id) FROM photo p "
+        + "LEFT JOIN photo_face pf ON pf.photo_id = p.id AND pf.person_id = :personId "
+        + "LEFT JOIN photo_assignment pa ON pa.photo_id = p.id AND pa.person_id = :personId "
+        + "WHERE p.user_id = :userId AND (pf.id IS NOT NULL OR pa.id IS NOT NULL)", nativeQuery = true)
+    long countClaimedPhotosByPersonIdAndUserId(@Param("personId") Long personId, @Param("userId") Long userId);
+
     List<PhotoAssignment> findTop20ByOrderByCreatedAtDesc();
 
     @Query("SELECT pa FROM PhotoAssignment pa JOIN Photo p ON p.id = pa.photoId " +
@@ -55,4 +69,7 @@ public interface PhotoAssignmentRepository extends JpaRepository<PhotoAssignment
         nativeQuery = true
     )
     List<Object[]> countClaimedPhotosByAlbumIds(@Param("personId") Long personId, @Param("albumIds") List<Long> albumIds);
+
+    @Query("SELECT pa.personId, COUNT(DISTINCT pa.photoId) FROM PhotoAssignment pa JOIN Photo p ON p.id = pa.photoId WHERE p.albumId = :albumId GROUP BY pa.personId")
+    List<Object[]> countClaimedPhotosByAlbumIdsForAllPersons(@Param("albumId") Long albumId);
 }
