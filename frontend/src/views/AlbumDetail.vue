@@ -61,7 +61,10 @@
           <!-- 相册信息 - 居中显示 -->
           <div class="album-header-center">
             <h1 class="album-title" :style="titleStyle">{{ album.displayName || album.name }}</h1>
-            <p v-if="album.description" class="album-description">{{ album.description }}</p>
+            <!-- 无备注时保留同样的排版槽位，避免标题和元信息突然靠拢。 -->
+            <p class="album-description" :class="{ 'album-description--empty': !album.description }">
+              {{ album.description || '' }}
+            </p>
             <p class="album-meta" :style="{ ...textStyle, opacity: 0.8 }">
             <svg class="w-4 h-4 album-meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
@@ -125,8 +128,8 @@
           </div>
         </div>
 
-        <div class="album-photo-stage">
-          <!-- 加载指示器定位在照片区域，而不是固定在视口顶部。 -->
+        <div class="album-photo-stage" :class="{ 'album-photo-stage--loading': isInitialLoading }">
+          <!-- 加载指示器与首屏照片使用同一块区域，不受头部人物栏影响。 -->
           <div v-if="isInitialLoading" class="album-loading-indicator" aria-label="正在加载">
             <div class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-gray-400 dark:border-gray-500"></div>
           </div>
@@ -1961,7 +1964,8 @@ const loadAlbumData = async () => {
   // 相册元数据与首屏照片只依赖 albumId，彼此无关，并行发出即可少等一个来回。
   // 瀑布流布局只来自 photos 的宽高（见 masonryItems），不依赖相册元数据，
   // 所以两者到达的先后不会影响 FLIP 终点的测量。
-  // 人物栏同样并行；评论数不影响布局，留到动画开始后再后台加载。
+  // 人物栏同样并行，但不参与首屏照片动画的等待条件；评论数不影响布局，
+  // 留到动画开始后再后台加载。
   const initialLoadSize = 50
   void loadAlbumPersons(targetAlbumId).catch(() => undefined)
   const [, result] = await Promise.all([

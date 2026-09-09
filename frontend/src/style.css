@@ -5622,9 +5622,10 @@
 /* 相册标题区域居中样式 */
 .album-header-center {
   text-align: center;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   margin-bottom: 0;
-  transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
   /* 入场动画 */
   animation: headerFadeIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
@@ -5632,29 +5633,46 @@
 /* 头部为人物栏预留稳定空间。人物数据到达后只在此区域内重排，
    不改变下面照片瀑布流的起点。 */
 .album-header-shell {
-  --album-persons-reserved-height: 11.5rem;
+  --album-header-height: 17.5rem;
+  --album-persons-area-height: 8.25rem;
   position: relative;
-  min-height: calc(4.5rem + var(--album-persons-reserved-height));
+  height: var(--album-header-height);
+  min-height: var(--album-header-height);
+  margin-bottom: 0;
 }
 
 @media (max-width: 640px) {
   .album-header-shell {
-    --album-persons-reserved-height: 10rem;
+    --album-header-height: 15.5rem;
+    --album-persons-area-height: 7.5rem;
   }
-
-  .album-loading-indicator {
-    top: 1.75rem;
+  .album-header-bottom {
+    bottom: 1.25rem;
   }
 }
 
 .album-header-shell--has-persons .album-header-center {
-  transform: translateY(-0.5rem);
+  transform: translateY(-1.1rem);
+}
+
+/* 人物栏出现时，从标题信息之间回收一部分垂直空间，
+   用于补足人物栏相比分割线多出来的高度；外层头部高度保持不变。 */
+.album-header-shell--has-persons .album-title {
+  margin-bottom: 0.25rem;
+}
+
+.album-header-shell--has-persons .album-description {
+  margin-bottom: 0.25rem;
 }
 
 .album-header-bottom {
-  position: relative;
-  height: var(--album-persons-reserved-height);
-  margin-top: 0.25rem;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1.5rem;
+  height: var(--album-persons-area-height);
+  box-sizing: border-box;
+  padding: 0.5rem 0;
 }
 
 @keyframes headerFadeIn {
@@ -5673,6 +5691,7 @@
   font-weight: 600;
   margin-bottom: 0.5rem;
   letter-spacing: 0.02em;
+  transition: margin-bottom 420ms cubic-bezier(0.22, 1, 0.36, 1);
   /* 文字阴影增加层次感 */
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
@@ -5690,6 +5709,13 @@
   margin-left: auto;
   margin-right: auto;
   line-height: 1.7;
+  transition: margin-bottom 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.album-description--empty {
+  min-height: 1.615rem;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* 分割线：位于备注和照片数量之间 */
@@ -5699,11 +5725,12 @@
   border-radius: 2px;
   background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.5), transparent);
   position: absolute;
-  top: 42%;
+  top: 50%;
   left: 50%;
   margin: 0;
   transform: translate(-50%, -50%);
-  transition: opacity 360ms ease, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 420ms ease, transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
 }
 
 .album-header-divider--hidden {
@@ -5719,19 +5746,24 @@
   gap: 8px;
   color: #9ca3af;
   /* 延迟入场动画 */
-  animation: metaFadeIn 0.8s 0.2s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  /* 入场后保持清晰，再用较长时间缓慢回落到最终透明度，避免突然变淡。 */
+  animation: metaFadeIn 6s 0.2s ease-out backwards;
 }
 
 .album-photo-stage {
   position: relative;
 }
 
+.album-photo-stage--loading {
+  min-height: 12rem;
+}
+
 .album-loading-indicator {
   position: absolute;
-  top: 2.5rem;
-  left: 50%;
+  inset: 0;
   z-index: 5;
-  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
   pointer-events: none;
 }
 
@@ -5740,8 +5772,13 @@
     opacity: 0;
     transform: translateY(10px);
   }
-  to {
+  20% {
     opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    /* 与模板中的 opacity: 0.8 保持一致，避免动画结束时从 1 突然变暗。 */
+    opacity: 0.8;
     transform: translateY(0);
   }
 }
@@ -5754,21 +5791,34 @@
 .album-persons-slot {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  max-height: none;
+  overflow: visible;
   opacity: 0;
   transform: translateY(12px);
   pointer-events: none;
-  transition: opacity 360ms ease-out, transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  visibility: hidden;
+  transition: opacity 420ms ease-out, transform 420ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 420ms;
+  will-change: opacity, transform;
+  box-sizing: border-box;
+  padding: 0.5rem 0;
 }
 
 .album-persons-slot--visible {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+@media (max-width: 640px) {
+  .album-persons-slot--visible {
+    max-height: 10.5rem;
+  }
 }
 
 .album-persons-section {
-  margin-bottom: 2rem;
+  margin-bottom: 0;
   padding: 0 0.5rem;
 }
 
@@ -5812,9 +5862,14 @@
 
 .album-persons-scroll {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
   overflow-x: auto;
-  padding: 0.5rem 0.25rem 1rem;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.75rem 0.5rem 1rem;
+  overflow-y: visible;
+  align-items: center;
+  min-height: 100%;
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
   -webkit-overflow-scrolling: touch;
@@ -5838,8 +5893,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  gap: 0.35rem;
+  padding: 0.55rem 0.75rem;
   background: rgba(248, 250, 252, 0.6);
   border-radius: 12px;
   cursor: pointer;
@@ -5971,8 +6026,8 @@
 
 /* 头像容器动画 */
 .person-avatar-wrapper {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   overflow: hidden;
   background: linear-gradient(135deg, rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.1));
