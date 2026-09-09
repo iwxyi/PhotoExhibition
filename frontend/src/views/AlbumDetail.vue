@@ -104,6 +104,8 @@
               :class="{ 'album-person-card--highlighted': hoveredPhotoPersonIds.has(person.id) }"
               :style="{ '--delay': `${Math.min(index, 8) * 55}ms` }"
               @click="handlePersonClick(person, $event)"
+              @mouseenter="onPersonHover(person.id, true)"
+              @mouseleave="onPersonHover(person.id, false)"
             >
               <div class="person-avatar-wrapper">
                 <img
@@ -143,7 +145,7 @@
           <template #default="{ item: photo, index }">
             <div
               class="photo-card cursor-pointer"
-              :class="{ 'photo-card--settling': returningPhotoId === photo.id || justReturnedPhotoId === photo.id || hoverFrozenPhotoId === photo.id }"
+              :class="{ 'photo-card--settling': returningPhotoId === photo.id || justReturnedPhotoId === photo.id || hoverFrozenPhotoId === photo.id, 'photo-card--person-highlighted': hoveredPhotoIds.has(photo.id) }"
               :style="getPhotoStyle(photo)"
               :data-photo-id="photo.id"
               @pointerdown="onPhotoPointerDown(photo, index, $event)"
@@ -372,15 +374,31 @@ let albumPersonsRevealTimer: number | null = null
 
 // 当前悬浮的照片关联的人物ID集合
 const hoveredPhotoPersonIds = ref<Set<number>>(new Set())
+const hoveredPhotoIds = ref<Set<number>>(new Set())
 
 // 从照片数据中获取关联的人物ID列表
 const getPhotoPersonIds = (photo: any): number[] => {
-  if (!photo?.faces || !Array.isArray(photo.faces)) return []
   const personIds: number[] = []
-  for (const face of photo.faces) {
-    if (face.personId) personIds.push(face.personId)
+  if (photo?.assignedPersonId) personIds.push(Number(photo.assignedPersonId))
+  if (photo?.faces && Array.isArray(photo.faces)) {
+    for (const face of photo.faces) {
+      if (face.personId) personIds.push(Number(face.personId))
+      if (face.assignedPersonId) personIds.push(Number(face.assignedPersonId))
+    }
   }
   return [...new Set(personIds)] // 去重
+}
+
+// 鼠标悬浮人物卡片时，反向高亮相册中属于该人物的照片。
+const onPersonHover = (personId: number, isEnter: boolean) => {
+  const next = new Set(hoveredPhotoIds.value)
+  masonryItems.value.forEach((item: any) => {
+    const photo = item?.data || item
+    if (!getPhotoPersonIds(photo).includes(Number(personId))) return
+    if (isEnter) next.add(photo.id)
+    else next.delete(photo.id)
+  })
+  hoveredPhotoIds.value = next
 }
 
 // 鼠标悬停在照片上时
