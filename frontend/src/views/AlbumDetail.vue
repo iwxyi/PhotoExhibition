@@ -56,6 +56,12 @@
 
       <!-- 相册内容 -->
       <div v-if="album" class="album-content-wrapper">
+        <!--
+          布局契约：无论人物请求中、无人物还是有人物，照片瀑布流的起点必须完全不变。
+          标题/备注/元信息的所有间距调整，以及分割线与人物栏的显示切换，都只能发生在
+          这个固定高度的头部内部；禁止让人物栏进入普通文档流、改变 album-header-shell
+          的总高度，或以任何方式推动 MasonryLayout 下移/上移。
+        -->
         <!-- 相册头部：总高度稳定，人物栏只在内部替换分割线，不推动照片瀑布流 -->
         <div class="album-header-shell" :class="{ 'album-header-shell--has-persons': albumPersons.length > 0 && showAlbumPersons }">
           <!-- 相册信息 - 居中显示 -->
@@ -2038,8 +2044,8 @@ const loadAlbumData = async () => {
     remainingPhotosVisible.value = true
   }
 
-  // 头部已经预留了人物区域，人物栏的揭示只改变头部内部的视觉内容，
-  // 不会改变照片瀑布流的起点或封面 FLIP 的终点。
+  // 布局契约：人物栏揭示只能改变固定头部内部的视觉内容，不能改变照片瀑布流的
+  // 起点或封面 FLIP 的终点。任何间距/显隐改动都必须遵守这一约束。
   if (albumPersonsRevealTimer) window.clearTimeout(albumPersonsRevealTimer)
   albumPersonsRevealTimer = window.setTimeout(() => {
     if (!isDisposed) showAlbumPersons.value = true

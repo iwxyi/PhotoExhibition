@@ -5647,20 +5647,28 @@
 /* 相册标题区域居中样式 */
 .album-header-center {
   text-align: center;
-  margin-top: 0.75rem;
+  margin-top: 0.55rem;
   margin-bottom: 0;
-  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateY(-0.25rem);
+  transition: margin-top 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
   /* 入场动画 */
   animation: headerFadeIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-/* 头部为人物栏预留稳定空间。人物数据到达后只在此区域内重排，
-   不改变下面照片瀑布流的起点。 */
+/*
+ * AlbumDetail 布局契约（不可破坏）：
+ * 1. album-header-shell 的总高度是照片瀑布流起点的固定基准，不能因人物状态改变。
+ * 2. 标题、备注、元信息、分割线、人物栏的所有间距/位移/显隐，只允许在头部内部调整。
+ * 3. 人物栏必须保持绝对定位，不能重新进入普通文档流，否则会推动 MasonryLayout。
+ * 4. 无人物、请求中和有人物三种状态，都必须使用相同的 shell 高度，避免照片跳动。
+ */
 .album-header-shell {
   --album-header-height: 17.5rem;
   --album-persons-area-height: 8.25rem;
   position: relative;
+  display: flow-root;
+  box-sizing: border-box;
   height: var(--album-header-height);
   min-height: var(--album-header-height);
   margin-bottom: 0;
@@ -5677,17 +5685,32 @@
 }
 
 .album-header-shell--has-persons .album-header-center {
-  transform: translateY(-1.1rem);
+  margin-top: 0.05rem;
+  transform: translateY(-1.5rem);
 }
 
 /* 人物栏出现时，从标题信息之间回收一部分垂直空间，
    用于补足人物栏相比分割线多出来的高度；外层头部高度保持不变。 */
 .album-header-shell--has-persons .album-title {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
 }
 
 .album-header-shell--has-persons .album-description {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
+}
+
+/* 无人物时也使用经过收敛的舒展节奏，避免上半部过空；
+   这些调整只影响固定头部内部，不改变照片瀑布流起点。 */
+.album-header-shell:not(.album-header-shell--has-persons) .album-title {
+  margin-bottom: 0.4rem;
+}
+
+.album-header-shell:not(.album-header-shell--has-persons) .album-description {
+  margin-bottom: 0.4rem;
+}
+
+.album-header-shell--has-persons .album-meta {
+  transform: translateY(-0.1rem);
 }
 
 .album-header-bottom {
@@ -5703,18 +5726,16 @@
 @keyframes headerFadeIn {
   from {
     opacity: 0;
-    transform: translateY(0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 .album-title {
   font-size: 1.875rem;
   font-weight: 600;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
   letter-spacing: 0.02em;
   transition: margin-bottom 420ms cubic-bezier(0.22, 1, 0.36, 1);
   /* 文字阴影增加层次感 */
@@ -5728,7 +5749,7 @@
 .album-description {
   font-size: 0.95rem;
   color: #9ca3af;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
   font-style: italic;
   max-width: 500px;
   margin-left: auto;
@@ -5773,6 +5794,7 @@
   /* 延迟入场动画 */
   /* 入场后保持清晰，再用较长时间缓慢回落到最终透明度，避免突然变淡。 */
   animation: metaFadeIn 6s 0.2s ease-out backwards;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .album-photo-stage {
@@ -5891,7 +5913,8 @@
   overflow-x: auto;
   height: 100%;
   box-sizing: border-box;
-  padding: 0.75rem 0 1rem;
+  margin: 0 -0.5rem;
+  padding: 0.75rem 0.5rem 1rem;
   overflow-y: visible;
   align-items: center;
   min-height: 100%;
