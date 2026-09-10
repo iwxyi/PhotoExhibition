@@ -469,6 +469,19 @@ const handlePhotoImageError = (photoId: number) => {
   }
 }
 
+// 缓存命中时浏览器可能在 Vue 绑定 load 监听器前就完成图片加载，
+// 这里主动同步 complete/naturalWidth，确保不会长期停留在模糊状态。
+const syncCompletedPhotoImages = () => {
+  document.querySelectorAll<HTMLElement>('.album-photo-stage [data-photo-id] img').forEach((img) => {
+    if (!img.complete) return
+    const card = img.closest<HTMLElement>('[data-photo-id]')
+    const photoId = Number(card?.dataset.photoId)
+    if (!Number.isFinite(photoId)) return
+    if (img.naturalWidth > 0) handlePhotoImageLoad(photoId)
+    else handlePhotoImageError(photoId)
+  })
+}
+
 // 评论显示：照片加载完成后显示（API返回后即显示）
 const showComments = ref(false)
 
@@ -2044,6 +2057,7 @@ const loadAlbumData = async () => {
 
   // 等待照片元素渲染完成
   await nextTick()
+  syncCompletedPhotoImages()
 
   if (isFromNavigation && transitionPhotoIds.value.length > 0) {
     transitionPhotoIds.value.forEach(photoId => {

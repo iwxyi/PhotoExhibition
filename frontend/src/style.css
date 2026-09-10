@@ -5804,6 +5804,10 @@
 /* 相册瀑布流的卡片尺寸由 Masonry 的元数据确定，图片本身绝对铺满卡片。
    网络慢、解码中或请求失败时，都不能让原生 img 尺寸参与布局或把卡片撑成半截。 */
 .album-photo-stage .photo-card {
+  /* Masonry item 已经计算出固定尺寸；图片绝对定位后，卡片必须显式继承该尺寸，
+     否则自身高度会因图片脱离文档流而塌陷为 0，随后被 overflow:hidden 裁掉。 */
+  width: 100%;
+  height: 100%;
   background: rgba(148, 163, 184, 0.12);
   isolation: isolate;
 }
@@ -5812,7 +5816,8 @@
   position: absolute;
   inset: 0;
   display: block;
-  opacity: 0;
+  /* 未收到 load 事件时也保持可见，避免缓存命中/节点复用导致整张图永久透明。 */
+  opacity: 1;
   filter: blur(10px);
   transform: scale(1.035) translateZ(0);
   transition: opacity 360ms ease, filter 520ms ease, transform 520ms ease;
