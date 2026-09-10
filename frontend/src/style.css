@@ -7427,7 +7427,7 @@
 }
 
 .admin-shell .admin-albums-card--hidden {
-  border-color: color-mix(in srgb, #f43f5e 28%, var(--pe-surface-border)) !important;
+  opacity: 0.58;
 }
 
 .admin-shell .admin-albums-card--hidden > .relative:first-child::after {
