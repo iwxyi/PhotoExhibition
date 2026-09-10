@@ -5801,6 +5801,63 @@
   position: relative;
 }
 
+/* 相册瀑布流的卡片尺寸由 Masonry 的元数据确定，图片本身绝对铺满卡片。
+   网络慢、解码中或请求失败时，都不能让原生 img 尺寸参与布局或把卡片撑成半截。 */
+.album-photo-stage .photo-card {
+  background: rgba(148, 163, 184, 0.12);
+  isolation: isolate;
+}
+
+.album-photo-stage .photo-image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  opacity: 0;
+  filter: blur(10px);
+  transform: scale(1.035) translateZ(0);
+  transition: opacity 360ms ease, filter 520ms ease, transform 520ms ease;
+}
+
+.album-photo-stage .photo-image--loaded {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1) translateZ(0);
+}
+
+.album-photo-stage .photo-image--failed {
+  opacity: 0;
+}
+
+.photo-image-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.45rem;
+  padding: 1rem;
+  color: rgba(100, 116, 139, 0.9);
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.55), rgba(203, 213, 225, 0.3));
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.photo-image-fallback svg {
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.7;
+}
+
+.dark .album-photo-stage .photo-card {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.dark .photo-image-fallback {
+  color: rgba(148, 163, 184, 0.9);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.65));
+}
+
 .album-photo-stage--loading {
   min-height: 12rem;
 }

@@ -175,8 +175,27 @@
                 :src="getImageUrl(photo)"
                 :alt="photo.filename"
                 class="photo-image w-full h-full"
+                :class="{
+                  'photo-image--loaded': photoImageStates[photo.id] === 'loaded',
+                  'photo-image--failed': photoImageStates[photo.id] === 'error'
+                }"
                 loading="lazy"
+                decoding="async"
+                @load="handlePhotoImageLoad(photo.id)"
+                @error="handlePhotoImageError(photo.id)"
               />
+              <div
+                v-if="photoImageStates[photo.id] === 'error'"
+                class="photo-image-fallback"
+                aria-label="图片加载失败"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="m8 15 2.5-3 2 2 1.5-2 3 3" />
+                  <path d="M9 9h.01" />
+                </svg>
+                <span>图片暂时无法加载</span>
+              </div>
               <!-- magnifier (shown in multiselect mode) -->
               <button
                 v-if="multiSelectActive"
@@ -255,7 +274,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, reactive, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { prefersReducedMotion } from '@/composables/usePrefersReducedMotion'
 import { consumeDirectAlbumDetailEntry } from '@/utils/documentEntry'
@@ -433,6 +452,22 @@ const handlePersonClick = (_person: AlbumPerson, _event: MouseEvent) => {
 const imagesLoaded = ref(false)
 const totalImages = ref(0)
 const loadedImagesCount = ref(0)
+// 图片状态只控制视觉呈现，不参与 Masonry 尺寸计算；卡片尺寸始终来自照片元数据。
+const photoImageStates = reactive<Record<number, 'loading' | 'loaded' | 'error'>>({})
+
+const handlePhotoImageLoad = (photoId: number) => {
+  if (photoImageStates[photoId] !== 'loaded') {
+    photoImageStates[photoId] = 'loaded'
+    handleImageLoaded()
+  }
+}
+
+const handlePhotoImageError = (photoId: number) => {
+  if (photoImageStates[photoId] !== 'error') {
+    photoImageStates[photoId] = 'error'
+    handleImageLoaded()
+  }
+}
 
 // 评论显示：照片加载完成后显示（API返回后即显示）
 const showComments = ref(false)
@@ -2265,6 +2300,9 @@ const handleImageLoaded = () => {
 const resetImageLoading = () => {
   loadedImagesCount.value = 0
   imagesLoaded.value = false
+  Object.keys(photoImageStates).forEach((photoId) => {
+    delete photoImageStates[Number(photoId)]
+  })
   // 注意：showComments 由 watch 统一控制，不在这里重置
 }
 
