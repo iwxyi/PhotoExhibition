@@ -408,7 +408,7 @@
             <!-- 当前tab独立loading蒙版：只影响tab内容，不影响其他tab切换 -->
             <div
               v-if="showTabLoadingOverlay"
-              class="absolute inset-0 z-40 pointer-events-auto flex items-center justify-center bg-black/10"
+              class="admin-persons-tab-loading-overlay absolute inset-0 z-40 pointer-events-auto flex items-center justify-center"
             >
               <div class="h-7 w-7 rounded-full border-2 border-gray-400 border-t-transparent animate-spin opacity-60"></div>
             </div>
@@ -4735,7 +4735,19 @@ const getActiveFacesForViewer = () => {
     return personFaces.value
   }
   switch (tab.value) {
-    case 'confirmed': return confirmedFaces.value
+    case 'confirmed':
+      // The confirmed tab contains both face-assigned and directly photo-assigned
+      // items. Keep both in the viewer navigation set.
+      return [
+        ...confirmedFaces.value,
+        ...assignedPhotos.value.map((photo: any) => ({
+          ...photo,
+          photoId: photo.id,
+          photoThumbnailPath: photo.thumbnailPath,
+          photoOriginalPath: photo.originalPath,
+          faces: photo.faces || []
+        }))
+      ]
     case 'auto': return autoAssignedFaces.value
     case 'similar': return similarFaces.value
     case 'albums':
@@ -4835,36 +4847,31 @@ const openViewer = async (faceOrPhoto: any, options: { highlightedFaceId?: numbe
         return { ...photo, faces: [] }
       }
 
-      // 对于相册tab，faces可能已经在对象中
-      const existingFaces = faceOrPhoto.faces && photo.id === (faceOrPhoto.photoId || faceOrPhoto.id) ? faceOrPhoto.faces : []
       let photoFaces: any[] = []
 
-      if (existingFaces.length > 0) {
-        photoFaces = existingFaces
-      } else {
-        // 其他tab：从facesForViewer中过滤，然后取最优的
-        const allFacesForPhoto = facesForViewer
-          .filter((f: any) => (f.photoId || f.id) === photo.id)
-          .map((f: any) => ({
-            id: f.id,
-            personId: f.personId,
-            personName: f.personName,
-            personDescription: f.personDescription,
-            isConfirmed: f.isConfirmed,
-            confidence: f.confidence,
-            x: f.x,
-            y: f.y,
-            width: f.width,
-            height: f.height
-          }))
+      // 其他人物管理 tab：只从当前 tab 的人脸集合取框，避免把同一张
+      // 照片中其他人物的人脸框带进查看器。
+      const allFacesForPhoto = facesForViewer
+        .filter((f: any) => (f.photoId || f.id) === photo.id && f.width != null && f.height != null)
+        .map((f: any) => ({
+          id: f.id,
+          personId: f.personId,
+          personName: f.personName,
+          personDescription: f.personDescription,
+          isConfirmed: f.isConfirmed,
+          confidence: f.confidence,
+          x: f.x,
+          y: f.y,
+          width: f.width,
+          height: f.height
+        }))
 
-        // 只保留相似度最高的1张人脸
-        if (allFacesForPhoto.length > 1) {
-          allFacesForPhoto.sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
-          photoFaces = [allFacesForPhoto[0]]
-        } else {
-          photoFaces = allFacesForPhoto
-        }
+      // 同一张照片可能命中多个候选，只保留当前 tab 中相似度最高的人脸。
+      if (allFacesForPhoto.length > 1) {
+        allFacesForPhoto.sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+        photoFaces = [allFacesForPhoto[0]]
+      } else {
+        photoFaces = allFacesForPhoto
       }
 
       return {
@@ -5020,54 +5027,15 @@ const openPhoto = (photoId?: number) => {
   window.open(buildPublicPath(`/photo/${photoId}`, authStore.slug ? `/${authStore.slug}` : undefined), '_blank')
 }
 
-// Open a photo inside the PhotoViewer (single-photo mode)
+// Open a photo inside the PhotoViewer using the active tab's full navigation set.
 const openViewerForPhoto = async (photoId?: number) => {
   if (!photoId) return
   try {
     showViewerLoadingOverlay.value = true
-
-    // 判断当前是否在 albums tab
-    let photosToShow: any[] = []
-    let highlightedFaceIds: number[] = []
-    let highlightedPersonId: number | undefined = undefined
-
-    if (tab.value === 'albums' && selectedAlbum.value?.albumPhotos) {
-      // albums tab：显示所有相册照片
-      photosToShow = selectedAlbum.value.albumPhotos
-
-      // 使用当前选中人物的ID
-      highlightedPersonId = selectedPersonId.value || undefined
-
-      // 从 albumPhotos 中收集所有属于当前人物的相似人脸ID作为备选
-      highlightedFaceIds = photosToShow
-        .flatMap((photo: any) => (photo.faces || []).map((f: any) => f.id))
-        .filter(Boolean)
-    }
-
-    // 如果不是 albums tab 或者没有特定照片，使用单张照片
-    if (photosToShow.length === 0) {
-      const photo = await photoStore.fetchPhotoById(photoId)
-      if (!photo) return
-      const enriched = { ...photo, faces: photo.faces || [] }
-      viewerPhotos.value = [enriched]
-      viewerIndex.value = 0
-      viewerOpenOptions.value = {}
-      viewerVisible.value = true
-      return
-    }
-
-    // 设置 viewerPhotos
-    viewerPhotos.value = photosToShow
-    const idx = photosToShow.findIndex(p => p.id === photoId)
-    viewerIndex.value = idx >= 0 ? idx : 0
-
-    // 设置高亮选项：优先使用 highlightedPersonId
-    viewerOpenOptions.value = {
-      highlightedPersonId,
-      highlightedFaceIds
-    }
-
-    viewerVisible.value = true
+    const activeItems = getActiveFacesForViewer()
+    const source = activeItems.find((item: any) => (item.photoId || item.id) === photoId)
+      || { id: photoId, photoId }
+    await openViewer(source)
   } catch (e) {
     console.error('openViewerForPhoto error', e)
   } finally {

@@ -5,7 +5,7 @@
          状态禁用并交给底层相册，动画结束后再真正移除。 -->
     <div
       v-if="visible || closing"
-      class="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
+      class="photo-viewer-root fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex flex-col outline-none focus:outline-none overscroll-none"
       :class="{
         'pointer-events-none viewer-inert': closing || !visible,
         'viewer-returning': returningToThumb && closingAnimationStarted

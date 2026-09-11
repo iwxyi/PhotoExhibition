@@ -8165,3 +8165,61 @@
 :root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-threshold-row {
   background: transparent;
 }
+
+/* Keep the people workspace within the available desktop viewport. This gives
+   the person grid and the active photo-tab grid independent scroll regions. */
+@media (min-width: 1025px) {
+  .admin-persons-page {
+    height: calc(100dvh - 3.25rem);
+    min-height: calc(100dvh - 3.25rem) !important;
+    overflow: hidden;
+  }
+
+  .admin-persons-page .admin-content-rail,
+  .admin-shell .admin-persons-workspace {
+    height: 100%;
+    min-height: 0 !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .admin-persons-page {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+/* Loading masks need an explicit dark surface: the shared soft-surface token
+   is light by default, which previously made the photo tabs flash white. */
+.admin-persons-tab-loading-overlay {
+  background: color-mix(in srgb, var(--pe-admin-soft-bg) 66%, rgba(2, 6, 23, 0.18));
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+:root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-tab-loading-overlay,
+:root[data-admin-color-mode='dark'] .admin-persons-page .admin-persons-loading-overlay {
+  background: rgba(2, 6, 23, 0.64) !important;
+}
+
+/* PhotoViewer is a global dark canvas. Admin light-mode fallback selectors
+   must never repaint its controls or filmstrip as light surfaces. */
+.admin-shell .photo-viewer-root .top-bar {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.admin-shell .photo-viewer-root,
+.admin-shell .photo-viewer-root .text-white,
+.admin-shell .photo-viewer-root .text-white\/80,
+.admin-shell .photo-viewer-root .text-white\/90 {
+  color: #fff !important;
+}
+
+.admin-shell .photo-viewer-root .thumbnail-bar,
+.admin-shell .photo-viewer-root .thumbnail-bar .drag-handle {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.admin-shell .photo-viewer-root .info-panel {
+  background-color: rgba(17, 24, 39, 0.9) !important;
+}
