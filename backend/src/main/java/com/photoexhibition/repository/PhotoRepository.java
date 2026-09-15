@@ -22,6 +22,24 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     }
 
     /**
+     * 人物关联照片：既包括人脸绑定，也包括图片级别的直接认领。
+     * 同一张照片可能同时命中两种关联，使用 EXISTS 保证结果只出现一次。
+     */
+    @Query(
+        value = "SELECT p.* FROM photo p " +
+            "WHERE (:userId IS NULL OR p.user_id = :userId) " +
+            "AND (EXISTS (SELECT 1 FROM photo_face pf WHERE pf.photo_id = p.id AND pf.person_id = :personId) " +
+            "OR EXISTS (SELECT 1 FROM photo_assignment pa WHERE pa.photo_id = p.id AND pa.person_id = :personId)) " +
+            "ORDER BY COALESCE(p.taken_at, p.created_at) DESC",
+        countQuery = "SELECT COUNT(*) FROM photo p " +
+            "WHERE (:userId IS NULL OR p.user_id = :userId) " +
+            "AND (EXISTS (SELECT 1 FROM photo_face pf WHERE pf.photo_id = p.id AND pf.person_id = :personId) " +
+            "OR EXISTS (SELECT 1 FROM photo_assignment pa WHERE pa.photo_id = p.id AND pa.person_id = :personId))",
+        nativeQuery = true
+    )
+    Page<Photo> findClaimedByPersonId(@Param("personId") Long personId, @Param("userId") Long userId, Pageable pageable);
+
+    /**
      * 一次性加载 Photo 及其关联集合，避免在非事务/异步线程里触发懒加载异常。
      *
      * 注意：faces/tags 同时 join fetch 会造成行数膨胀，因此使用 DISTINCT 去重。

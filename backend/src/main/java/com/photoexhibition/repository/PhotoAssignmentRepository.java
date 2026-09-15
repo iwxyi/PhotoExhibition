@@ -24,6 +24,8 @@ public interface PhotoAssignmentRepository extends JpaRepository<PhotoAssignment
 
     List<PhotoAssignment> findByPersonId(Long personId);
 
+    List<PhotoAssignment> findByPersonIdOrderByCreatedAtDesc(Long personId);
+
     Optional<PhotoAssignment> findTopByPersonIdOrderByCreatedAtAsc(Long personId);
 
     @Query(value = "SELECT COUNT(DISTINCT p.id) FROM photo p "

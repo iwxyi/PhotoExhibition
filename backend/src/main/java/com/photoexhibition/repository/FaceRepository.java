@@ -44,6 +44,8 @@ public interface FaceRepository extends JpaRepository<Face, Long> {
 
     List<Face> findByPersonId(Long personId);
 
+    List<Face> findByPersonIdAndPhotoIdInOrderByIdDesc(Long personId, List<Long> photoIds);
+
     /**
      * 按人物ID获取人脸，按照片拍摄时间倒序
      * 去重：每张照片只保留一条记录（优先保留 id 最大的，即最新录入的）

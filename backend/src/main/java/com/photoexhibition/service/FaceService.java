@@ -879,7 +879,24 @@ public class FaceService {
     @Transactional(readOnly = true)
     public Page<FaceDTO> listPersonFaces(Long personId, Pageable pageable, Long userId) {
         validatePersonOwnership(personId, userId);
-        return faceRepository.findByPersonIdOrderByPhotoTimeDesc(personId, pageable).map(this::toDTO);
+        Page<Photo> photos = photoRepository.findClaimedByPersonId(personId, userId, pageable);
+        List<Long> photoIds = photos.getContent().stream().map(Photo::getId).collect(Collectors.toList());
+        Map<Long, Face> facesByPhotoId = photoIds.isEmpty()
+            ? Collections.emptyMap()
+            : faceRepository.findByPersonIdAndPhotoIdInOrderByIdDesc(personId, photoIds).stream()
+                .collect(Collectors.toMap(
+                    face -> face.getPhoto().getId(),
+                    face -> face,
+                    (first, ignored) -> first
+                ));
+
+        List<FaceDTO> content = photos.getContent().stream()
+            .map(photo -> {
+                Face face = facesByPhotoId.get(photo.getId());
+                return face != null ? toDTO(face) : toPhotoDTO(photo, personId);
+            })
+            .collect(Collectors.toList());
+        return new PageImpl<>(content, pageable, photos.getTotalElements());
     }
 
     /**
@@ -967,6 +984,17 @@ public class FaceService {
                     }
                     result.add(dto);
                     usedPhotoIds.add(face.getPhoto().getId());
+                }
+            }
+        }
+
+        // 直接认领的照片没有 photo_face 记录，也应作为人物封面候选。
+        if (result.size() < 4) {
+            for (com.photoexhibition.entity.PhotoAssignment assignment : photoAssignmentRepository.findByPersonIdOrderByCreatedAtDesc(personId)) {
+                if (result.size() >= 4) break;
+                Photo photo = photoRepository.findById(assignment.getPhotoId()).orElse(null);
+                if (photo != null && usedPhotoIds.add(photo.getId())) {
+                    result.add(toPhotoDTO(photo, personId));
                 }
             }
         }
@@ -1191,7 +1219,7 @@ public class FaceService {
             item.setFaceCount((int) claimedCount);
 
             Object[] sampleData = getPersonSamplePhoto(person.getId());
-            if (sampleData[0] != null) {
+            if (sampleData[1] != null) {
                 item.setSampleFaceId((Long) sampleData[0]);
                 item.setSamplePhotoId((Long) sampleData[1]);
                 item.setSampleThumbnailPath((String) sampleData[2]);
@@ -2376,7 +2404,7 @@ public class FaceService {
 
             // 获取代表缩略图
             Object[] sampleData = getPersonSamplePhoto(person.getId());
-            if (sampleData[0] != null && sampleData[2] != null) {
+            if (sampleData[1] != null && sampleData[2] != null) {
                 dto.setSampleFaceId((Long) sampleData[0]);
                 dto.setSampleThumbnailPath((String) sampleData[2]);
             }
@@ -2487,6 +2515,28 @@ public class FaceService {
         return dto;
     }
 
+    /** 为没有人脸框的直接认领照片构造与人物照片流兼容的 DTO。 */
+    private FaceDTO toPhotoDTO(Photo photo, Long personId) {
+        FaceDTO dto = new FaceDTO();
+        // FaceDTO 的 id 在前端列表中用作 key；负值避免与真实人脸 ID 冲突。
+        dto.setId(-photo.getId());
+        dto.setPhotoId(photo.getId());
+        dto.setPersonId(personId);
+        dto.setAssignedPersonId(personId);
+        dto.setPhotoFilename(photo.getFilename());
+        dto.setPhotoThumbnailPath(convertToRelativePath(photo.getMediumThumbPath()));
+        dto.setPhotoMediumThumbPath(convertToRelativePath(photo.getMediumThumbPath()));
+        dto.setPhotoSmallThumbPath(convertToRelativePath(photo.getSmallThumbPath()));
+        dto.setPhotoLargeThumbPath(convertToRelativePath(photo.getLargeThumbPath()));
+        dto.setPhotoWebpPath(convertToRelativePath(photo.getWebpPath()));
+        dto.setPhotoOriginalPath(convertToRelativePath(photo.getOriginalPath()));
+        dto.setPhotoWidth(photo.getWidth());
+        dto.setPhotoHeight(photo.getHeight());
+        dto.setPhotoTakenAt(photo.getTakenAt() != null ? photo.getTakenAt().toString() : null);
+        dto.setAlbumId(photo.getAlbumId());
+        return dto;
+    }
+
     private PersonDTO toDTO(PersonProfile person) {
         PersonDTO dto = new PersonDTO();
         dto.setId(person.getId());
@@ -2495,7 +2545,7 @@ public class FaceService {
 
         // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）
         Object[] sampleData = getPersonSamplePhoto(person.getId());
-        if (sampleData[0] != null) {
+        if (sampleData[1] != null) {
             dto.setSampleFaceId((Long) sampleData[0]);
             dto.setSamplePhotoId((Long) sampleData[1]);
             dto.setSampleThumbnailPath((String) sampleData[2]);
@@ -2636,7 +2686,7 @@ public class FaceService {
 
         // 使用统一的头像获取逻辑（优先已设置，fallback到动态计算）
         Object[] sampleData = getPersonSamplePhoto(person.getId());
-        if (sampleData[0] != null) {
+        if (sampleData[1] != null) {
             dto.setSampleFaceId((Long) sampleData[0]);
             dto.setSamplePhotoId((Long) sampleData[1]);
             dto.setSampleThumbnailPath((String) sampleData[2]);
@@ -3044,9 +3094,7 @@ public class FaceService {
         return null;
     }
 
-    /**
-     * 获取人物的套图推荐（只显示人物已确认图片所在的相册）
-     */
+    /** 获取人物关联照片所在的相册（人脸绑定和直接认领均包含）。 */
     @Transactional(readOnly = true)
     public List<AlbumRecommendationDTO> getAlbumRecommendationsForPerson(Long personId) {
         return getAlbumRecommendationsForPerson(personId, null);
@@ -3055,19 +3103,29 @@ public class FaceService {
     @Transactional(readOnly = true)
     public List<AlbumRecommendationDTO> getAlbumRecommendationsForPerson(Long personId, Long userId) {
         validatePersonOwnership(personId, userId);
-        // 获取人物的所有已确认人脸
+        // 已确认人脸仍用于展示人脸数量；直接认领照片也要纳入相册来源。
         List<Face> confirmedFaces = faceRepository.findByPersonIdAndIsConfirmed(personId, true);
-        if (confirmedFaces.isEmpty()) {
+        List<Photo> assignedPhotos = photoAssignmentRepository.findByPersonIdOrderByCreatedAtDesc(personId).stream()
+            .map(assignment -> photoRepository.findById(assignment.getPhotoId()).orElse(null))
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+        if (confirmedFaces.isEmpty() && assignedPhotos.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 获取人物已确认人脸所在的相册ID及其人脸数量统计
+        // 用 LinkedHashMap 汇总相册，避免同时有人脸绑定与直接认领时重复。
         Map<Long, Long> albumFaceCountMap = confirmedFaces.stream()
             .filter(face -> face.getPhoto() != null && face.getPhoto().getAlbumId() != null)
             .collect(Collectors.groupingBy(
                 face -> face.getPhoto().getAlbumId(),
+                LinkedHashMap::new,
                 Collectors.counting()
             ));
+        for (Photo photo : assignedPhotos) {
+            if (photo.getAlbumId() != null) {
+                albumFaceCountMap.putIfAbsent(photo.getAlbumId(), 0L);
+            }
+        }
 
         if (albumFaceCountMap.isEmpty()) {
             return new ArrayList<>();
@@ -3095,17 +3153,6 @@ public class FaceService {
             Long albumId = entry.getKey();
             Long faceCount = entry.getValue();
 
-            // 再次验证该相册中是否确实包含该人物的已确认人脸
-            // 防止因为缓存或数据不一致导致显示错误的相册
-            long actualConfirmedFaces = confirmedFaces.stream()
-                .filter(face -> face.getPhoto() != null && albumId.equals(face.getPhoto().getAlbumId()))
-                .count();
-
-            if (actualConfirmedFaces == 0) {
-                // 如果该相册中没有该人物的已确认人脸，跳过
-                continue;
-            }
-
             // 获取相册信息（容错处理：相册可能已被合并删除）
             com.photoexhibition.entity.Album album = albumRepository.findById(albumId).orElse(null);
             if (album == null) {
@@ -3118,7 +3165,9 @@ public class FaceService {
             dto.setAlbumName(album.getName());
             dto.setAlbumPath(getAlbumDisplayPath(album.getPath()));
             dto.setPhotoCount(album.getPhotoCount());
-            dto.setSimilarFaceCount((int) actualConfirmedFaces); // 已确认人脸数量
+            // 卡片以“人物已认领照片数”计算匹配度，覆盖人脸绑定和直接认领，
+            // 并且沿用查询中的 DISTINCT 照片去重规则。
+            dto.setSimilarFaceCount(albumClaimedCountMap.getOrDefault(albumId, 0));
             dto.setTakenAt(album.getLatestPhotoTakenAt());
             dto.setCreatedAt(album.getCreatedAt());
             
@@ -3128,6 +3177,9 @@ public class FaceService {
             // 设置相册封面图片：使用该人物在相册中的最多3张已确认照片
             List<Face> facesInAlbum = confirmedFaces.stream()
                     .filter(face -> face.getPhoto() != null && albumId.equals(face.getPhoto().getAlbumId()))
+                    .collect(Collectors.toList());
+            List<Photo> assignedPhotosInAlbum = assignedPhotos.stream()
+                    .filter(photo -> albumId.equals(photo.getAlbumId()))
                     .collect(Collectors.toList());
 
             String coverImagePath1 = null;
@@ -3163,6 +3215,22 @@ public class FaceService {
                     }
                 }
                 // 兼容旧版本：第一张图作为 coverImagePath
+                dto.setCoverImagePath(coverImagePath1);
+            } else if (!assignedPhotosInAlbum.isEmpty()) {
+                int coverCount = Math.min(assignedPhotosInAlbum.size(), 3);
+                boolean useMediumThumb = coverCount == 1;
+                for (int i = 0; i < coverCount; i++) {
+                    Photo photo = assignedPhotosInAlbum.get(i);
+                    String path = useMediumThumb
+                        ? convertToRelativePath(photo.getMediumThumbPath())
+                        : convertToRelativePath(photo.getSmallThumbPath());
+                    if (path == null || path.isEmpty()) {
+                        path = convertToRelativePath(photo.getMediumThumbPath());
+                    }
+                    if (i == 0) coverImagePath1 = path;
+                    else if (i == 1) coverImagePath2 = path;
+                    else coverImagePath3 = path;
+                }
                 dto.setCoverImagePath(coverImagePath1);
             } else {
                 // 如果没有找到该人物的照片，则使用默认相册封面
