@@ -4,7 +4,7 @@
       <AdminStyleChrome v-if="isAdminRoute" />
       <router-view v-slot="{ Component }">
         <!-- KeepAlive 容器保持挂载，确保从详情页返回时列表页状态和数据瞬间恢复。 -->
-        <KeepAlive include="Home,Wall,Random">
+        <KeepAlive include="Home,Wall,Random,Persons">
           <component v-if="Component" :is="Component" :key="componentKey" />
         </KeepAlive>
       </router-view>
@@ -57,7 +57,7 @@ const componentKey = computed(() => {
   const userSlug = typeof route.params.userSlug === 'string' ? route.params.userSlug : ''
   // 对于需要缓存的页面（Home, Wall, Random），使用路由名称作为 key
   // 但多用户场景下必须把 userSlug 纳入 key，避免不同站点之间复用同一缓存实例
-  if (['Home', 'Wall', 'Random'].includes(name)) {
+  if (['Home', 'Wall', 'Random', 'Persons', 'PersonsWithSlug'].includes(name)) {
     return `${name}:${userSlug || 'default'}`
   }
   // 其他页面使用完整路径，确保参数变化时组件更新

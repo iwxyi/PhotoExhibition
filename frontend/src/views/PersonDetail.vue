@@ -666,6 +666,15 @@ const goBack = () => {
   // 清理 sessionStorage
   sessionStorage.removeItem('person-entry-page')
 
+  // 从列表页进入时，优先回到实际的历史记录。这样可以复用 KeepAlive
+  // 中的人物列表实例，保留已加载分页、筛选和滚动位置。
+  if (targetPage && window.history.state?.back === targetPage) {
+    console.log('[PersonDetail] goBack - returning through history:', targetPage)
+    router.back()
+    return
+  }
+
+  // 直接访问详情页，或历史记录不对应来源页时，退回到原有的安全跳转逻辑。
   // 根据来源决定去向
   const normalizedTarget = targetPage ? stripPublicSlug(targetPage) : ''
   if (targetPage && normalizedTarget !== '/persons' && normalizedTarget !== '') {
