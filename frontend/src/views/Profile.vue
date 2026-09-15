@@ -207,7 +207,7 @@
           <div class="flex items-center justify-between gap-4 flex-wrap">
             <div>
               <div class="text-xs uppercase tracking-[0.2em] text-gray-400 mb-2">会员中心</div>
-              <p class="text-sm text-gray-500 dark:text-gray-400">这里展示当前配额、已生效套餐、可购买方案和最近订单。支付仍处于预埋阶段，但下单与 Mock 联调链路已经可用。</p>
+              <p class="text-sm text-gray-500 dark:text-gray-400">查看账号总空间、已购容量包、可购买套餐及订单。总容量由账号默认容量、管理员附加容量和所有未到期套餐容量叠加计算。</p>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
               <router-link to="/vip" class="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">
@@ -240,6 +240,23 @@
               <div class="text-xs text-gray-500 dark:text-gray-400">到期时间</div>
               <div class="text-lg text-gray-900 dark:text-white">{{ formatDate(vipOverview.vipExpireAt) }}</div>
             </div>
+          </div>
+
+          <div v-if="vipOverview" class="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/20 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div class="text-sm text-gray-900 dark:text-white">已购容量套餐</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                剩余可用 {{ formatBytesAsGb(vipOverview.storageAvailableBytes) }} · {{ vipOverview.storageFull ? '空间已满，仅可删除或下载' : '可继续上传' }}
+              </div>
+            </div>
+            <div v-if="vipOverview.activePackages?.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              <div v-for="item in vipOverview.activePackages" :key="item.orderId" class="rounded-lg bg-white/80 dark:bg-gray-900/50 p-3 text-xs text-gray-600 dark:text-gray-300">
+                <div class="font-medium text-gray-900 dark:text-white">{{ item.planName || '容量套餐' }}</div>
+                <div class="mt-1">+{{ formatBytesAsGb(item.quotaBytes) }} · 到期 {{ formatDate(item.expireAt) }}</div>
+                <div class="mt-1 text-gray-400">订单 {{ item.orderNo }}</div>
+              </div>
+            </div>
+            <div v-else class="text-xs text-gray-500 dark:text-gray-400">还没有已生效的容量套餐。</div>
           </div>
 
           <div class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 p-4">

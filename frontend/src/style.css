@@ -7189,7 +7189,15 @@
   overflow: visible !important;
 }
 
-.admin-shell .admin-table-scroll,
+/* Data tables must retain their own horizontal scroll area on narrow screens. */
+.admin-shell .admin-table-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+/* The following surfaces intentionally clip their visual previews. */
 .admin-shell .admin-dashboard-modal-card,
 .admin-shell .admin-dashboard-feature-preview,
 .admin-shell .admin-dashboard-feature-preview-window {
@@ -7740,20 +7748,55 @@
 .admin-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
+  gap: var(--admin-space-2);
   margin: var(--admin-space-3) 0;
-  border: 1px solid var(--pe-surface-border);
-  background: var(--pe-surface-border);
 }
+
+/* Account capacity is a primary operating constraint, distinct from content counts. */
+.admin-storage-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--admin-space-3);
+  margin: 0;
+  padding: var(--admin-space-3);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--pe-theme-primary) 24%, var(--pe-surface-border));
+  background: linear-gradient(105deg, color-mix(in srgb, var(--pe-theme-primary) 9%, var(--pe-surface-bg)), var(--pe-surface-bg) 58%);
+}
+
+.admin-storage-overview__summary { min-width: 0; flex: 1; }
+.admin-storage-overview__label { color: var(--pe-admin-text-muted); font-size: .78rem; font-weight: 600; }
+.admin-storage-overview__numbers { display: flex; align-items: baseline; gap: .4rem; margin-top: .25rem; }
+.admin-storage-overview__numbers strong { color: var(--pe-admin-text-primary); font-size: clamp(1.5rem, 3vw, 2.15rem); line-height: 1; font-variant-numeric: tabular-nums; }
+.admin-storage-overview__numbers span, .admin-storage-overview p { color: var(--pe-admin-text-muted); font-size: .82rem; }
+.admin-storage-overview p { margin: .45rem 0 0; }
+.admin-storage-overview__track { height: 6px; max-width: 38rem; margin-top: .7rem; overflow: hidden; background: color-mix(in srgb, var(--pe-admin-text-muted) 18%, transparent); border-radius: 99px; }
+.admin-storage-overview__track span { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--pe-theme-primary); transition: width 240ms ease; }
+.admin-storage-overview__action { flex: 0 0 auto; min-height: 2.5rem; padding: .55rem 1rem; border: 1px solid var(--pe-theme-primary); border-radius: 6px; background: var(--pe-theme-primary); color: #fff; font-size: .875rem; font-weight: 600; }
+.admin-storage-overview__action:hover { filter: brightness(1.06); }
+
+.admin-storage-package-modal { background: var(--pe-surface-bg); border: 1px solid var(--pe-surface-border); }
+.admin-storage-package { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--pe-surface-border); background: var(--pe-admin-soft-bg); }
+.admin-storage-package h3 { color: var(--pe-admin-text-primary); font-weight: 600; }
+.admin-storage-package p { margin: .25rem 0 0; color: var(--pe-admin-text-muted); font-size: .78rem; }
+.admin-storage-package__facts { display: flex; align-items: baseline; gap: .7rem; color: var(--pe-admin-text-muted); font-size: .8rem; }
+.admin-storage-package__facts b, .admin-storage-package__facts strong { color: var(--pe-admin-text-primary); font-variant-numeric: tabular-nums; }
+.admin-storage-package__facts strong { margin-left: auto; font-size: 1.1rem; }
 
 .admin-metric {
   display: grid;
   gap: 0.4rem;
-  min-height: 6.5rem;
+  min-height: 6rem;
   align-content: center;
-  padding: 1rem 1.25rem;
+  padding: var(--admin-space-3);
+  border: 1px solid var(--pe-surface-border);
+  border-radius: 8px;
   background: var(--pe-surface-bg);
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
+
+.admin-metric:hover { border-color: color-mix(in srgb, var(--pe-theme-primary) 35%, var(--pe-surface-border)); box-shadow: 0 8px 20px rgba(15, 23, 42, .06); transform: translateY(-1px); }
 
 .admin-metric span {
   color: var(--pe-admin-text-muted);
@@ -7776,6 +7819,8 @@
 .admin-workbench-panel {
   padding: var(--admin-space-3);
   border-radius: 8px;
+  border: 1px solid var(--pe-surface-border);
+  box-shadow: none;
 }
 
 .admin-workbench-panel h2 {
@@ -8018,6 +8063,13 @@
   .admin-shell .admin-settings-row .admin-settings-control > :is(input, select, label) {
     width: 100%;
   }
+
+  .admin-storage-overview { align-items: flex-start; }
+}
+
+@media (max-width: 520px) {
+  .admin-storage-overview { display: grid; gap: 1rem; }
+  .admin-storage-overview__action { width: 100%; }
 }
 
 /* Photo inventory: a stable, scan-first table with a pinned command column. */

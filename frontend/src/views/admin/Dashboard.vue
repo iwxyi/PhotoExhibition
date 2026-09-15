@@ -1,6 +1,23 @@
 <template>
   <div class="min-h-screen admin-shell admin-dashboard-page">
     <main class="admin-workbench">
+      <section class="admin-storage-overview" aria-label="空间使用情况">
+        <div class="admin-storage-overview__summary">
+          <span class="admin-storage-overview__label">空间使用情况</span>
+          <div class="admin-storage-overview__numbers">
+            <strong>{{ formatBytes(storageOverview?.storageUsedBytes) }}</strong>
+            <span>/ {{ formatBytes(storageOverview?.storageQuotaBytes) }}</span>
+          </div>
+          <div class="admin-storage-overview__track" aria-hidden="true">
+            <span :style="{ width: `${storageUsagePercent}%` }"></span>
+          </div>
+          <p>{{ storageOverview?.storageFull ? '空间已满：请删除文件或扩容后继续上传。' : `剩余 ${formatBytes(storageOverview?.storageAvailableBytes)} 可用空间` }}</p>
+        </div>
+        <button type="button" class="admin-storage-overview__action" @click="openStoragePackages">
+          扩容空间
+        </button>
+      </section>
+
       <section class="admin-metric-grid" aria-label="内容统计">
         <router-link to="/admin/albums" class="admin-metric"><span>相册</span><strong>{{ stats.albums }}</strong></router-link>
         <router-link to="/admin/photos" class="admin-metric"><span>照片</span><strong>{{ stats.photos }}</strong></router-link>
@@ -37,6 +54,39 @@
         </div>
       </section>
     </main>
+
+    <div v-if="showStoragePackages" class="admin-dashboard-modal fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showStoragePackages = false">
+      <div class="admin-modal-backdrop absolute inset-0"></div>
+      <section class="admin-modal-card admin-storage-package-modal relative w-full max-w-3xl max-h-[85vh] overflow-auto" role="dialog" aria-modal="true" aria-label="扩容空间">
+        <header class="admin-dashboard-modal-head flex items-start justify-between gap-4 px-5 py-4">
+          <div>
+            <h2 class="text-lg font-medium">扩容空间</h2>
+            <p class="mt-1 text-xs admin-table-muted">购买成功后立即叠加到当前空间；每个套餐按各自到期日独立生效。</p>
+          </div>
+          <button type="button" class="admin-dashboard-modal-close p-1.5 rounded-lg" aria-label="关闭" @click="showStoragePackages = false">×</button>
+        </header>
+        <div class="p-5">
+          <div v-if="storagePlansLoading" class="py-10 text-center text-sm admin-table-muted">正在加载套餐…</div>
+          <div v-else-if="!storagePlans.length" class="py-10 text-center text-sm admin-table-muted">暂无可购买套餐，请联系管理员配置。</div>
+          <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <article v-for="plan in storagePlans" :key="plan.id" class="admin-storage-package">
+              <div>
+                <h3>{{ plan.name }}</h3>
+                <p>{{ plan.description || '独立容量套餐' }}</p>
+              </div>
+              <div class="admin-storage-package__facts">
+                <span><b>+{{ formatBytes(plan.extraQuotaBytes) }}</b> 空间</span>
+                <span>{{ plan.durationDays }} 天</span>
+                <strong>¥{{ plan.payableAmountYuan || plan.priceYuan }}</strong>
+              </div>
+              <button type="button" class="admin-button-primary px-3 py-2 rounded-lg text-sm disabled:opacity-60" :disabled="buyingPlanId === plan.id" @click="buyStoragePlan(plan.id)">
+                {{ buyingPlanId === plan.id ? '正在跳转…' : '购买并前往支付宝' }}
+              </button>
+            </article>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <!-- 跳过文件详情弹窗 -->
     <div
@@ -218,9 +268,10 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { api } from '@/api'
+import { api, authProfileApi, type UserVipOverview, type UserVipPlan } from '@/api'
 import { storageTypeLabel } from '@/utils/providerLabels'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
+import { launchPaymentInitiation } from '@/utils/paymentLaunch'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -236,6 +287,16 @@ const stats = ref({
   tags: 0,
   persons: 0,
   faces: 0
+})
+const storageOverview = ref<UserVipOverview | null>(null)
+const storagePlans = ref<UserVipPlan[]>([])
+const showStoragePackages = ref(false)
+const storagePlansLoading = ref(false)
+const buyingPlanId = ref<number | null>(null)
+const storageUsagePercent = computed(() => {
+  const quota = Number(storageOverview.value?.storageQuotaBytes || 0)
+  const used = Number(storageOverview.value?.storageUsedBytes || 0)
+  return quota <= 0 ? 0 : Math.min(100, Math.round((used / quota) * 100))
 })
 
 const scanning = ref(false)
@@ -725,6 +786,54 @@ const loadStats = async () => {
   })
 }
 
+const loadStorageOverview = async () => {
+  try {
+    const { data } = await authProfileApi.getVipOverview()
+    storageOverview.value = data
+  } catch (error) {
+    console.warn('加载空间概览失败', error)
+  }
+}
+
+const openStoragePackages = async () => {
+  showStoragePackages.value = true
+  storagePlansLoading.value = true
+  try {
+    const { data } = await authProfileApi.getVipPlans()
+    storagePlans.value = data.plans || []
+  } catch (error: any) {
+    alert(error?.response?.data?.error || error?.message || '加载套餐失败')
+  } finally {
+    storagePlansLoading.value = false
+  }
+}
+
+const buyStoragePlan = async (planId: number) => {
+  buyingPlanId.value = planId
+  try {
+    const { data: order } = await authProfileApi.createVipOrder(planId)
+    const { data: initiation } = await authProfileApi.initiateVipCheckout(order.id)
+    launchPaymentInitiation(initiation, { target: '_self' })
+  } catch (error: any) {
+    alert(error?.response?.data?.error || error?.message || '无法发起支付宝支付，请检查支付配置')
+  } finally {
+    buyingPlanId.value = null
+  }
+}
+
+const formatBytes = (value?: number | null) => {
+  const bytes = Number(value || 0)
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = bytes
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index += 1
+  }
+  return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`
+}
+
 const cleanupOrphaned = async () => {
   const confirmed = confirm(
     '🧹 清理删除残留数据\n\n' +
@@ -1185,7 +1294,7 @@ const handleLogout = () => {
 let scanTimer: number | null = null
 
 onMounted(async () => {
-  await loadStats()
+  await Promise.all([loadStats(), loadStorageOverview()])
   await Promise.all([
     fetchScanStatus(),
     loadScanProviderOptions(),

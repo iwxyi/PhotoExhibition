@@ -665,6 +665,16 @@ export interface UserVipOverview {
   currentVipPlanCategory?: string | null
   currentVipQuotaGrantMode?: string | null
   vipExpireAt?: string | null
+  storageAvailableBytes?: number
+  storageFull?: boolean
+  activePackages?: Array<{
+    orderId: number
+    orderNo: string
+    planName?: string | null
+    quotaBytes: number
+    expireAt?: string | null
+    active: boolean
+  }>
   paymentEnabled: boolean
   paymentMockEnabled: boolean
   paymentProviderType: 'ALIPAY' | 'WECHAT_PAY' | 'STRIPE' | 'PAYPAL' | 'UNIONPAY' | 'PADDLE' | 'LEMON_SQUEEZY' | 'ADYEN' | 'MOLLIE' | 'XENDIT' | 'MIDTRANS' | 'CUSTOM_WEBHOOK'

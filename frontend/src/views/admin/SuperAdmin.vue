@@ -2082,65 +2082,40 @@
 
       <section v-if="activeTab === 'vip'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-vip-panel">
         <div>
-          <h2 class="text-lg font-light">VIP 套餐</h2>
-          <p class="text-xs admin-table-faint">用于预置后续付费套餐；当前支持管理套餐名称、扩容空间、时长与价格，并可分配给用户。</p>
+          <h2 class="text-lg font-light">套餐</h2>
+          <p class="text-xs admin-table-faint">配置普通用户可购买的容量套餐：名称、额外空间、有效期、价格与启用状态。每笔购买成功的套餐独立计入用户总容量，过期后自动失效。</p>
         </div>
 
         <div class="rounded-2xl p-5 space-y-4 admin-super-admin-dashed-panel">
           <div class="text-sm admin-super-admin-modal-title">新增套餐</div>
           <div class="rounded-xl px-4 py-3 text-xs space-y-1 admin-super-admin-warning-box">
-            <div>当前线上可用规则建议保持：`STANDARD + FIXED_TERM + REPLACE_OR_EXTEND`。</div>
-            <div>活动赠送、永久容量、可叠加套餐仅先做架构预留；实际产品流程和页面后续再补。</div>
+            <div>容量套餐默认采用：`STANDARD + FIXED_TERM + INDEPENDENT`。</div>
+            <div>用户总容量 = 默认容量 + 管理员附加容量 + 所有未到期的已购套餐容量。</div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <label class="block space-y-1">
+          <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+            <label class="block space-y-1 col-span-2 xl:col-span-1">
               <span class="text-[11px] admin-table-faint">套餐编码</span>
-              <input v-model="newVipPlan.code" type="text" placeholder="例如 vip-30g-annual" class="admin-input px-3 py-2 rounded-lg w-full" />
+              <input v-model="newVipPlan.code" type="text" placeholder="例如 storage-30g" class="admin-input px-2 py-1.5 rounded-lg w-full text-sm" />
             </label>
-            <label class="block space-y-1">
+            <label class="block space-y-1 col-span-2 xl:col-span-1">
               <span class="text-[11px] admin-table-faint">套餐名称</span>
-              <input v-model="newVipPlan.name" type="text" placeholder="例如 年费 30GB" class="admin-input px-3 py-2 rounded-lg w-full" />
+              <input v-model="newVipPlan.name" type="text" placeholder="例如 30GB 年包" class="admin-input px-2 py-1.5 rounded-lg w-full text-sm" />
             </label>
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">额外空间（GB）</span>
-              <input v-model.number="newVipPlan.extraQuotaGb" type="number" min="0" step="0.5" class="admin-input px-3 py-2 rounded-lg w-full" />
+              <input v-model.number="newVipPlan.extraQuotaGb" type="number" min="0" step="0.5" class="admin-input px-2 py-1.5 rounded-lg w-full text-sm" />
             </label>
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">时长（天）</span>
-              <input v-model.number="newVipPlan.durationDays" type="number" min="1" class="admin-input px-3 py-2 rounded-lg w-full" />
+              <input v-model.number="newVipPlan.durationDays" type="number" min="1" class="admin-input px-2 py-1.5 rounded-lg w-full text-sm" />
             </label>
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">价格（元）</span>
-              <input v-model.number="newVipPlan.priceYuan" type="number" min="0" step="0.01" class="admin-input px-3 py-2 rounded-lg w-full" />
-            </label>
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">套餐分类</span>
-              <select v-model="newVipPlan.planCategory" class="admin-input px-3 py-2 rounded-lg w-full">
-                <option value="STANDARD">标准套餐</option>
-                <option value="PROMOTIONAL">活动套餐</option>
-                <option value="REWARD">赠送套餐</option>
-                <option value="PERMANENT">永久容量</option>
-              </select>
-            </label>
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">容量发放模式</span>
-              <select v-model="newVipPlan.quotaGrantMode" class="admin-input px-3 py-2 rounded-lg w-full">
-                <option value="FIXED_TERM">固定时长</option>
-                <option value="RECURRING_TERM">可续期时长</option>
-                <option value="PERMANENT">永久生效</option>
-              </select>
-            </label>
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">叠加模式</span>
-              <select v-model="newVipPlan.stackingMode" class="admin-input px-3 py-2 rounded-lg w-full">
-                <option value="REPLACE_OR_EXTEND">替换或续期</option>
-                <option value="STACKABLE">允许叠加</option>
-                <option value="INDEPENDENT">独立生效</option>
-              </select>
+              <input v-model.number="newVipPlan.priceYuan" type="number" min="0" step="0.01" class="admin-input px-2 py-1.5 rounded-lg w-full text-sm" />
             </label>
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">排序</span>
-              <input v-model.number="newVipPlan.sortOrder" type="number" class="admin-input px-3 py-2 rounded-lg w-full" />
+              <input v-model.number="newVipPlan.sortOrder" type="number" class="admin-input px-2 py-1.5 rounded-lg w-full text-sm" />
             </label>
             <label class="admin-super-admin-toggle-card flex items-center gap-2 px-3 py-2 rounded-lg text-sm">
               <input v-model="newVipPlan.enabled" type="checkbox" class="w-4 h-4 rounded" />
@@ -2149,11 +2124,11 @@
           </div>
           <label class="block space-y-1">
             <span class="text-[11px] admin-table-faint">套餐说明</span>
-            <textarea v-model="newVipPlan.description" rows="3" placeholder="描述套餐权益、适用时长、说明等" class="admin-input w-full px-3 py-2 rounded-lg" />
+            <input v-model="newVipPlan.description" type="text" placeholder="例如：适合中小型相册" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </label>
           <div class="flex justify-end">
             <button class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingVipPlanId === 0" @click="createVipPlan">
-              {{ savingVipPlanId === 0 ? '创建中...' : '新增 VIP 套餐' }}
+              {{ savingVipPlanId === 0 ? '创建中...' : '新增套餐' }}
             </button>
           </div>
         </div>
@@ -2163,75 +2138,27 @@
           :rows="vipPlans"
           :preferences="getTablePreference('vipPlans')"
           :loading="loading"
-          loading-text="正在加载 VIP 套餐..."
-          empty-text="暂无 VIP 套餐。"
+          loading-text="正在加载套餐..."
+          empty-text="暂无套餐。"
           @update:preferences="updateTablePreference('vipPlans', $event)"
         >
           <template #cell-code="{ row: plan }">
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">套餐编码</span>
-              <input v-model="plan.code" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
-            </label>
+            <input v-model="plan.code" type="text" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-name="{ row: plan }">
-            <div class="space-y-2">
-              <label class="block space-y-1">
-                <span class="text-[11px] admin-table-faint">套餐名称</span>
-                <input v-model="plan.name" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
-              </label>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <label class="block space-y-1">
-                  <span class="text-[11px] admin-table-faint">套餐分类</span>
-                  <select v-model="plan.planCategory" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
-                    <option value="STANDARD">标准套餐</option>
-                    <option value="PROMOTIONAL">活动套餐</option>
-                    <option value="REWARD">赠送套餐</option>
-                    <option value="PERMANENT">永久容量</option>
-                  </select>
-                </label>
-                <label class="block space-y-1">
-                  <span class="text-[11px] admin-table-faint">容量发放模式</span>
-                  <select v-model="plan.quotaGrantMode" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
-                    <option value="FIXED_TERM">固定时长</option>
-                    <option value="RECURRING_TERM">可续期时长</option>
-                    <option value="PERMANENT">永久生效</option>
-                  </select>
-                </label>
-                <label class="block space-y-1">
-                  <span class="text-[11px] admin-table-faint">叠加模式</span>
-                  <select v-model="plan.stackingMode" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
-                    <option value="REPLACE_OR_EXTEND">替换或续期</option>
-                    <option value="STACKABLE">允许叠加</option>
-                    <option value="INDEPENDENT">独立生效</option>
-                  </select>
-                </label>
-              </div>
-              <div class="text-xs admin-table-faint">创建于 {{ formatDate(plan.createdAt) }}</div>
-            </div>
+            <input v-model="plan.name" type="text" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-extraQuotaGb="{ row: plan }">
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">额外空间（GB）</span>
-              <input v-model.number="plan.extraQuotaGb" type="number" min="0" step="0.5" class="admin-input w-full px-3 py-2 rounded-lg" />
-            </label>
+            <input v-model.number="plan.extraQuotaGb" type="number" min="0" step="0.5" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-durationDays="{ row: plan }">
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">时长（天）</span>
-              <input v-model.number="plan.durationDays" type="number" min="1" class="admin-input w-full px-3 py-2 rounded-lg" />
-            </label>
+            <input v-model.number="plan.durationDays" type="number" min="1" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-priceYuan="{ row: plan }">
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">价格（元）</span>
-              <input v-model.number="plan.priceYuan" type="number" min="0" step="0.01" class="admin-input w-full px-3 py-2 rounded-lg" />
-            </label>
+            <input v-model.number="plan.priceYuan" type="number" min="0" step="0.01" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-sortOrder="{ row: plan }">
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">排序</span>
-              <input v-model.number="plan.sortOrder" type="number" class="admin-input w-full px-3 py-2 rounded-lg" />
-            </label>
+            <input v-model.number="plan.sortOrder" type="number" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-enabled="{ row: plan }">
             <label class="flex items-center gap-2 text-sm admin-table-muted">
@@ -2240,10 +2167,7 @@
             </label>
           </template>
           <template #cell-description="{ row: plan }">
-            <label class="block space-y-1">
-              <span class="text-[11px] admin-table-faint">套餐说明</span>
-              <textarea v-model="plan.description" rows="3" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
-            </label>
+            <input v-model="plan.description" type="text" class="admin-input w-full px-2 py-1.5 rounded-lg text-sm" />
           </template>
           <template #cell-actions="{ row: plan }">
             <button class="admin-button-primary w-full px-3 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingVipPlanId === plan.id" @click="saveVipPlan(plan)">
@@ -2256,7 +2180,7 @@
       <section v-if="activeTab === 'vipOrders'" class="glass-panel p-6 space-y-5 admin-super-admin-table-panel admin-super-admin-vip-orders-panel">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h2 class="text-lg font-light">VIP 订单</h2>
+          <h2 class="text-lg font-light">订单</h2>
             <p class="text-xs admin-table-faint">当前先提供后台手工建单、状态维护和套餐生效联动，后续再接支付回调。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
@@ -2535,8 +2459,8 @@
           :rows="vipOrders"
           :preferences="getTablePreference('vipOrders')"
           :loading="loading"
-          loading-text="正在加载 VIP 订单..."
-          empty-text="暂无 VIP 订单。"
+          loading-text="正在加载订单..."
+          empty-text="暂无订单。"
           @update:preferences="updateTablePreference('vipOrders', $event)"
         >
           <template #cell-order="{ row: order }">
@@ -3603,8 +3527,8 @@ const superAdminTabs = [
   { key: 'users', label: '用户管理' },
   { key: 'notifications', label: '短信 / 邮件' },
   { key: 'payment', label: '支付' },
-  { key: 'vip', label: 'VIP 套餐' },
-  { key: 'vipOrders', label: 'VIP 订单' },
+  { key: 'vip', label: '套餐' },
+  { key: 'vipOrders', label: '订单' },
   { key: 'tools', label: '工具' },
   { key: 'operations', label: '操作记录' },
   { key: 'logins', label: '登录记录' },
@@ -3837,7 +3761,7 @@ const newVipPlan = reactive<Partial<VipPlanSummary>>({
   priceYuan: 0,
   planCategory: 'STANDARD',
   quotaGrantMode: 'FIXED_TERM',
-  stackingMode: 'REPLACE_OR_EXTEND',
+  stackingMode: 'INDEPENDENT',
   enabled: true,
   sortOrder: 100
 })
@@ -4170,7 +4094,7 @@ const userTableColumns: ConfigurableColumn[] = [
   { key: 'role', label: '角色', sortable: true, cellClass: 'min-w-[140px]' },
   { key: 'status', label: '状态', sortable: true, cellClass: 'min-w-[140px]' },
   { key: 'quota', label: '基础配额', sortable: false, cellClass: 'min-w-[150px]' },
-  { key: 'vipPlan', label: 'VIP 套餐', sortable: true, cellClass: 'min-w-[220px]' },
+  { key: 'vipPlan', label: '套餐', sortable: true, cellClass: 'min-w-[220px]' },
   { key: 'storage', label: '上传存储', sortable: false, defaultVisible: false, cellClass: 'min-w-[220px]' },
   { key: 'usage', label: '用量', sortable: true, defaultVisible: false, cellClass: 'min-w-[200px]' },
   { key: 'visible', label: '公开展示', sortable: true, defaultVisible: false, cellClass: 'min-w-[120px]' },
@@ -4197,15 +4121,15 @@ const operationTableColumns: ConfigurableColumn[] = [
 ]
 
 const vipPlanTableColumns: ConfigurableColumn[] = [
-  { key: 'code', label: '编码', sortable: true, cellClass: 'min-w-[160px]' },
-  { key: 'name', label: '名称 / 架构', sortable: true, cellClass: 'min-w-[420px]' },
-  { key: 'extraQuotaGb', label: '额外空间(GB)', sortable: true, cellClass: 'min-w-[130px]' },
-  { key: 'durationDays', label: '时长(天)', sortable: true, cellClass: 'min-w-[120px]' },
-  { key: 'priceYuan', label: '价格(元)', sortable: true, cellClass: 'min-w-[120px]' },
-  { key: 'sortOrder', label: '排序', sortable: true, cellClass: 'min-w-[100px]' },
-  { key: 'enabled', label: '启用', sortable: true, cellClass: 'min-w-[100px]' },
-  { key: 'description', label: '说明', sortable: false, cellClass: 'min-w-[260px]' },
-  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[120px]' }
+  { key: 'name', label: '名称', sortable: true, cellClass: 'min-w-[120px] w-[150px]' },
+  { key: 'extraQuotaGb', label: '空间 (GB)', sortable: true, cellClass: 'min-w-[88px] w-[100px]' },
+  { key: 'durationDays', label: '时长 (天)', sortable: true, cellClass: 'min-w-[82px] w-[90px]' },
+  { key: 'priceYuan', label: '价格 (元)', sortable: true, cellClass: 'min-w-[82px] w-[90px]' },
+  { key: 'enabled', label: '状态', sortable: true, cellClass: 'min-w-[72px] w-[76px]' },
+  { key: 'sortOrder', label: '排序', sortable: true, cellClass: 'min-w-[66px] w-[70px]' },
+  { key: 'code', label: '编码', sortable: true, cellClass: 'min-w-[100px] w-[120px]' },
+  { key: 'description', label: '说明', sortable: false, cellClass: 'min-w-[140px] w-[180px]' },
+  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[76px] w-[84px]' }
 ]
 
 const vipOrderTableColumns: ConfigurableColumn[] = [
@@ -5348,6 +5272,18 @@ const normalizeUserTablePreference = (preference: ConfigurableTablePreference): 
   }
 }
 
+const normalizePlanTablePreference = (preference: ConfigurableTablePreference): ConfigurableTablePreference => {
+  const preferredOrder = ['name', 'extraQuotaGb', 'durationDays', 'priceYuan', 'enabled', 'sortOrder', 'code', 'description', 'actions']
+  const validKeys = new Set(preferredOrder)
+  return {
+    // 套餐是固定的运营表格，避免历史拖拽偏好把“空间”挪到操作列后面。
+    columnOrder: preferredOrder,
+    hiddenColumns: (preference.hiddenColumns || []).filter(key => validKeys.has(key) && key !== 'actions'),
+    sortKey: validKeys.has(preference.sortKey || '') ? preference.sortKey : null,
+    sortDirection: preference.sortDirection || null
+  }
+}
+
 const settingsQuotaView = reactive({
   defaultUserQuotaGb: 0,
   defaultVipExtraQuotaGb: 0
@@ -6376,14 +6312,14 @@ const ensureTabDataLoaded = async (tab: SuperAdminTabKey, force = false) => {
       break
     case 'vip':
       tasks.push(
-        { label: 'VIP套餐', loader: loadVipPlans },
+        { label: '套餐', loader: loadVipPlans },
         { label: '用户管理', loader: loadUsers },
         { label: '概览', loader: loadOverview }
       )
       break
     case 'vipOrders':
       tasks.push(
-        { label: 'VIP订单', loader: loadVipOrders },
+        { label: '订单', loader: loadVipOrders },
         { label: '续费预演', loader: loadVipRenewalPreview }
       )
       break
@@ -6462,6 +6398,9 @@ const getTablePreference = (key: string): ConfigurableTablePreference => {
   if (key === 'users') {
     return normalizeUserTablePreference(normalized)
   }
+  if (key === 'vipPlans') {
+    return normalizePlanTablePreference(normalized)
+  }
   return normalized
 }
 
@@ -6471,7 +6410,11 @@ const persistTablePreferences = async () => {
 }
 
 const updateTablePreference = (key: string, preference: ConfigurableTablePreference) => {
-  const normalizedPreference = key === 'users' ? normalizeUserTablePreference(preference) : preference
+  const normalizedPreference = key === 'users'
+    ? normalizeUserTablePreference(preference)
+    : key === 'vipPlans'
+      ? normalizePlanTablePreference(preference)
+      : preference
   tablePreferences.value = {
     ...tablePreferences.value,
     [key]: {
@@ -7160,7 +7103,7 @@ const resetNewVipPlan = () => {
     priceYuan: 0,
     planCategory: 'STANDARD',
     quotaGrantMode: 'FIXED_TERM',
-    stackingMode: 'REPLACE_OR_EXTEND',
+    stackingMode: 'INDEPENDENT',
     enabled: true,
     sortOrder: 100
   })
@@ -7184,9 +7127,9 @@ const createVipPlan = async () => {
     } as any)
     resetNewVipPlan()
     await Promise.all([loadVipPlans(), loadUsers(), loadOverview()])
-    showMessage('VIP 套餐已创建')
+    showMessage('套餐已创建')
   } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '创建 VIP 套餐失败', 'error')
+    showMessage(error?.response?.data?.error || error?.message || '创建套餐失败', 'error')
   } finally {
     savingVipPlanId.value = null
   }
@@ -7209,9 +7152,9 @@ const saveVipPlan = async (plan: VipPlanSummary) => {
       sortOrder: plan.sortOrder
     } as any)
     await Promise.all([loadVipPlans(), loadUsers(), loadOverview()])
-    showMessage(`VIP 套餐 ${plan.name} 已更新`)
+    showMessage(`套餐 ${plan.name} 已更新`)
   } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '保存 VIP 套餐失败', 'error')
+    showMessage(error?.response?.data?.error || error?.message || '保存套餐失败', 'error')
   } finally {
     savingVipPlanId.value = null
   }
@@ -7354,9 +7297,9 @@ const createVipOrder = async () => {
       remark: ''
     })
     await Promise.all([loadVipOrders(), loadUsers(), loadOverview(), loadVipRenewalPreview()])
-    showMessage('VIP 订单已创建')
+    showMessage('订单已创建')
   } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '创建 VIP 订单失败', 'error')
+    showMessage(error?.response?.data?.error || error?.message || '创建订单失败', 'error')
   } finally {
     savingVipOrderId.value = null
   }
@@ -7382,9 +7325,9 @@ const saveVipOrder = async (order: VipOrderSummary) => {
       remark: order.remark
     } as any)
     await Promise.all([loadVipOrders(), loadUsers(), loadOverview(), loadVipRenewalPreview()])
-    showMessage(`VIP 订单 ${order.orderNo} 已更新`)
+    showMessage(`订单 ${order.orderNo} 已更新`)
   } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '保存 VIP 订单失败', 'error')
+    showMessage(error?.response?.data?.error || error?.message || '保存订单失败', 'error')
   } finally {
     savingVipOrderId.value = null
   }

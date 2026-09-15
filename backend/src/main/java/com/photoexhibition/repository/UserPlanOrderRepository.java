@@ -18,6 +18,8 @@ public interface UserPlanOrderRepository extends JpaRepository<UserPlanOrder, Lo
 
     List<UserPlanOrder> findTop20ByUserIdOrderByCreatedAtDesc(Long userId);
 
+    List<UserPlanOrder> findByUserIdAndStatusIn(Long userId, List<String> statuses);
+
     Page<UserPlanOrder> findByAutoRenewEnabledTrueOrderByCreatedAtDesc(Pageable pageable);
 
     Page<UserPlanOrder> findByUserIdAndAutoRenewEnabledTrueOrderByCreatedAtDesc(Long userId, Pageable pageable);

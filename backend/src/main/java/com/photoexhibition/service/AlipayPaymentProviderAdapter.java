@@ -66,6 +66,8 @@ public class AlipayPaymentProviderAdapter extends AbstractPaymentProviderAdapter
         if (canSignWithPrivateKey(settings.getPrivateKey())) {
             String sign = signSha256WithRsaBase64(settings.getPrivateKey(), signingContent);
             formFields.put("sign", sign);
+            payload.put("requestBodyForm", sanitizeFormFields(formFields));
+            payload.put("requestBodyEncoded", toFormUrlEncoded(sanitizeFormFields(formFields)));
             payload.put("signatureReady", true);
             payload.put("signaturePreview", sign);
         } else {

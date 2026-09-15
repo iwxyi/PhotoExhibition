@@ -5,12 +5,14 @@ import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.entity.VipPlan;
 import com.photoexhibition.repository.PhotoRepository;
 import com.photoexhibition.repository.UserAccountRepository;
+import com.photoexhibition.repository.UserPlanOrderRepository;
 import com.photoexhibition.repository.VipPlanRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -19,6 +21,7 @@ public class UserStorageService {
     private final UserAccountRepository userAccountRepository;
     private final PhotoRepository photoRepository;
     private final VipPlanRepository vipPlanRepository;
+    private final UserPlanOrderRepository userPlanOrderRepository;
 
     public void ensureQuotaAvailable(UserAccount user, long incomingBytes) {
         if (user == null || incomingBytes <= 0) {
@@ -73,16 +76,19 @@ public class UserStorageService {
     }
 
     public long resolvePlanQuotaBytes(UserAccount user) {
-        if (user == null || user.getCurrentVipPlanId() == null) {
+        if (user == null || user.getId() == null) {
             return 0L;
         }
-        if (user.getVipExpireAt() != null && user.getVipExpireAt().isBefore(LocalDateTime.now())) {
-            return 0L;
-        }
-        VipPlan plan = vipPlanRepository.findById(user.getCurrentVipPlanId()).orElse(null);
-        if (plan == null || !Boolean.TRUE.equals(plan.getEnabled())) {
-            return 0L;
-        }
-        return plan.getExtraQuotaBytes() == null ? 0L : Math.max(0L, plan.getExtraQuotaBytes());
+        LocalDateTime now = LocalDateTime.now();
+        return userPlanOrderRepository.findByUserIdAndStatusIn(user.getId(), List.of("PAID", "ACTIVE")).stream()
+            // 续费订单延长原套餐有效期，不重复发放一份容量
+            .filter(order -> !"RENEWAL".equalsIgnoreCase(order.getChangeType()))
+            .filter(order -> order.getExpireAt() == null || order.getExpireAt().isAfter(now))
+            .mapToLong(order -> vipPlanRepository.findById(order.getVipPlanId())
+                .filter(plan -> Boolean.TRUE.equals(plan.getEnabled()))
+                .map(VipPlan::getExtraQuotaBytes)
+                .orElse(0L))
+            .filter(value -> value > 0L)
+            .sum();
     }
 }

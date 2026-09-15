@@ -29,18 +29,15 @@ public class VipPlanChangePolicyService {
         if (!isSupportedPlan(targetPlan)) {
             return blocked("当前版本仅支持标准固定时长容量套餐");
         }
-        if (currentPlan != null && !isSupportedPlan(currentPlan)) {
-            return blocked("当前已有套餐属于活动/永久容量等扩展类型，暂不支持在线更换");
-        }
+        // 容量套餐是独立权益包：每笔成功订单各自持有容量与有效期，
+        // 不再以“当前套餐”替换或折抵已有套餐，配额由有效订单汇总。
+        return purchase(targetPlan, effectiveNow);
 
+        /*
         boolean hasActiveCurrentPlan = user != null
             && currentPlan != null
             && currentExpireAt != null
             && currentExpireAt.isAfter(effectiveNow);
-
-        if (!hasActiveCurrentPlan) {
-            return purchase(targetPlan, effectiveNow);
-        }
 
         long currentQuotaBytes = Math.max(0L, currentPlan.getExtraQuotaBytes() == null ? 0L : currentPlan.getExtraQuotaBytes());
         long targetQuotaBytes = Math.max(0L, targetPlan.getExtraQuotaBytes() == null ? 0L : targetPlan.getExtraQuotaBytes());
@@ -98,6 +95,7 @@ public class VipPlanChangePolicyService {
             .remainingValueCycles(remainingCycles.doubleValue())
             .effectiveExpireAt(effectiveNow.plusDays(targetDurationDays))
             .build();
+        */
     }
 
     public Map<String, Object> toMap(PlanChangeDecision decision) {
@@ -121,7 +119,7 @@ public class VipPlanChangePolicyService {
         return PlanChangeDecision.builder()
             .allowed(true)
             .action("PURCHASE")
-            .reason("当前无有效同类套餐，可直接购买")
+            .reason("独立容量套餐，可与账号默认容量及其他有效套餐叠加")
             .targetPlanId(targetPlan.getId())
             .payableAmountFen(targetPriceFen)
             .originalAmountFen(targetPriceFen)

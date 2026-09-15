@@ -55,6 +55,22 @@ public class UserVipService {
         resp.put("currentVipPlanDurationDays", currentPlan != null ? currentPlan.getDurationDays() : null);
         resp.put("currentVipPlanCategory", currentPlan != null ? currentPlan.getPlanCategory() : null);
         resp.put("currentVipQuotaGrantMode", currentPlan != null ? currentPlan.getQuotaGrantMode() : null);
+        resp.put("storageAvailableBytes", Math.max(0L,
+            userStorageService.getEffectiveQuotaBytes(user) - defaultLong(user.getStorageUsedBytes())));
+        resp.put("storageFull", defaultLong(user.getStorageUsedBytes()) >= userStorageService.getEffectiveQuotaBytes(user));
+        resp.put("activePackages", userPlanOrderRepository.findByUserIdAndStatusIn(user.getId(), List.of("PAID", "ACTIVE")).stream()
+            .filter(order -> !"RENEWAL".equalsIgnoreCase(order.getChangeType()))
+            .map(order -> {
+                VipPlan plan = vipPlanRepository.findById(order.getVipPlanId()).orElse(null);
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("orderId", order.getId());
+                item.put("orderNo", order.getOrderNo());
+                item.put("planName", plan == null ? null : plan.getName());
+                item.put("quotaBytes", plan == null ? 0L : defaultLong(plan.getExtraQuotaBytes()));
+                item.put("expireAt", order.getExpireAt());
+                item.put("active", order.getExpireAt() == null || order.getExpireAt().isAfter(LocalDateTime.now()));
+                return item;
+            }).collect(Collectors.toList()));
         PaymentConfigService.PaymentResolvedSettings paymentSettings = paymentConfigService.getResolvedSettings();
         resp.put("paymentEnabled", paymentSettings.isEnabled());
         resp.put("paymentMockEnabled", paymentSettings.isMockEnabled());
