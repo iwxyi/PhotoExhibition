@@ -75,6 +75,16 @@ public class VipOrderAdminService {
             throw new RuntimeException(resolveRefundReadinessMessage(preview));
         }
 
+        if (providerType == PaymentProviderType.ALIPAY) {
+            Map<String, Object> gatewayResult = paymentRefundService.executeAlipayRefund(order, effectiveRefund);
+            payload.put("status", "REFUNDED");
+            payload.put("source", "ALIPAY_API");
+            payload.put("gatewayResult", gatewayResult);
+            return vipOrderLifecycleService.markOrderRefunded(
+                order, providerType, order.getExternalTradeNo(), effectiveRefund, payload, LocalDateTime.now()
+            );
+        }
+
         payload.put("status", "REQUESTED");
         payload.put("source", "SUPER_ADMIN_MANUAL_LIVE");
         payload.put("refundPreview", preview);

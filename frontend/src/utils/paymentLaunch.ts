@@ -22,12 +22,13 @@ export function launchPaymentInitiation(
   if (!initiation?.launchUrl) {
     throw new Error('缺少支付发起地址')
   }
-  const target = options?.target || '_self'
+  const target = options?.target || '_blank'
 
   if (initiation.actionType === 'REDIRECT_FORM') {
     const form = document.createElement('form')
     form.method = initiation.httpMethod || 'POST'
     form.action = initiation.launchUrl
+    form.acceptCharset = 'UTF-8'
     form.target = target
     form.style.display = 'none'
     Object.entries(initiation.formFields || {}).forEach(([key, value]) => appendField(form, key, value))

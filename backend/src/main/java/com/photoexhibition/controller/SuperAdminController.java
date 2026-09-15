@@ -381,9 +381,12 @@ public class SuperAdminController {
                                        @RequestParam(required = false) Long userId,
                                        @RequestParam(required = false) Boolean autoRenewEnabled,
                                        @RequestParam(required = false) Boolean dueForRenewal,
+                                       @RequestParam(required = false) Long vipPlanId,
+                                       @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String keyword,
                                        @RequestParam(required = false) Integer page,
                                        @RequestParam(required = false) Integer size) {
-        return handle(authorization, () -> superAdminService.listVipOrders(userId, page, size, autoRenewEnabled, dueForRenewal));
+        return handle(authorization, () -> superAdminService.listVipOrders(userId, page, size, autoRenewEnabled, dueForRenewal, vipPlanId, status, keyword));
     }
 
     @GetMapping("/vip-orders/by-order-no")

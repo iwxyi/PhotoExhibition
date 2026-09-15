@@ -49,7 +49,7 @@ public class UserPlanOrder {
     @Column(name = "payment_provider_type", length = 30)
     private String paymentProviderType;
 
-    @Column(name = "external_trade_no", length = 128)
+    @Column(name = "external_trade_no", unique = true, length = 128)
     private String externalTradeNo;
 
     @Column(name = "gateway_status", length = 40)

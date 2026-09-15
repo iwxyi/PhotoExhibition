@@ -18,6 +18,7 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -57,8 +58,12 @@ public class PaymentCallbackService {
             resp.put("resolvedOrderNoSource", resolvedOrderNoSource);
             return resp;
         }
-        UserPlanOrder order = userPlanOrderRepository.findByOrderNo(orderNo)
+        // The pessimistic lookup serializes real callback deliveries.  The plain fallback is
+        // only reached when no row exists (and keeps repository substitutes compatible).
+        UserPlanOrder order = userPlanOrderRepository.findByOrderNoForUpdate(orderNo)
+            .or(() -> userPlanOrderRepository.findByOrderNo(orderNo))
             .orElseThrow(() -> new RuntimeException("VIP 订单不存在"));
+        validateProviderAndTransaction(providerType, payload, settings, order);
         String status = adapter.extractOrderStatus(payload);
         if ("UNKNOWN".equals(status)) {
             Map<String, Object> resp = new LinkedHashMap<>();
@@ -482,10 +487,6 @@ public class PaymentCallbackService {
         if (Boolean.TRUE.equals(payload.get("mock")) && settings.isMockEnabled()) {
             return VerificationResult.ok(mode, "Mock 模式已放行支付回调");
         }
-        if (Boolean.TRUE.equals(payload.get("verified")) || Boolean.TRUE.equals(payload.get("signatureVerified"))) {
-            return VerificationResult.ok(mode, "回调已由上游网关适配器完成验签");
-        }
-
         switch (mode) {
             case "HMAC":
                 return verifyHmac(providerType, payload, settings);
@@ -498,6 +499,41 @@ public class PaymentCallbackService {
             case "AUTO":
             default:
                 return VerificationResult.fail("AUTO", "无法自动推断可用验签方式，请补充支付密钥或显式指定验签模式");
+        }
+    }
+
+    private void validateProviderAndTransaction(PaymentProviderType providerType,
+                                                Map<String, Object> payload,
+                                                PaymentConfigService.PaymentResolvedSettings settings,
+                                                UserPlanOrder order) {
+        String expectedProvider = order.getPaymentProviderType();
+        if (expectedProvider != null && !expectedProvider.isBlank()
+            && !providerType.name().equalsIgnoreCase(expectedProvider)) {
+            throw new RuntimeException("支付渠道与订单不匹配");
+        }
+        if (providerType != PaymentProviderType.ALIPAY || settings.isMockEnabled() && Boolean.TRUE.equals(payload.get("mock"))) {
+            return;
+        }
+        String appId = stringValue(payload.get("app_id"), null);
+        if (appId == null || !appId.equals(settings.getAppId())) {
+            throw new RuntimeException("支付宝回调 AppId 校验失败");
+        }
+        String tradeNo = stringValue(payload.get("trade_no"), null);
+        if (tradeNo == null || tradeNo.isBlank()) {
+            throw new RuntimeException("支付宝回调缺少交易号");
+        }
+        if (order.getExternalTradeNo() != null && !order.getExternalTradeNo().isBlank()
+            && !order.getExternalTradeNo().equals(tradeNo)) {
+            throw new RuntimeException("支付宝交易号与订单记录不一致");
+        }
+        String totalAmount = stringValue(payload.get("total_amount"), null);
+        try {
+            BigDecimal expected = BigDecimal.valueOf(order.getAmountFen() == null ? 0 : order.getAmountFen(), 2);
+            if (totalAmount == null || new BigDecimal(totalAmount).compareTo(expected) != 0) {
+                throw new RuntimeException("支付宝回调金额与订单金额不一致");
+            }
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("支付宝回调金额格式不合法");
         }
     }
 
@@ -732,9 +768,6 @@ public class PaymentCallbackService {
                                          PaymentConfigService.PaymentResolvedSettings settings) {
         if (settings.getPublicKey() == null || settings.getPublicKey().isBlank()) {
             return VerificationResult.fail("RSA", "缺少 paymentPublicKey，无法执行 RSA 验签");
-        }
-        if (Boolean.TRUE.equals(payload.get("signatureVerified"))) {
-            return VerificationResult.ok("RSA", "RSA 验签结果由上游适配器确认通过");
         }
         String rawSignature = firstNonBlank(
             stringValue(payload.get("signature"), null),

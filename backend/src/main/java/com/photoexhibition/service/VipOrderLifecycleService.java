@@ -38,6 +38,13 @@ public class VipOrderLifecycleService {
         if (order == null) {
             throw new RuntimeException("VIP 订单不存在");
         }
+        String currentStatus = order.getStatus() == null ? "" : order.getStatus().trim().toUpperCase();
+        if ("PAID".equals(currentStatus) || "ACTIVE".equals(currentStatus)) {
+            return order;
+        }
+        if (!"CREATED".equals(currentStatus)) {
+            throw new RuntimeException("当前订单状态不可标记为已支付");
+        }
         order.setStatus("PAID");
         order.setGatewayStatus("PAID");
         order.setPaymentProviderType(providerType == null ? null : providerType.name());
@@ -68,6 +75,13 @@ public class VipOrderLifecycleService {
         if (order == null) {
             throw new RuntimeException("VIP 订单不存在");
         }
+        String currentStatus = order.getStatus() == null ? "" : order.getStatus().trim().toUpperCase();
+        if ("CANCELLED".equals(currentStatus) || "CANCELED".equals(currentStatus)) {
+            return order;
+        }
+        if (!"CREATED".equals(currentStatus)) {
+            throw new RuntimeException("已支付订单不能被支付关闭通知覆盖");
+        }
         order.setStatus("CANCELLED");
         order.setGatewayStatus("CANCELLED");
         order.setPaymentProviderType(providerType == null ? null : providerType.name());
@@ -93,6 +107,13 @@ public class VipOrderLifecycleService {
                                            LocalDateTime refundedAt) {
         if (order == null) {
             throw new RuntimeException("VIP 订单不存在");
+        }
+        String currentStatus = order.getStatus() == null ? "" : order.getStatus().trim().toUpperCase();
+        if ("REFUNDED".equals(currentStatus)) {
+            return order;
+        }
+        if (!"PAID".equals(currentStatus) && !"ACTIVE".equals(currentStatus)) {
+            throw new RuntimeException("当前订单状态不可标记为已退款");
         }
         order.setStatus("REFUNDED");
         order.setGatewayStatus("REFUNDED");

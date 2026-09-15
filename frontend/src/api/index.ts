@@ -1306,8 +1306,8 @@ export const superAdminApi = {
   getVipPlans: () => api.get<{ vipPlans: VipPlanSummary[] }>('/admin/super-admin/vip-plans'),
   createVipPlan: (data: Partial<VipPlanSummary>) => api.post<VipPlanSummary>('/admin/super-admin/vip-plans', data),
   updateVipPlan: (planId: number, data: Partial<VipPlanSummary>) => api.put<VipPlanSummary>(`/admin/super-admin/vip-plans/${planId}`, data),
-  getVipOrders: (userId?: number | null, page = 0, size = 20, autoRenewEnabled?: boolean, dueForRenewal?: boolean) =>
-    api.get<PageResponse<VipOrderSummary>>('/admin/super-admin/vip-orders', { params: { userId: userId ?? undefined, page, size, autoRenewEnabled: autoRenewEnabled || undefined, dueForRenewal: dueForRenewal || undefined } }),
+  getVipOrders: (userId?: number | null, page = 0, size = 20, autoRenewEnabled?: boolean, dueForRenewal?: boolean, filters?: { vipPlanId?: number | null; status?: string; keyword?: string }) =>
+    api.get<PageResponse<VipOrderSummary>>('/admin/super-admin/vip-orders', { params: { userId: userId ?? undefined, page, size, autoRenewEnabled: autoRenewEnabled || undefined, dueForRenewal: dueForRenewal || undefined, vipPlanId: filters?.vipPlanId ?? undefined, status: filters?.status || undefined, keyword: filters?.keyword || undefined } }),
   getVipOrderByOrderNo: (orderNo: string) =>
     api.get<VipOrderSummary>('/admin/super-admin/vip-orders/by-order-no', { params: { orderNo } }),
   getVipRenewalPreview: (limit = 20) =>

@@ -1546,15 +1546,12 @@
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 class="text-lg font-light">支付设置</h2>
-            <p class="text-xs admin-table-faint">先支持支付宝、微信支付、Stripe、PayPal 与自定义 Webhook 的统一配置骨架，后续再接真实下单与回调。</p>
+            <p class="text-xs admin-table-faint">选择支付平台后应用推荐设置，再填写该平台要求的凭证并保存。</p>
           </div>
-          <button
-            class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
-            :disabled="savingSettings"
-            @click="applyPaymentPreset"
-          >
-            应用平台推荐配置
-          </button>
+          <div class="flex gap-2">
+            <button class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingSettings" @click="applyPaymentPreset">应用推荐设置</button>
+            <button class="admin-button-primary px-4 py-2 rounded-lg disabled:opacity-60 text-sm" :disabled="savingSettings" @click="saveSettings">{{ savingSettings ? '保存中...' : '保存支付设置' }}</button>
+          </div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <label class="space-y-2">
@@ -1628,27 +1625,6 @@
             />
             <span class="text-xs admin-table-faint">{{ field.description }}</span>
           </label>
-          <div class="lg:col-span-2 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap admin-super-admin-preview-card">
-            <div class="text-xs admin-table-faint">
-              推荐优先使用系统统一回调入口，减少各支付平台分别拼接返回页地址的出错概率。
-            </div>
-            <div class="flex gap-2 flex-wrap">
-              <button
-                type="button"
-                class="admin-button-soft px-3 py-2 rounded-lg text-xs"
-                @click="fillPaymentCallbackUrls"
-              >
-                一键填充统一回调地址
-              </button>
-              <button
-                type="button"
-                class="admin-button-soft px-3 py-2 rounded-lg text-xs"
-                @click="copyPaymentCallbackUrls"
-              >
-                复制统一回调地址
-              </button>
-            </div>
-          </div>
           <label class="space-y-2">
             <div class="flex items-center justify-between gap-3">
               <span class="text-sm admin-table-muted">验签模式</span>
@@ -1668,15 +1644,7 @@
             <span class="text-xs admin-table-faint">{{ paymentVerificationModeDescription }}</span>
           </label>
         </div>
-        <div class="rounded-xl px-4 py-3 text-xs admin-table-muted space-y-1 admin-super-admin-preview-card">
-          <div>推荐接口地址：{{ paymentPreset.apiBaseUrl }}</div>
-          <div>{{ paymentPreset.hint }}</div>
-          <div>当前验签模式：{{ settings.paymentVerificationMode }}，后续真实网关接入时会按此模式补齐验签链路。</div>
-          <div>建议拉起方式：{{ paymentProviderMeta.initiationMode }}</div>
-          <div>建议退款方式：{{ paymentProviderMeta.refundMode }}</div>
-          <div v-if="paymentProviderMeta.capabilityTags.length">平台能力：{{ paymentProviderMeta.capabilityTags.join('、') }}</div>
-        </div>
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4">
           <div class="rounded-xl border px-4 py-4 space-y-2 text-xs"
             :class="paymentConfigAssessment.liveModeReady
               ? 'border-emerald-400/30 bg-emerald-500/5 text-emerald-100'
@@ -1691,23 +1659,6 @@
             <div v-if="paymentConfigAssessment.verificationHints.length">
               验签建议：{{ paymentConfigAssessment.verificationHints.join('；') }}
             </div>
-          </div>
-          <div class="rounded-xl px-4 py-4 space-y-2 text-xs admin-table-muted admin-super-admin-preview-card">
-            <div class="text-sm admin-super-admin-modal-title">统一回调建议</div>
-            <div>推荐异步回调：{{ paymentUnifiedUrls.notifyUrl || '—' }}</div>
-            <div>推荐完成返回：{{ paymentUnifiedUrls.returnUrl || '—' }}</div>
-            <div :class="paymentConfigAssessment.notifyMatches ? 'text-emerald-200' : 'text-amber-200'">
-              当前回调地址：{{ paymentConfigAssessment.notifyMatches ? '已使用统一入口' : '未使用统一入口' }}
-            </div>
-            <div :class="paymentConfigAssessment.returnMatches ? 'text-emerald-200' : 'text-amber-200'">
-              当前返回地址：{{ paymentConfigAssessment.returnMatches ? '已使用统一入口' : '未使用统一入口' }}
-            </div>
-          </div>
-        </div>
-        <div class="rounded-xl px-4 py-4 text-xs admin-table-muted space-y-2 admin-super-admin-preview-card">
-          <div class="text-sm admin-super-admin-modal-title">接入步骤建议</div>
-          <div v-for="(step, index) in paymentProviderMeta.integrationSteps" :key="`${settings.paymentProviderType}-${index}`">
-            {{ index + 1 }}. {{ step }}
           </div>
         </div>
       </section>
@@ -2205,6 +2156,9 @@
             <button class="admin-button-warning px-4 py-2 rounded-lg text-sm disabled:opacity-60" :disabled="executingVipRenewals" @click="executeVipRenewals">
               {{ executingVipRenewals ? '执行中...' : '执行续费建单' }}
             </button>
+            <button class="admin-button-primary px-4 py-2 rounded-lg text-sm" @click="showVipOrderCreateModal = true">
+              + 新增订单
+            </button>
           </div>
         </div>
 
@@ -2242,72 +2196,26 @@
             </div>
           </div>
           <div class="text-xs admin-table-faint">
-            已自动切换到该订单所属用户并刷新订单列表，便于继续在本页编辑、发起、Mock、取消或退款。
+            已自动切换到该订单所属用户并刷新订单列表，便于继续在本页编辑、发起支付、模拟支付、取消或退款。
           </div>
         </div>
 
-        <div class="rounded-2xl p-5 space-y-4 admin-super-admin-warning-box">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="text-sm">自动续费预演</div>
-              <div class="text-xs">{{ vipRenewalPreview?.message || '当前仅做干跑预演，不会真实扣款，但会评估子单支付是否可继续发起。' }}</div>
+        <details class="rounded-xl px-4 py-3 admin-super-admin-warning-box">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-sm">
+            <span>自动续费预演</span>
+            <span class="text-xs admin-table-faint">已开启 {{ vipRenewalPreview?.activeAutoRenewOrderCount ?? 0 }} · 待续费 {{ vipRenewalPreview?.dueCount ?? 0 }} · 本次 {{ vipRenewalPreview?.returnedCount ?? 0 }}</span>
+          </summary>
+          <div class="mt-3 space-y-2 border-t pt-3 admin-super-admin-storage-divider">
+            <div v-for="candidate in vipRenewalPreview?.content || []" :key="candidate.orderId" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs admin-table-faint">
+              <span class="font-mono admin-table-muted">{{ candidate.orderNo }}</span>
+              <span>{{ candidate.nickname || candidate.username || `用户 ${candidate.userId}` }}</span>
+              <span>{{ candidate.vipPlanName || candidate.vipPlanCode || `套餐 ${candidate.vipPlanId}` }}</span>
+              <span>¥{{ Number(candidate.amountYuan || 0).toFixed(2) }}</span>
+              <span :class="candidate.renewalBlocked ? 'text-amber-200' : 'text-emerald-200'">{{ candidate.renewalMessage || (candidate.renewalBlocked ? '当前被阻塞' : '可创建续费订单') }}</span>
             </div>
-            <div class="text-xs">
-              {{ vipRenewalPreview?.generatedAt ? `生成时间：${formatDate(vipRenewalPreview.generatedAt)}` : '尚未生成' }}
-            </div>
+            <div v-if="!vipRenewalPreview?.content?.length" class="text-xs admin-table-faint">当前没有待续费订单候选。</div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div class="rounded-xl p-4 admin-super-admin-stat-card">
-              <div class="admin-table-faint text-xs">开启自动续费订单</div>
-              <div class="mt-2 text-xl">{{ vipRenewalPreview?.activeAutoRenewOrderCount ?? 0 }}</div>
-            </div>
-            <div class="rounded-xl p-4 admin-super-admin-stat-card">
-              <div class="admin-table-faint text-xs">待续费候选</div>
-              <div class="mt-2 text-xl">{{ vipRenewalPreview?.dueCount ?? 0 }}</div>
-            </div>
-            <div class="rounded-xl p-4 admin-super-admin-stat-card">
-              <div class="admin-table-faint text-xs">本次返回</div>
-              <div class="mt-2 text-xl">{{ vipRenewalPreview?.returnedCount ?? 0 }}</div>
-            </div>
-          </div>
-          <div v-if="vipRenewalPreview?.content?.length" class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <article v-for="candidate in vipRenewalPreview.content" :key="candidate.orderId" class="rounded-xl p-4 space-y-2 text-sm admin-super-admin-preview-item">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div>{{ candidate.orderNo }}</div>
-                  <div class="text-xs admin-table-faint">{{ candidate.nickname || candidate.username || `用户 ${candidate.userId}` }} · {{ candidate.vipPlanName || candidate.vipPlanCode || `套餐 ${candidate.vipPlanId}` }}</div>
-                </div>
-                <span class="text-xs px-2 py-1 rounded-full border border-amber-400/30 text-amber-100">{{ candidate.hoursOverdue }}h</span>
-              </div>
-              <div class="grid grid-cols-2 gap-2 text-xs admin-table-faint">
-                <div>状态：{{ candidate.status }}</div>
-                <div>金额：¥{{ Number(candidate.amountYuan || 0).toFixed(2) }}</div>
-                <div>下次续费：{{ formatDate(candidate.nextRenewalAt) }}</div>
-                <div>动作：{{ candidate.renewalAction }}</div>
-                <div>支付平台：{{ candidate.paymentProviderLabel || '-' }}</div>
-                <div>支付就绪：{{ candidate.paymentEnabled ? (candidate.paymentMockMode ? 'Mock 可发起' : (candidate.paymentLiveModeReady ? 'Live Ready' : '配置未就绪')) : '未启用' }}</div>
-              </div>
-              <div
-                class="text-xs"
-                :class="candidate.renewalBlocked ? 'text-amber-200' : 'text-emerald-200'"
-              >
-                {{ candidate.renewalMessage || (candidate.renewalBlocked ? '当前被阻塞' : '可创建续费订单') }}
-              </div>
-              <div v-if="candidate.paymentMissingFields?.length" class="text-xs text-amber-200">
-                缺失字段：{{ candidate.paymentMissingFields.join('、') }}
-              </div>
-              <div v-if="candidate.paymentReadinessWarnings?.length" class="text-xs admin-table-faint">
-                告警：{{ candidate.paymentReadinessWarnings.join('；') }}
-              </div>
-              <div v-if="candidate.existingRenewalOrderNo" class="text-xs admin-table-faint">
-                已有关联续费单：{{ candidate.existingRenewalOrderNo }}
-                <span v-if="candidate.existingRenewalOrderStatus"> · {{ candidate.existingRenewalOrderStatus }}</span>
-                <span v-if="candidate.existingRenewalOrderCreatedAt"> · {{ formatDate(candidate.existingRenewalOrderCreatedAt) }}</span>
-              </div>
-            </article>
-          </div>
-          <div v-else class="text-sm admin-table-faint">当前没有待续费订单候选。</div>
-        </div>
+        </details>
 
         <div v-if="vipRenewalExecution" class="rounded-2xl p-5 space-y-4 admin-super-admin-success-box">
           <div class="flex items-start justify-between gap-3">
@@ -2368,8 +2276,13 @@
           </div>
         </div>
 
-        <div class="rounded-2xl p-5 space-y-4 admin-super-admin-dashed-panel">
-          <div class="text-sm admin-super-admin-modal-title">新增手工订单</div>
+        <div v-if="showVipOrderCreateModal" class="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <button class="absolute inset-0 bg-black/60" aria-label="关闭新增订单弹窗" @click="showVipOrderCreateModal = false"></button>
+          <section class="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-4xl overflow-y-auto rounded-xl p-5 space-y-4 admin-super-admin-dashed-panel">
+          <div class="flex items-center justify-between gap-4">
+            <div class="text-base admin-super-admin-modal-title">新增订单</div>
+            <button class="admin-button-soft px-3 py-2 rounded-lg text-sm" @click="showVipOrderCreateModal = false">关闭</button>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">用户</span>
@@ -2392,18 +2305,18 @@
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">变更类型</span>
               <select v-model="newVipOrder.changeType" class="admin-input px-3 py-2 rounded-lg w-full">
-                <option value="PURCHASE">PURCHASE / 新购</option>
-                <option value="RENEWAL">RENEWAL / 续费</option>
-                <option value="UPGRADE">UPGRADE / 升配</option>
+                <option value="PURCHASE">新购</option>
+                <option value="RENEWAL">续费</option>
+                <option value="UPGRADE">升配</option>
               </select>
             </label>
             <label class="block space-y-1">
               <span class="text-[11px] admin-table-faint">订单状态</span>
               <select v-model="newVipOrder.status" class="admin-input px-3 py-2 rounded-lg w-full">
-                <option value="CREATED">CREATED</option>
-                <option value="PAID">PAID</option>
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="CANCELLED">CANCELLED</option>
+                <option value="CREATED">待支付</option>
+                <option value="PAID">已支付</option>
+                <option value="ACTIVE">生效中</option>
+                <option value="CANCELLED">已取消</option>
               </select>
             </label>
             <label class="block space-y-1">
@@ -2452,6 +2365,7 @@
               {{ savingVipOrderId === 0 ? '创建中...' : '新增订单' }}
             </button>
           </div>
+          </section>
         </div>
 
         <ConfigurableTable
@@ -2463,64 +2377,79 @@
           empty-text="暂无订单。"
           @update:preferences="updateTablePreference('vipOrders', $event)"
         >
-          <template #cell-order="{ row: order }">
-            <div class="space-y-1">
-              <div class="font-medium">{{ order.orderNo }}</div>
-              <div class="text-xs admin-table-faint">{{ order.nickname || order.username || '未知用户' }}</div>
-              <div class="text-xs admin-table-faint">{{ order.vipPlanName || order.vipPlanCode || '未知套餐' }}</div>
-              <div class="text-xs text-indigo-300">
-                类型：{{ vipOrderChangeTypeLabel(order.changeType) }}
-                <span v-if="order.sourceVipPlanId"> · 来源套餐 ID {{ order.sourceVipPlanId }}</span>
-              </div>
-              <select v-model="order.changeType" class="admin-input w-full px-3 py-2 rounded-lg text-xs">
-                <option value="PURCHASE">PURCHASE / 新购</option>
-                <option value="RENEWAL">RENEWAL / 续费</option>
-                <option value="UPGRADE">UPGRADE / 升配</option>
+          <template #toolbar-left>
+            <div class="flex flex-wrap items-center gap-2">
+              <input v-model.trim="vipOrderKeyword" type="search" class="admin-input w-40 px-3 py-1.5 rounded-lg text-xs" placeholder="订单号、来源或备注" @keyup.enter="applyVipOrderFilters" />
+              <select v-model="selectedVipOrderUserId" class="admin-input w-28 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
+                <option :value="null">全部用户</option>
+                <option v-for="user in users" :key="user.id" :value="user.id">{{ user.nickname || user.username }}</option>
               </select>
-              <input v-model.number="order.sourceVipPlanId" type="number" min="1" step="1" placeholder="来源套餐 ID（升配用）" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+              <select v-model="vipOrderPlanId" class="admin-input w-28 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
+                <option :value="null">全部套餐</option>
+                <option v-for="plan in vipPlans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
+              </select>
+              <select v-model="vipOrderStatus" class="admin-input w-24 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
+                <option value="">全部状态</option>
+                <option value="CREATED">待支付</option>
+                <option value="PAID">已支付</option>
+                <option value="ACTIVE">生效中</option>
+                <option value="CANCELLED">已取消</option>
+              </select>
+              <button class="admin-button-soft px-2.5 py-1.5 rounded-lg text-xs" @click="applyVipOrderFilters">筛选</button>
+              <button v-if="vipOrderKeyword || vipOrderPlanId || vipOrderStatus || selectedVipOrderUserId" class="admin-button-soft px-2.5 py-1.5 rounded-lg text-xs" @click="resetVipOrderFilters">清除</button>
+            </div>
+          </template>
+          <template #cell-order="{ row: order }">
+            <div class="space-y-1.5">
+              <div class="font-medium font-mono text-sm">{{ order.orderNo }}</div>
+              <div class="text-xs admin-table-muted">{{ order.nickname || order.username || '未知用户' }} · {{ order.vipPlanName || order.vipPlanCode || '未知套餐' }}</div>
+              <div class="flex items-center gap-2">
+                <select v-model="order.changeType" class="admin-input w-[4.75rem] flex-none px-2 py-1.5 rounded-lg text-xs">
+                  <option value="PURCHASE">新购</option>
+                  <option value="RENEWAL">续费</option>
+                  <option value="UPGRADE">升配</option>
+                </select>
+                <span v-if="order.sourceVipPlanId" class="shrink-0 text-xs text-indigo-300">来源套餐 #{{ order.sourceVipPlanId }}</span>
+              </div>
             </div>
           </template>
           <template #cell-amountYuan="{ row: order }">
-            <div class="space-y-2">
-              <input v-model.number="order.amountYuan" type="number" min="0" step="0.01" class="admin-input w-full px-3 py-2 rounded-lg" />
-              <input v-model="order.originalAmountYuan" type="number" min="0" step="0.01" placeholder="原价（元）" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
-              <input v-model="order.creditedAmountYuan" type="number" min="0" step="0.01" placeholder="抵扣（元）" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
-              <div class="text-xs admin-table-faint">
-                原价：¥{{ Number(order.originalAmountYuan || order.amountYuan || 0).toFixed(2) }}
-                <span class="block">抵扣：¥{{ Number(order.creditedAmountYuan || 0).toFixed(2) }}</span>
+            <div class="space-y-1.5">
+              <div class="font-medium tabular-nums">¥{{ Number(order.amountYuan || 0).toFixed(2) }}</div>
+              <div v-if="Number(order.originalAmountYuan || order.amountYuan || 0) !== Number(order.amountYuan || 0)" class="text-xs admin-table-faint">原价 ¥{{ Number(order.originalAmountYuan || 0).toFixed(2) }}</div>
+              <div v-if="Number(order.creditedAmountYuan || 0) > 0" class="text-xs text-emerald-300">已抵扣 ¥{{ Number(order.creditedAmountYuan || 0).toFixed(2) }}</div>
+              <div class="flex flex-col items-start gap-1">
+                <select v-model="order.status" class="rounded-full px-2 py-1 text-xs font-medium" :class="vipOrderStatusClass(order.status)">
+                  <option value="CREATED">待支付</option>
+                  <option value="PAID">已支付</option>
+                  <option value="ACTIVE">生效中</option>
+                  <option value="CANCELLED">已取消</option>
+                </select>
+                <label class="inline-flex cursor-pointer items-center gap-1 rounded-full bg-violet-500/15 px-2 py-1 text-xs text-violet-300 ring-1 ring-inset ring-violet-400/25">
+                  <input v-model="order.autoRenewEnabled" type="checkbox" class="h-3 w-3 rounded" /> 自动续费
+                </label>
               </div>
             </div>
           </template>
-          <template #cell-status="{ row: order }">
-            <select v-model="order.status" class="admin-input w-full px-3 py-2 rounded-lg">
-              <option value="CREATED">CREATED</option>
-              <option value="PAID">PAID</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="CANCELLED">CANCELLED</option>
-            </select>
-          </template>
           <template #cell-source="{ row: order }">
-            <input v-model="order.source" type="text" class="admin-input w-full px-3 py-2 rounded-lg" />
-          </template>
-          <template #cell-autoRenewEnabled="{ row: order }">
-            <label class="flex items-center gap-2 text-sm admin-table-muted">
-              <input v-model="order.autoRenewEnabled" type="checkbox" class="w-4 h-4 rounded" />
-              自动续费
-            </label>
+            <div class="space-y-1.5">
+              <input v-model="order.source" list="vip-order-source-options" type="text" class="admin-input w-full px-2 py-1.5 rounded-lg text-xs" placeholder="来源（可自定义）" />
+              <textarea v-model="order.remark" rows="2" class="admin-input w-full px-2 py-1.5 rounded-lg text-xs" placeholder="备注（可选）" />
+            </div>
           </template>
           <template #cell-timeline="{ row: order }">
-            <div class="space-y-2">
-              <input v-model="order.paidAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
-              <input v-model="order.nextRenewalAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
-              <input v-model="order.expireAt" type="datetime-local" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
+            <div class="space-y-1">
+              <label class="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-2 text-[11px] admin-table-faint"><span>支付时间</span><input v-model="order.paidAt" type="datetime-local" class="admin-input min-w-0 px-2 py-1 rounded-lg text-xs" /></label>
+              <label class="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-2 text-[11px] admin-table-faint"><span>下次续费</span><input v-model="order.nextRenewalAt" type="datetime-local" class="admin-input min-w-0 px-2 py-1 rounded-lg text-xs" /></label>
+              <label class="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-2 text-[11px] admin-table-faint"><span>到期时间</span><input v-model="order.expireAt" type="datetime-local" class="admin-input min-w-0 px-2 py-1 rounded-lg text-xs" /></label>
             </div>
           </template>
           <template #cell-payment="{ row: order }">
             <div class="space-y-1 text-xs admin-table-faint">
               <div>渠道：{{ paymentProviderLabel(order.paymentProviderType) }}</div>
-              <div>网关：{{ order.gatewayStatus || order.status || '-' }}</div>
-              <div>外部单号：{{ order.externalTradeNo || '-' }}</div>
-              <div>回调：{{ formatDate(order.paymentNotifiedAt) }}</div>
+              <div>状态：{{ paymentGatewayStatusLabel(order.gatewayStatus) }}</div>
+              <div v-if="order.externalTradeNo" class="truncate" :title="order.externalTradeNo">交易号：{{ order.externalTradeNo }}</div>
+              <div v-if="order.paymentNotifiedAt">回调：{{ formatDate(order.paymentNotifiedAt) }}</div>
             </div>
           </template>
           <template #cell-renewal="{ row: order }">
@@ -2552,56 +2481,46 @@
               <div>链路：{{ order.renewalChainType || '-' }}</div>
             </div>
           </template>
-          <template #cell-remark="{ row: order }">
-            <div class="space-y-2">
-              <textarea v-model="order.remark" rows="3" class="admin-input w-full px-3 py-2 rounded-lg text-xs" />
-              <textarea v-model="order.pricingDetailJson" rows="3" placeholder="定价明细 JSON（可选，用于记录升配折算细节）" class="admin-input w-full px-3 py-2 rounded-lg text-xs font-mono" />
-            </div>
-          </template>
           <template #cell-actions="{ row: order }">
-            <div class="grid grid-cols-2 gap-2 admin-super-admin-action-grid">
-              <button class="admin-button-soft px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="previewingVipOrderId === order.id" @click="previewVipOrderPayment(order)">
-                {{ previewingVipOrderId === order.id ? '生成中' : '预览' }}
+            <div class="flex flex-col items-center gap-1">
+              <button v-if="isVipOrderDirty(order)" class="admin-button-primary h-7 w-7 rounded-lg disabled:opacity-60 text-xs" :disabled="savingVipOrderId === order.id" title="保存修改" aria-label="保存修改" @click="saveVipOrder(order)">
+                {{ savingVipOrderId === order.id ? '…' : '✓' }}
               </button>
-              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="initiatingVipOrderId === order.id" @click="initiateVipOrderPayment(order)">
-                {{ initiatingVipOrderId === order.id ? '发起中' : '发起' }}
-              </button>
-              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="mockingVipOrderId === order.id" @click="mockPayVipOrder(order)">
-                {{ mockingVipOrderId === order.id ? '处理中' : 'Mock' }}
-              </button>
-              <button class="admin-button-warning px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="cancellingVipOrderId === order.id" @click="cancelVipOrder(order)">
-                {{ cancellingVipOrderId === order.id ? '处理中' : '取消' }}
-              </button>
-              <button class="admin-button-soft px-2 py-2 rounded-lg text-xs" @click="previewVipOrderRefund(order)">
-                退款预览
-              </button>
-              <button class="admin-button-danger px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="refundingVipOrderId === order.id" @click="refundVipOrder(order)">
-                {{ refundingVipOrderId === order.id ? '处理中' : '退款' }}
-              </button>
-              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="confirmingVipOrderRefundId === order.id || order.refundStatus !== 'REQUESTED'" @click="confirmVipOrderRefund(order)">
-                {{ confirmingVipOrderRefundId === order.id ? '处理中' : '确认退款' }}
-              </button>
-              <button class="admin-button-warning px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="failingVipOrderRefundId === order.id || order.refundStatus !== 'REQUESTED'" @click="markVipOrderRefundFailed(order)">
-                {{ failingVipOrderRefundId === order.id ? '处理中' : '退款失败' }}
-              </button>
-              <button class="admin-button-primary px-2 py-2 rounded-lg disabled:opacity-60 text-xs" :disabled="savingVipOrderId === order.id" @click="saveVipOrder(order)">
-                {{ savingVipOrderId === order.id ? '保存中' : '保存' }}
-              </button>
-              <router-link
-                :to="buildSuperAdminVipOrderRoute(order.orderNo)"
-                class="admin-button-soft px-2 py-2 rounded-lg text-xs text-center"
-              >
-                定位
-              </router-link>
-              <router-link
-                :to="buildPaymentResultRoute(order)"
-                class="admin-button-primary px-2 py-2 rounded-lg text-xs text-center"
-              >
-                结果页
-              </router-link>
+              <button class="admin-button-soft h-7 w-7 rounded-lg text-sm leading-none" title="更多操作" aria-label="更多操作" @click.stop="openVipOrderActionMenu(order, $event)">⋮</button>
             </div>
           </template>
         </ConfigurableTable>
+        <datalist id="vip-order-source-options">
+          <option value="USER_PURCHASE">用户购买</option>
+          <option value="AUTO_RENEW">自动续费</option>
+          <option value="SUPER_ADMIN_MANUAL">后台手工创建</option>
+          <option value="SUPER_ADMIN_MANUAL_MOCK">后台模拟支付</option>
+          <option value="SUPER_ADMIN_MANUAL_LIVE">后台人工退款</option>
+          <option value="ALIPAY_API">支付宝退款</option>
+          <option value="MIGRATION">数据迁移</option>
+        </datalist>
+        <Teleport to="body">
+        <div v-if="vipOrderActionMenu" class="fixed inset-0 z-[70]" @click="vipOrderActionMenu = null">
+          <section class="vip-order-action-menu absolute w-56 rounded-xl p-3 space-y-3 shadow-2xl" :style="vipOrderActionMenuStyle" @click.stop>
+            <div class="flex items-start justify-between gap-3">
+              <div><div class="font-mono text-xs">{{ vipOrderActionMenu.orderNo }}</div><div class="text-[11px] admin-table-faint">订单操作</div></div>
+              <button class="admin-button-soft px-2 py-1 rounded-lg text-xs" @click="vipOrderActionMenu = null">关闭</button>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5 text-xs">
+              <button class="admin-button-soft px-3 py-2 rounded-lg" :disabled="previewingVipOrderId === vipOrderActionMenu.id" @click="previewVipOrderPayment(vipOrderActionMenu); vipOrderActionMenu = null">支付预览</button>
+              <button class="admin-button-primary px-3 py-2 rounded-lg" :disabled="initiatingVipOrderId === vipOrderActionMenu.id" @click="initiateVipOrderPayment(vipOrderActionMenu); vipOrderActionMenu = null">发起支付</button>
+              <button class="admin-button-primary px-3 py-2 rounded-lg" :disabled="mockingVipOrderId === vipOrderActionMenu.id" @click="mockPayVipOrder(vipOrderActionMenu); vipOrderActionMenu = null">模拟支付</button>
+              <button class="admin-button-soft px-3 py-2 rounded-lg" @click="previewVipOrderRefund(vipOrderActionMenu); vipOrderActionMenu = null">退款预览</button>
+              <button class="admin-button-danger px-3 py-2 rounded-lg" :disabled="refundingVipOrderId === vipOrderActionMenu.id" @click="refundVipOrder(vipOrderActionMenu); vipOrderActionMenu = null">退款</button>
+              <button class="admin-button-warning px-3 py-2 rounded-lg" :disabled="cancellingVipOrderId === vipOrderActionMenu.id" @click="cancelVipOrder(vipOrderActionMenu); vipOrderActionMenu = null">取消订单</button>
+              <button v-if="vipOrderActionMenu.refundStatus === 'REQUESTED'" class="admin-button-primary px-3 py-2 rounded-lg" @click="confirmVipOrderRefund(vipOrderActionMenu); vipOrderActionMenu = null">确认退款</button>
+              <button v-if="vipOrderActionMenu.refundStatus === 'REQUESTED'" class="admin-button-warning px-3 py-2 rounded-lg" @click="markVipOrderRefundFailed(vipOrderActionMenu); vipOrderActionMenu = null">退款失败</button>
+              <router-link :to="buildSuperAdminVipOrderRoute(vipOrderActionMenu.orderNo)" class="admin-button-soft px-3 py-2 rounded-lg text-center" @click="vipOrderActionMenu = null">定位订单</router-link>
+              <router-link :to="buildPaymentResultRoute(vipOrderActionMenu)" class="admin-button-soft px-3 py-2 rounded-lg text-center" @click="vipOrderActionMenu = null">支付结果</router-link>
+            </div>
+          </section>
+        </div>
+        </Teleport>
         <div v-if="paymentPreview" class="rounded-2xl p-5 space-y-4 admin-super-admin-preview-card">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -2633,7 +2552,7 @@
               <div>用户：{{ paymentPreview.username || paymentPreview.userId }}</div>
               <div>套餐：{{ paymentPreview.vipPlanName || paymentPreview.vipPlanId }}</div>
               <div>已启用：{{ paymentPreview.enabled ? '是' : '否' }}</div>
-              <div>Mock 模式：{{ paymentPreview.mockEnabled ? '开启' : '关闭' }}</div>
+              <div>模拟支付：{{ paymentPreview.mockEnabled ? '开启' : '关闭' }}</div>
             </div>
           </div>
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -3475,6 +3394,7 @@ const savingProviderId = ref<number | null>(null)
 const testingProviderId = ref<number | null>(null)
 const savingVipPlanId = ref<number | null>(null)
 const savingVipOrderId = ref<number | null>(null)
+const showVipOrderCreateModal = ref(false)
 const runningMigration = ref(false)
 const previewingStorageMigration = ref(false)
 const executingStorageMigration = ref(false)
@@ -3717,6 +3637,13 @@ const showCreateStorageModal = ref(false)
 const originalStorageProviderPayloads = ref<Record<number, string>>({})
 const vipPlans = ref<VipPlanSummary[]>([])
 const vipOrders = ref<VipOrderSummary[]>([])
+const vipOrderSnapshots = reactive<Record<number, string>>({})
+const vipOrderActionMenu = ref<VipOrderSummary | null>(null)
+const vipOrderActionMenuPosition = reactive({ top: 0, left: 0 })
+const vipOrderActionMenuStyle = computed(() => ({
+  top: `${vipOrderActionMenuPosition.top}px`,
+  left: `${vipOrderActionMenuPosition.left}px`
+}))
 const focusedVipOrder = ref<VipOrderSummary | null>(null)
 const paymentPreview = ref<VipOrderPaymentPreview | null>(null)
 const paymentInitiation = ref<PaymentInitiationResponse | null>(null)
@@ -3769,6 +3696,9 @@ const vipOrdersPage = reactive({ page: 0, size: 20, totalElements: 0, totalPages
 const selectedVipOrderUserId = ref<number | null>(null)
 const vipOrderAutoRenewOnly = ref(false)
 const vipOrderDueOnly = ref(false)
+const vipOrderKeyword = ref('')
+const vipOrderPlanId = ref<number | null>(null)
+const vipOrderStatus = ref('')
 const newVipOrder = reactive<Partial<VipOrderSummary>>({
   userId: undefined,
   vipPlanId: undefined,
@@ -3778,7 +3708,7 @@ const newVipOrder = reactive<Partial<VipOrderSummary>>({
   changeType: 'PURCHASE',
   sourceVipPlanId: undefined,
   status: 'PAID',
-  source: 'MANUAL',
+  source: 'SUPER_ADMIN_MANUAL',
   paidAt: null,
   nextRenewalAt: null,
   autoRenewEnabled: false,
@@ -4129,20 +4059,17 @@ const vipPlanTableColumns: ConfigurableColumn[] = [
   { key: 'sortOrder', label: '排序', sortable: true, cellClass: 'min-w-[66px] w-[70px]' },
   { key: 'code', label: '编码', sortable: true, cellClass: 'min-w-[100px] w-[120px]' },
   { key: 'description', label: '说明', sortable: false, cellClass: 'min-w-[140px] w-[180px]' },
-  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[76px] w-[84px]' }
+  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[48px] w-[48px]' }
 ]
 
 const vipOrderTableColumns: ConfigurableColumn[] = [
-  { key: 'order', label: '订单', sortable: true, cellClass: 'min-w-[220px]' },
-  { key: 'amountYuan', label: '金额', sortable: true, cellClass: 'min-w-[120px]' },
-  { key: 'status', label: '状态', sortable: true, cellClass: 'min-w-[130px]' },
-  { key: 'source', label: '来源', sortable: true, cellClass: 'min-w-[140px]' },
-  { key: 'autoRenewEnabled', label: '自动续费', sortable: true, cellClass: 'min-w-[120px]' },
-  { key: 'timeline', label: '时间轴', sortable: false, cellClass: 'min-w-[220px]' },
-  { key: 'payment', label: '支付', sortable: false, cellClass: 'min-w-[200px]' },
-  { key: 'renewal', label: '续费', sortable: false, cellClass: 'min-w-[180px]' },
-  { key: 'remark', label: '备注', sortable: false, cellClass: 'min-w-[220px]' },
-  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[220px]' }
+  { key: 'order', label: '订单', sortable: true, cellClass: 'min-w-[220px] w-[260px]' },
+  { key: 'amountYuan', label: '金额与状态', sortable: true, cellClass: 'min-w-[142px] w-[158px]' },
+  { key: 'payment', label: '支付', sortable: false, cellClass: 'min-w-[160px] w-[180px]' },
+  { key: 'renewal', label: '续费记录', sortable: false, cellClass: 'min-w-[160px] w-[180px]' },
+  { key: 'source', label: '来源与备注', sortable: true, cellClass: 'min-w-[180px] w-[210px]' },
+  { key: 'timeline', label: '时间', sortable: false, defaultVisible: false, cellClass: 'min-w-[200px] w-[220px]' },
+  { key: 'actions', label: '操作', sortable: false, cellClass: 'min-w-[76px] w-[84px]' }
 ]
 
 const storageTableColumns: ConfigurableColumn[] = [
@@ -4520,7 +4447,7 @@ type PaymentFieldKey =
   | 'paymentPlatformCertificate'
 
 const paymentPlatformFieldSets: Record<string, PaymentFieldKey[]> = {
-  ALIPAY: ['paymentAppId', 'paymentMerchantId', 'paymentMerchantName', 'paymentApiBaseUrl', 'paymentCurrency', 'paymentNotifyUrl', 'paymentReturnUrl', 'paymentPrivateKey', 'paymentPublicKey'],
+  ALIPAY: ['paymentAppId', 'paymentNotifyUrl', 'paymentReturnUrl', 'paymentPrivateKey', 'paymentPublicKey'],
   WECHAT_PAY: ['paymentAppId', 'paymentMerchantId', 'paymentMerchantName', 'paymentApiBaseUrl', 'paymentCurrency', 'paymentNotifyUrl', 'paymentPrivateKey', 'paymentApiSecret', 'paymentCertificateSerialNo', 'paymentPlatformCertificate'],
   STRIPE: ['paymentMerchantName', 'paymentApiBaseUrl', 'paymentCurrency', 'paymentNotifyUrl', 'paymentReturnUrl', 'paymentPrivateKey', 'paymentWebhookSecret'],
   PAYPAL: ['paymentAppId', 'paymentMerchantId', 'paymentMerchantName', 'paymentApiBaseUrl', 'paymentCurrency', 'paymentNotifyUrl', 'paymentReturnUrl', 'paymentPrivateKey', 'paymentWebhookSecret'],
@@ -4535,7 +4462,7 @@ const paymentPlatformFieldSets: Record<string, PaymentFieldKey[]> = {
 }
 
 const paymentRequiredFieldSets: Record<string, PaymentFieldKey[]> = {
-  ALIPAY: ['paymentAppId', 'paymentMerchantId', 'paymentPrivateKey', 'paymentPublicKey', 'paymentNotifyUrl', 'paymentReturnUrl'],
+  ALIPAY: ['paymentAppId', 'paymentPrivateKey', 'paymentPublicKey', 'paymentNotifyUrl', 'paymentReturnUrl'],
   WECHAT_PAY: ['paymentAppId', 'paymentMerchantId', 'paymentPrivateKey', 'paymentNotifyUrl', 'paymentApiSecret'],
   STRIPE: ['paymentPrivateKey', 'paymentWebhookSecret', 'paymentNotifyUrl', 'paymentReturnUrl'],
   PAYPAL: ['paymentAppId', 'paymentMerchantId', 'paymentPrivateKey', 'paymentWebhookSecret', 'paymentNotifyUrl', 'paymentReturnUrl'],
@@ -5683,9 +5610,14 @@ const loadVipOrders = async () => {
     vipOrdersPage.page,
     vipOrdersPage.size,
     vipOrderAutoRenewOnly.value,
-    vipOrderDueOnly.value
+    vipOrderDueOnly.value,
+    { vipPlanId: vipOrderPlanId.value, status: vipOrderStatus.value, keyword: vipOrderKeyword.value }
   )
   vipOrders.value = data.content.map(order => normalizeVipOrder(order))
+  Object.keys(vipOrderSnapshots).forEach(key => delete vipOrderSnapshots[Number(key)])
+  vipOrders.value.forEach(order => {
+    vipOrderSnapshots[order.id] = vipOrderEditableSnapshot(order)
+  })
   Object.assign(vipOrdersPage, {
     page: data.page,
     size: data.size,
@@ -6565,6 +6497,19 @@ const handleVipOrderFilterChange = () => {
   loadVipOrders()
 }
 
+const applyVipOrderFilters = () => {
+  vipOrdersPage.page = 0
+  loadVipOrders()
+}
+
+const resetVipOrderFilters = () => {
+  selectedVipOrderUserId.value = null
+  vipOrderPlanId.value = null
+  vipOrderStatus.value = ''
+  vipOrderKeyword.value = ''
+  applyVipOrderFilters()
+}
+
 const changeVipOrdersPage = (page: number) => {
   if (page < 0 || page >= Math.max(vipOrdersPage.totalPages, 1)) return
   vipOrdersPage.page = page
@@ -6738,11 +6683,14 @@ const applyEmailPreset = () => {
 const applyPaymentPreset = () => {
   const preset = paymentPreset.value
   settings.paymentApiBaseUrl = preset.apiBaseUrl
+  const { notifyUrl, returnUrl } = buildUnifiedPaymentUrls()
+  settings.paymentNotifyUrl = notifyUrl
+  settings.paymentReturnUrl = returnUrl
   settings.paymentVerificationMode = getNormalizedPaymentVerificationMode(
     settings.paymentProviderType,
     settings.paymentVerificationMode
   )
-  showMessage(`已应用 ${settings.paymentProviderType} 推荐配置`)
+  showMessage(`已应用 ${settings.paymentProviderType} 推荐设置，回调与返回地址已自动填写`)
 }
 
 const applyStoragePreset = () => {
@@ -7288,7 +7236,7 @@ const createVipOrder = async () => {
       changeType: 'PURCHASE',
       sourceVipPlanId: undefined,
       status: 'PAID',
-      source: 'MANUAL',
+      source: 'SUPER_ADMIN_MANUAL',
       paidAt: null,
       nextRenewalAt: null,
       autoRenewEnabled: false,
@@ -7297,6 +7245,7 @@ const createVipOrder = async () => {
       remark: ''
     })
     await Promise.all([loadVipOrders(), loadUsers(), loadOverview(), loadVipRenewalPreview()])
+    showVipOrderCreateModal.value = false
     showMessage('订单已创建')
   } catch (error: any) {
     showMessage(error?.response?.data?.error || error?.message || '创建订单失败', 'error')
@@ -7552,6 +7501,72 @@ const vipOrderChangeTypeLabel = (value?: string | null) => {
       return '新购'
     default:
       return value || '新购'
+  }
+}
+
+const vipOrderEditableSnapshot = (order: Partial<VipOrderSummary>) => JSON.stringify({
+  amountYuan: order.amountYuan,
+  originalAmountYuan: order.originalAmountYuan,
+  creditedAmountYuan: order.creditedAmountYuan,
+  changeType: order.changeType,
+  sourceVipPlanId: order.sourceVipPlanId,
+  status: order.status,
+  source: order.source,
+  paidAt: order.paidAt,
+  nextRenewalAt: order.nextRenewalAt,
+  autoRenewEnabled: !!order.autoRenewEnabled,
+  expireAt: order.expireAt,
+  pricingDetailJson: order.pricingDetailJson,
+  remark: order.remark
+})
+
+const isVipOrderDirty = (order: VipOrderSummary) => vipOrderSnapshots[order.id] !== vipOrderEditableSnapshot(order)
+
+const openVipOrderActionMenu = (order: VipOrderSummary, event: MouseEvent) => {
+  const trigger = event.currentTarget as HTMLElement | null
+  if (!trigger) {
+    vipOrderActionMenu.value = order
+    return
+  }
+  const rect = trigger.getBoundingClientRect()
+  const menuWidth = 224
+  const menuHeight = 280
+  vipOrderActionMenuPosition.left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth))
+  vipOrderActionMenuPosition.top = Math.max(8, Math.min(window.innerHeight - menuHeight - 8, rect.bottom + 6))
+  vipOrderActionMenu.value = order
+}
+
+const vipOrderStatusLabel = (value?: string | null) => {
+  switch ((value || '').toUpperCase()) {
+    case 'CREATED': return '待支付'
+    case 'PAID': return '已支付'
+    case 'ACTIVE': return '生效中'
+    case 'CANCELLED': return '已取消'
+    case 'REFUNDED': return '已退款'
+    case 'REFUNDING': return '退款中'
+    default: return value || '未知状态'
+  }
+}
+
+const vipOrderStatusClass = (value?: string | null) => {
+  switch ((value || '').toUpperCase()) {
+    case 'PAID':
+    case 'ACTIVE': return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/25'
+    case 'CREATED': return 'bg-sky-500/15 text-sky-300 ring-1 ring-inset ring-sky-400/25'
+    case 'CANCELLED':
+    case 'REFUNDED': return 'bg-slate-400/15 text-slate-300 ring-1 ring-inset ring-slate-300/20'
+    case 'REFUNDING': return 'bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-400/25'
+    default: return 'bg-gray-400/15 text-gray-300 ring-1 ring-inset ring-gray-300/20'
+  }
+}
+
+const paymentGatewayStatusLabel = (value?: string | null) => {
+  switch ((value || '').toUpperCase()) {
+    case 'PAYMENT_INITIATED': return '已发起支付'
+    case 'PAYMENT_INITIATED_MOCK': return '已发起模拟支付'
+    case 'TRADE_SUCCESS': return '交易成功'
+    case 'TRADE_CLOSED': return '交易关闭'
+    default: return value || '未发起'
   }
 }
 

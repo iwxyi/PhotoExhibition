@@ -275,7 +275,6 @@ public class PaymentGatewayService {
         switch (providerType) {
             case ALIPAY:
                 require(settings.getAppId(), "paymentAppId", missingFields, true);
-                require(settings.getMerchantId(), "paymentMerchantId", missingFields, true);
                 require(settings.getPrivateKey(), "paymentPrivateKey", missingFields, true);
                 require(settings.getPublicKey(), "paymentPublicKey", missingFields, true);
                 require(settings.getNotifyUrl(), "paymentNotifyUrl", missingFields, true);

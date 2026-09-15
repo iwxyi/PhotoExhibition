@@ -49,13 +49,28 @@ public class PaymentController {
                                     @RequestHeader Map<String, String> headers,
                                     HttpServletRequest request) {
         try {
-            return ResponseEntity.ok(paymentCallbackService.handleNotify(
+            Map<String, Object> result = paymentCallbackService.handleNotify(
                 providerType,
                 mergeNotifyPayload(resolveBodyPayload(rawBody, request), requestParams, headers, rawBody)
-            ));
+            );
+            if ("ALIPAY".equalsIgnoreCase(providerType)) {
+                if (result.containsKey("verified") && !Boolean.TRUE.equals(result.get("verified"))) {
+                    return ResponseEntity.status(500).contentType(MediaType.TEXT_PLAIN).body("failure");
+                }
+                if (result.containsKey("verified")) {
+                    return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body("success");
+                }
+            }
+            return ResponseEntity.ok(result);
         } catch (RuntimeException e) {
+            if ("ALIPAY".equalsIgnoreCase(providerType)) {
+                return ResponseEntity.status(500).contentType(MediaType.TEXT_PLAIN).body("failure");
+            }
             return ResponseEntity.badRequest().body(Map.of("error", sanitizeErrorMessage(e.getMessage(), "支付回调处理失败")));
         } catch (Exception e) {
+            if ("ALIPAY".equalsIgnoreCase(providerType)) {
+                return ResponseEntity.status(500).contentType(MediaType.TEXT_PLAIN).body("failure");
+            }
             return ResponseEntity.status(500).body(Map.of("error", "支付回调处理失败: " + sanitizeErrorMessage(e.getMessage(), "系统异常")));
         }
     }

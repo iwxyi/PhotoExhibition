@@ -813,7 +813,7 @@ const buyStoragePlan = async (planId: number) => {
   try {
     const { data: order } = await authProfileApi.createVipOrder(planId)
     const { data: initiation } = await authProfileApi.initiateVipCheckout(order.id)
-    launchPaymentInitiation(initiation, { target: '_self' })
+    launchPaymentInitiation(initiation, { target: '_blank' })
   } catch (error: any) {
     alert(error?.response?.data?.error || error?.message || '无法发起支付宝支付，请检查支付配置')
   } finally {

@@ -18,6 +18,8 @@ import com.photoexhibition.repository.UserPlanOrderRepository;
 import com.photoexhibition.repository.VipPlanRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -611,7 +613,10 @@ public class SuperAdminService {
                                              Integer page,
                                              Integer size,
                                              Boolean autoRenewEnabled,
-                                             Boolean dueForRenewal) {
+                                             Boolean dueForRenewal,
+                                             Long vipPlanId,
+                                             String status,
+                                             String keyword) {
         int pageNumber = page == null || page < 0 ? 0 : page;
         int pageSize = size == null || size < 1 ? 20 : Math.min(size, 100);
         Map<String, Object> resp = new LinkedHashMap<>();
@@ -623,6 +628,9 @@ public class SuperAdminService {
                 )
                 .stream()
                 .filter(order -> userId == null || userId.equals(order.getUserId()))
+                .filter(order -> vipPlanId == null || vipPlanId.equals(order.getVipPlanId()))
+                .filter(order -> status == null || status.trim().isEmpty() || status.trim().equalsIgnoreCase(order.getStatus()))
+                .filter(order -> matchesVipOrderKeyword(order, keyword))
                 .collect(Collectors.toList());
             int fromIndex = Math.min(pageNumber * pageSize, dueOrders.size());
             int toIndex = Math.min(fromIndex + pageSize, dueOrders.size());
@@ -638,14 +646,25 @@ public class SuperAdminService {
             resp.put("first", pageNumber <= 0);
             resp.put("last", toIndex >= dueOrders.size());
         } else {
-            var pageable = PageRequest.of(pageNumber, pageSize);
-            var result = Boolean.TRUE.equals(autoRenewEnabled)
-                ? (userId == null
-                    ? userPlanOrderRepository.findByAutoRenewEnabledTrueOrderByCreatedAtDesc(pageable)
-                    : userPlanOrderRepository.findByUserIdAndAutoRenewEnabledTrueOrderByCreatedAtDesc(userId, pageable))
-                : (userId == null
-                    ? userPlanOrderRepository.findAllByOrderByCreatedAtDesc(pageable)
-                    : userPlanOrderRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable));
+            var pageable = PageRequest.of(pageNumber, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Specification<UserPlanOrder> specification = (root, query, builder) -> {
+                List<javax.persistence.criteria.Predicate> predicates = new ArrayList<>();
+                if (userId != null) predicates.add(builder.equal(root.get("userId"), userId));
+                if (vipPlanId != null) predicates.add(builder.equal(root.get("vipPlanId"), vipPlanId));
+                if (Boolean.TRUE.equals(autoRenewEnabled)) predicates.add(builder.isTrue(root.get("autoRenewEnabled")));
+                if (status != null && !status.trim().isEmpty()) predicates.add(builder.equal(root.get("status"), status.trim().toUpperCase()));
+                if (keyword != null && !keyword.trim().isEmpty()) {
+                    String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                    predicates.add(builder.or(
+                        builder.like(builder.lower(root.get("orderNo")), pattern),
+                        builder.like(builder.lower(builder.coalesce(root.get("source"), "")), pattern),
+                        builder.like(builder.lower(builder.coalesce(root.get("remark"), "")), pattern),
+                        builder.like(builder.lower(builder.coalesce(root.get("externalTradeNo"), "")), pattern)
+                    ));
+                }
+                return builder.and(predicates.toArray(new javax.persistence.criteria.Predicate[0]));
+            };
+            var result = userPlanOrderRepository.findAll(specification, pageable);
             List<Map<String, Object>> content = result.getContent().stream()
                 .map(this::toVipOrderMap)
                 .collect(Collectors.toList());
@@ -660,6 +679,19 @@ public class SuperAdminService {
         resp.put("autoRenewEnabled", Boolean.TRUE.equals(autoRenewEnabled));
         resp.put("dueForRenewal", Boolean.TRUE.equals(dueForRenewal));
         return resp;
+    }
+
+    private boolean matchesVipOrderKeyword(UserPlanOrder order, String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) return true;
+        String needle = keyword.trim().toLowerCase();
+        return containsIgnoreCase(order.getOrderNo(), needle)
+            || containsIgnoreCase(order.getSource(), needle)
+            || containsIgnoreCase(order.getRemark(), needle)
+            || containsIgnoreCase(order.getExternalTradeNo(), needle);
+    }
+
+    private boolean containsIgnoreCase(String value, String needle) {
+        return value != null && value.toLowerCase().contains(needle);
     }
 
     @Transactional(readOnly = true)

@@ -10,10 +10,14 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Component
 @Order(10)
 public class AlipayPaymentProviderAdapter extends AbstractPaymentProviderAdapter {
+
+    private static final DateTimeFormatter ALIPAY_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public boolean supports(PaymentProviderType providerType) {
@@ -41,17 +45,12 @@ public class AlipayPaymentProviderAdapter extends AbstractPaymentProviderAdapter
         formFields.put("charset", "UTF-8");
         formFields.put("sign_type", "RSA2");
         formFields.put("version", "1.0");
-        formFields.put("timestamp", preview.getRequestPayload().get("createdAt"));
+        // Alipay accepts a narrow timestamp window; use the actual submission time, not order creation time.
+        formFields.put("timestamp", LocalDateTime.now().format(ALIPAY_TIMESTAMP));
         formFields.put("return_url", trackedReturnUrl);
         formFields.put("notify_url", settings.getNotifyUrl());
-        if (user.getId() != null) {
-            formFields.put("passback_params", "userId=" + user.getId());
-        }
         String bizContentJson = toJson(bizContent);
         formFields.put("biz_content", bizContentJson);
-        formFields.put("sign", "<RSA2_SIGNATURE>");
-        formFields.put("signatureHint", "请按支付宝 RSA2 规则生成 sign");
-        formFields.put("signatureField", "sign");
         payload.put("bizContent", bizContent);
         payload.put("bizContentJson", bizContentJson);
         payload.put("gatewayPath", "/gateway.do");
@@ -63,30 +62,32 @@ public class AlipayPaymentProviderAdapter extends AbstractPaymentProviderAdapter
         String signingContent = buildSigningContent(formFields);
         payload.put("signingContent", signingContent);
         payload.put("requestBodyEncoded", toFormUrlEncoded(sanitizeFormFields(formFields)));
+        if (!canSignWithPrivateKey(settings.getPrivateKey()) && !preview.isMockEnabled()) {
+            throw new RuntimeException("支付宝商户私钥未配置或格式无效，无法生成 RSA2 签名");
+        }
         if (canSignWithPrivateKey(settings.getPrivateKey())) {
             String sign = signSha256WithRsaBase64(settings.getPrivateKey(), signingContent);
             formFields.put("sign", sign);
-            payload.put("requestBodyForm", sanitizeFormFields(formFields));
-            payload.put("requestBodyEncoded", toFormUrlEncoded(sanitizeFormFields(formFields)));
             payload.put("signatureReady", true);
-            payload.put("signaturePreview", sign);
         } else {
             payload.put("signatureReady", false);
         }
+        payload.put("requestBodyForm", sanitizeFormFields(formFields));
+        payload.put("requestBodyEncoded", toFormUrlEncoded(sanitizeFormFields(formFields)));
 
         return PaymentInitiationService.PaymentInitiationResult.builder()
             .providerType(PaymentProviderType.ALIPAY.name())
             .providerLabel(preview.getProviderLabel())
             .orderNo(order.getOrderNo())
             .httpMethod("POST")
-            .launchUrl(preview.getApiBaseUrl())
+            .launchUrl(withCharsetQuery(preview.getApiBaseUrl()))
             .redirect(true)
             .actionType("REDIRECT_FORM")
             .mockMode(preview.isMockEnabled())
             .liveModeReady(preview.isLiveModeReady())
             .message(Boolean.TRUE.equals(payload.get("signatureReady"))
-                ? "支付宝适配入口已生成，并已根据私钥生成 RSA2 签名预览。"
-                : "支付宝适配入口已生成，已补齐 page pay 表单字段与 biz_content 骨架。")
+                ? "支付宝支付表单已生成，并已使用商户私钥完成 RSA2 签名。"
+                : "支付宝模拟支付表单已生成。")
             .formFields(formFields)
             .payload(payload)
             .build();
@@ -98,9 +99,7 @@ public class AlipayPaymentProviderAdapter extends AbstractPaymentProviderAdapter
         sorted.putAll(formFields);
         for (Map.Entry<String, Object> entry : sorted.entrySet()) {
             if (entry.getValue() == null
-                || "sign".equals(entry.getKey())
-                || "signatureHint".equals(entry.getKey())
-                || "signatureField".equals(entry.getKey())) {
+                || "sign".equals(entry.getKey())) {
                 continue;
             }
             if (builder.length() > 0) {
@@ -114,11 +113,18 @@ public class AlipayPaymentProviderAdapter extends AbstractPaymentProviderAdapter
     private Map<String, Object> sanitizeFormFields(Map<String, Object> formFields) {
         Map<String, Object> sanitized = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : formFields.entrySet()) {
-            if ("signatureHint".equals(entry.getKey()) || "signatureField".equals(entry.getKey())) {
-                continue;
-            }
             sanitized.put(entry.getKey(), entry.getValue());
         }
         return sanitized;
+    }
+
+    private String withCharsetQuery(String gatewayUrl) {
+        if (gatewayUrl == null || gatewayUrl.isBlank()) {
+            return gatewayUrl;
+        }
+        if (gatewayUrl.matches("(?i).*([?&])charset=[^&]*.*")) {
+            return gatewayUrl;
+        }
+        return gatewayUrl + (gatewayUrl.contains("?") ? "&" : "?") + "charset=UTF-8";
     }
 }

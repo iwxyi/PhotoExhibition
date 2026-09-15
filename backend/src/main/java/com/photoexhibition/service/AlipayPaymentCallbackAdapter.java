@@ -46,7 +46,7 @@ public class AlipayPaymentCallbackAdapter extends AbstractPaymentCallbackAdapter
             nestedString(payload, "biz_content", "trade_status"),
             nestedString(payload, "notify_data", "trade_status")
         );
-        if ("TRADE_SUCCESS".equalsIgnoreCase(status)) return "PAID";
+        if ("TRADE_SUCCESS".equalsIgnoreCase(status) || "TRADE_FINISHED".equalsIgnoreCase(status)) return "PAID";
         if ("TRADE_CLOSED".equalsIgnoreCase(status)) return "CANCELLED";
         if ("REFUND_SUCCESS".equalsIgnoreCase(status)) return "REFUNDED";
         if (payload != null && firstNonBlank(
