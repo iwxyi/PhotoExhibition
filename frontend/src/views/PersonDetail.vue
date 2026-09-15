@@ -60,14 +60,14 @@
       class="relative overflow-hidden transition-all duration-700 ease-out"
       :style="{
         paddingTop: 'calc(env(safe-area-inset-top) + 4rem)',
-        paddingBottom: `${Math.max(1, 3 - scrolled / 100)}rem`,
-        marginBottom: `${Math.max(0, 1.5 - scrolled / 300)}rem`,
+        paddingBottom: `${Math.max(0.75, 2 - scrolled / 100)}rem`,
+        marginBottom: `${Math.max(0, 0.75 - scrolled / 300)}rem`,
         opacity: Math.max(0, 1 - scrolled / 400),
         transform: `scale(${Math.max(0.95, 1 - scrolled / 2000)}) translateY(${scrolled * 0.1}px)`
       }"
     >
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex flex-col lg:flex-row gap-8 lg:gap-12 items-center lg:items-start">
+        <div class="flex flex-col lg:flex-row gap-6 lg:gap-8 items-center lg:items-start">
           <!-- 人物头像 - 带视差效果，改为圆形 -->
           <div
             class="flex-shrink-0 self-center lg:self-start transition-transform duration-300"
@@ -108,30 +108,10 @@
               </span>
             </h1>
 
-            <p v-if="person?.description" class="text-gray-600 dark:text-gray-400 mb-6 leading-relaxed text-lg max-w-2xl">
+            <p v-if="person?.description" class="text-gray-600 dark:text-gray-400 mb-3 leading-relaxed text-lg max-w-2xl">
               {{ person.description }}
             </p>
 
-            <!-- 统计信息 - 简洁卡片风格 -->
-            <div class="flex flex-wrap gap-3">
-              <div v-if="person?.faceCount && person.faceCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md hover:bg-white/80 dark:hover:bg-gray-800/80 transition-all duration-300">
-                <div class="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
-                  <svg class="w-4 h-4 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person.faceCount }} 照片</span>
-              </div>
-
-              <div v-if="person?.albumCount && person.albumCount > 0" class="flex items-center gap-2 px-4 py-2 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md hover:bg-white/80 dark:hover:bg-gray-800/80 transition-all duration-300">
-                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-50 to-orange-50 dark:from-pink-900/30 dark:to-orange-900/30 flex items-center justify-center">
-                  <svg class="w-4 h-4 text-gradient-to-r from-pink-500 to-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
-                </div>
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ person.albumCount }} 相册</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>

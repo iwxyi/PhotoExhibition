@@ -39,6 +39,9 @@ import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 
 interface Photo {
   id: number
+  // 有些调用方只有静态图片路径，不能用临时的渲染 key 当作照片资源 ID。
+  // 设为 null 时强制通过路径加载图片。
+  assetId?: number | null
   filename: string
   smallThumbPath?: string
   webpPath?: string
@@ -257,15 +260,19 @@ const getSlotName = (photo: Photo, index: number): string => {
 const getPhotoUrl = (photo?: Photo): string => {
   if (!photo) return ''
 
+  const assetPhoto = photo.assetId === null
+    ? { ...photo, id: undefined }
+    : photo
+
   // 根据封面数量自动选择缩略图质量
   // 只有1张封面时使用中等缩略图，多张封面时使用小缩略图
   const coverCount = displayPhotos.value.length
   const useMediumThumb = coverCount === 1
 
   if (useMediumThumb) {
-    return buildPhotoAssetUrl(photo, 'medium') || ''
+    return buildPhotoAssetUrl(assetPhoto, 'medium') || ''
   }
-  return buildPhotoAssetUrl(photo, 'small') || ''
+  return buildPhotoAssetUrl(assetPhoto, 'small') || ''
 }
 
 const handleError = (event: Event) => {

@@ -85,6 +85,9 @@ const coverPhotos = computed<Photo[]>(() => {
     if (path) {
       photos.push({
         id: index + 1,
+        // id 只用于渲染 key；封面资源应使用后端返回的相对路径，
+        // 不能误请求 /api/photos/1、/api/photos/2 等无关照片。
+        assetId: null,
         filename: `cover_${index + 1}`,
         // 直接设置 thumbnailPath，CoverDisplay 会根据封面数量自动选择中等或小缩略图
         thumbnailPath: path
