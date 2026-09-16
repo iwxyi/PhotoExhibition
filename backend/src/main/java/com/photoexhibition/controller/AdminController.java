@@ -1378,6 +1378,14 @@ public class AdminController {
                     count = photoManageService.showPhotos(currentUser, photoIds);
                     resp.put("message", "已显示 " + count + " 张照片");
                     break;
+                case "pin":
+                    count = photoManageService.pinPhotos(currentUser, photoIds);
+                    resp.put("message", "已置顶 " + count + " 张照片");
+                    break;
+                case "unpin":
+                    count = photoManageService.unpinPhotos(currentUser, photoIds);
+                    resp.put("message", "已取消置顶 " + count + " 张照片");
+                    break;
                 case "delete":
                     count = photoManageService.deletePhotosReturningCount(photoIds);
                     resp.put("message", "已删除 " + count + " 张照片");

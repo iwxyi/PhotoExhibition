@@ -206,6 +206,9 @@ public class PhotoService {
                     case "takenAt":
                         cmp = compareNullable(p1.getTakenAt(), p2.getTakenAt());
                         break;
+                    case "isPinned":
+                        cmp = Boolean.compare(Boolean.TRUE.equals(p1.getIsPinned()), Boolean.TRUE.equals(p2.getIsPinned()));
+                        break;
                     case "filename":
                         cmp = compareNullable(p1.getFilename(), p2.getFilename());
                         break;
@@ -730,6 +733,7 @@ public class PhotoService {
         dto.setLikeCount(photo.getLikeCount() == null ? 0 : photo.getLikeCount());
         dto.setIsFeatured(photo.getIsFeatured());
         dto.setIsHidden(photo.getIsHidden());
+        dto.setIsPinned(photo.getIsPinned());
         if (photo.getTags() != null) {
             // 过滤掉忽略列表中的标签
             Set<String> ignoredTags = systemConfigService.getTagIgnoreListSet();
@@ -899,7 +903,7 @@ public class PhotoService {
             sortOrder = systemConfigService.getPhotoSortOrder();
         }
 
-        return getSortByOrderString(sortOrder);
+        return Sort.by(Sort.Order.desc("isPinned").nullsLast()).and(getSortByOrderString(sortOrder));
     }
 
     /**
@@ -1201,6 +1205,9 @@ public class PhotoService {
                 switch (property) {
                     case "takenAt":
                         cmp = compareNullable(p1.getTakenAt(), p2.getTakenAt());
+                        break;
+                    case "isPinned":
+                        cmp = Boolean.compare(Boolean.TRUE.equals(p1.getIsPinned()), Boolean.TRUE.equals(p2.getIsPinned()));
                         break;
                     case "filename":
                         cmp = compareNullable(p1.getFilename(), p2.getFilename());

@@ -1089,6 +1089,27 @@
                   <!-- 分割线 -->
                   <div class="border-t border-gray-600 my-1"></div>
 
+                  <button
+                    @click="togglePhotoPinned('pin')"
+                    :disabled="photoModalSelected.size === 0 || !hasUnpinnedPhotos"
+                    class="admin-albums-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 4-6 6m5-7 6 6m-7 1-7 7m-3 3 4-4m0 0 3 3m-3-3-3-3" />
+                    </svg>
+                    置顶 ({{ unpinnedSelectedCount }})
+                  </button>
+                  <button
+                    @click="togglePhotoPinned('unpin')"
+                    :disabled="photoModalSelected.size === 0 || !hasPinnedPhotos"
+                    class="admin-albums-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 4-6 6m5-7 6 6m-7 1-7 7m-3 3 4-4m0 0 3 3m-3-3-3-3" />
+                    </svg>
+                    取消置顶 ({{ pinnedSelectedCount }})
+                  </button>
+
                   <!-- 隐藏 -->
                   <button
                     @click="togglePhotoHidden('hide')"
@@ -2815,6 +2836,11 @@ const photoModalLoading = ref(false)
 
 const sortPhotoModalPhotos = (photos: any[]) => {
   return [...photos].sort((left, right) => {
+    const leftPinned = Boolean(left?.isPinned)
+    const rightPinned = Boolean(right?.isPinned)
+    if (leftPinned !== rightPinned) {
+      return leftPinned ? -1 : 1
+    }
     const leftHidden = Boolean(left?.isHidden)
     const rightHidden = Boolean(right?.isHidden)
     if (leftHidden !== rightHidden) {
@@ -2874,6 +2900,22 @@ const visibleSelectedCount = computed(() => {
   ).length
 })
 
+const hasPinnedPhotos = computed(() => photoModalPhotos.value.some(
+  photo => photoModalSelected.value.has(photo.id) && photo.isPinned
+))
+
+const hasUnpinnedPhotos = computed(() => photoModalPhotos.value.some(
+  photo => photoModalSelected.value.has(photo.id) && !photo.isPinned
+))
+
+const pinnedSelectedCount = computed(() => photoModalPhotos.value.filter(
+  photo => photoModalSelected.value.has(photo.id) && photo.isPinned
+).length)
+
+const unpinnedSelectedCount = computed(() => photoModalPhotos.value.filter(
+  photo => photoModalSelected.value.has(photo.id) && !photo.isPinned
+).length)
+
 const applyPhotoHiddenState = (targetHidden: boolean) => {
   const selectedIds = photoModalSelected.value
   photoModalPhotos.value = sortPhotoModalPhotos(
@@ -2908,6 +2950,32 @@ const togglePhotoHidden = async (operation: 'hide' | 'show') => {
     }
   } catch (e: any) {
     alert(`${action}失败: ` + getApiErrorMessage(e, '未知错误'))
+  }
+}
+
+const togglePhotoPinned = async (operation: 'pin' | 'unpin') => {
+  if (photoModalSelected.value.size === 0) return
+  const isPinned = operation === 'pin'
+  const count = isPinned ? unpinnedSelectedCount.value : pinnedSelectedCount.value
+  if (count <= 0) return
+
+  try {
+    const res = await api.post('/admin/photos/batch', {
+      operation,
+      photoIds: Array.from(photoModalSelected.value)
+    }, getAdminRequestConfig())
+    if (res.data.success) {
+      const selectedIds = photoModalSelected.value
+      photoModalPhotos.value = sortPhotoModalPhotos(photoModalPhotos.value.map(photo => (
+        selectedIds.has(photo.id) ? { ...photo, isPinned } : photo
+      )))
+      photoModalSelected.value = new Set()
+      notify(isPinned ? `已置顶 ${count} 张照片` : `已取消置顶 ${count} 张照片`, 'success')
+    } else {
+      alert(`${isPinned ? '置顶' : '取消置顶'}失败: ` + (res.data.message || res.data.error || '未知错误'))
+    }
+  } catch (e: any) {
+    alert(`${isPinned ? '置顶' : '取消置顶'}失败: ` + getApiErrorMessage(e, '未知错误'))
   }
 }
 

@@ -734,6 +734,36 @@ public class PhotoManageService {
         return count;
     }
 
+    @Transactional
+    public int pinPhotos(UserAccount currentUser, List<Long> photoIds) {
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        ensurePhotoAccess(currentUser, photos);
+        int count = 0;
+        for (Photo photo : photos) {
+            if (!Boolean.TRUE.equals(photo.getIsPinned())) {
+                photo.setIsPinned(true);
+                photoRepository.save(photo);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Transactional
+    public int unpinPhotos(UserAccount currentUser, List<Long> photoIds) {
+        List<Photo> photos = photoRepository.findAllById(photoIds);
+        ensurePhotoAccess(currentUser, photos);
+        int count = 0;
+        for (Photo photo : photos) {
+            if (Boolean.TRUE.equals(photo.getIsPinned())) {
+                photo.setIsPinned(false);
+                photoRepository.save(photo);
+                count++;
+            }
+        }
+        return count;
+    }
+
     private void deletePhotoFile(Photo photo) throws IOException {
         // Delete original file
         if (photo.getOriginalPath() != null) {

@@ -5,6 +5,7 @@
       ref="triggerEl"
       @click="handleClick"
       @mouseenter="handleMouseEnter"
+      @mouseleave="handleMouseLeave"
     >
       <slot name="trigger"></slot>
     </div>
@@ -18,6 +19,8 @@
           class="fixed z-[2000]"
           :style="menuStyle"
           @click.stop
+          @mouseenter="handleMenuMouseEnter"
+          @mouseleave="handleMenuMouseLeave"
         >
           <slot :close="close"></slot>
         </div>

@@ -81,6 +81,7 @@ export interface Photo {
   assignedPersonName?: string
   faces?: FaceFace[]
   isHidden?: boolean
+  isPinned?: boolean
   createdAt: string
 }
 

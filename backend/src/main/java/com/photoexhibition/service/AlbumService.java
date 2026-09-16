@@ -682,6 +682,9 @@ public class AlbumService {
                     int cmp = 0;
                     String property = order.getProperty();
                     switch (property) {
+                        case "isPinned":
+                            cmp = Boolean.compare(Boolean.TRUE.equals(p1.getIsPinned()), Boolean.TRUE.equals(p2.getIsPinned()));
+                            break;
                         case "takenAt":
                             cmp = compareNullable(p1.getTakenAt(), p2.getTakenAt());
                             break;

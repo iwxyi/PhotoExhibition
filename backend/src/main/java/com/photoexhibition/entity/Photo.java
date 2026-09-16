@@ -138,6 +138,10 @@ public class Photo {
     @Column(name = "is_hidden")
     private Boolean isHidden = false;
 
+    /** 是否置顶：仅影响相册内的展示排序 */
+    @Column(name = "is_pinned")
+    private Boolean isPinned = false;
+
     // 处理状态跟踪字段
     @Enumerated(EnumType.STRING)
     @Column(name = "processing_status", length = 50)

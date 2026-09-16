@@ -46,6 +46,7 @@ public class PhotoDTO {
     private Integer likeCount;
     private Boolean isFeatured;
     private Boolean isHidden;
+    private Boolean isPinned;
 
     // AI评分相关字段
     private Double aiOverallScore; // AI综合评分
