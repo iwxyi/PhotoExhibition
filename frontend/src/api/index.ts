@@ -63,6 +63,9 @@ export interface FaceFace {
   photoOriginalPath?: string
   photoWidth?: number  // 照片宽度
   photoHeight?: number // 照片高度
+  photoTakenAt?: string
+  albumId?: number
+  assignedPersonId?: number
   similarity?: number
 }
 
@@ -316,6 +319,9 @@ export const personApi = {
 
   // 获取人物的代表图片（用于列表显示）
   getPersonSamplePhotos: (personId: number) => api.get<FaceFace[]>(`/public/persons/${personId}/sample-photos`),
+
+  getPersonDiscoveryPhotos: (personId: number, seed: number, page = 0, size = 24) =>
+    api.get<PageResponse<FaceFace>>(`/public/persons/${personId}/discovery-photos?seed=${seed}&page=${page}&size=${size}`),
 
   // 获取人物的相册推荐
   getPersonAlbumRecommendations: (personId: number) => api.get<AlbumRecommendation[]>(`/public/persons/${personId}/album-recommendations`),

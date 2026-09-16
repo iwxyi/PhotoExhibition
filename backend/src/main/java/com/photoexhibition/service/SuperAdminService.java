@@ -619,6 +619,8 @@ public class SuperAdminService {
                                              String keyword) {
         int pageNumber = page == null || page < 0 ? 0 : page;
         int pageSize = size == null || size < 1 ? 20 : Math.min(size, 100);
+        Set<Long> keywordUserIds = findVipOrderKeywordUserIds(keyword);
+        Set<Long> keywordPlanIds = findVipOrderKeywordPlanIds(keyword);
         Map<String, Object> resp = new LinkedHashMap<>();
         if (Boolean.TRUE.equals(dueForRenewal)) {
             List<UserPlanOrder> dueOrders = userPlanOrderRepository
@@ -630,7 +632,7 @@ public class SuperAdminService {
                 .filter(order -> userId == null || userId.equals(order.getUserId()))
                 .filter(order -> vipPlanId == null || vipPlanId.equals(order.getVipPlanId()))
                 .filter(order -> status == null || status.trim().isEmpty() || status.trim().equalsIgnoreCase(order.getStatus()))
-                .filter(order -> matchesVipOrderKeyword(order, keyword))
+                .filter(order -> matchesVipOrderKeyword(order, keyword, keywordUserIds, keywordPlanIds))
                 .collect(Collectors.toList());
             int fromIndex = Math.min(pageNumber * pageSize, dueOrders.size());
             int toIndex = Math.min(fromIndex + pageSize, dueOrders.size());
@@ -659,7 +661,11 @@ public class SuperAdminService {
                         builder.like(builder.lower(root.get("orderNo")), pattern),
                         builder.like(builder.lower(builder.coalesce(root.get("source"), "")), pattern),
                         builder.like(builder.lower(builder.coalesce(root.get("remark"), "")), pattern),
-                        builder.like(builder.lower(builder.coalesce(root.get("externalTradeNo"), "")), pattern)
+                        builder.like(builder.lower(builder.coalesce(root.get("externalTradeNo"), "")), pattern),
+                        builder.like(root.get("userId").as(String.class), pattern),
+                        builder.like(root.get("vipPlanId").as(String.class), pattern),
+                        keywordUserIds.isEmpty() ? builder.disjunction() : root.get("userId").in(keywordUserIds),
+                        keywordPlanIds.isEmpty() ? builder.disjunction() : root.get("vipPlanId").in(keywordPlanIds)
                     ));
                 }
                 return builder.and(predicates.toArray(new javax.persistence.criteria.Predicate[0]));
@@ -681,13 +687,27 @@ public class SuperAdminService {
         return resp;
     }
 
-    private boolean matchesVipOrderKeyword(UserPlanOrder order, String keyword) {
+    private Set<Long> findVipOrderKeywordUserIds(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) return Set.of();
+        return new HashSet<>(userAccountRepository.findIdsMatchingKeyword(keyword.trim()));
+    }
+
+    private Set<Long> findVipOrderKeywordPlanIds(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) return Set.of();
+        return new HashSet<>(vipPlanRepository.findIdsMatchingKeyword(keyword.trim()));
+    }
+
+    private boolean matchesVipOrderKeyword(UserPlanOrder order, String keyword, Set<Long> matchingUserIds, Set<Long> matchingPlanIds) {
         if (keyword == null || keyword.trim().isEmpty()) return true;
         String needle = keyword.trim().toLowerCase();
         return containsIgnoreCase(order.getOrderNo(), needle)
             || containsIgnoreCase(order.getSource(), needle)
             || containsIgnoreCase(order.getRemark(), needle)
-            || containsIgnoreCase(order.getExternalTradeNo(), needle);
+            || containsIgnoreCase(order.getExternalTradeNo(), needle)
+            || String.valueOf(order.getUserId()).contains(needle)
+            || String.valueOf(order.getVipPlanId()).contains(needle)
+            || matchingUserIds.contains(order.getUserId())
+            || matchingPlanIds.contains(order.getVipPlanId());
     }
 
     private boolean containsIgnoreCase(String value, String needle) {

@@ -2135,10 +2135,6 @@
             <p class="text-xs admin-table-faint">当前先提供后台手工建单、状态维护和套餐生效联动，后续再接支付回调。</p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
-            <select v-model="selectedVipOrderUserId" class="admin-input px-4 py-2 rounded-xl text-sm" @change="handleVipOrderUserChange">
-              <option :value="null">全部用户</option>
-              <option v-for="user in users" :key="user.id" :value="user.id">{{ user.nickname || user.username }}</option>
-            </select>
             <label class="admin-super-admin-toggle-card flex items-center gap-2 px-3 py-2 rounded-xl text-sm">
               <input v-model="vipOrderAutoRenewOnly" type="checkbox" class="w-4 h-4 rounded" @change="handleVipOrderFilterChange" />
               仅自动续费
@@ -2379,14 +2375,10 @@
         >
           <template #toolbar-left>
             <div class="flex flex-wrap items-center gap-2">
-              <input v-model.trim="vipOrderKeyword" type="search" class="admin-input w-40 px-3 py-1.5 rounded-lg text-xs" placeholder="订单号、来源或备注" @keyup.enter="applyVipOrderFilters" />
-              <select v-model="selectedVipOrderUserId" class="admin-input w-28 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
-                <option :value="null">全部用户</option>
-                <option v-for="user in users" :key="user.id" :value="user.id">{{ user.nickname || user.username }}</option>
-              </select>
-              <select v-model="vipOrderPlanId" class="admin-input w-28 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
+              <input v-model.trim="vipOrderKeyword" type="search" class="admin-input w-56 px-3 py-1.5 rounded-lg text-xs" placeholder="搜索订单、用户、套餐、来源或备注" @keyup.enter="applyVipOrderFilters" />
+              <select v-model="vipOrderPlanId" class="admin-input w-36 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
                 <option :value="null">全部套餐</option>
-                <option v-for="plan in vipPlans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
+                <option v-for="plan in vipPlans" :key="plan.id" :value="plan.id">{{ plan.name }} · {{ plan.extraQuotaGb }}GB</option>
               </select>
               <select v-model="vipOrderStatus" class="admin-input w-24 px-2 py-1.5 rounded-lg text-xs" @change="applyVipOrderFilters">
                 <option value="">全部状态</option>
@@ -2396,7 +2388,7 @@
                 <option value="CANCELLED">已取消</option>
               </select>
               <button class="admin-button-soft px-2.5 py-1.5 rounded-lg text-xs" @click="applyVipOrderFilters">筛选</button>
-              <button v-if="vipOrderKeyword || vipOrderPlanId || vipOrderStatus || selectedVipOrderUserId" class="admin-button-soft px-2.5 py-1.5 rounded-lg text-xs" @click="resetVipOrderFilters">清除</button>
+              <button v-if="vipOrderKeyword || vipOrderPlanId || vipOrderStatus" class="admin-button-soft px-2.5 py-1.5 rounded-lg text-xs" @click="resetVipOrderFilters">清除</button>
             </div>
           </template>
           <template #cell-order="{ row: order }">
@@ -3693,7 +3685,6 @@ const newVipPlan = reactive<Partial<VipPlanSummary>>({
   sortOrder: 100
 })
 const vipOrdersPage = reactive({ page: 0, size: 20, totalElements: 0, totalPages: 0, first: true, last: true })
-const selectedVipOrderUserId = ref<number | null>(null)
 const vipOrderAutoRenewOnly = ref(false)
 const vipOrderDueOnly = ref(false)
 const vipOrderKeyword = ref('')
@@ -5606,7 +5597,7 @@ const normalizeVipOrder = (order: VipOrderSummary): VipOrderSummary => ({
 
 const loadVipOrders = async () => {
   const { data } = await superAdminApi.getVipOrders(
-    selectedVipOrderUserId.value,
+    null,
     vipOrdersPage.page,
     vipOrdersPage.size,
     vipOrderAutoRenewOnly.value,
@@ -6418,8 +6409,8 @@ watch(
     }
     try {
       await loadFocusedVipOrder()
-      if (focusedVipOrder.value?.userId && selectedVipOrderUserId.value !== focusedVipOrder.value.userId) {
-        selectedVipOrderUserId.value = focusedVipOrder.value.userId
+      if (!vipOrderKeyword.value) {
+        vipOrderKeyword.value = orderNo
       }
       if (activeTab.value !== 'vipOrders') {
         changeActiveTab('vipOrders')
@@ -6484,11 +6475,6 @@ const handleOperationLogsPageSizeChange = () => {
   loadOperationLogs()
 }
 
-const handleVipOrderUserChange = () => {
-  vipOrdersPage.page = 0
-  loadVipOrders()
-}
-
 const handleVipOrderFilterChange = () => {
   if (vipOrderDueOnly.value) {
     vipOrderAutoRenewOnly.value = true
@@ -6503,7 +6489,6 @@ const applyVipOrderFilters = () => {
 }
 
 const resetVipOrderFilters = () => {
-  selectedVipOrderUserId.value = null
   vipOrderPlanId.value = null
   vipOrderStatus.value = ''
   vipOrderKeyword.value = ''

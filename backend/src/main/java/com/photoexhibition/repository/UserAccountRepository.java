@@ -65,6 +65,14 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     @Query("SELECT u.id FROM UserAccount u ORDER BY u.id ASC")
     List<Long> findAllIds();
 
+    @Query("SELECT u.id FROM UserAccount u WHERE " +
+        "lower(u.username) LIKE lower(concat('%', :keyword, '%')) " +
+        "OR lower(coalesce(u.nickname, '')) LIKE lower(concat('%', :keyword, '%')) " +
+        "OR lower(coalesce(u.slug, '')) LIKE lower(concat('%', :keyword, '%')) " +
+        "OR lower(coalesce(u.email, '')) LIKE lower(concat('%', :keyword, '%')) " +
+        "OR coalesce(u.phone, '') LIKE concat('%', :keyword, '%')")
+    List<Long> findIdsMatchingKeyword(@Param("keyword") String keyword);
+
     @Query("SELECT u.id AS id, u.status AS status, u.storageQuotaBytes AS storageQuotaBytes, " +
         "u.vipExtraQuotaBytes AS vipExtraQuotaBytes, u.currentVipPlanId AS currentVipPlanId, " +
         "u.vipExpireAt AS vipExpireAt, u.storageUsedBytes AS storageUsedBytes " +
