@@ -236,6 +236,18 @@ public class AlbumController {
         return ResponseEntity.ok(album);
     }
 
+    /** 设置/取消相册置顶 */
+    @PutMapping("/{id}/pinned")
+    public ResponseEntity<AlbumDTO> setAlbumPinned(
+            @RequestHeader("Authorization") String authorization,
+            @PathVariable Long id,
+            @RequestBody Map<String, Boolean> request) {
+        UserAccount currentUser = requireCurrentUser(authorization);
+        Boolean pinned = request.get("isPinned");
+        if (pinned == null) return ResponseEntity.badRequest().build();
+        return ResponseEntity.ok(albumService.setAlbumPinned(id, pinned, albumService.resolveScopedUserId(currentUser)));
+    }
+
     /**
      * 获取相册排序设置（公开API）
      */

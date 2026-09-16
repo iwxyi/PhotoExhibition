@@ -27,6 +27,7 @@ export interface Album {
   atmosphereEffects?: any[]
   createdAt: string
   updatedAt: string
+  isPinned?: boolean
 }
 
 export interface Photo {

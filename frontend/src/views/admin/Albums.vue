@@ -65,6 +65,17 @@
               :photo-count="album.photoCount || 0"
               size="md"
             />
+            <!-- 相册状态：可同时显示置顶、隐藏等多个状态 -->
+            <div v-if="album.isPinned || album.isHidden" class="absolute top-2 left-2 z-10 flex flex-wrap gap-1 pointer-events-none">
+              <span
+                v-if="album.isPinned"
+                class="inline-flex items-center rounded-full border border-amber-200/40 bg-amber-500/80 px-2 py-0.5 text-[11px] font-medium text-amber-50 shadow-sm backdrop-blur-sm"
+              >置顶</span>
+              <span
+                v-if="album.isHidden"
+                class="inline-flex items-center rounded-full border border-slate-200/30 bg-slate-900/75 px-2 py-0.5 text-[11px] font-medium text-slate-100 shadow-sm backdrop-blur-sm"
+              >隐藏</span>
+            </div>
             <!-- 聚合标签 - 封面右上角 -->
             <div
               v-if="album.aggregateSubAlbums"
@@ -362,6 +373,15 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               </svg>
               {{ showMenuForAlbum.isHidden ? '显示相册' : '隐藏相册' }}
+            </button>
+            <button
+              @click="toggleAlbumPinned(showMenuForAlbum)"
+              class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 4-6 6m5-7 6 6m-7 1-7 7m-3 3 4-4m0 0 3 3m-3-3-3-3" />
+              </svg>
+              {{ showMenuForAlbum.isPinned ? '取消置顶' : '置顶相册' }}
             </button>
             <!-- 删除菜单项 -->
             <button
@@ -2766,6 +2786,18 @@ const toggleAlbumHidden = async (album: any, isHidden: boolean) => {
     })
   } catch (e: any) {
     alert('设置隐藏状态失败: ' + (e.response?.data?.error || e.message))
+  }
+}
+
+const toggleAlbumPinned = async (album: any) => {
+  const isPinned = !Boolean(album.isPinned)
+  try {
+    await api.put(`/albums/${album.id}/pinned`, { isPinned })
+    updateAlbumData(album.id, { isPinned })
+    closeAllMenus()
+    notify(isPinned ? '相册已置顶' : '已取消相册置顶', 'success')
+  } catch (e: any) {
+    notify('设置置顶状态失败：' + (e.response?.data?.error || e.message), 'error')
   }
 }
 

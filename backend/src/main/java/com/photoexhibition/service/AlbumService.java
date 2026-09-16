@@ -821,6 +821,7 @@ public class AlbumService {
         dto.setAggregateSubAlbums(album.getAggregateSubAlbums());
         dto.setDownloadAllowed(album.getDownloadAllowed());
         dto.setIsHidden(album.getIsHidden());
+        dto.setIsPinned(album.getIsPinned());
         dto.setPhotoSortOrder(album.getPhotoSortOrder());
 
         boolean hasSubs = false;
@@ -1634,6 +1635,15 @@ public class AlbumService {
         return convertToDTO(saved);
     }
 
+    @Transactional
+    public AlbumDTO setAlbumPinned(Long albumId, Boolean isPinned, Long userId) {
+        Album album = albumRepository.findById(albumId)
+            .orElseThrow(() -> new RuntimeException("相册不存在: " + albumId));
+        validateAlbumOwnership(album, userId);
+        album.setIsPinned(Boolean.TRUE.equals(isPinned));
+        return convertToDTO(albumRepository.save(album));
+    }
+
     /**
      * 设置相册自定义封面
      * 注意：不重新生成封面，直接返回更新后的相册信息
@@ -2034,6 +2044,12 @@ public class AlbumService {
      * 根据排序参数对相册列表进行排序（备用方法）
      */
     private List<Album> sortAlbums(List<Album> albums, String sort) {
+        List<Album> sorted = sortAlbumsByOrder(albums, sort);
+        sorted.sort(Comparator.comparing(album -> !Boolean.TRUE.equals(album.getIsPinned())));
+        return sorted;
+    }
+
+    private List<Album> sortAlbumsByOrder(List<Album> albums, String sort) {
         if (albums == null || albums.isEmpty()) {
             return albums;
         }

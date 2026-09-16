@@ -52,6 +52,9 @@ public class Album {
     @Column(name = "is_hidden")
     private Boolean isHidden = false;
 
+    @Column(name = "is_pinned")
+    private Boolean isPinned = false;
+
     @Column(name = "photo_sort_order")
     private String photoSortOrder;
 

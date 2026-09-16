@@ -80,13 +80,28 @@
           <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900 dark:border-white"></div>
         </div>
 
-        <section v-if="albums.length > 0">
+        <section v-if="pinnedAlbums.length > 0" class="mb-8">
+          <div class="-mx-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+            <div class="flex w-max gap-6">
+              <AlbumCard
+                v-for="album in pinnedAlbums"
+                :key="album.id"
+                :album="album"
+                :size="coverSize"
+                class="w-44 shrink-0 sm:w-52 md:w-60"
+                @click="goToAlbum(album.id)"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section v-if="regularAlbums.length > 0">
         <div
           :class="coverGridClass"
           style="contain: layout style; will-change: auto;"
         >
           <AlbumCard
-            v-for="album in albums"
+            v-for="album in regularAlbums"
             :key="album.id"
             :album="album"
             :size="coverSize"
@@ -158,6 +173,8 @@ import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import CategoryTabs from '@/components/CategoryTabs.vue'
 
 const albums = computed(() => photoStore.albums)
+const pinnedAlbums = computed(() => albums.value.filter(album => album.isPinned))
+const regularAlbums = computed(() => albums.value.filter(album => !album.isPinned))
 const loading = computed(() => photoStore.loading)
 const categories = computed(() => sortCategories(photoStore.categories))
 const currentPage = ref(0)
