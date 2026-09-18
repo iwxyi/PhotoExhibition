@@ -82,7 +82,7 @@
                 :class="avatarEnterComplete ? 'opacity-60' : 'opacity-0'"
               ></div>
               <div
-                class="relative w-36 h-36 md:w-44 md:h-44 lg:w-52 lg:h-52 rounded-full bg-transparent shadow-2xl overflow-hidden ring-4 ring-white/50 dark:ring-gray-800/50 opacity-0 transition-opacity duration-300"
+                class="relative w-28 h-28 md:w-36 md:h-36 lg:w-44 lg:h-44 rounded-full bg-transparent shadow-2xl overflow-hidden ring-4 ring-white/50 dark:ring-gray-800/50 opacity-0 transition-opacity duration-300"
                 :class="avatarEnterComplete ? 'avatar-enter-active' : 'opacity-0'"
               >
                 <img
@@ -121,6 +121,22 @@
     <div class="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-2">
       <div class="relative border-b border-gray-200/50 dark:border-gray-800/50 overflow-visible">
         <nav class="flex gap-8 overflow-x-auto scrollbar-hide">
+          <button
+            @click="activeTab = 'discover'"
+            class="relative whitespace-nowrap py-4 px-2 text-sm font-medium transition-all duration-300"
+            :class="activeTab === 'discover'
+              ? 'text-gray-900 dark:text-white'
+              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'"
+          >
+            <span class="relative z-10 flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m12 3-1.9 5.8L4 10.5l6.1 1.7L12 18l1.9-5.8 6.1-1.7-6.1-1.7L12 3Z" />
+              </svg>
+              发现
+            </span>
+            <span v-if="activeTab === 'discover'" class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full shadow-lg shadow-purple-500/50"></span>
+            <span v-else class="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full opacity-0 transition-opacity duration-300 hover:opacity-100"></span>
+          </button>
           <button
             @click="activeTab = 'albums'"
             class="relative whitespace-nowrap py-4 px-2 text-sm font-medium transition-all duration-300"
@@ -177,6 +193,29 @@
 
     <!-- 内容区域 -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+      <!-- 发现 Tab：从不同相册轮换取图，优先呈现人物的不同场景。 -->
+      <div :class="['tab-content', { 'tab-enter-active': activeTab === 'discover' }]">
+        <div v-if="activeTab === 'discover'">
+          <div v-if="loadingDiscovery" class="flex justify-center items-center h-64">
+            <div class="w-12 h-12 border-4 border-transparent border-t-blue-500 border-r-purple-500 rounded-full animate-spin"></div>
+          </div>
+          <div v-else-if="discoveryPhotos.length > 0" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-4">
+            <div
+              v-for="photo in discoveryPhotos"
+              :key="`discover-${photo.id}`"
+              class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+              @click="goToPhoto(photo.photoId!)"
+            >
+              <img :src="convertImagePath(photo.photoThumbnailPath || '', photo.photoId, photo.photoOriginalPath)" :alt="photo.photoFilename" class="w-full h-full object-cover" loading="lazy" />
+            </div>
+          </div>
+          <div v-else class="flex flex-col items-center justify-center h-80 text-gray-500 dark:text-gray-400">
+            <h3 class="text-lg font-medium mb-1">暂无可发现的照片</h3>
+            <p class="text-sm opacity-60">该人物暂无可显示的照片</p>
+          </div>
+        </div>
+      </div>
+
       <!-- 相册 Tab -->
       <div :class="['tab-content', { 'tab-enter-active': activeTab === 'albums' }]">
         <div v-if="activeTab === 'albums'">
@@ -217,6 +256,17 @@
       <!-- 图片 Tab -->
       <div :class="['tab-content', { 'tab-enter-active': activeTab === 'photos' }]">
         <div v-if="activeTab === 'photos'">
+          <div class="flex flex-wrap items-center gap-2 pt-4">
+            <select v-model="photoAlbumFilter" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+              <option value="all">全部相册</option>
+              <option v-for="album in availablePhotoAlbums" :key="album.id" :value="album.id">{{ album.name }}</option>
+            </select>
+            <select v-model="photoSortOrder" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+              <option value="newest">时间：最新优先</option>
+              <option value="oldest">时间：最早优先</option>
+            </select>
+            <span class="text-xs text-gray-400">已加载 {{ displayedPersonPhotos.length }} 张</span>
+          </div>
           <div v-if="loadingPhotos" class="flex justify-center items-center h-64">
             <div class="relative">
               <div class="w-16 h-16 border-4 border-gray-200 dark:border-gray-700 rounded-full"></div>
@@ -225,11 +275,11 @@
           </div>
 
           <div
-            v-else-if="personPhotos.length > 0"
+            v-else-if="displayedPersonPhotos.length > 0"
             class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-4"
           >
             <div
-              v-for="face in personPhotos"
+              v-for="face in displayedPersonPhotos"
               :key="face.id"
               class="group relative aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl overflow-visible cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 isolate"
               :class="{ 'z-50': visiblePhotoId === face.photoId || animatingPhotoId === face.photoId }"
@@ -406,11 +456,20 @@ watch(person, (newPerson) => {
 
 const loadingPerson = ref(true)
 const avatarEnterComplete = ref(false)
-const activeTab = ref<'albums' | 'photos'>('albums')
+const activeTab = ref<'discover' | 'albums' | 'photos'>('discover')
 const albumRecommendations = ref<AlbumRecommendation[]>([])
 const personPhotos = ref<FaceFace[]>([])
+const discoveryPhotos = ref<FaceFace[]>([])
 const loadingAlbums = ref(false)
 const loadingPhotos = ref(false)
+const loadingDiscovery = ref(false)
+// 每次进入生成一组随机顺序，翻页和切换 Tab 都使用同一个 seed。
+const discoverySeed = Math.floor(Math.random() * 2_000_000_000)
+const discoveryPage = ref(0)
+const hasMoreDiscovery = ref(true)
+const loadingMoreDiscovery = ref(false)
+const photoAlbumFilter = ref<'all' | number>('all')
+const photoSortOrder = ref<'newest' | 'oldest'>('newest')
 
 // 相册推荐网格布局（与主页保持一致）
 const albumGridClass = computed(() => {
@@ -424,6 +483,27 @@ const albumGridClass = computed(() => {
     return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6'
   }
   return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'
+})
+
+const availablePhotoAlbums = computed(() => {
+  const albums = new Map<number, string>()
+  personPhotos.value.forEach(photo => {
+    if (photo.albumId) albums.set(photo.albumId, `相册 ${photo.albumId}`)
+  })
+  return [...albums].map(([id, name]) => ({ id, name }))
+})
+
+const displayedPersonPhotos = computed(() => {
+  const photos = personPhotos.value.filter(photo =>
+    photoAlbumFilter.value === 'all' || photo.albumId === photoAlbumFilter.value
+  )
+  return [...photos].sort((a, b) => {
+    const aTime = a.photoTakenAt || ''
+    const bTime = b.photoTakenAt || ''
+    return photoSortOrder.value === 'newest'
+      ? bTime.localeCompare(aTime)
+      : aTime.localeCompare(bTime)
+  })
 })
 
 // 人物抠图悬浮效果相关状态
@@ -626,7 +706,8 @@ const handlePhotoScroll = () => {
     const documentHeight = document.documentElement.scrollHeight
 
     if (scrollTop + windowHeight >= documentHeight - LOAD_THRESHOLD) {
-      loadMorePersonPhotos()
+      if (activeTab.value === 'discover') loadMoreDiscoveryPhotos()
+      if (activeTab.value === 'photos') loadMorePersonPhotos()
     }
 
     scrollThrottleTimer = null
@@ -744,6 +825,39 @@ const loadAlbumRecommendations = async (personIdToLoad: number) => {
   }
 }
 
+// 发现页由后端按 seed 提供稳定随机分页；同一次访问翻页不重复，重新进入人物才换一组。
+const loadDiscoveryPhotos = async (personIdToLoad: number) => {
+  loadingDiscovery.value = true
+  try {
+    discoveryPage.value = 0
+    const response = await personApi.getPersonDiscoveryPhotos(personIdToLoad, discoverySeed, 0)
+    discoveryPhotos.value = response.data.content || []
+    hasMoreDiscovery.value = !response.data.last
+  } catch (error) {
+    console.error('加载人物发现照片失败:', error)
+    discoveryPhotos.value = []
+  } finally {
+    loadingDiscovery.value = false
+  }
+}
+
+const loadMoreDiscoveryPhotos = async () => {
+  if (loadingMoreDiscovery.value || !hasMoreDiscovery.value || !resolvedPersonId.value) return
+  loadingMoreDiscovery.value = true
+  try {
+    const nextPage = discoveryPage.value + 1
+    const response = await personApi.getPersonDiscoveryPhotos(resolvedPersonId.value, discoverySeed, nextPage)
+    const knownPhotoIds = new Set(discoveryPhotos.value.map(photo => photo.photoId))
+    discoveryPhotos.value.push(...(response.data.content || []).filter(photo => !knownPhotoIds.has(photo.photoId)))
+    discoveryPage.value = nextPage
+    hasMoreDiscovery.value = !response.data.last
+  } catch (error) {
+    console.error('加载更多发现照片失败:', error)
+  } finally {
+    loadingMoreDiscovery.value = false
+  }
+}
+
 const loadPersonPhotos = async (personIdToLoad: number) => {
   loadingPhotos.value = true
   try {
@@ -791,7 +905,9 @@ const loadMorePersonPhotos = async () => {
 }
 
 const loadTabContent = (personIdToLoad: number) => {
-  if (activeTab.value === 'albums') {
+  if (activeTab.value === 'discover') {
+    if (discoveryPhotos.value.length === 0) loadDiscoveryPhotos(personIdToLoad)
+  } else if (activeTab.value === 'albums') {
     loadAlbumRecommendations(personIdToLoad)
   } else if (activeTab.value === 'photos') {
     loadPersonPhotos(personIdToLoad)

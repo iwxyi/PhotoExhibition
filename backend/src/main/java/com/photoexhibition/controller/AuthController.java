@@ -57,7 +57,7 @@ public class AuthController {
     }
 
     @GetMapping("/validate")
-    public ResponseEntity<Boolean> validate(@RequestHeader("Authorization") String token) {
+    public ResponseEntity<Boolean> validate(@RequestHeader(value = "Authorization", required = false) String token) {
         if (token == null || !token.startsWith("Bearer ")) {
             return ResponseEntity.ok(false);
         }

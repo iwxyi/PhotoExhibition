@@ -880,6 +880,17 @@ public class FaceService {
     public Page<FaceDTO> listPersonFaces(Long personId, Pageable pageable, Long userId) {
         validatePersonOwnership(personId, userId);
         Page<Photo> photos = photoRepository.findClaimedByPersonId(personId, userId, pageable);
+        return toPersonPhotoPage(photos, personId, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FaceDTO> listPersonDiscoveryPhotos(Long personId, Pageable pageable, Long userId, long seed) {
+        validatePersonOwnership(personId, userId);
+        Page<Photo> photos = photoRepository.findDiscoveryByPersonId(personId, userId, seed, pageable);
+        return toPersonPhotoPage(photos, personId, pageable);
+    }
+
+    private Page<FaceDTO> toPersonPhotoPage(Page<Photo> photos, Long personId, Pageable pageable) {
         List<Long> photoIds = photos.getContent().stream().map(Photo::getId).collect(Collectors.toList());
         Map<Long, Face> facesByPhotoId = photoIds.isEmpty()
             ? Collections.emptyMap()
