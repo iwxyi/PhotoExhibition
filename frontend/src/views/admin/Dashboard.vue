@@ -27,13 +27,21 @@
 
       <section class="admin-workbench-grid">
         <div class="glass-panel admin-workbench-panel">
-          <h2>扫描</h2>
-          <dl class="admin-status-list">
-            <div><dt>当前进度</dt><dd><button type="button" @click="openSkippedFilesModal">{{ scanProgressText }}</button></dd></div>
-            <div><dt>最近扫描</dt><dd>{{ lastScanTime || '—' }}</dd></div>
-            <div v-if="currentUserQueueSummary?.hasRunningTask"><dt>队列</dt><dd>正在扫描</dd></div>
-            <div v-else-if="(currentUserQueueSummary?.queuedTaskCount || 0) > 0"><dt>等待</dt><dd>前方 {{ currentUserQueueSummary?.aheadImageCount || 0 }} 张</dd></div>
-          </dl>
+          <h2>任务进度</h2>
+          <div class="admin-status-list">
+            <button type="button" class="w-full min-h-10 border-t border-[var(--pe-surface-border)] flex items-center justify-between gap-3 text-left" @click="openScanJobsModal">
+              <span>扫描</span><span :title="scanTaskProgressLine">{{ scanTaskCompactText }}</span>
+            </button>
+            <button type="button" class="w-full min-h-10 border-t border-[var(--pe-surface-border)] flex items-center justify-between gap-3 text-left" @click="openVisualAnalysisJobsModal">
+              <span>AI 分析</span>
+              <span class="flex items-center gap-2 tabular-nums">
+                <span class="text-sky-300">{{ visualJobCounts.RUNNING }}</span>
+                <span class="text-amber-300">{{ visualJobCounts.QUEUED }}</span>
+                <span class="text-emerald-300">{{ visualJobCounts.COMPLETED }}</span>
+                <span class="text-rose-300">{{ visualJobCounts.FAILED }}</span>
+              </span>
+            </button>
+          </div>
         </div>
 
         <div class="glass-panel admin-workbench-panel">
@@ -87,6 +95,64 @@
         </div>
       </section>
     </div>
+
+    <div v-if="showScanJobsModal" class="admin-dashboard-modal fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showScanJobsModal = false">
+      <div class="admin-modal-backdrop absolute inset-0"></div>
+      <section class="admin-modal-card admin-dashboard-modal-card relative w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
+        <header class="admin-dashboard-modal-head flex items-center justify-between px-5 py-4 shrink-0">
+          <h3 class="text-base font-medium">扫描任务</h3>
+          <div class="flex items-center gap-2"><button type="button" class="admin-button-soft px-3 py-1.5 text-xs rounded-lg" @click="fetchScanTasks">刷新</button><button type="button" class="admin-dashboard-modal-close p-1.5 rounded-lg" aria-label="关闭" @click="showScanJobsModal = false">×</button></div>
+        </header>
+        <div class="overflow-auto flex-1 overflow-x-visible">
+          <div v-if="loadingScanTasks" class="py-12 text-center text-sm admin-table-muted">加载中…</div>
+          <div v-else-if="scanTasks.length === 0" class="py-12 text-center text-sm admin-table-muted">暂无任务</div>
+          <table v-else class="w-full text-xs admin-data-table border-collapse">
+            <thead class="sticky top-0 uppercase tracking-wide"><tr><th class="px-4 py-2.5 text-left">任务</th><th v-if="authStore.isSuperAdmin" class="px-4 py-2.5 text-left">用户</th><th class="px-4 py-2.5 text-left">状态</th><th class="px-4 py-2.5 text-left">进度</th><th class="px-4 py-2.5 text-left">更新时间</th><th class="px-4 py-2.5 text-left">失败原因</th></tr></thead>
+            <tbody><tr v-for="task in scanTasks" :key="task.id" class="admin-dashboard-modal-row"><td class="px-4 py-3">#{{ task.id }} · {{ taskTypeLabel(task.taskType) }}</td><td v-if="authStore.isSuperAdmin" class="px-4 py-3 admin-table-muted">{{ task.ownerLabel || `用户 #${task.userId}` }}</td><td class="px-4 py-3"><span class="px-2 py-1 rounded-full border" :class="taskStatusClass(task.status)">{{ taskStatusLabel(task.status) }}</span></td><td class="px-4 py-3 admin-table-muted tabular-nums">{{ task.processedItems || 0 }} / {{ task.totalItems || 0 }}<span v-if="task.failedItems"> · 失败 {{ task.failedItems }}</span></td><td class="px-4 py-3 admin-table-muted">{{ formatDateTime(task.finishedAt || task.startedAt || task.createdAt) }}</td><td class="px-4 py-3 text-rose-300 break-all">{{ task.errorMessage || '—' }}</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="showVisualAnalysisJobsModal"
+      class="admin-dashboard-modal fixed inset-0 z-50 flex items-center justify-center p-4"
+      @click.self="showVisualAnalysisJobsModal = false"
+    >
+      <div class="admin-modal-backdrop absolute inset-0"></div>
+      <section class="admin-modal-card admin-dashboard-modal-card relative w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
+        <header class="admin-dashboard-modal-head flex items-center justify-between px-5 py-4 shrink-0">
+          <h3 class="text-base font-medium">AI 分析任务<span v-if="selectedVisualAnalysisJob"> #{{ selectedVisualAnalysisJob.id }}</span></h3>
+          <div class="flex items-center gap-2">
+            <select v-if="visualAnalysisJobs.length > 1" class="admin-field text-xs py-1" :value="selectedVisualAnalysisJob?.id || ''" @change="selectVisualAnalysisJob(Number(($event.target as HTMLSelectElement).value))">
+              <option v-for="job in visualAnalysisJobs" :key="job.id" :value="job.id">任务 #{{ job.id }} · {{ visualJobStatusLabel(job.status) }}</option>
+            </select>
+            <button type="button" class="admin-button-soft px-3 py-1.5 text-xs rounded-lg" @click="fetchVisualAnalysisJobs(true)">刷新</button>
+            <button type="button" class="admin-dashboard-modal-close p-1.5 rounded-lg" aria-label="关闭" @click="showVisualAnalysisJobsModal = false">×</button>
+          </div>
+        </header>
+        <div class="overflow-auto flex-1">
+          <div v-if="loadingVisualAnalysisJobs" class="py-12 text-center text-sm admin-table-muted">加载中…</div>
+          <div v-else-if="!selectedVisualAnalysisJob" class="py-12 text-center text-sm admin-table-muted">暂无任务</div>
+          <table v-else class="w-full text-xs admin-data-table border-collapse">
+            <thead class="sticky top-0 uppercase tracking-wide"><tr><th class="px-4 py-2.5 text-left">照片</th><th class="px-4 py-2.5 text-left">状态</th><th class="px-4 py-2.5 text-left">更新时间</th><th class="px-4 py-2.5 text-left">信息</th></tr></thead>
+            <tbody>
+              <tr v-for="item in selectedVisualAnalysisJob.items || []" :key="item.id || item.photoId" class="admin-dashboard-modal-row">
+                <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="shrink-0"><img :src="visualAnalysisPhotoUrl(item)" class="w-14 h-14 rounded object-cover border border-white/10" loading="lazy" @mouseenter="showVisualPreview(item, $event)" @mousemove="moveVisualPreview($event)" @mouseleave="hideVisualPreview" /></div><div class="min-w-0"><div class="truncate max-w-48">{{ item.photoName || `照片 #${item.photoId}` }}</div><div class="admin-table-faint">#{{ item.photoId }}</div><div><span class="inline-flex whitespace-nowrap px-1.5 py-0.5 rounded-full border text-[11px]" :class="taskStatusClass(item.status)">{{ visualJobStatusLabel(item.status) }}</span></div></div></div></td>
+                <td class="px-4 py-3 admin-table-muted">{{ formatDateTime(item.updatedAt || item.finishedAt || item.startedAt) }}</td>
+                <td class="px-4 py-3 break-all max-w-md" :class="item.status === 'FAILED' ? 'text-rose-300' : 'admin-table-muted'"><div :title="visualAnalysisInfoTooltip(item)">{{ item.status === 'COMPLETED' ? (visualAnalysisShortDescription(item) || '已完成，暂无文字结果') : (item.errorMessage || visualJobStatusLabel(item.status)) }}</div><div v-if="item.status === 'COMPLETED'" class="mt-1 flex flex-wrap gap-1"><span v-for="tag in visualAnalysisTags(item).slice(0, 4)" :key="tag" class="px-1.5 py-0.5 rounded border border-sky-400/20 text-[10px] text-sky-200">{{ tag }}</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <teleport to="body">
+      <div v-if="visualPreviewItem" class="pointer-events-none fixed z-[200]" :style="visualPreviewPosition">
+        <img :src="visualAnalysisPhotoUrl(visualPreviewItem)" class="w-96 max-h-96 rounded-lg object-contain border border-white/20 bg-black/90 shadow-2xl" />
+      </div>
+    </teleport>
 
     <!-- 跳过文件详情弹窗 -->
     <div
@@ -319,11 +385,31 @@ const runningImageCount = ref(0)
 const runningTasks = ref<any[]>([])
 const currentScanTask = ref<any | null>(null)
 const scanTasks = ref<any[]>([])
+const showScanJobsModal = ref(false)
 const expandedTaskIds = ref<number[]>([])
 const showTaskDetailModal = ref(false)
 const selectedTaskDetail = ref<any | null>(null)
 const loadingTaskDetail = ref(false)
 const loadingScanTasks = ref(false)
+const visualAnalysisJobs = ref<any[]>([])
+const selectedVisualAnalysisJob = ref<any | null>(null)
+const loadingVisualAnalysisJobs = ref(false)
+const showVisualAnalysisJobsModal = ref(false)
+const currentVisualAnalysisJob = computed(() =>
+  visualAnalysisJobs.value.find(job => job.status === 'RUNNING') ||
+  visualAnalysisJobs.value.find(job => ['QUEUED', 'PENDING'].includes(job.status)) ||
+  visualAnalysisJobs.value[0] || null
+)
+const visualJobCounts = computed(() => {
+  const counts: Record<string, number> = { RUNNING: 0, QUEUED: 0, COMPLETED: 0, FAILED: 0 }
+  const job = currentVisualAnalysisJob.value
+  if (!job) return counts
+  counts.RUNNING = job.status === 'RUNNING' ? 1 : 0
+  counts.QUEUED = Math.max(0, Number(job.waitingItems || 0) - counts.RUNNING)
+  counts.COMPLETED = Number(job.succeededItems || 0) + Number(job.skippedItems || 0)
+  counts.FAILED = Number(job.failedItems || 0)
+  return counts
+})
 const loginRecords = ref<any[]>([])
 const loadingLoginRecords = ref(false)
 const operationLogs = ref<any[]>([])
@@ -343,6 +429,18 @@ const scanProgressText = computed(() => {
   if (!total) return '0 / 0'
   const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0
   return `${current} / ${total} (${percentage}%)`
+})
+const scanTaskProgressLine = computed(() => {
+  if (runningTaskCount.value > 0) return `进行中 ${scanProgressText.value}`
+  if (queueCount.value > 0) return `等待 ${queueCount.value} 项`
+  const failed = scanTasks.value.filter(task => task.status === 'FAILED').length
+  return failed > 0 ? `失败 ${failed} 项` : '暂无进行中的任务'
+})
+const scanTaskCompactText = computed(() => {
+  if (runningTaskCount.value > 0) return scanProgressText.value
+  if (queueCount.value > 0) return `等待 ${queueCount.value}`
+  const failed = scanTasks.value.filter(task => task.status === 'FAILED').length
+  return failed > 0 ? `失败 ${failed}` : '—'
 })
 const queuedOwnerSummaryText = computed(() =>
   queuedOwnerSummaries.value
@@ -429,10 +527,87 @@ const taskStatusLabel = (status?: string): string => {
       return '失败'
     case 'COMPLETED':
       return '已完成'
+    case 'SKIPPED':
+      return '已跳过'
     case 'CANCELED':
       return '已取消'
     default:
       return status || '未知'
+  }
+}
+
+const visualJobStatusLabel = (status?: string): string => taskStatusLabel(status)
+
+const visualAnalysisJson = (item: any): any => {
+  if (!item?.analysisJson) return {}
+  try { return JSON.parse(item.analysisJson) || {} } catch { return {} }
+}
+const visualAnalysisShortDescription = (item: any): string => {
+  const data = visualAnalysisJson(item)
+  return data.shortDescription || data.caption || item.caption || ''
+}
+const visualAnalysisTags = (item: any): string[] => {
+  const data = visualAnalysisJson(item)
+  return Array.isArray(data.visualTags) ? data.visualTags.map(String) : []
+}
+const visualAnalysisInfoTooltip = (item: any): string => {
+  if (item?.status === 'FAILED') return item.errorMessage || '分析失败'
+  if (item?.status !== 'COMPLETED') return visualJobStatusLabel(item?.status)
+  const data = visualAnalysisJson(item)
+  const format = (value: any): string => {
+    if (value == null || value === '') return '—'
+    if (Array.isArray(value)) return value.map(format).join('、') || '—'
+    if (typeof value === 'object') return Object.entries(value).map(([key, child]) => `${key}: ${format(child)}`).join('；') || '—'
+    return String(value)
+  }
+  return Object.entries(data).map(([key, value]) => `${key}: ${format(value)}`).join('\n') || '已完成，暂无详细信息'
+}
+const visualAnalysisPhotoUrl = (item: any): string => `/api/photos/${item.photoId}/asset?variant=small`
+const visualPreviewItem = ref<any | null>(null)
+const visualPreviewPosition = ref<Record<string, string>>({ left: '1rem', top: '1rem' })
+const moveVisualPreview = (event: MouseEvent) => {
+  const width = 384
+  const height = 384
+  const left = event.clientX + 18 + width <= window.innerWidth ? event.clientX + 18 : event.clientX - width - 18
+  const top = Math.min(window.innerHeight - height - 16, Math.max(16, event.clientY - 40))
+  visualPreviewPosition.value = { left: `${Math.max(16, left)}px`, top: `${top}px` }
+}
+const showVisualPreview = (item: any, event: MouseEvent) => { visualPreviewItem.value = item; moveVisualPreview(event) }
+const hideVisualPreview = () => { visualPreviewItem.value = null }
+
+const fetchVisualAnalysisJobs = async (showLoading = false) => {
+  if (showLoading) loadingVisualAnalysisJobs.value = true
+  try {
+    const response = await api.get('/admin/photos/visual-analysis/jobs')
+    visualAnalysisJobs.value = Array.isArray(response.data) ? response.data : []
+    if (showVisualAnalysisJobsModal.value && (selectedVisualAnalysisJob.value?.id || currentVisualAnalysisJob.value?.id)) {
+      const selectedId = selectedVisualAnalysisJob.value?.id || currentVisualAnalysisJob.value?.id
+      const detail = await api.get(`/admin/photos/visual-analysis/jobs/${selectedId}`)
+      selectedVisualAnalysisJob.value = detail.data || null
+    }
+  } catch (error) {
+    console.error('加载 AI 分析任务失败:', error)
+    if (showLoading && visualAnalysisJobs.value.length === 0) {
+      selectedVisualAnalysisJob.value = null
+    }
+  } finally {
+    if (showLoading) loadingVisualAnalysisJobs.value = false
+  }
+}
+
+const openVisualAnalysisJobsModal = async () => {
+  selectedVisualAnalysisJob.value = null
+  showVisualAnalysisJobsModal.value = true
+  await fetchVisualAnalysisJobs(true)
+}
+
+const selectVisualAnalysisJob = async (jobId: number) => {
+  if (!jobId) return
+  try {
+    const detail = await api.get(`/admin/photos/visual-analysis/jobs/${jobId}`)
+    selectedVisualAnalysisJob.value = detail.data || null
+  } catch (error) {
+    console.error('加载 AI 分析任务详情失败:', error)
   }
 }
 
@@ -522,10 +697,6 @@ const fetchSkippedFiles = async () => {
 }
 
 const fetchScanTasks = async () => {
-  if (!authStore.isSuperAdmin) {
-    scanTasks.value = []
-    return
-  }
   loadingScanTasks.value = true
   try {
     const res = await api.get('/admin/scan/tasks')
@@ -538,6 +709,11 @@ const fetchScanTasks = async () => {
   } finally {
     loadingScanTasks.value = false
   }
+}
+
+const openScanJobsModal = async () => {
+  showScanJobsModal.value = true
+  await fetchScanTasks()
 }
 
 const shouldPollTaskDetail = (task: any | null): boolean =>
@@ -1297,13 +1473,16 @@ onMounted(async () => {
   await Promise.all([loadStats(), loadStorageOverview()])
   await Promise.all([
     fetchScanStatus(),
+    fetchVisualAnalysisJobs(),
     loadScanProviderOptions(),
-    ...(authStore.isSuperAdmin ? [fetchScanTasks(), fetchOperationLogs(), fetchLoginRecords()] : [])
+    fetchScanTasks(),
+    ...(authStore.isSuperAdmin ? [fetchOperationLogs(), fetchLoginRecords()] : [])
   ])
   scanTimer = window.setInterval(() => {
     fetchScanStatus()
+    fetchVisualAnalysisJobs()
+    fetchScanTasks()
     if (authStore.isSuperAdmin) {
-      fetchScanTasks()
       fetchOperationLogs()
       fetchLoginRecords()
     }

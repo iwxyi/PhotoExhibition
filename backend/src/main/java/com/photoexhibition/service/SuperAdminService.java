@@ -161,6 +161,14 @@ public class SuperAdminService {
         SmsConfigService.SmsResolvedSettings smsSettings = smsConfigService.getResolvedSettings();
         EmailConfigService.EmailResolvedSettings emailSettings = emailConfigService.getResolvedSettings();
         PaymentConfigService.PaymentResolvedSettings paymentSettings = paymentConfigService.getResolvedSettings();
+        resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
+        resp.put("aiVisualAnalysisEnabled", systemConfigService.isAiVisualAnalysisEnabled());
+        resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
+        String aiApiKey = systemConfigService.getAiSearchApiKey();
+        resp.put("aiSearchApiKey", aiApiKey != null && aiApiKey.length() > 8
+            ? aiApiKey.substring(0, 4) + "****" + aiApiKey.substring(aiApiKey.length() - 4)
+            : (aiApiKey == null || aiApiKey.isEmpty() ? "" : "****"));
+        resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
         resp.put("multiUserEnabled", systemConfigService.isMultiUserEnabled());
         resp.put("scanSchedulerEnabled", systemConfigService.isScanSchedulerEnabled());
         resp.put("scanWorkerCount", systemConfigService.getScanWorkerCount());
@@ -245,6 +253,22 @@ public class SuperAdminService {
 
     @Transactional
     public Map<String, Object> updateSettings(Map<String, Object> request) {
+        if (request.containsKey("aiSearchEnabled")) {
+            systemConfigService.setAiSearchEnabled(parseBoolean(request.get("aiSearchEnabled"), "aiSearchEnabled"));
+        }
+        if (request.containsKey("aiVisualAnalysisEnabled")) {
+            systemConfigService.setAiVisualAnalysisEnabled(parseBoolean(request.get("aiVisualAnalysisEnabled"), "aiVisualAnalysisEnabled"));
+        }
+        if (request.containsKey("aiSearchApiUrl")) {
+            systemConfigService.setAiSearchApiUrl(parseNullableString(request.get("aiSearchApiUrl")));
+        }
+        if (request.containsKey("aiSearchApiKey")) {
+            String key = parseNullableString(request.get("aiSearchApiKey"));
+            if (key != null && !key.contains("****")) systemConfigService.setAiSearchApiKey(key);
+        }
+        if (request.containsKey("aiSearchModel")) {
+            systemConfigService.setAiSearchModel(parseNullableString(request.get("aiSearchModel")));
+        }
         if (request.containsKey("multiUserEnabled")) {
             systemConfigService.setMultiUserEnabled(parseBoolean(request.get("multiUserEnabled"), "multiUserEnabled"));
         }

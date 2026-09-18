@@ -79,6 +79,10 @@ public class SystemConfigService {
     public static final String AI_SEARCH_MODEL_DEFAULT = "gpt-4o";
     public static final String AI_SEARCH_MODEL_DESCRIPTION = "AI搜索使用的模型名称";
 
+    public static final String AI_VISUAL_ANALYSIS_ENABLED_KEY = "ai_visual_analysis_enabled";
+    public static final String AI_VISUAL_ANALYSIS_ENABLED_DEFAULT = "false";
+    public static final String AI_VISUAL_ANALYSIS_ENABLED_DESCRIPTION = "AI图片视觉分析开关（复用AI智能搜索的API配置）";
+
     public static final String MULTI_USER_ENABLED_KEY = "multi_user_enabled";
     public static final String MULTI_USER_ENABLED_DEFAULT = "false";
     public static final String MULTI_USER_ENABLED_DESCRIPTION = "是否开启多用户模式";
@@ -687,6 +691,27 @@ public class SystemConfigService {
     @Transactional
     public void setAiSearchModel(String model) {
         setConfigValue(AI_SEARCH_MODEL_KEY, model != null ? model.trim() : AI_SEARCH_MODEL_DEFAULT, AI_SEARCH_MODEL_DESCRIPTION);
+    }
+
+    /**
+     * 图片视觉分析与 AI 搜索共用 OpenAI 兼容 API 地址、密钥和模型，只有功能开关独立。
+     */
+    public boolean isAiVisualAnalysisEnabled() {
+        String value = getConfigValueWithDefault(
+            AI_VISUAL_ANALYSIS_ENABLED_KEY,
+            AI_VISUAL_ANALYSIS_ENABLED_DEFAULT,
+            AI_VISUAL_ANALYSIS_ENABLED_DESCRIPTION
+        );
+        return "true".equalsIgnoreCase(value);
+    }
+
+    @Transactional
+    public void setAiVisualAnalysisEnabled(boolean enabled) {
+        setConfigValue(
+            AI_VISUAL_ANALYSIS_ENABLED_KEY,
+            String.valueOf(enabled),
+            AI_VISUAL_ANALYSIS_ENABLED_DESCRIPTION
+        );
     }
 
     /**

@@ -135,50 +135,6 @@
       </section>
 
       <section class="glass-panel admin-settings-group">
-        <div class="admin-settings-group-heading">
-          <h2 class="admin-settings-group-title">智能能力</h2>
-          <label class="admin-settings-toggle cursor-pointer">
-            <input
-              type="checkbox"
-              v-model="aiSearchEnabled"
-              class="admin-settings-toggle-input"
-            />
-            <span class="text-sm admin-settings-toggle-text">{{ aiSearchEnabled ? '已启用' : '已关闭' }}</span>
-          </label>
-        </div>
-
-        <div v-if="aiSearchEnabled" class="admin-settings-ai-grid">
-          <label class="admin-settings-field-stack">
-            <span class="admin-settings-field-label">API 地址</span>
-            <input
-              v-model="aiSearchApiUrl"
-              type="text"
-              placeholder="https://api.openai.com/v1"
-              class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label class="admin-settings-field-stack">
-            <span class="admin-settings-field-label">API 密钥</span>
-            <input
-              v-model="aiSearchApiKey"
-              type="password"
-              placeholder="sk-..."
-              class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label class="admin-settings-field-stack">
-            <span class="admin-settings-field-label">模型名称</span>
-            <input
-              v-model="aiSearchModel"
-              type="text"
-              placeholder="gpt-4o"
-              class="admin-field admin-settings-input focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-        </div>
-      </section>
-
-      <section class="glass-panel admin-settings-group">
         <h2 class="admin-settings-group-title">账户安全</h2>
         <div class="admin-settings-account-grid">
           <section class="admin-settings-account-section">
@@ -345,7 +301,7 @@ const saving = ref(false)
 const scanning = ref(false)
 const settingsChanged = ref(false)
 
-// AI搜索相关
+// AI 提供商配置：图片视觉分析复用 AI 搜索的 API 地址、密钥和模型。
 const aiSearchEnabled = ref(false)
 const originalAiSearchEnabled = ref(false)
 const aiSearchApiUrl = ref('')
@@ -354,6 +310,8 @@ const aiSearchApiKey = ref('')
 const originalAiSearchApiKey = ref('')
 const aiSearchModel = ref('gpt-4o')
 const originalAiSearchModel = ref('gpt-4o')
+const aiVisualAnalysisEnabled = ref(false)
+const originalAiVisualAnalysisEnabled = ref(false)
 
 // 密码修改相关
 const currentPassword = ref('')
@@ -395,6 +353,8 @@ const loadSettings = async () => {
     originalAiSearchApiKey.value = response.data.aiSearchApiKey || ''
     aiSearchModel.value = response.data.aiSearchModel || 'gpt-4o'
     originalAiSearchModel.value = response.data.aiSearchModel || 'gpt-4o'
+    aiVisualAnalysisEnabled.value = response.data.aiVisualAnalysisEnabled === true
+    originalAiVisualAnalysisEnabled.value = response.data.aiVisualAnalysisEnabled === true
     settingsChanged.value = false
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -531,6 +491,7 @@ const saveSettings = async () => {
     const aiUrlChanged = aiSearchApiUrl.value !== originalAiSearchApiUrl.value
     const aiKeyChanged = aiSearchApiKey.value !== originalAiSearchApiKey.value && !aiSearchApiKey.value.includes('****')
     const aiModelChanged = aiSearchModel.value !== originalAiSearchModel.value
+    const aiVisualAnalysisChanged = aiVisualAnalysisEnabled.value !== originalAiVisualAnalysisEnabled.value
 
     if (aiEnabledChanged) {
       await api.put('/admin/config/ai-search-enabled', { aiSearchEnabled: aiSearchEnabled.value })
@@ -543,6 +504,9 @@ const saveSettings = async () => {
     }
     if (aiModelChanged) {
       await api.put('/admin/config/ai-search-model', { aiSearchModel: aiSearchModel.value })
+    }
+    if (aiVisualAnalysisChanged) {
+      await api.put('/admin/config/ai-visual-analysis-enabled', { aiVisualAnalysisEnabled: aiVisualAnalysisEnabled.value })
     }
 
     // 设置保存成功，显示提示
@@ -558,6 +522,7 @@ const saveSettings = async () => {
     if (aiUrlChanged) originalAiSearchApiUrl.value = aiSearchApiUrl.value
     if (aiKeyChanged) originalAiSearchApiKey.value = aiSearchApiKey.value
     if (aiModelChanged) originalAiSearchModel.value = aiSearchModel.value
+    if (aiVisualAnalysisChanged) originalAiVisualAnalysisEnabled.value = aiVisualAnalysisEnabled.value
     settingsChanged.value = maxAlbumDepth.value !== originalMaxAlbumDepth.value ||
                            photoSortOrder.value !== originalPhotoSortOrder.value ||
                            albumSortOrder.value !== originalAlbumSortOrder.value ||
@@ -566,6 +531,7 @@ const saveSettings = async () => {
                            globalDownloadAllowed.value !== originalGlobalDownloadAllowed.value ||
                            albumCategorySortOrder.value !== originalAlbumCategorySortOrder.value ||
                            tagIgnoreList.value !== originalTagIgnoreList.value
+                           || aiVisualAnalysisEnabled.value !== originalAiVisualAnalysisEnabled.value
 
     // 显示保存成功的提示
     if (needsWallRefresh.value) {

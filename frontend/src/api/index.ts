@@ -532,6 +532,11 @@ export interface SuperAdminProcessingOverview {
 }
 
 export interface SuperAdminSettings {
+  aiSearchEnabled: boolean
+  aiVisualAnalysisEnabled: boolean
+  aiSearchApiUrl: string
+  aiSearchApiKey: string
+  aiSearchModel: string
   multiUserEnabled: boolean
   scanSchedulerEnabled: boolean
   scanWorkerCount: number

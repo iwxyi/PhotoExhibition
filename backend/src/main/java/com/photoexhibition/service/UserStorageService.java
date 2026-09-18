@@ -72,7 +72,14 @@ public class UserStorageService {
         long baseQuota = user.getStorageQuotaBytes() == null ? 0L : user.getStorageQuotaBytes();
         long vipExtraQuota = user.getVipExtraQuotaBytes() == null ? 0L : user.getVipExtraQuotaBytes();
         long planQuota = resolvePlanQuotaBytes(user);
-        return Math.max(0L, baseQuota + vipExtraQuota + planQuota);
+        // Long.MAX_VALUE is used for unlimited/admin accounts.  A normal addition
+        // would overflow as soon as a VIP quota is added and incorrectly become 0.
+        long total = baseQuota;
+        if (vipExtraQuota > 0 && total > Long.MAX_VALUE - vipExtraQuota) return Long.MAX_VALUE;
+        total += vipExtraQuota;
+        if (planQuota > 0 && total > Long.MAX_VALUE - planQuota) return Long.MAX_VALUE;
+        total += planQuota;
+        return Math.max(0L, total);
     }
 
     public long resolvePlanQuotaBytes(UserAccount user) {
