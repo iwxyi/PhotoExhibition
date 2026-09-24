@@ -2415,9 +2415,12 @@ public class FaceService {
 
             // 获取代表缩略图
             Object[] sampleData = getPersonSamplePhoto(person.getId());
-            if (sampleData[1] != null && sampleData[2] != null) {
+            if (sampleData[1] != null) {
                 dto.setSampleFaceId((Long) sampleData[0]);
+                dto.setSamplePhotoId((Long) sampleData[1]);
                 dto.setSampleThumbnailPath((String) sampleData[2]);
+                dto.setSampleOriginalPath((String) sampleData[3]);
+                dto.setSampleConfidence((Double) sampleData[4]);
             }
 
             result.add(dto);

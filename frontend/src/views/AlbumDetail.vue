@@ -115,8 +115,8 @@
             >
               <div class="person-avatar-wrapper">
                 <img
-                  v-if="person.sampleThumbnailPath"
-                  :src="getImageUrl({ thumbnailPath: person.sampleThumbnailPath })"
+                  v-if="person.samplePhotoId || person.sampleThumbnailPath"
+                  :src="getImageUrl({ id: person.samplePhotoId, mediumThumbPath: person.sampleThumbnailPath, originalPath: person.sampleOriginalPath })"
                   :alt="person.name"
                   class="person-avatar"
                 />
@@ -369,7 +369,9 @@ interface AlbumPerson {
   id: number
   name: string
   description?: string
+  samplePhotoId?: number
   sampleThumbnailPath?: string
+  sampleOriginalPath?: string
   faceCount?: number
 }
 const albumPersons = ref<AlbumPerson[]>([])

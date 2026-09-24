@@ -358,6 +358,21 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
 
+  /* The admin console has its own color-mode attribute and does not
+     necessarily toggle the global `.dark` class. Keep chips dark there even
+     when the public site is in light mode. */
+  :root[data-admin-color-mode='dark'] .admin-shell .chip {
+    background-color: color-mix(in srgb, var(--pe-admin-soft-bg) 88%, #0f172a 12%);
+    border-color: color-mix(in srgb, var(--pe-surface-border) 78%, #64748b 22%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  :root[data-admin-color-mode='light'] .admin-shell .chip {
+    background-color: color-mix(in srgb, var(--pe-admin-soft-bg) 92%, #ffffff 8%);
+    border-color: var(--pe-surface-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  }
+
   .admin-shell {
     background: var(--pe-admin-bg);
     color: var(--pe-admin-text-primary);
