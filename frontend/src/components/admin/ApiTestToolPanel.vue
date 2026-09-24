@@ -28,8 +28,9 @@
           <option value="POST /admin/update-exif-data">更新 EXIF 数值字段（回填历史图片）</option>
           <option value="POST /admin/update-color-categories">更新颜色分类（为历史图片设置颜色分类）</option>
           <option value="POST /admin/recalculate-photo-colors">更新照片颜色（重新计算色调、分类、相册氛围等）</option>
-          <option value="POST /admin/ai-analysis/clear-all">清空照片AI分析</option>
-          <option value="POST /admin/ai-analysis/update-all">更新所有照片AI分析</option>
+          <option value="POST /admin/ai-analysis/clear-all">清空旧版AI评分（不含视觉分析）</option>
+          <option value="POST /admin/ai-analysis/update-all">更新旧版AI评分（不含视觉分析）</option>
+          <option value="POST /admin/photos/visual-analysis/jobs">加入视觉分析队列（需填写照片ID）</option>
           <option value="GET /admin/faces/{id}/similar">相似人脸查询</option>
           <option value="GET /admin/scan/analyze-unscanned">分析未扫描的文件</option>
           <option value="POST /admin/cleanup/all">清理所有数据（只保留账号）</option>
@@ -57,6 +58,11 @@
           class="w-full px-4 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
         <div class="mt-2 text-xs text-gray-500">建议只对单个相册试跑，确认结果后再批量执行。</div>
+      </div>
+
+      <div v-if="showVisualPhotoIdsInput">
+        <label class="block text-sm text-gray-400 mb-2">照片 ID（JSON 数组）</label>
+        <input v-model="visualPhotoIdsInput" placeholder="例如：[24, 25, 28]" class="w-full px-4 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-white" />
       </div>
 
       <div v-if="showFaceSimilarInputs" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -464,6 +470,8 @@ const showAlbumIdInput = computed(() =>
 )
 const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))
 const showFaceSimilarInputs = computed(() => selectedApi.value.includes('/admin/faces/{id}/similar'))
+const showVisualPhotoIdsInput = computed(() => selectedApi.value.includes('/visual-analysis/jobs'))
+const visualPhotoIdsInput = ref('[]')
 const paymentPreviewSummary = computed<PaymentNotifyPreviewResult | null>(() => {
   const value = paymentNotifyPreviewResponse.value
   if (!value || 'error' in value) return null
@@ -839,6 +847,13 @@ const testApi = async () => {
   try {
     let [method, path] = selectedApi.value.split(' ')
     const params: Record<string, any> = {}
+
+    if (showVisualPhotoIdsInput.value) {
+      let photoIds: any
+      try { photoIds = JSON.parse(visualPhotoIdsInput.value) } catch { throw new Error('照片 ID 必须是合法 JSON 数组') }
+      if (!Array.isArray(photoIds)) throw new Error('照片 ID 必须是 JSON 数组')
+      config.data = { photoIds, force: true }
+    }
 
     if (showFaceSimilarInputs.value) {
       if (!faceIdInput.value.trim()) {

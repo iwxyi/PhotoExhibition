@@ -230,6 +230,22 @@
               </svg>
               相册特效
             </button>
+            <!-- 分析任务分组 -->
+            <DropMenu trigger="hover" placement="right" :offset="2">
+              <template #trigger>
+                <button class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                  <span class="flex items-center gap-2"><span aria-hidden="true">✦</span>分析</span>
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                </button>
+              </template>
+              <div class="glass-menu admin-albums-menu admin-albums-menu--nested rounded-lg shadow-xl py-1 min-w-[180px]">
+                <button
+                  @click="enqueueAlbumVisualAnalysis(showMenuForAlbum)"
+                  :disabled="albumVisualAnalysisSubmitting"
+                  class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >{{ albumVisualAnalysisSubmitting ? '加入队列中…' : 'AI 分析' }}</button>
+              </div>
+            </DropMenu>
             <!-- 编辑操作分组 -->
             <div class="admin-albums-menu__section-label px-4 pt-2 pb-1 text-[10px]">编辑</div>
             <!-- 重命名菜单项 -->
@@ -1086,6 +1102,33 @@
                     </div>
                   </DropMenu>
 
+                  <!-- 分析：此处保留为任务菜单，后续可加入人脸等耗时任务 -->
+                  <DropMenu trigger="hover" placement="right" :offset="2">
+                    <template #trigger>
+                      <button class="admin-albums-menu__button w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 3.104v1.79m0 14.002v1.79M4.904 4.904l1.266 1.266m7.16 7.16 1.266 1.266M3.104 9.75h1.79m14.002 0h1.79M4.904 14.596l1.266-1.266m7.16-7.16 1.266-1.266" />
+                            <circle cx="9.75" cy="9.75" r="3.25" stroke-width="2" />
+                          </svg>
+                          分析
+                        </span>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </template>
+                    <div class="glass-menu admin-albums-menu admin-albums-menu--photo-sub rounded-lg shadow-xl py-1 min-w-[180px]">
+                      <button
+                        @click="enqueueSelectedVisualAnalysis"
+                        :disabled="photoModalSelected.size === 0 || visualAnalysisSubmitting"
+                        class="admin-albums-menu__button w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {{ visualAnalysisSubmitting ? '加入队列中…' : `AI 分析 (${photoModalSelected.size})` }}
+                      </button>
+                    </div>
+                  </DropMenu>
+
                   <!-- 分割线 -->
                   <div class="border-t border-gray-600 my-1"></div>
 
@@ -1295,6 +1338,7 @@ const keyword = ref('')
 const selectionMode = ref(false)
 const selectedAlbumIds = ref<number[]>([])
 const batchLoading = ref(false)
+const albumVisualAnalysisSubmitting = ref(false)
 const batchTagMode = ref(false)
 const showMenuForAlbum = ref<any>(null)
 const menuPosition = ref({ x: 0, y: 0 })
@@ -2833,6 +2877,7 @@ const photoModalAlbum = ref<any>(null)
 const photoModalPhotos = ref<any[]>([])
 const photoModalSelected = ref<Set<number>>(new Set())
 const photoModalLoading = ref(false)
+const visualAnalysisSubmitting = ref(false)
 
 const sortPhotoModalPhotos = (photos: any[]) => {
   return [...photos].sort((left, right) => {
@@ -2873,6 +2918,36 @@ const getApiErrorMessage = (error: any, fallback: string) => {
     error?.message ||
     fallback
   )
+}
+
+const enqueueAlbumVisualAnalysis = async (album: any) => {
+  if (!album?.id || albumVisualAnalysisSubmitting.value) return
+  albumVisualAnalysisSubmitting.value = true
+  try {
+    const response = await api.get(`/photos/album/${album.id}`, {
+      params: { all: true, includeHidden: true },
+      ...getAdminRequestConfig()
+    })
+    const photos = response.data?.content || []
+    if (!photos.length) {
+      notify('该相册没有可分析的照片', 'info')
+      return
+    }
+    const queued = await api.post('/admin/photos/visual-analysis/jobs', {
+      photoIds: photos.map((photo: any) => photo.id),
+      force: true
+    }, getAdminRequestConfig())
+    if (queued.data?.success) {
+      notify(`已将 ${queued.data.queuedPhotos ?? photos.length} 张照片加入 AI 分析队列`, 'success')
+      closeAllMenus()
+    } else {
+      notify(queued.data?.message || '加入 AI 分析队列失败', 'error')
+    }
+  } catch (error: any) {
+    notify('加入 AI 分析队列失败：' + getApiErrorMessage(error, '未知错误'), 'error')
+  } finally {
+    albumVisualAnalysisSubmitting.value = false
+  }
 }
 
 // 检查选中的照片是否有隐藏的
@@ -2976,6 +3051,28 @@ const togglePhotoPinned = async (operation: 'pin' | 'unpin') => {
     }
   } catch (e: any) {
     alert(`${isPinned ? '置顶' : '取消置顶'}失败: ` + getApiErrorMessage(e, '未知错误'))
+  }
+}
+
+const enqueueSelectedVisualAnalysis = async () => {
+  if (photoModalSelected.value.size === 0 || visualAnalysisSubmitting.value) return
+  visualAnalysisSubmitting.value = true
+  try {
+    const response = await api.post('/admin/photos/visual-analysis/jobs', {
+      photoIds: Array.from(photoModalSelected.value),
+      force: true
+    }, getAdminRequestConfig())
+    const result = response.data || {}
+    if (result.success) {
+      photoMoveMenuVisible.value = false
+      notify(`已将 ${result.queuedPhotos ?? photoModalSelected.value.size} 张照片加入 AI 分析队列`, 'success')
+    } else {
+      notify(result.message || '加入 AI 分析队列失败', 'error')
+    }
+  } catch (e: any) {
+    notify('加入 AI 分析队列失败：' + getApiErrorMessage(e, '未知错误'), 'error')
+  } finally {
+    visualAnalysisSubmitting.value = false
   }
 }
 

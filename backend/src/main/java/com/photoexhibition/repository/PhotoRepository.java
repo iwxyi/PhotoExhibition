@@ -39,6 +39,20 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
     )
     Page<Photo> findClaimedByPersonId(@Param("personId") Long personId, @Param("userId") Long userId, Pageable pageable);
 
+    @Query(
+        value = "SELECT p.* FROM photo p " +
+            "WHERE (:userId IS NULL OR p.user_id = :userId) " +
+            "AND (EXISTS (SELECT 1 FROM photo_face pf WHERE pf.photo_id = p.id AND pf.person_id = :personId) " +
+            "OR EXISTS (SELECT 1 FROM photo_assignment pa WHERE pa.photo_id = p.id AND pa.person_id = :personId)) " +
+            "ORDER BY MOD(p.id * 1103515245 + COALESCE(p.album_id, 0) * 12345 + :seed, 2147483647)",
+        countQuery = "SELECT COUNT(*) FROM photo p " +
+            "WHERE (:userId IS NULL OR p.user_id = :userId) " +
+            "AND (EXISTS (SELECT 1 FROM photo_face pf WHERE pf.photo_id = p.id AND pf.person_id = :personId) " +
+            "OR EXISTS (SELECT 1 FROM photo_assignment pa WHERE pa.photo_id = p.id AND pa.person_id = :personId))",
+        nativeQuery = true
+    )
+    Page<Photo> findDiscoveryByPersonId(@Param("personId") Long personId, @Param("userId") Long userId, @Param("seed") long seed, Pageable pageable);
+
     /**
      * 一次性加载 Photo 及其关联集合，避免在非事务/异步线程里触发懒加载异常。
      *

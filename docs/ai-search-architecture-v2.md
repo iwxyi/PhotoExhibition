@@ -1,5 +1,7 @@
 # AI 搜索架构设计 V2
 
+> V3 先建设图片与相册理解数据层，再在此基础上升级查询。请先阅读 [docs/ai-understanding-v3.md](ai-understanding-v3.md)。
+
 ## 1. 目标
 
 V2 的目标不是继续给 `AiSearchService` 叠加更多特殊分支，而是把 AI 搜索改造成一个可长期维护的受控检索系统：

@@ -175,27 +175,8 @@
                 :src="getImageUrl(photo)"
                 :alt="photo.filename"
                 class="photo-image w-full h-full"
-                :class="{
-                  'photo-image--loaded': photoImageStates[photo.id] === 'loaded',
-                  'photo-image--failed': photoImageStates[photo.id] === 'error'
-                }"
                 loading="lazy"
-                decoding="async"
-                @load="handlePhotoImageLoad(photo.id)"
-                @error="handlePhotoImageError(photo.id)"
               />
-              <div
-                v-if="photoImageStates[photo.id] === 'error'"
-                class="photo-image-fallback"
-                aria-label="图片加载失败"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <path d="m8 15 2.5-3 2 2 1.5-2 3 3" />
-                  <path d="M9 9h.01" />
-                </svg>
-                <span>图片暂时无法加载</span>
-              </div>
               <!-- magnifier (shown in multiselect mode) -->
               <button
                 v-if="multiSelectActive"
@@ -274,7 +255,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, onActivated, reactive, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, ref, nextTick, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { prefersReducedMotion } from '@/composables/usePrefersReducedMotion'
 import { consumeDirectAlbumDetailEntry } from '@/utils/documentEntry'
@@ -452,35 +433,6 @@ const handlePersonClick = (_person: AlbumPerson, _event: MouseEvent) => {
 const imagesLoaded = ref(false)
 const totalImages = ref(0)
 const loadedImagesCount = ref(0)
-// 图片状态只控制视觉呈现，不参与 Masonry 尺寸计算；卡片尺寸始终来自照片元数据。
-const photoImageStates = reactive<Record<number, 'loading' | 'loaded' | 'error'>>({})
-
-const handlePhotoImageLoad = (photoId: number) => {
-  if (photoImageStates[photoId] !== 'loaded') {
-    photoImageStates[photoId] = 'loaded'
-    handleImageLoaded()
-  }
-}
-
-const handlePhotoImageError = (photoId: number) => {
-  if (photoImageStates[photoId] !== 'error') {
-    photoImageStates[photoId] = 'error'
-    handleImageLoaded()
-  }
-}
-
-// 缓存命中时浏览器可能在 Vue 绑定 load 监听器前就完成图片加载，
-// 这里主动同步 complete/naturalWidth，确保不会长期停留在模糊状态。
-const syncCompletedPhotoImages = () => {
-  document.querySelectorAll<HTMLElement>('.album-photo-stage [data-photo-id] img').forEach((img) => {
-    if (!img.complete) return
-    const card = img.closest<HTMLElement>('[data-photo-id]')
-    const photoId = Number(card?.dataset.photoId)
-    if (!Number.isFinite(photoId)) return
-    if (img.naturalWidth > 0) handlePhotoImageLoad(photoId)
-    else handlePhotoImageError(photoId)
-  })
-}
 
 // 评论显示：照片加载完成后显示（API返回后即显示）
 const showComments = ref(false)
@@ -1581,7 +1533,18 @@ const performCoverTransition = async (): Promise<boolean> => {
       height: window.innerHeight,
       offsetTop: window.visualViewport?.offsetTop || 0
     }
-    const coverRects: Array<{ photoId: number; src?: string; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
+    const allCoverRects: Array<{ photoId: number; src?: string; rect: { top: number; left: number; width: number; height: number } }> = JSON.parse(storedData)
+    // 自定义封面可以来自相册任意位置，而详情页只先请求首屏分页照片。
+    // 只有本页确实会渲染的照片才有 FLIP 终点；不在本页的封面完全跳过，
+    // 既不等待它出现，也不创建一段飞向不存在缩略图的动画。
+    const visiblePhotoIds = new Set(photos.value.map(photo => photo.id))
+    const coverRects = allCoverRects.filter(({ photoId }) => visiblePhotoIds.has(photoId))
+    if (coverRects.length === 0) {
+      transitionViewportSnapshot = null
+      transitionPhotoIds.value = []
+      isTransitioning.value = false
+      return false
+    }
     
     // 等待 DOM 更新完成
     await nextTick()
@@ -1602,13 +1565,14 @@ const performCoverTransition = async (): Promise<boolean> => {
       const img = photoElement.querySelector('img') as HTMLImageElement
       if (!img) continue
       
-      // 等待目标元素具有有效的尺寸（瀑布流可能需要额外时间布局）
+      // 以实际图片元素作为终点，而不是外层卡片。卡片可能带 margin、圆角或
+      // 其它布局样式，直接量卡片会让飞行层落点出现几像素的垂直偏移。
       let toRect: DOMRect
       let attempts = 0
       const maxAttempts = 10 // 最多等待10次
 
       do {
-        toRect = photoElement.getBoundingClientRect()
+        toRect = img.getBoundingClientRect()
         attempts++
 
         // 如果尺寸无效（宽度或高度为0或小于最小阈值），等待一下再试
@@ -1653,7 +1617,9 @@ const performCoverTransition = async (): Promise<boolean> => {
       transitions.forEach((transition) => {
         const element = photoRefs.value.get(transition.photoId)
         if (!element) return
-        const nextRect = element.getBoundingClientRect()
+        const image = element.querySelector('img') as HTMLImageElement | null
+        if (!image) return
+        const nextRect = image.getBoundingClientRect()
         const nextKey = `${transition.photoId}:${nextRect.top.toFixed(2)},${nextRect.left.toFixed(2)},${nextRect.width.toFixed(2)},${nextRect.height.toFixed(2)}`
         const index = transitions.indexOf(transition)
         if (before[index] !== nextKey) {
@@ -1706,8 +1672,9 @@ const performCoverTransition = async (): Promise<boolean> => {
       clone.style.pointerEvents = 'none'
       clone.style.borderRadius = '8px'
       clone.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-      // 使用非线性 ease 曲线，但不要回弹
-      clone.style.transition = 'all 400ms cubic-bezier(0.22, 1, 0.36, 1)'
+      // 进入详情页采用短促的 ease-out：前段尽快离开列表，后段平滑收束。
+      // 不使用带 overshoot 的曲线，避免放大过程中出现“停一下再回弹”的感觉。
+      clone.style.transition = 'all 320ms cubic-bezier(0.18, 0.82, 0.25, 1)'
       clone.style.willChange = 'transform, width, height, top, left'
       
       document.body.appendChild(clone)
@@ -1732,7 +1699,7 @@ const performCoverTransition = async (): Promise<boolean> => {
       })
     }
     
-    // 动画完成后（约 420ms），无缝切换
+    // 动画完成后留一帧交接，避免克隆层和详情页图片同时闪现。
     const cleanupTimer = setTimeout(() => {
       // 使用 requestAnimationFrame 确保在下一帧执行，避免闪烁
       requestAnimationFrame(() => {
@@ -1741,42 +1708,63 @@ const performCoverTransition = async (): Promise<boolean> => {
           if (photoElement) {
             photoElement.style.visibility = 'visible'
             photoElement.style.pointerEvents = ''
+            photoElement.style.transition = ''
           }
-          const clone = transitionClones.find(item => item.dataset.photoId === String(photoId))
-          clone?.remove()
         }
 
-        // 大图已就绪就立即交接；未就绪则保留缩略图占位，待大图 load 后再交接。
-        transitions.forEach(({ photoId, img }) => {
-          if (img.complete && img.naturalWidth > 0) {
-            revealPhoto(photoId)
-          } else {
-            img.addEventListener('load', () => revealPhoto(photoId), { once: true })
+        // 原图先显示并经历一帧绘制，再移除飞行层。若在同一帧移除 clone，
+        // 浏览器可能先提交 clone 的移除，再提交原图的首次绘制，产生稳定闪烁。
+        const removeCloneAfterPaint = (photoId: number) => {
+          const clone = transitionClones.find(item => item.dataset.photoId === String(photoId))
+          clone?.remove()
+          transitionClones = transitionClones.filter(item => item !== clone)
+        }
+
+        // complete 只代表资源读完，不代表下一帧已经解码并绘制。
+        // 先等待 load/error，再等待 decode，最后在同一帧显示高清图并移除克隆，
+        // 避免克隆图消失后高清图晚一帧出现造成闪烁。
+        const waitForImagePaint = async (img: HTMLImageElement) => {
+          if (!img.complete) {
+            await new Promise<void>((resolve) => {
+              const settle = () => resolve()
+              img.addEventListener('load', settle, { once: true })
+              img.addEventListener('error', settle, { once: true })
+            })
           }
-        })
-
-        // 在同一帧中立即移除克隆元素
-        requestAnimationFrame(() => {
-          transitionClones = transitionClones.filter(clone => clone.isConnected)
-
-          // 恢复原始图片的样式
-          transitions.forEach(({ photoId }) => {
-            const photoElement = photoRefs.value.get(photoId)
-            if (photoElement) {
-              photoElement.style.visibility = ''
-              photoElement.style.pointerEvents = ''
-              photoElement.style.transition = ''
+          if (img.complete && img.naturalWidth > 0 && typeof img.decode === 'function') {
+            try {
+              await img.decode()
+            } catch {
+              // 解码失败时仍交接给错误占位，不能让克隆图永久停留。
             }
+          }
+        }
+
+        let revealedCount = 0
+        const finishTransition = () => {
+          revealedCount += 1
+          if (revealedCount === transitions.length) {
+            isTransitioning.value = false
+            transitionPhotoIds.value = []
+          }
+        }
+
+        transitions.forEach(({ photoId, img }) => {
+          void waitForImagePaint(img).then(() => {
+            requestAnimationFrame(() => {
+              revealPhoto(photoId)
+              requestAnimationFrame(() => {
+                removeCloneAfterPaint(photoId)
+                finishTransition()
+              })
+            })
           })
-
-          isTransitioning.value = false
-          transitionPhotoIds.value = []
-
-          // 不要在这里清除 sessionStorage，保留它以便返回时执行反向动画
-          // sessionStorage.removeItem(storageKey)
         })
+
+        // 不要在这里清除 sessionStorage，保留它以便返回时执行反向动画
+        // sessionStorage.removeItem(storageKey)
       })
-    }, 420)
+    }, 340)
     
     // 保存清理定时器，以便在组件卸载时清理
     ;(window as any).__albumTransitionCleanupTimer = cleanupTimer
@@ -2019,9 +2007,15 @@ const loadAlbumData = async () => {
   if (storedData && isFromNavigation) {
     try {
       const coverRects: Array<{ photoId: number }> = JSON.parse(storedData)
-      const photoIdsToHide = coverRects.map(r => r.photoId)
-      transitionPhotoIds.value = photoIdsToHide
-      isTransitioning.value = true
+      // 同样只预隐藏首屏里存在的封面，防止后台自定义的后页封面进入动画状态。
+      const visiblePhotoIds = new Set(photos.value.map(photo => photo.id))
+      const photoIdsToHide = coverRects
+        .map(({ photoId }) => photoId)
+        .filter(photoId => visiblePhotoIds.has(photoId))
+      if (photoIdsToHide.length > 0) {
+        transitionPhotoIds.value = photoIdsToHide
+        isTransitioning.value = true
+      }
     } catch (e) {
       // ignore
     }
@@ -2047,6 +2041,26 @@ const loadAlbumData = async () => {
   if (isDisposed) return
   hasMore.value = !result.last
 
+  // 在照片首次渲染前就隐藏封面对应的详情图，避免它们先和飞行中的缩略图重叠。
+  // 之前这里是在 nextTick 后才通过 DOM 隐藏，Vue 首帧已经可能把原图画出来。
+  if (isFromNavigation) {
+    try {
+      const coverRects: Array<{ photoId: number }> = JSON.parse(
+        sessionStorage.getItem(`album-cover-rects-${targetAlbumId}`) || '[]'
+      )
+      const visiblePhotoIds = new Set(photos.value.map(photo => photo.id))
+      const photoIdsToHide = coverRects
+        .map(({ photoId }) => photoId)
+        .filter(photoId => visiblePhotoIds.has(photoId))
+      if (photoIdsToHide.length > 0) {
+        transitionPhotoIds.value = photoIdsToHide
+        isTransitioning.value = true
+      }
+    } catch {
+      // ignore malformed transition data
+    }
+  }
+
   totalImages.value = photos.value.length
 
   isInitialLoading.value = false
@@ -2057,7 +2071,6 @@ const loadAlbumData = async () => {
 
   // 等待照片元素渲染完成
   await nextTick()
-  syncCompletedPhotoImages()
 
   if (isFromNavigation && transitionPhotoIds.value.length > 0) {
     transitionPhotoIds.value.forEach(photoId => {
@@ -2314,9 +2327,6 @@ const handleImageLoaded = () => {
 const resetImageLoading = () => {
   loadedImagesCount.value = 0
   imagesLoaded.value = false
-  Object.keys(photoImageStates).forEach((photoId) => {
-    delete photoImageStates[Number(photoId)]
-  })
   // 注意：showComments 由 watch 统一控制，不在这里重置
 }
 

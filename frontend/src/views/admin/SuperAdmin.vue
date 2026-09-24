@@ -967,6 +967,38 @@
             <input v-model="settings.autoRenewSchedulerEnabled" type="checkbox" class="w-5 h-5 rounded" />
           </label>
 
+          <label class="glass-panel p-4 flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm">启用 AI 搜索</div>
+              <div class="text-xs admin-table-faint">使用下方统一 AI 提供商配置；仅影响自然语言搜索。</div>
+            </div>
+            <input v-model="settings.aiSearchEnabled" type="checkbox" class="w-5 h-5 rounded" />
+          </label>
+
+          <label class="glass-panel p-4 flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm">启用图片视觉分析</div>
+              <div class="text-xs admin-table-faint">与 AI 搜索共用同一提供商，任务进入统一模型队列。</div>
+            </div>
+            <input v-model="settings.aiVisualAnalysisEnabled" type="checkbox" class="w-5 h-5 rounded" />
+          </label>
+
+          <label class="space-y-2">
+            <span class="text-sm admin-table-muted">AI API 地址</span>
+            <input v-model.trim="settings.aiSearchApiUrl" type="text" placeholder="https://api.openai.com/v1" class="admin-input w-full px-4 py-3 rounded-xl" />
+          </label>
+
+          <label class="space-y-2">
+            <span class="text-sm admin-table-muted">AI API 密钥</span>
+            <input v-model="settings.aiSearchApiKey" type="password" placeholder="sk-..." class="admin-input w-full px-4 py-3 rounded-xl" />
+            <div class="text-xs admin-table-faint">已保存的密钥会脱敏显示；留空或保持脱敏值不会覆盖它。</div>
+          </label>
+
+          <label class="space-y-2">
+            <span class="text-sm admin-table-muted">视觉 / 搜索模型</span>
+            <input v-model.trim="settings.aiSearchModel" type="text" placeholder="gpt-4o" class="admin-input w-full px-4 py-3 rounded-xl" />
+          </label>
+
           <label class="space-y-2">
             <span class="text-sm admin-table-muted">默认用户空间限额（GB）</span>
             <input
@@ -3503,6 +3535,11 @@ const overview = reactive<SuperAdminOverview>({
 })
 
 const settings = reactive<SuperAdminSettings>({
+  aiSearchEnabled: false,
+  aiVisualAnalysisEnabled: false,
+  aiSearchApiUrl: '',
+  aiSearchApiKey: '',
+  aiSearchModel: 'gpt-4o',
   multiUserEnabled: false,
   scanSchedulerEnabled: false,
   scanWorkerCount: 1,

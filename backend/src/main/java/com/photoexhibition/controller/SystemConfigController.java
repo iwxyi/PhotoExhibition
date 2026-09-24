@@ -64,6 +64,7 @@ public class SystemConfigController {
                 resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
             }
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
+            resp.put("aiVisualAnalysisEnabled", systemConfigService.isAiVisualAnalysisEnabled());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
@@ -601,9 +602,10 @@ public class SystemConfigController {
     // ===== AI 搜索配置 =====
 
     @GetMapping("/ai-search-enabled")
-    public ResponseEntity<Map<String, Object>> getAiSearchEnabled() {
+    public ResponseEntity<Map<String, Object>> getAiSearchEnabled(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
@@ -613,9 +615,10 @@ public class SystemConfigController {
     }
 
     @PutMapping("/ai-search-enabled")
-    public ResponseEntity<Map<String, Object>> setAiSearchEnabled(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> setAiSearchEnabled(@RequestHeader("Authorization") String authorization, @RequestBody Map<String, Object> request) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             Boolean enabled = (Boolean) request.get("aiSearchEnabled");
             if (enabled == null) {
                 resp.put("error", "aiSearchEnabled 参数不能为空");
@@ -631,10 +634,29 @@ public class SystemConfigController {
         }
     }
 
+    @GetMapping("/ai-visual-analysis-enabled")
+    public ResponseEntity<Map<String, Object>> getAiVisualAnalysisEnabled(@RequestHeader("Authorization") String authorization) {
+        requireSuperAdmin(authorization);
+        return ResponseEntity.ok(Map.of("aiVisualAnalysisEnabled", systemConfigService.isAiVisualAnalysisEnabled()));
+    }
+
+    @PutMapping("/ai-visual-analysis-enabled")
+    public ResponseEntity<Map<String, Object>> setAiVisualAnalysisEnabled(@RequestHeader("Authorization") String authorization, @RequestBody Map<String, Object> request) {
+        requireSuperAdmin(authorization);
+        Object value = request.get("aiVisualAnalysisEnabled");
+        if (!(value instanceof Boolean)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "aiVisualAnalysisEnabled 参数必须为布尔值"));
+        }
+        boolean enabled = (Boolean) value;
+        systemConfigService.setAiVisualAnalysisEnabled(enabled);
+        return ResponseEntity.ok(Map.of("message", "AI图片视觉分析开关设置成功", "aiVisualAnalysisEnabled", enabled));
+    }
+
     @GetMapping("/ai-search-api-url")
-    public ResponseEntity<Map<String, Object>> getAiSearchApiUrl() {
+    public ResponseEntity<Map<String, Object>> getAiSearchApiUrl(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
@@ -644,9 +666,10 @@ public class SystemConfigController {
     }
 
     @PutMapping("/ai-search-api-url")
-    public ResponseEntity<Map<String, Object>> setAiSearchApiUrl(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> setAiSearchApiUrl(@RequestHeader("Authorization") String authorization, @RequestBody Map<String, Object> request) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             String url = (String) request.get("aiSearchApiUrl");
             systemConfigService.setAiSearchApiUrl(url);
             resp.put("message", "AI搜索API地址设置成功");
@@ -659,9 +682,10 @@ public class SystemConfigController {
     }
 
     @GetMapping("/ai-search-api-key")
-    public ResponseEntity<Map<String, Object>> getAiSearchApiKey() {
+    public ResponseEntity<Map<String, Object>> getAiSearchApiKey(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             String apiKey = systemConfigService.getAiSearchApiKey();
             if (apiKey != null && apiKey.length() > 8) {
                 resp.put("aiSearchApiKey", apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4));
@@ -676,9 +700,10 @@ public class SystemConfigController {
     }
 
     @PutMapping("/ai-search-api-key")
-    public ResponseEntity<Map<String, Object>> setAiSearchApiKey(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> setAiSearchApiKey(@RequestHeader("Authorization") String authorization, @RequestBody Map<String, Object> request) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             String key = (String) request.get("aiSearchApiKey");
             systemConfigService.setAiSearchApiKey(key);
             resp.put("message", "AI搜索API密钥设置成功");
@@ -690,9 +715,10 @@ public class SystemConfigController {
     }
 
     @GetMapping("/ai-search-model")
-    public ResponseEntity<Map<String, Object>> getAiSearchModel() {
+    public ResponseEntity<Map<String, Object>> getAiSearchModel(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
@@ -702,9 +728,10 @@ public class SystemConfigController {
     }
 
     @PutMapping("/ai-search-model")
-    public ResponseEntity<Map<String, Object>> setAiSearchModel(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> setAiSearchModel(@RequestHeader("Authorization") String authorization, @RequestBody Map<String, Object> request) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            requireSuperAdmin(authorization);
             String model = (String) request.get("aiSearchModel");
             systemConfigService.setAiSearchModel(model);
             resp.put("message", "AI搜索模型设置成功");
@@ -740,6 +767,13 @@ public class SystemConfigController {
             throw new RuntimeException("未授权，请先登录");
         }
         return authService.getCurrentUserEntity(authorization.substring(7));
+    }
+
+    private void requireSuperAdmin(String authorization) {
+        UserAccount user = requireCurrentUser(authorization);
+        if (user.getRole() != com.photoexhibition.entity.UserRole.SUPER_ADMIN) {
+            throw new RuntimeException("仅超级管理员可执行此操作");
+        }
     }
 
     private String normalizeAllowed(String value, String fallback, String[] allowedValues) {

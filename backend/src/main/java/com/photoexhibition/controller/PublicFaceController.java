@@ -80,6 +80,17 @@ public class PublicFaceController {
         return ResponseEntity.ok(faceService.listPersonFaces(personId, PageRequest.of(page, size), publicUserScopeService.resolveUserId(userSlug)));
     }
 
+    /** 按稳定随机顺序分页返回人物照片，供“发现”浏览使用。 */
+    @GetMapping("/persons/{personId}/discovery-photos")
+    public ResponseEntity<Page<FaceDTO>> getPersonDiscoveryPhotos(
+            @PathVariable Long personId,
+            @RequestParam long seed,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "24") int size,
+            @RequestParam(required = false) String userSlug) {
+        return ResponseEntity.ok(faceService.listPersonDiscoveryPhotos(personId, PageRequest.of(page, size), publicUserScopeService.resolveUserId(userSlug), seed));
+    }
+
     /**
      * 获取人物的套图推荐相册列表 - 公开API
      */

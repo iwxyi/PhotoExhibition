@@ -1,5 +1,7 @@
 # AI 搜索设计文档
 
+> 查询 V3 的前置阶段（大模型图片理解与相册理解）见 [docs/ai-understanding-v3.md](ai-understanding-v3.md)。
+
 > 说明：本文档主要记录当前已上线/已兼容实现的 V1 设计与历史演进。新的长期维护架构见 [docs/ai-search-architecture-v2.md](/root/projects/PhotoExhibition/docs/ai-search-architecture-v2.md)。
 
 ## 1. 产品定位
