@@ -26,9 +26,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashMap;
 import java.util.ArrayList;
@@ -64,6 +68,7 @@ public class LegacyDataMigrationService {
     private final SystemConfigService systemConfigService;
 
     @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     @Transactional
     public void migrateLegacyOwnershipOnStartup() {
         if (systemConfigService.isLegacyMigrationCompleted()) {
@@ -210,6 +215,10 @@ public class LegacyDataMigrationService {
         result.put("movedPhotoFileCount", 0);
         result.put("rewrittenAlbumPathCount", 0);
         result.put("rewrittenPhotoPathCount", 0);
+        if (!systemConfigService.isMultiUserEnabled()) {
+            log.info("多用户模式未开启，保留现有照片目录结构，跳过用户目录迁移");
+            return result;
+        }
         try {
             Path baseRoot = userPathService.resolvePhotoBasePath();
             Path ownerRoot = userPathService.getOwnedPhotoRoot(owner.getId());
@@ -306,7 +315,7 @@ public class LegacyDataMigrationService {
                 return false;
             }
 
-            Files.move(path, target);
+            moveWithRollback(path, target);
             log.info("已迁移旧目录: {} -> {}", path, target);
             return true;
         } catch (Exception e) {
@@ -456,13 +465,44 @@ public class LegacyDataMigrationService {
             if (target.getParent() != null) {
                 Files.createDirectories(target.getParent());
             }
-            Files.move(source, target);
+            moveWithRollback(source, target);
             log.info("已迁移旧文件路径: {} -> {}", source, target);
             return true;
         } catch (Exception e) {
             log.warn("迁移旧文件路径失败: {} -> {}", source, target, e);
             return false;
         }
+    }
+
+    /**
+     * 文件系统操作不参与数据库事务，因此为每次移动注册补偿操作。
+     * 如果后续数据库写入失败，必须把目录或文件移回原位，避免磁盘与数据库分叉。
+     */
+    private void moveWithRollback(Path source, Path target) throws Exception {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("旧数据文件迁移必须在事务同步范围内执行");
+        }
+
+        Files.move(source, target);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_ROLLED_BACK) {
+                    return;
+                }
+                try {
+                    if (Files.exists(target) && !Files.exists(source)) {
+                        if (source.getParent() != null) {
+                            Files.createDirectories(source.getParent());
+                        }
+                        Files.move(target, source);
+                        log.info("数据库事务已回滚，已还原文件路径: {} -> {}", target, source);
+                    }
+                } catch (Exception rollbackError) {
+                    log.error("数据库事务回滚后还原文件路径失败: {} -> {}", target, source, rollbackError);
+                }
+            }
+        });
     }
 
     private String sha256(String raw) {
@@ -526,6 +566,7 @@ public class LegacyDataMigrationService {
         if (legacyAdmin.isPresent()) {
             AdminUser admin = legacyAdmin.get();
             UserAccount user = new UserAccount();
+            preserveLegacyUserIdWhenAvailable(user, admin);
             user.setUsername(admin.getUsername());
             user.setSlug("admin");
             user.setPassword(admin.getPassword());
@@ -562,5 +603,12 @@ public class LegacyDataMigrationService {
         }
 
         return null;
+    }
+
+    private void preserveLegacyUserIdWhenAvailable(UserAccount user, AdminUser legacyAdmin) {
+        Long legacyId = legacyAdmin.getId();
+        if (legacyId != null && !userAccountRepository.existsById(legacyId)) {
+            user.setId(legacyId);
+        }
     }
 }

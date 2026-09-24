@@ -69,7 +69,7 @@ public class StorageProviderService {
         return saved;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public BrowserStorageContext resolveBrowserStorage(UserAccount user, Long requestedProviderId) {
         List<StorageProvider> providers = new ArrayList<>(storageProviderRepository.findAllByOrderByPriorityAscIdAsc());
         if (providers.isEmpty()) {
@@ -129,7 +129,7 @@ public class StorageProviderService {
         return user.getRole() == UserRole.SUPER_ADMIN ? requestedProviderId : null;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public StorageProvider resolveUploadProvider(UserAccount user, Long requestedProviderId) {
         List<StorageProvider> providers = new ArrayList<>(storageProviderRepository.findAllByOrderByPriorityAscIdAsc());
         if (providers.isEmpty()) {

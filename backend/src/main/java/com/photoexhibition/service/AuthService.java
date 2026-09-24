@@ -806,6 +806,9 @@ public class AuthService {
     private UserAccount migrateLegacyAdmin(AdminUser legacyUser) {
         return userAccountRepository.findByUsername(legacyUser.getUsername()).orElseGet(() -> {
             UserAccount user = new UserAccount();
+            if (legacyUser.getId() != null && !userAccountRepository.existsById(legacyUser.getId())) {
+                user.setId(legacyUser.getId());
+            }
             user.setUsername(legacyUser.getUsername());
             user.setSlug(generateAvailableSlug(legacyUser.getUsername(), legacyUser.getUsername()));
             user.setPassword(legacyUser.getPassword());

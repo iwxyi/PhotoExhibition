@@ -17,9 +17,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -81,6 +84,7 @@ public class ScanTaskService {
     private final StorageProviderRepository storageProviderRepository;
     private final UserAccountRepository userAccountRepository;
     private final ObjectMapper objectMapper;
+    private final PlatformTransactionManager transactionManager;
 
     private final AtomicInteger activeWorkerCount = new AtomicInteger(0);
     private final java.util.Set<Long> activeTaskIds = ConcurrentHashMap.newKeySet();
@@ -319,7 +323,7 @@ public class ScanTaskService {
         return summary;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Map<String, Object> getSuperAdminQueueOverview() {
         recoverStaleRunningTasks();
         List<ScanTask> allTasks = scanTaskRepository.findAllByOrderByCreatedAtDesc();
@@ -1251,12 +1255,14 @@ public class ScanTaskService {
         }
 
         private void saveTask(java.util.function.Consumer<ScanTask> mutator) {
-            scanTaskRepository.findById(taskId).ifPresent(task -> {
+            TransactionTemplate template = new TransactionTemplate(transactionManager);
+            template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.executeWithoutResult(status -> scanTaskRepository.findById(taskId).ifPresent(task -> {
                 mutator.accept(task);
                 String resumeFromType = task.getTaskType() == ScanTaskType.RESUME_SCAN ? lastProcessedType : inferPathType(task.getLastProcessedPath());
                 task.setCheckpointJson(buildCheckpointJson(task, lastProcessedType, resumeFromType));
                 scanTaskRepository.save(task);
-            });
+            }));
         }
 
         private String buildErrorMessage(Exception exception) {

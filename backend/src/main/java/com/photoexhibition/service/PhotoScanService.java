@@ -24,6 +24,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -1186,7 +1190,7 @@ public class PhotoScanService {
 
     
     /**
-     * 应用启动后执行一次扫描
+     * 初始化扫描服务的内存状态；首次目录扫描需等待旧数据迁移完成。
      */
     @PostConstruct
     public void init() {
@@ -1198,12 +1202,21 @@ public class PhotoScanService {
         // 检查是否有需要重新处理的照片
         checkAndRetryIncompletePhotos();
 
-        // 检查是否需要初始化扫描：如果数据库中没有任何相册，则执行一次扫描
+    }
+
+    /**
+     * 旧数据迁移完成后再检查首次扫描。事件方法由 Spring 代理异步执行，
+     * 避免同一个 Bean 内调用 @Async 导致异步注解失效并阻塞应用启动。
+     */
+    @Async
+    @Order(Ordered.LOWEST_PRECEDENCE)
+    @EventListener(ApplicationReadyEvent.class)
+    public void initializeScanAfterMigration() {
         try {
             long albumCount = albumRepository.count();
             if (albumCount == 0) {
                 log.info("数据库中没有任何相册，执行初始化扫描");
-                scanDirectoryAsync(null);
+                scanDirectory(null);
             } else {
                 log.info("数据库中已有 {} 个相册，跳过初始化扫描", albumCount);
             }

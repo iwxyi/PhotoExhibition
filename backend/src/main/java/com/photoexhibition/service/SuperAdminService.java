@@ -130,7 +130,7 @@ public class SuperAdminService {
         return resp;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Map<String, Object> getProcessingOverview() {
         Map<String, Object> resp = new LinkedHashMap<>();
         List<Map<String, Object>> workers = new ArrayList<>();

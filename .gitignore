@@ -40,3 +40,5 @@ deploy/
 *.jar
 
 test/
+!backend/src/test/
+!backend/src/test/**
