@@ -73,6 +73,18 @@ export interface Photo {
   aiTechnicalScore?: number // AI技术评分
   aiCompositionScore?: number // AI构图评分
   aiAppealScore?: number // AI吸引力评分
+  scoreSource?: 'AI' | 'MIXED' | 'LOCAL'
+  technicalScoreSource?: 'AI' | 'LOCAL'
+  compositionScoreSource?: 'AI' | 'LOCAL'
+  appealScoreSource?: 'AI' | 'LOCAL'
+  localOverallScore?: number
+  localTechnicalScore?: number
+  localCompositionScore?: number
+  localAppealScore?: number
+  visualAiQualityScore?: number
+  visualAiTechnicalScore?: number
+  visualAiCompositionScore?: number
+  visualAiAppealScore?: number
   aiStrengths?: string[] // AI分析优点
   aiWeaknesses?: string[] // AI分析不足
   aiSuggestions?: string[] // AI改进建议

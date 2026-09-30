@@ -114,6 +114,18 @@ export interface Photo {
   aiTechnicalScore?: number // AI技术评分
   aiCompositionScore?: number // AI构图评分
   aiAppealScore?: number // AI吸引力评分
+  scoreSource?: 'AI' | 'MIXED' | 'LOCAL'
+  technicalScoreSource?: 'AI' | 'LOCAL'
+  compositionScoreSource?: 'AI' | 'LOCAL'
+  appealScoreSource?: 'AI' | 'LOCAL'
+  localOverallScore?: number
+  localTechnicalScore?: number
+  localCompositionScore?: number
+  localAppealScore?: number
+  visualAiQualityScore?: number
+  visualAiTechnicalScore?: number
+  visualAiCompositionScore?: number
+  visualAiAppealScore?: number
   aiStrengths?: string[] // AI分析优点
   aiWeaknesses?: string[] // AI分析不足
   aiSuggestions?: string[] // AI改进建议
@@ -125,6 +137,16 @@ export interface Photo {
   primaryEmotion?: string // 主要情感
   sceneConfidence?: number // 场景识别置信度
   emotionConfidence?: number // 情感分析置信度
+  sceneAnalysisSource?: 'AI' | 'LOCAL'
+  emotionAnalysisSource?: 'AI' | 'LOCAL'
+  classificationSource?: 'AI' | 'LOCAL'
+  localSceneAnalysis?: any[]
+  localEmotionAnalysis?: any[]
+  localClassificationAnalysis?: Array<Record<string, any>>
+  aiSceneAnalysis?: any[]
+  aiEmotionAnalysis?: any[]
+  aiVisualTags?: string[]
+  aiVisualModel?: string
 
   tags?: Tag[]
   faces?: FaceFace[]
@@ -521,6 +543,7 @@ export interface ProcessingOverviewWorkerSummary {
   topActiveEndpoints?: Record<string, any>[]
   runningTasks?: Record<string, any>[]
   queuedOwnerSummaries?: Record<string, any>[]
+  accountSummaries?: Record<string, any>[]
   scanStatus?: Record<string, any>
 }
 
@@ -1265,6 +1288,7 @@ export interface ModelRebuildTask {
   modelName: string
   includeMissingItems: boolean
   forceRebuild: boolean
+  preserveBindings: boolean
   status: string
   message: string
   complete: boolean
@@ -1361,7 +1385,7 @@ export const superAdminApi = {
   getModels: () => api.get<{ models: ManagedModelSummary[] }>('/admin/super-admin/models'),
   downloadModel: (modelKey: string, url: string) => api.post<Record<string, any>>(`/admin/super-admin/models/${modelKey}/download`, { url }),
   reloadModel: (modelKey: string) => api.post<Record<string, any>>(`/admin/super-admin/models/${modelKey}/reload`),
-  rebuildModel: (modelKey: string, payload: { includeMissingItems: boolean; forceRebuild: boolean }) =>
+  rebuildModel: (modelKey: string, payload: { includeMissingItems: boolean; forceRebuild: boolean; preserveBindings: boolean }) =>
     api.post<Record<string, any>>(`/admin/super-admin/models/${modelKey}/rebuild`, payload),
   getModelTask: (taskId: string) => api.get<ModelRebuildTask>(`/admin/super-admin/model-tasks/${taskId}`),
   updateStorageProvider: (providerId: number, data: Partial<StorageProviderSummary>) =>

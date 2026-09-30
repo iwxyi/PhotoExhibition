@@ -9,6 +9,7 @@ import com.photoexhibition.entity.StorageProvider;
 import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.ScanTaskRepository;
+import com.photoexhibition.repository.BackgroundJobControlRepository;
 import com.photoexhibition.repository.StorageProviderRepository;
 import com.photoexhibition.repository.UserAccountRepository;
 import lombok.Data;
@@ -16,6 +17,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -24,7 +29,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -50,6 +54,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class ScanTaskService {
+    private static final int SCAN_FAIR_SHARE_PATHS = 20;
 
     @Data
     private static final class ScanCheckpoint {
@@ -77,6 +82,7 @@ public class ScanTaskService {
     );
 
     private final ScanTaskRepository scanTaskRepository;
+    private final BackgroundJobControlRepository backgroundJobControlRepository;
     private final PhotoScanService photoScanService;
     private final UserPathService userPathService;
     private final SystemConfigService systemConfigService;
@@ -102,7 +108,8 @@ public class ScanTaskService {
         }
     });
 
-    @PostConstruct
+    @Order(Ordered.LOWEST_PRECEDENCE)
+    @EventListener(ApplicationReadyEvent.class)
     public void init() {
         recoverInterruptedTasks();
         scheduleWorkerIfNeeded();
@@ -114,6 +121,7 @@ public class ScanTaskService {
             scanTaskRepository.findById(taskId).ifPresent(task -> {
                 if (task.getStatus() == ScanTaskStatus.RUNNING) {
                     task.setStatus(ScanTaskStatus.PAUSED);
+                    task.setPauseSource("RESTART");
                     task.setErrorMessage("服务关闭，任务已暂停");
                     task.setFinishedAt(LocalDateTime.now());
                     scanTaskRepository.save(task);
@@ -153,6 +161,7 @@ public class ScanTaskService {
         task.setRequestedByUserId(currentUser != null ? currentUser.getId() : null);
         task.setTaskType(taskType);
         task.setStatus(ScanTaskStatus.QUEUED);
+        task.setPauseSource(null);
         task.setRootPath(normalizedRootPath);
         task.setStorageProviderId(storageProviderId);
         task.setPriority(priority);
@@ -196,6 +205,21 @@ public class ScanTaskService {
         return toTaskMap(task);
     }
 
+    @Transactional(readOnly = true)
+    public Map<String, Object> getHistorySummary(UserAccount currentUser, Long taskId) {
+        return toTaskMap(requireVisibleTask(currentUser, taskId));
+    }
+
+    @Transactional
+    public Map<String, Object> ignoreTask(UserAccount currentUser, Long taskId) {
+        ScanTask task = requireVisibleTask(currentUser, taskId);
+        if (task.getStatus() == ScanTaskStatus.IGNORED) return toTaskMap(task);
+        if (task.getStatus() != ScanTaskStatus.FAILED) throw new IllegalStateException("只能忽略已结束的失败任务");
+        task.setStatus(ScanTaskStatus.IGNORED);
+        scanTaskRepository.save(task);
+        return toTaskMap(task);
+    }
+
     @Transactional
     public Map<String, Object> enqueueScan(UserAccount currentUser, String requestedPath, boolean force, Long storageProviderId) {
         return enqueueTask(currentUser, requestedPath, force ? ScanTaskType.FULL_SCAN : ScanTaskType.INCREMENTAL_SCAN, force ? 200 : 100, false, storageProviderId);
@@ -204,6 +228,7 @@ public class ScanTaskService {
     @Transactional
     public Map<String, Object> retryTask(UserAccount currentUser, Long taskId) {
         ScanTask task = requireVisibleTask(currentUser, taskId);
+        if (task.getStatus() == ScanTaskStatus.IGNORED) throw new IllegalStateException("已忽略的任务不能重试，请创建新任务");
         if (task.getStatus() == ScanTaskStatus.RUNNING) {
             throw new RuntimeException("运行中的任务不能重试");
         }
@@ -232,10 +257,23 @@ public class ScanTaskService {
     @Transactional
     public Map<String, Object> pauseTask(UserAccount currentUser, Long taskId) {
         ScanTask task = requireVisibleTask(currentUser, taskId);
+        if (task.getStatus() == ScanTaskStatus.PAUSED) {
+            return toTaskMap(task);
+        }
+        if (QUEUEABLE_STATUSES.contains(task.getStatus())) {
+            task.setStatus(ScanTaskStatus.PAUSED);
+            task.setPauseSource("MANUAL");
+            task.setFinishedAt(LocalDateTime.now());
+            task.setCheckpointJson(buildCheckpointJson(task));
+            scanTaskRepository.save(task);
+            return toTaskMap(task);
+        }
         if (task.getStatus() != ScanTaskStatus.RUNNING) {
-            throw new RuntimeException("只有运行中的任务才能暂停");
+            throw new IllegalStateException("只有排队或运行中的任务才能暂停");
         }
         taskControlActions.put(taskId, PhotoScanService.ScanControlAction.PAUSE);
+        task.setPauseSource("MANUAL");
+        scanTaskRepository.save(task);
         Map<String, Object> resp = toTaskMap(task);
         resp.put("message", "已发送暂停请求，当前文件处理完后生效");
         return resp;
@@ -526,6 +564,10 @@ public class ScanTaskService {
         scheduleWorkerIfNeeded();
     }
 
+    public void wakePendingScans() {
+        scheduleWorkerWhenTransactionCommitted();
+    }
+
     private void processQueueLoop() {
         try {
             while (true) {
@@ -545,7 +587,14 @@ public class ScanTaskService {
 
     @Transactional
     protected synchronized Optional<ScanTask> claimNextTask() {
-        List<ScanTask> tasks = scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES);
+        if (isBackgroundControlPaused("GLOBAL", "ALL") || isBackgroundControlPaused("LANE", "SCAN_IO")) {
+            return Optional.empty();
+        }
+        List<ScanTask> tasks = scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES)
+            .stream().filter(task -> {
+                Long owner = resolveQueueOwnerUserId(task);
+                return owner == null || !isBackgroundControlPaused("OWNER", String.valueOf(owner));
+            }).collect(Collectors.toList());
         if (tasks.isEmpty()) {
             return Optional.empty();
         }
@@ -577,6 +626,15 @@ public class ScanTaskService {
             });
         } catch (Exception e) {
             log.warn("扫描任务执行失败: taskId={}, rootPath={}", task.getId(), task.getRootPath(), e);
+            // 并发扫描的通知可能不属于当前任务；工作线程必须独立落实最终失败状态。
+            ScanTask failed = scanTaskRepository.findById(task.getId()).orElse(null);
+            if (failed != null && failed.getStatus() == ScanTaskStatus.RUNNING) {
+                failed.setStatus(ScanTaskStatus.FAILED);
+                failed.setFailedItems(Math.max(1, failed.getFailedItems()));
+                failed.setErrorMessage(e.getMessage() == null ? "扫描失败" : e.getMessage());
+                failed.setFinishedAt(LocalDateTime.now());
+                scanTaskRepository.save(failed);
+            }
         } finally {
             activeTaskIds.remove(task.getId());
         }
@@ -587,11 +645,13 @@ public class ScanTaskService {
         List<ScanTask> tasks = new ArrayList<>(scanTaskRepository.findAllByOrderByCreatedAtDesc());
         boolean changed = false;
         for (ScanTask task : tasks) {
-            if (task.getStatus() == ScanTaskStatus.RUNNING) {
+            if (task.getStatus() == ScanTaskStatus.RUNNING
+                || (task.getStatus() == ScanTaskStatus.PAUSED && "RESTART".equals(task.getPauseSource()))) {
                 task.setStatus(hasProgress(task) ? ScanTaskStatus.QUEUED : ScanTaskStatus.PENDING);
                 task.setTaskType(hasProgress(task) ? ScanTaskType.RESUME_SCAN : task.getTaskType());
                 task.setErrorMessage("服务重启，任务待恢复");
                 task.setFinishedAt(LocalDateTime.now());
+                task.setPauseSource(null);
                 task.setCheckpointJson(buildCheckpointJson(task));
                 changed = true;
             }
@@ -601,8 +661,58 @@ public class ScanTaskService {
         }
     }
 
+    @Transactional
+    public Map<String, Object> pauseForControl(Long ownerUserId, String source) {
+        int paused = 0;
+        for (ScanTask task : scanTaskRepository.findAllByOrderByCreatedAtDesc()) {
+            if (ownerUserId != null && !Objects.equals(resolveQueueOwnerUserId(task), ownerUserId)) continue;
+            if (task.getStatus() == ScanTaskStatus.RUNNING) {
+                task.setPauseSource(source);
+                taskControlActions.put(task.getId(), PhotoScanService.ScanControlAction.PAUSE);
+                scanTaskRepository.save(task);
+                paused++;
+            } else if (QUEUEABLE_STATUSES.contains(task.getStatus())) {
+                task.setStatus(ScanTaskStatus.PAUSED);
+                task.setPauseSource(source);
+                task.setErrorMessage("任务已由" + ("GLOBAL".equals(source) ? "全局" : "账号") + "控制暂停");
+                task.setFinishedAt(LocalDateTime.now());
+                scanTaskRepository.save(task);
+                paused++;
+            }
+        }
+        return Map.of("pausedScanTasks", paused);
+    }
+
+    @Transactional
+    public Map<String, Object> resumeForControl(Long ownerUserId, String source) {
+        int resumed = 0;
+        for (ScanTask task : scanTaskRepository.findAllByOrderByCreatedAtDesc()) {
+            if (ownerUserId != null && !Objects.equals(resolveQueueOwnerUserId(task), ownerUserId)) continue;
+            if (task.getStatus() != ScanTaskStatus.PAUSED || !Objects.equals(source, task.getPauseSource())) continue;
+            task.setStatus(ScanTaskStatus.QUEUED);
+            task.setPauseSource(null);
+            task.setErrorMessage(null);
+            task.setFinishedAt(null);
+            if (hasProgress(task)) task.setTaskType(ScanTaskType.RESUME_SCAN);
+            scanTaskRepository.save(task);
+            resumed++;
+        }
+        if (resumed > 0) scheduleWorkerWhenTransactionCommitted();
+        return Map.of("resumedScanTasks", resumed);
+    }
+
     private boolean hasPendingTasks() {
-        return !scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES).isEmpty();
+        if (isBackgroundControlPaused("GLOBAL", "ALL") || isBackgroundControlPaused("LANE", "SCAN_IO")) return false;
+        return scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES).stream()
+            .anyMatch(task -> {
+                Long owner = resolveQueueOwnerUserId(task);
+                return owner == null || !isBackgroundControlPaused("OWNER", String.valueOf(owner));
+            });
+    }
+
+    private boolean isBackgroundControlPaused(String scopeType, String scopeKey) {
+        return backgroundJobControlRepository.findByScopeTypeAndScopeKey(scopeType, scopeKey)
+            .map(control -> Boolean.TRUE.equals(control.getPaused())).orElse(false);
     }
 
     @Transactional
@@ -830,7 +940,7 @@ public class ScanTaskService {
             return task;
         }
         if (!Objects.equals(task.getRequestedByUserId(), currentUser.getId())) {
-            throw new RuntimeException("无权访问该扫描任务");
+            throw new SecurityException("无权访问该扫描任务");
         }
         return task;
     }
@@ -963,6 +1073,7 @@ public class ScanTaskService {
         resp.put("checkpointUpdatedAt", checkpoint.updatedAt);
         resp.put("scheduledTask", task.getScheduledTask());
         resp.put("errorMessage", task.getErrorMessage());
+        resp.put("pauseSource", task.getPauseSource());
         resp.put("startedAt", task.getStartedAt());
         resp.put("finishedAt", task.getFinishedAt());
         resp.put("createdAt", task.getCreatedAt());
@@ -1107,6 +1218,7 @@ public class ScanTaskService {
         private String lastProcessedPath;
         private String lastProcessedType;
         private long lastFlushAt = 0L;
+        private boolean fairYieldRequested;
 
         private TaskProgressTracker(Long taskId) {
             this.taskId = taskId;
@@ -1130,7 +1242,13 @@ public class ScanTaskService {
 
         @Override
         public PhotoScanService.ScanControlAction getControlAction() {
-            return taskControlActions.getOrDefault(taskId, PhotoScanService.ScanControlAction.CONTINUE);
+            PhotoScanService.ScanControlAction explicit = taskControlActions.get(taskId);
+            if (explicit != null) return explicit;
+            ScanTask task = scanTaskRepository.findById(taskId).orElse(null);
+            Long owner = resolveQueueOwnerUserId(task);
+            return isBackgroundControlPaused("GLOBAL", "ALL") || isBackgroundControlPaused("LANE", "SCAN_IO")
+                || owner != null && isBackgroundControlPaused("OWNER", String.valueOf(owner))
+                ? PhotoScanService.ScanControlAction.PAUSE : PhotoScanService.ScanControlAction.CONTINUE;
         }
 
         @Override
@@ -1169,6 +1287,26 @@ public class ScanTaskService {
                 task.setTotalItems(totalItems);
                 task.setLastProcessedPath(lastProcessedPath);
             });
+            if (!fairYieldRequested && current - initialProcessedItems >= SCAN_FAIR_SHARE_PATHS
+                && (current - initialProcessedItems) % SCAN_FAIR_SHARE_PATHS == 0
+                && !taskControlActions.containsKey(taskId)) {
+                ScanTask currentTask = scanTaskRepository.findById(taskId).orElse(null);
+                if (currentTask != null) {
+                    String ownerKey = resolveQueueOwnerKey(currentTask);
+                    boolean anotherOwnerWaiting = scanTaskRepository.findByStatusInOrderByPriorityDescCreatedAtAsc(QUEUEABLE_STATUSES)
+                        .stream().anyMatch(queued -> Objects.equals(queued.getPriority(), currentTask.getPriority())
+                            && !Objects.equals(resolveQueueOwnerKey(queued), ownerKey));
+                    if (anotherOwnerWaiting) {
+                        flush(true, task -> {
+                            task.setProcessedItems(processedItems);
+                            task.setLastProcessedPath(lastProcessedPath);
+                            task.setPauseSource("FAIR_YIELD");
+                        });
+                        fairYieldRequested = true;
+                        taskControlActions.putIfAbsent(taskId, PhotoScanService.ScanControlAction.PAUSE);
+                    }
+                }
+            }
         }
 
         @Override
@@ -1219,17 +1357,26 @@ public class ScanTaskService {
             flush(true, task -> {
                 if (exception instanceof PhotoScanService.ScanInterruptedException) {
                     PhotoScanService.ScanInterruptedException interrupted = (PhotoScanService.ScanInterruptedException) exception;
-                    String interruptedPath = interrupted.getPath() != null ? interrupted.getPath() : lastProcessedPath;
-                    this.lastProcessedPath = interruptedPath;
-                    this.lastProcessedType = inferPathType(interruptedPath);
-                    task.setStatus(interrupted.getAction() == PhotoScanService.ScanControlAction.PAUSE
-                        ? ScanTaskStatus.PAUSED
-                        : ScanTaskStatus.CANCELED);
-                    task.setTaskType(hasProgress(task) ? ScanTaskType.RESUME_SCAN : task.getTaskType());
-                    task.setErrorMessage(interrupted.getAction() == PhotoScanService.ScanControlAction.PAUSE
-                        ? "任务已暂停"
-                        : "任务已取消");
-                    task.setLastProcessedPath(interruptedPath);
+                    // The interrupted path has not finished; resuming after it would lose that file.
+                    boolean fairYield = interrupted.getAction() == PhotoScanService.ScanControlAction.PAUSE
+                        && "FAIR_YIELD".equals(task.getPauseSource());
+                    if (fairYield && isBackgroundControlPaused("GLOBAL", "ALL")) {
+                        task.setPauseSource("GLOBAL");
+                        fairYield = false;
+                    } else if (fairYield && resolveQueueOwnerUserId(task) != null
+                        && isBackgroundControlPaused("OWNER", String.valueOf(resolveQueueOwnerUserId(task)))) {
+                        task.setPauseSource("OWNER");
+                        fairYield = false;
+                    }
+                    task.setStatus(fairYield ? ScanTaskStatus.QUEUED
+                        : interrupted.getAction() == PhotoScanService.ScanControlAction.PAUSE
+                            ? ScanTaskStatus.PAUSED : ScanTaskStatus.CANCELED);
+                    task.setLastProcessedPath(lastProcessedPath);
+                    task.setTaskType(lastProcessedPath != null ? ScanTaskType.RESUME_SCAN : task.getTaskType());
+                    task.setErrorMessage(fairYield ? null
+                        : interrupted.getAction() == PhotoScanService.ScanControlAction.PAUSE
+                            ? "任务已暂停" : "任务已取消");
+                    if (fairYield) task.setPauseSource(null);
                 } else {
                     task.setStatus(ScanTaskStatus.FAILED);
                     task.setTaskType(hasProgress(task) ? ScanTaskType.RESUME_SCAN : task.getTaskType());

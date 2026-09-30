@@ -1224,10 +1224,7 @@ public class FaceService {
             item.setCreatedAt(person.getCreatedAt());
             item.setUpdatedAt(person.getUpdatedAt());
 
-            long claimedCount = userId == null
-                ? photoAssignmentRepository.countClaimedPhotosByPersonId(person.getId())
-                : photoAssignmentRepository.countClaimedPhotosByPersonIdAndUserId(person.getId(), userId);
-            item.setFaceCount((int) claimedCount);
+            item.setFaceCount(faceCountMap.getOrDefault(person.getId(), 0));
 
             Object[] sampleData = getPersonSamplePhoto(person.getId());
             if (sampleData[1] != null) {

@@ -118,6 +118,9 @@ class LegacyMigrationSafetyTest {
         assertEquals(Ordered.HIGHEST_PRECEDENCE, migration.getAnnotation(Order.class).value());
         assertEquals(Ordered.LOWEST_PRECEDENCE, scan.getAnnotation(Order.class).value());
         assertNotNull(scan.getAnnotation(Async.class));
+        Method queueRecovery = ScanTaskService.class.getMethod("init");
+        assertEquals(Ordered.LOWEST_PRECEDENCE, queueRecovery.getAnnotation(Order.class).value());
+        assertNotNull(queueRecovery.getAnnotation(org.springframework.context.event.EventListener.class));
     }
 
     @Test

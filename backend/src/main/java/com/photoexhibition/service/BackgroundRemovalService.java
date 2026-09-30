@@ -1,14 +1,12 @@
 package com.photoexhibition.service;
 
 import ai.onnxruntime.*;
-import com.photoexhibition.repository.PhotoRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.imgscalr.Scalr;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
@@ -36,11 +34,9 @@ import java.util.List;
 @Service
 public class BackgroundRemovalService implements AutoCloseable {
 
-    private final PhotoRepository photoRepository;
     private final UserPathService userPathService;
 
-    public BackgroundRemovalService(PhotoRepository photoRepository, UserPathService userPathService) {
-        this.photoRepository = photoRepository;
+    public BackgroundRemovalService(UserPathService userPathService) {
         this.userPathService = userPathService;
     }
 
@@ -74,21 +70,10 @@ public class BackgroundRemovalService implements AutoCloseable {
     @Value("${background.removal.blur-radius:0}")
     private int blurRadius;
 
-    // 并发处理线程数
-    @Value("${background.removal.concurrent-tasks:2}")
-    private int concurrentTasks;
-
     private OrtEnvironment env;
     private OrtSession session;
     private boolean modelLoaded = false;
     
-    // 线程池用于并发处理
-    private java.util.concurrent.ExecutorService processingExecutor;
-    
-    // 追踪正在处理的任务，避免重复处理同一图片
-    private final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Future<?>> inProgressTasks = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.ConcurrentHashMap<Long, ProcessingSnapshot> processingSnapshots = new java.util.concurrent.ConcurrentHashMap<>();
-
     // 预处理的均值和标准差（根据模型训练配置）
     private static final float[] MEAN = new float[]{0.5f, 0.5f, 0.5f};
     private static final float[] STD = new float[]{0.5f, 0.5f, 0.5f};
@@ -106,12 +91,6 @@ public class BackgroundRemovalService implements AutoCloseable {
         log.info("thresholdSolid: {}", thresholdSolid);
         log.info("erodeRadius: {}", erodeRadius);
         log.info("blurRadius: {}", blurRadius);
-        log.info("concurrentTasks: {}", concurrentTasks);
-        
-        // 初始化线程池
-        processingExecutor = java.util.concurrent.Executors.newFixedThreadPool(concurrentTasks);
-        log.info("背景移除线程池初始化完成，核心线程数: {}", concurrentTasks);
-        
         // 尝试解析模型路径
         String resolvedPath = resolveModelPath(modelPath);
         log.info("解析后modelPath: {}", sanitizeFilesystemPath(resolvedPath));
@@ -131,13 +110,6 @@ public class BackgroundRemovalService implements AutoCloseable {
             log.warn("背景移除功能未启用 (enabled=false)");
         }
         log.info("========== BackgroundRemovalService 初始化完成 ==========");
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        if (processingExecutor != null) {
-            processingExecutor.shutdownNow();
-        }
     }
 
     /**
@@ -294,9 +266,12 @@ public class BackgroundRemovalService implements AutoCloseable {
 
             log.debug("开始处理图片: {} ({}x{})", inputImage.getName(), original.getWidth(), original.getHeight());
 
+            // 先缩到最终输出尺寸再做像素级后处理，避免在 20MP+ 原图上执行腐蚀/模糊。
+            BufferedImage workingImage = resizeForOutput(original, maxOutputSize);
+
             // 预处理：调整尺寸并标准化
             int inputSize = 1024; // BriaAI RMBG 推荐输入尺寸
-            BufferedImage resized = resizeAndPad(original, inputSize);
+            BufferedImage resized = resizeAndPad(workingImage, inputSize);
             float[] inputTensor = preprocessImage(resized, inputSize);
 
             // 运行推理
@@ -311,17 +286,7 @@ public class BackgroundRemovalService implements AutoCloseable {
                 float[][][][] mask = (float[][][][]) outputObj;
 
                 // 后处理：生成透明背景图片
-                BufferedImage alphaImage = postprocessMask(original, mask[0][0], inputSize);
-
-                // 如果输出尺寸需要缩放
-                BufferedImage finalImage = alphaImage;
-                if (maxOutputSize > 0 && (alphaImage.getWidth() > maxOutputSize || alphaImage.getHeight() > maxOutputSize)) {
-                    double scale = (double) maxOutputSize / Math.max(alphaImage.getWidth(), alphaImage.getHeight());
-                    int newWidth = (int) (alphaImage.getWidth() * scale);
-                    int newHeight = (int) (alphaImage.getHeight() * scale);
-                    finalImage = Scalr.resize(alphaImage, Scalr.Method.QUALITY, newWidth, newHeight);
-                    log.debug("输出图片缩放: {}x{} -> {}x{}", alphaImage.getWidth(), alphaImage.getHeight(), newWidth, newHeight);
-                }
+                BufferedImage finalImage = postprocessMask(workingImage, mask[0][0], inputSize);
 
                 // 确保输出目录存在
                 File parentDir = outputFile.getParentFile();
@@ -384,9 +349,13 @@ public class BackgroundRemovalService implements AutoCloseable {
 
             log.debug("开始处理图片(带人脸优化): {} ({}x{})", inputImage.getName(), original.getWidth(), original.getHeight());
 
+            BufferedImage workingImage = resizeForOutput(original, maxOutputSize);
+            java.util.List<java.awt.Rectangle> workingFaceRegions = scaleFaceRegions(
+                faceRegions, original.getWidth(), original.getHeight(), workingImage.getWidth(), workingImage.getHeight());
+
             // 预处理：调整尺寸并标准化
             int inputSize = 1024; // BriaAI RMBG 推荐输入尺寸
-            BufferedImage resized = resizeAndPad(original, inputSize);
+            BufferedImage resized = resizeAndPad(workingImage, inputSize);
             float[] inputTensor = preprocessImage(resized, inputSize);
 
             // 运行推理
@@ -401,16 +370,7 @@ public class BackgroundRemovalService implements AutoCloseable {
                 float[][][][] mask = (float[][][][]) outputObj;
 
                 // 后处理：生成透明背景图片（带人脸区域优化）
-                BufferedImage alphaImage = postprocessMask(original, mask[0][0], inputSize, faceRegions);
-
-                // 如果输出尺寸需要缩放
-                BufferedImage finalImage = alphaImage;
-                if (maxOutputSize > 0 && (alphaImage.getWidth() > maxOutputSize || alphaImage.getHeight() > maxOutputSize)) {
-                    double scale = (double) maxOutputSize / Math.max(alphaImage.getWidth(), alphaImage.getHeight());
-                    int newWidth = (int) (alphaImage.getWidth() * scale);
-                    int newHeight = (int) (alphaImage.getHeight() * scale);
-                    finalImage = Scalr.resize(alphaImage, Scalr.Method.QUALITY, newWidth, newHeight);
-                }
+                BufferedImage finalImage = postprocessMask(workingImage, mask[0][0], inputSize, workingFaceRegions);
 
                 // 确保输出目录存在
                 File parentDir = outputFile.getParentFile();
@@ -456,8 +416,9 @@ public class BackgroundRemovalService implements AutoCloseable {
                 return null;
             }
 
+            BufferedImage workingImage = resizeForOutput(original, maxOutputSize);
             int inputSize = 1024;
-            BufferedImage resized = resizeAndPad(original, inputSize);
+            BufferedImage resized = resizeAndPad(workingImage, inputSize);
             float[] inputTensor = preprocessImage(resized, inputSize);
 
             OnnxTensor input = OnnxTensor.createTensor(env, FloatBuffer.wrap(inputTensor),
@@ -469,17 +430,7 @@ public class BackgroundRemovalService implements AutoCloseable {
                 Object outputObj = result.get(0).getValue();
                 float[][][][] mask = (float[][][][]) outputObj;
                 
-                BufferedImage alphaImage = postprocessMask(original, mask[0][0], inputSize);
-                
-                // 如果输出尺寸需要缩放
-                if (maxOutputSize > 0 && (alphaImage.getWidth() > maxOutputSize || alphaImage.getHeight() > maxOutputSize)) {
-                    double scale = (double) maxOutputSize / Math.max(alphaImage.getWidth(), alphaImage.getHeight());
-                    int newWidth = (int) (alphaImage.getWidth() * scale);
-                    int newHeight = (int) (alphaImage.getHeight() * scale);
-                    return Scalr.resize(alphaImage, Scalr.Method.QUALITY, newWidth, newHeight);
-                }
-                
-                return alphaImage;
+                return postprocessMask(workingImage, mask[0][0], inputSize);
             } finally {
                 input.close();
             }
@@ -489,277 +440,30 @@ public class BackgroundRemovalService implements AutoCloseable {
         }
     }
 
-    /**
-     * 并发背景移除 - 带缓存检查和任务追踪
-     * 用于处理前端频繁的hover请求
-     * 
-     * @param photoId 图片ID（用于追踪任务）
-     * @param sourceFile 源图片文件
-     * @param outputFile 输出文件（可选，为null时只返回内存图片）
-     * @return 处理后的图片，null表示失败或跳过
-     */
-    public BufferedImage removeBackgroundConcurrently(Long photoId, File sourceFile, File outputFile) {
-        // 使用默认的 outputMaxSize
-        return removeBackgroundConcurrently(photoId, sourceFile, outputFile, outputMaxSize);
+    private BufferedImage resizeForOutput(BufferedImage original, int maxOutputSize) {
+        if (maxOutputSize <= 0
+            || (original.getWidth() <= maxOutputSize && original.getHeight() <= maxOutputSize)) {
+            return original;
+        }
+        double scale = (double) maxOutputSize / Math.max(original.getWidth(), original.getHeight());
+        int width = Math.max(1, (int) Math.round(original.getWidth() * scale));
+        int height = Math.max(1, (int) Math.round(original.getHeight() * scale));
+        log.debug("像素级抠图后处理尺寸: {}x{} -> {}x{}", original.getWidth(), original.getHeight(), width, height);
+        return Scalr.resize(original, Scalr.Method.QUALITY, width, height);
     }
 
-    /**
-     * 异步提交背景移除任务，不等待完成
-     * 适用于 HTTP 请求场景，立即返回，任务在后台处理
-     *
-     * @param photoId 图片ID
-     * @param sourceFile 源文件
-     * @param outputFile 输出文件
-     * @param outputMaxSize 输出尺寸
-     */
-    public void submitBackgroundRemoval(Long photoId, File sourceFile, File outputFile, int outputMaxSize) {
-        if (!enabled || !modelLoaded) {
-            log.warn("模型未就绪，跳过处理: photoId={}", photoId);
-            return;
-        }
-
-        // 检查是否已有任务在处理中
-        if (inProgressTasks.containsKey(photoId)) {
-            java.util.concurrent.Future<?> existingTask = inProgressTasks.get(photoId);
-            if (existingTask != null && !existingTask.isDone()) {
-                log.debug("图片正在处理中，跳过重复提交: photoId={}", photoId);
-                return;
-            }
-        }
-
-        ProcessingSnapshot snapshot = processingSnapshots.computeIfAbsent(photoId, id -> new ProcessingSnapshot(id));
-        snapshot.status = "QUEUED";
-        snapshot.photoName = sourceFile != null ? sourceFile.getName() : null;
-        snapshot.outputPath = outputFile != null ? sanitizeFilesystemPath(outputFile.getAbsolutePath()) : null;
-        snapshot.outputMaxSize = outputMaxSize;
-        snapshot.updatedAt = java.time.LocalDateTime.now();
-
-        // 提交任务，不等待结果
-        java.util.concurrent.Future<?> task = processingExecutor.submit(() -> {
-            try {
-                snapshot.status = "RUNNING";
-                snapshot.startedAt = java.time.LocalDateTime.now();
-                snapshot.updatedAt = snapshot.startedAt;
-                log.info("开始处理抠图: photoId={}, file={}, outputMaxSize={}", photoId, sourceFile.getName(), outputMaxSize);
-
-                // 执行背景移除
-                BufferedImage result = removeBackground(sourceFile, outputMaxSize);
-
-                if (result != null && outputFile != null) {
-                    File parentDir = outputFile.getParentFile();
-                    if (parentDir != null && !parentDir.exists()) {
-                        parentDir.mkdirs();
-                    }
-                    ImageIO.write(result, "PNG", outputFile);
-                    persistBackgroundRemovedPath(photoId, outputFile);
-                    log.info("抠图完成并保存: photoId={}", photoId);
-                }
-                snapshot.status = "COMPLETED";
-                snapshot.message = result != null ? "抠图完成" : "抠图未生成结果";
-            } catch (Exception e) {
-                snapshot.status = "FAILED";
-                snapshot.message = sanitizeVisibleMessage(e.getMessage());
-                log.error("抠图处理异常: photoId={}", photoId, e);
-            } finally {
-                snapshot.finishedAt = java.time.LocalDateTime.now();
-                snapshot.updatedAt = snapshot.finishedAt;
-                inProgressTasks.remove(photoId);
-            }
-        });
-
-        inProgressTasks.put(photoId, task);
-        log.debug("抠图任务已提交: photoId={}", photoId);
-    }
-
-    public Map<String, Object> getProcessingOverview() {
-        Map<String, Object> result = new LinkedHashMap<>();
-        java.util.concurrent.ThreadPoolExecutor executor = processingExecutor instanceof java.util.concurrent.ThreadPoolExecutor
-            ? (java.util.concurrent.ThreadPoolExecutor) processingExecutor
-            : null;
-
-        result.put("threadType", "BACKGROUND_REMOVAL");
-        result.put("label", "背景移除线程池");
-        result.put("enabled", enabled);
-        result.put("modelLoaded", modelLoaded);
-        result.put("configuredConcurrency", concurrentTasks);
-        result.put("activeTaskCount", inProgressTasks.size());
-        result.put("running", inProgressTasks.size() > 0);
-        result.put("poolSize", executor != null ? executor.getPoolSize() : 0);
-        result.put("activeThreads", executor != null ? executor.getActiveCount() : 0);
-        result.put("queuedTasks", executor != null ? executor.getQueue().size() : 0);
-        result.put("completedTaskCount", executor != null ? executor.getCompletedTaskCount() : 0L);
-        result.put("recentTasks", processingSnapshots.values().stream()
-            .sorted((left, right) -> compareDateTimeDesc(left.updatedAt, right.updatedAt))
-            .limit(8)
-            .map(ProcessingSnapshot::toMap)
-            .collect(java.util.stream.Collectors.toList()));
-        return result;
-    }
-
-    /**
-     * 检查指定 photoId 的抠图是否已完成
-     *
-     * @param photoId 图片ID
-     * @return true 表示已完成（或正在处理中）
-     */
-    public boolean isProcessingOrDone(Long photoId) {
-        return inProgressTasks.containsKey(photoId);
-    }
-
-    /**
-     * 并发背景移除 - 带缓存检查和任务追踪，支持指定输出尺寸
-     *
-     * @param photoId 图片ID（用于追踪任务）
-     * @param sourceFile 源图片文件
-     * @param outputFile 输出文件（可选，为null时只返回内存图片）
-     * @param outputMaxSize 输出图片的最大边长
-     * @return 处理后的图片，null表示失败或跳过
-     */
-    public BufferedImage removeBackgroundConcurrently(Long photoId, File sourceFile, File outputFile, int outputMaxSize) {
-        if (!enabled || !modelLoaded) {
-            log.warn("模型未就绪，跳过处理: photoId={}", photoId);
-            return null;
-        }
-
-        // 检查是否已有任务在处理中
-        if (inProgressTasks.containsKey(photoId)) {
-            java.util.concurrent.Future<?> existingTask = inProgressTasks.get(photoId);
-            if (existingTask != null && !existingTask.isDone()) {
-                log.debug("图片正在处理中，等待完成: photoId={}", photoId);
-                try {
-                    // 等待现有任务完成（最多等待30秒）
-                    existingTask.get(30, java.util.concurrent.TimeUnit.SECONDS);
-                    // 任务完成后，检查是否有缓存文件
-                    if (outputFile != null && outputFile.exists()) {
-                        return ImageIO.read(outputFile);
-                    }
-                    return null;
-                } catch (java.util.concurrent.TimeoutException e) {
-                    log.warn("等待处理超时，取消任务: photoId={}", photoId);
-                    inProgressTasks.remove(photoId);
-                } catch (Exception e) {
-                    log.warn("等待处理失败: photoId={}, error={}", photoId, e.getMessage());
-                    inProgressTasks.remove(photoId);
-                }
-            }
-        }
-
-        // 提交新任务
-        java.util.concurrent.Future<?> task = processingExecutor.submit(() -> {
-            try {
-                log.info("开始处理抠图: photoId={}, file={}, outputMaxSize={}", photoId, sourceFile.getName(), outputMaxSize);
-                
-                // 执行背景移除（使用指定的输出尺寸）
-                BufferedImage result = removeBackground(sourceFile, outputMaxSize);
-                
-                if (result != null && outputFile != null) {
-                    // 保存到文件
-                    File parentDir = outputFile.getParentFile();
-                    if (parentDir != null && !parentDir.exists()) {
-                        parentDir.mkdirs();
-                    }
-                    ImageIO.write(result, "PNG", outputFile);
-                    persistBackgroundRemovedPath(photoId, outputFile);
-                    log.info("抠图完成并保存: photoId={}", photoId);
-                }
-                
-                return result;
-            } catch (Exception e) {
-                log.error("抠图处理异常: photoId={}", photoId, e);
-                return null;
-            } finally {
-                // 任务完成后移除
-                inProgressTasks.remove(photoId);
-            }
-        });
-
-        inProgressTasks.put(photoId, task);
-        
-        // 等待任务完成（最多30秒）
-        try {
-            BufferedImage result = (BufferedImage) task.get(30, java.util.concurrent.TimeUnit.SECONDS);
-            if (result != null && outputFile != null && !outputFile.exists()) {
-                // 确保文件已保存
-                ImageIO.write(result, "PNG", outputFile);
-            }
-            return result;
-        } catch (java.util.concurrent.TimeoutException e) {
-            log.warn("处理超时: photoId={}", photoId);
-            task.cancel(true);
-            inProgressTasks.remove(photoId);
-            return null;
-        } catch (Exception e) {
-            log.error("处理失败: photoId={}", photoId, e);
-            inProgressTasks.remove(photoId);
-            return null;
-        }
-    }
-
-    private void persistBackgroundRemovedPath(Long photoId, File outputFile) {
-        if (photoId == null || outputFile == null) {
-            return;
-        }
-        try {
-            photoRepository.findById(photoId).ifPresent(photo -> {
-                String storedPath = userPathService.tryBuildStoragePathReference(outputFile.getAbsolutePath(), photo.getUserId())
-                    .orElse(outputFile.getAbsolutePath());
-                photo.setBackgroundRemovedPath(storedPath);
-                photoRepository.save(photo);
-            });
-        } catch (Exception e) {
-            log.warn("回写抠图路径失败: photoId={}, output={}", photoId, sanitizeFilesystemPath(outputFile.getAbsolutePath()), e);
-        }
-    }
-
-    private int compareDateTimeDesc(java.time.LocalDateTime left, java.time.LocalDateTime right) {
-        if (left == null && right == null) {
-            return 0;
-        }
-        if (left == null) {
-            return 1;
-        }
-        if (right == null) {
-            return -1;
-        }
-        return right.compareTo(left);
-    }
-
-    private String sanitizeVisibleMessage(String message) {
-        if (message == null || message.isBlank()) {
-            return "处理失败";
-        }
-        String normalized = message.replace('\n', ' ').replace('\r', ' ').trim();
-        return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static final class ProcessingSnapshot {
-        private final Long photoId;
-        private volatile String photoName;
-        private volatile String status = "QUEUED";
-        private volatile String message = "等待处理";
-        private volatile Integer outputMaxSize;
-        private volatile String outputPath;
-        private volatile java.time.LocalDateTime startedAt;
-        private volatile java.time.LocalDateTime finishedAt;
-        private volatile java.time.LocalDateTime updatedAt = java.time.LocalDateTime.now();
-
-        private ProcessingSnapshot(Long photoId) {
-            this.photoId = photoId;
-        }
-
-        private Map<String, Object> toMap() {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("photoId", photoId);
-            item.put("photoName", photoName);
-            item.put("status", status);
-            item.put("message", message);
-            item.put("outputMaxSize", outputMaxSize);
-            item.put("outputPath", outputPath);
-            item.put("startedAt", startedAt);
-            item.put("finishedAt", finishedAt);
-            item.put("updatedAt", updatedAt);
-            return item;
-        }
+    private java.util.List<java.awt.Rectangle> scaleFaceRegions(
+            java.util.List<java.awt.Rectangle> regions, int sourceWidth, int sourceHeight,
+            int targetWidth, int targetHeight) {
+        if (regions == null || regions.isEmpty()
+            || (sourceWidth == targetWidth && sourceHeight == targetHeight)) return regions;
+        double scaleX = (double) targetWidth / sourceWidth;
+        double scaleY = (double) targetHeight / sourceHeight;
+        return regions.stream().map(region -> new java.awt.Rectangle(
+            (int) Math.round(region.x * scaleX), (int) Math.round(region.y * scaleY),
+            Math.max(1, (int) Math.round(region.width * scaleX)),
+            Math.max(1, (int) Math.round(region.height * scaleY))))
+            .collect(java.util.stream.Collectors.toList());
     }
 
     private String sanitizeFilesystemPath(String path) {
@@ -1228,14 +932,6 @@ public class BackgroundRemovalService implements AutoCloseable {
         modelLoaded = false;
         ensureModelLoaded();
         return isModelAvailable();
-    }
-
-    public int getActiveTaskCount() {
-        inProgressTasks.entrySet().removeIf(entry -> {
-            java.util.concurrent.Future<?> task = entry.getValue();
-            return task == null || task.isDone() || task.isCancelled();
-        });
-        return inProgressTasks.size();
     }
 
     @Override

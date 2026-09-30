@@ -80,6 +80,9 @@ public class PhotoAIScoringService implements AutoCloseable {
     @Autowired
     private UserPathService userPathService;
 
+    @Autowired(required = false)
+    private PhotoAnalysisPreferenceService analysisPreferenceService;
+
     private OrtEnvironment env;
     private boolean onnxAvailable = false;
 
@@ -289,6 +292,9 @@ public class PhotoAIScoringService implements AutoCloseable {
 
         ScoringResult result = new ScoringResult();
         result.modelsUsed = new HashMap<>();
+        PhotoAnalysisPreferenceService.PreferredAnalysis preferred = analysisPreferenceService == null
+            ? PhotoAnalysisPreferenceService.PreferredAnalysis.empty()
+            : analysisPreferenceService.resolve(photo.getId());
 
         // 1. 技术质量评分
         result.technicalScore = calculateTechnicalScore(photo, imageFile);
@@ -301,7 +307,7 @@ public class PhotoAIScoringService implements AutoCloseable {
         // 2. 构图美学评分
         result.compositionScore = calculateCompositionScore(photo, imageFile);
         result.compositionAnalysis = generateCompositionAnalysis(photo, imageFile);
-        result.modelsUsed.put("saliency", onnxAvailable); // 只有ONNX可用时才算使用了saliency模型
+        result.modelsUsed.put("saliency", onnxAvailable);
         log.debug("构图美学评分: {} (焦点位置: {}%, 宽高比: {})",
                 String.format("%.2f", result.compositionScore),
                 photo.getFocusX() != null ? String.format("%.1f", photo.getFocusX()) : "N/A",
@@ -311,7 +317,8 @@ public class PhotoAIScoringService implements AutoCloseable {
         // 3. 主题吸引力评分
         result.appealScore = calculateAppealScore(photo, imageFile);
         result.appealAnalysis = generateAppealAnalysis(photo, imageFile);
-        result.modelsUsed.put("classification", onnxAvailable); // 只有ONNX可用时才算使用了classification模型
+        result.modelsUsed.put("classification", onnxAvailable);
+        result.modelsUsed.put("visual_ai_scoring", preferred.hasPhotographyScores());
         result.modelsUsed.put("face_detection", true); // 人脸检测可能不依赖ONNX
         int faceCount = 0;
         try {
@@ -325,12 +332,17 @@ public class PhotoAIScoringService implements AutoCloseable {
                 photo.getTags() != null ? photo.getTags().size() : 0,
                 faceCount);
 
-        // 4. AI增强分析：场景识别和情感分析
+        // 4. 场景与情绪：已有远程AI结果时优先使用；否则保留本地分析作为回退。
         try {
-            // 场景识别
-            var sceneResult = sceneRecognitionService.recognizeScene(imageFile);
-            result.sceneAnalysis = sceneResult;
+            SceneRecognitionService.SceneRecognitionResult sceneResult = null;
+            EmotionAnalysisService.EmotionAnalysisResult emotionResult = null;
 
+            if (preferred.hasScene()) {
+                log.debug("场景识别使用AI大模型结果: {}", preferred.getPrimaryScene());
+            } else {
+                sceneResult = sceneRecognitionService.recognizeScene(imageFile);
+                result.sceneAnalysis = sceneResult;
+            }
             if (sceneResult != null && !sceneResult.scenes.isEmpty()) {
                 var primaryScene = sceneResult.scenes.get(0);
                 log.debug("场景识别结果: {} (置信度: {}%, 候选: {})",
@@ -341,9 +353,12 @@ public class PhotoAIScoringService implements AutoCloseable {
                 log.debug("场景识别结果: 未识别到场景");
             }
 
-            // 情感分析
-            var emotionResult = emotionAnalysisService.analyzeEmotion(imageFile, photo.getId());
-            result.emotionAnalysis = emotionResult;
+            if (preferred.hasEmotion()) {
+                log.debug("情绪分析使用AI大模型结果: {}", preferred.getPrimaryEmotion());
+            } else {
+                emotionResult = emotionAnalysisService.analyzeEmotion(imageFile, photo.getId());
+                result.emotionAnalysis = emotionResult;
+            }
 
             if (emotionResult != null && emotionResult.primaryEmotion != null) {
                 log.debug("情感分析结果: {} (置信度: {}%, 候选: {})",
@@ -354,11 +369,12 @@ public class PhotoAIScoringService implements AutoCloseable {
                 log.debug("情感分析结果: 未识别到情感");
             }
 
-            // 更新Photo实体的AI分析字段
-            updatePhotoWithAIAnalysis(photo, sceneResult, emotionResult);
+            // 只写本地结果。远程AI结果继续独立保存在photo_visual_analysis中。
+            updatePhotoWithLocalAnalysis(photo, sceneResult, emotionResult);
 
-            result.modelsUsed.put("scene_recognition", true);
-            result.modelsUsed.put("emotion_analysis", true);
+            result.modelsUsed.put("scene_recognition", preferred.hasScene() || sceneResult != null);
+            result.modelsUsed.put("emotion_analysis", preferred.hasEmotion() || emotionResult != null);
+            result.modelsUsed.put("visual_ai", preferred.hasScene() || preferred.hasEmotion() || preferred.hasClassification());
         } catch (Exception e) {
             log.warn("AI增强分析失败: {}", e.getMessage());
             result.modelsUsed.put("scene_recognition", false);
@@ -458,7 +474,7 @@ public class PhotoAIScoringService implements AutoCloseable {
     /**
      * 更新Photo实体中的AI分析结果
      */
-    private void updatePhotoWithAIAnalysis(Photo photo,
+    private void updatePhotoWithLocalAnalysis(Photo photo,
             SceneRecognitionService.SceneRecognitionResult sceneResult,
             EmotionAnalysisService.EmotionAnalysisResult emotionResult) {
         try {
@@ -542,7 +558,6 @@ public class PhotoAIScoringService implements AutoCloseable {
     private double calculateAppealScore(Photo photo, File imageFile) throws IOException {
         double score = 40.0; // 基础分
 
-        // 尝试使用AI图像分类（如果ONNX可用）
         if (onnxAvailable) {
             List<ImageClassificationService.ClassificationResult> classifications = Collections.emptyList();
             try {
@@ -800,11 +815,7 @@ public class PhotoAIScoringService implements AutoCloseable {
         scoring.setImprovementSuggestions(objectMapper.writeValueAsString(result.improvementSuggestions));
 
         // 存储使用的模型信息
-        Map<String, Object> modelsUsed = new HashMap<>();
-        modelsUsed.put("classification", classificationService != null);
-        modelsUsed.put("saliency", saliencyService != null);
-        modelsUsed.put("color_analysis", colorAnalysisService != null);
-        scoring.setModelsUsed(objectMapper.writeValueAsString(modelsUsed));
+        scoring.setModelsUsed(objectMapper.writeValueAsString(result.modelsUsed));
     }
 
     /**

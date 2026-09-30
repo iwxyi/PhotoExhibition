@@ -20,6 +20,7 @@
           <option value="POST /admin/scan/force">强制扫描（重新处理所有图片）</option>
           <option value="POST /admin/thumbnails/clear">清空缩略图（重新生成三级缩略图）</option>
           <option value="POST /admin/faces/clear">清空人脸数据（重新生成人脸识别）</option>
+          <option value="POST /admin/faces/rebuild-all">批量重建人脸</option>
           <option value="POST /admin/smart-tags/clear">清空智能标签（重新生成AI标签）</option>
           <option value="POST /admin/cleanup/orphaned">清理删除残留（清理不存在文件的记录）</option>
           <option value="POST /admin/cleanup/duplicate-faces">清理重复人脸（删除同一照片的重复人脸记录）</option>
@@ -64,6 +65,14 @@
         <label class="block text-sm text-gray-400 mb-2">照片 ID（JSON 数组）</label>
         <input v-model="visualPhotoIdsInput" placeholder="例如：[24, 25, 28]" class="w-full px-4 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-white" />
       </div>
+
+      <label v-if="selectedApi === 'POST /admin/faces/rebuild-all'" class="block text-sm text-gray-400">
+        人脸重建模式
+        <select v-model="preserveFaceBindings" class="mt-2 w-full px-4 py-2 bg-gray-900/70 border border-white/10 rounded-lg text-white">
+          <option :value="true">保留已有人物绑定</option>
+          <option :value="false">完全重建，不继承人物绑定</option>
+        </select>
+      </label>
 
       <div v-if="showFaceSimilarInputs" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
@@ -472,6 +481,7 @@ const showPathInput = computed(() => selectedApi.value.includes('/admin/scan'))
 const showFaceSimilarInputs = computed(() => selectedApi.value.includes('/admin/faces/{id}/similar'))
 const showVisualPhotoIdsInput = computed(() => selectedApi.value.includes('/visual-analysis/jobs'))
 const visualPhotoIdsInput = ref('[]')
+const preserveFaceBindings = ref(true)
 const paymentPreviewSummary = computed<PaymentNotifyPreviewResult | null>(() => {
   const value = paymentNotifyPreviewResponse.value
   if (!value || 'error' in value) return null
@@ -811,6 +821,11 @@ const testApi = async () => {
   if (selectedApi.value === 'POST /admin/faces/clear' &&
       !requireConfirm('👤 清空人脸识别数据后需要重新扫描生成，确定要继续吗？')) return
 
+  if (selectedApi.value === 'POST /admin/faces/rebuild-all' &&
+      !requireConfirm(preserveFaceBindings.value
+        ? '将重新检测所有已扫描照片的人脸，并尽量保留人物绑定。确定要继续吗？'
+        : '将重新检测所有已扫描照片的人脸，且不继承旧人物绑定。确定要继续吗？')) return
+
   if (selectedApi.value === 'POST /admin/smart-tags/clear' &&
       !requireConfirm('🏷️ 清空智能标签数据后需要重新扫描生成，确定要继续吗？')) return
 
@@ -847,12 +862,8 @@ const testApi = async () => {
   try {
     let [method, path] = selectedApi.value.split(' ')
     const params: Record<string, any> = {}
-
-    if (showVisualPhotoIdsInput.value) {
-      let photoIds: any
-      try { photoIds = JSON.parse(visualPhotoIdsInput.value) } catch { throw new Error('照片 ID 必须是合法 JSON 数组') }
-      if (!Array.isArray(photoIds)) throw new Error('照片 ID 必须是 JSON 数组')
-      config.data = { photoIds, force: true }
+    if (selectedApi.value === 'POST /admin/faces/rebuild-all') {
+      params.preserveBindings = preserveFaceBindings.value
     }
 
     if (showFaceSimilarInputs.value) {
@@ -869,6 +880,13 @@ const testApi = async () => {
     const config: Record<string, any> = {
       method: method.toLowerCase(),
       url: path
+    }
+
+    if (showVisualPhotoIdsInput.value) {
+      let photoIds: any
+      try { photoIds = JSON.parse(visualPhotoIdsInput.value) } catch { throw new Error('照片 ID 必须是合法 JSON 数组') }
+      if (!Array.isArray(photoIds)) throw new Error('照片 ID 必须是 JSON 数组')
+      config.data = { photoIds, force: true }
     }
 
     if (showAlbumIdInput.value) {

@@ -226,7 +226,10 @@ public class Photo {
     @OneToOne(mappedBy = "photo", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private PhotoAIScoring aiScoring;
 
-    // AI增强分析字段
+    @Column(name = "local_classification_analysis", columnDefinition = "JSON")
+    private String localClassificationAnalysis; // 本地图像分类结果；AI视觉标签单独存储在photo_visual_analysis
+
+    // 本地场景/情绪分析字段；AI大模型结果单独存储在photo_visual_analysis
     @Column(name = "scene_analysis", columnDefinition = "JSON")
     private String sceneAnalysis; // 场景识别结果，JSON格式
 
