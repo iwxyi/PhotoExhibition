@@ -1151,6 +1151,7 @@ import { buildPublicPath } from '@/utils/publicRoute'
 import { storageTypeLabel } from '@/utils/providerLabels'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
+import { chooseFaceRebuildOptions } from '@/utils/faceRebuildOptions'
 
 interface PhotoInfo {
   id?: number
@@ -2652,7 +2653,10 @@ const handleViewerAdminAction = async ({ key }: { key: string }) => {
       return
     }
     try {
-      await api.post(`/admin/photos/${photo.id}/rescan-faces`)
+      const preserveBindings = await chooseFaceRebuildOptions()
+      if (preserveBindings === null) return
+      await api.post(`/admin/photos/${photo.id}/rescan-faces`, null, { params: { preserveBindings } })
+      alert('人脸重建任务已加入后台队列')
     } catch (e: any) {
       alert('重建人脸失败: ' + (e.response?.data?.error || e.message))
     }
@@ -2694,7 +2698,10 @@ const rescanContextPhotoFaces = async () => {
   if (!item || item.isDirectory || !item.thumbnail?.id) return
   contextMenu.value.show = false
   try {
-    await api.post(`/admin/photos/${item.thumbnail.id}/rescan-faces`)
+    const preserveBindings = await chooseFaceRebuildOptions()
+    if (preserveBindings === null) return
+    await api.post(`/admin/photos/${item.thumbnail.id}/rescan-faces`, null, { params: { preserveBindings } })
+    alert('人脸重建任务已加入后台队列')
   } catch (e: any) {
     alert('重建人脸失败: ' + (e.response?.data?.error || e.message))
   }

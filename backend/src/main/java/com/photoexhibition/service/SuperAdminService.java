@@ -67,9 +67,9 @@ public class SuperAdminService {
     private final UserStorageService userStorageService;
     private final UserPathService userPathService;
     private final ModelManagementService modelManagementService;
+    private final BackgroundJobService backgroundJobService;
     private final ScanTaskService scanTaskService;
     private final PhotoScanService photoScanService;
-    private final BackgroundRemovalService backgroundRemovalService;
     private final RequestMonitoringService requestMonitoringService;
     private final StorageMigrationService storageMigrationService;
     private final ObjectMapper objectMapper;
@@ -136,9 +136,8 @@ public class SuperAdminService {
         List<Map<String, Object>> workers = new ArrayList<>();
         workers.add(requestMonitoringService.getOverview());
         workers.add(scanTaskService.getSuperAdminQueueOverview());
-        workers.add(photoScanService.getAsyncTaskOverview());
-        workers.add(backgroundRemovalService.getProcessingOverview());
         workers.add(modelManagementService.getTaskOverview());
+        workers.add(backgroundJobService.overview());
 
         long activeWorkerGroups = workers.stream()
             .filter(item -> Boolean.TRUE.equals(item.get("queueActive"))
@@ -151,7 +150,7 @@ public class SuperAdminService {
         resp.put("workerCount", workers.size());
         resp.put("activeWorkerGroupCount", activeWorkerGroups);
         resp.put("workers", workers);
-        resp.put("nonBlockingNote", "扫描队列、背景移除、模型重建均在独立后台线程中执行，接口请求仅负责提交任务与查询状态。");
+        resp.put("nonBlockingNote", "扫描队列及统一后台任务分别按资源队列调度，接口请求仅负责提交任务与查询状态。");
         return resp;
     }
 

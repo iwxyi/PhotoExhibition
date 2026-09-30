@@ -4,9 +4,13 @@ import com.photoexhibition.dto.FilterRequest;
 import com.photoexhibition.dto.PhotoDTO;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.entity.ProcessingStatus;
+import com.photoexhibition.entity.BackgroundJobResourceLane;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.UserAccountRepository;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.BackgroundRemovalService;
+import com.photoexhibition.service.BackgroundJobService;
 import com.photoexhibition.service.PhotoAssetService;
 import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.service.PhotoService;
@@ -32,6 +36,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -54,6 +59,8 @@ public class PhotoController {
     private final PhotoAssetService photoAssetService;
     private final AuthService authService;
     private final PhotoScanService photoScanService;
+    private final BackgroundJobService backgroundJobService;
+    private final UserAccountRepository userAccountRepository;
 
     /**
      * 图墙模式 - 获取所有图片（瀑布流）
@@ -310,32 +317,7 @@ public class PhotoController {
                 break;
         }
 
-        // 4. 检查对应质量的缓存
-        String cachedPath = photo.getBackgroundRemovedPath();
-        if (cachedPath != null && !cachedPath.isEmpty()) {
-            try {
-                java.util.Optional<java.nio.file.Path> cachedFilePath = userPathService.tryResolveLocalStoredPhotoPath(cachedPath);
-                if (cachedFilePath.isEmpty()) {
-                    log.info("抠图缓存不是本地可解析路径，忽略本地缓存命中检查: {}", cachedPath);
-                } else {
-                    File cachedFile = cachedFilePath.get().toFile();
-                    if (cachedFile.exists()) {
-                        log.info("使用缓存文件: {}", cachedPath);
-                        byte[] cachedBytes = Files.readAllBytes(cachedFile.toPath());
-                        HttpHeaders headers = new HttpHeaders();
-                        headers.setContentType(MediaType.IMAGE_PNG);
-                        headers.setContentLength(cachedBytes.length);
-                        headers.setCacheControl("public, max-age=31536000");
-                        return new ResponseEntity<>(cachedBytes, headers, HttpStatus.OK);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("读取缓存文件失败: {}", cachedPath, e);
-                // 继续处理，不返回错误
-            }
-        }
-
-        // 5. 确定源图片路径
+        // 确定源图片路径和对应质量的缓存
         String photoPath = photo.getOriginalPath();
         log.info("源图片路径: {}", userPathService.toDisplayPath(photoPath, true));
         java.util.Optional<java.nio.file.Path> sourcePath = userPathService.tryResolveLocalStoredPhotoPath(photoPath);
@@ -349,30 +331,30 @@ public class PhotoController {
             return ResponseEntity.notFound().build();
         }
 
-        // 6. 检查是否有正在进行的处理
         File parentDir = sourceFile.getParentFile();
         File cacheDir = new File(parentDir, ".thumbnails");
-        String cachedFileName = "bg_removed_" + photo.getId() + ".png";
+        String cachedFileName = "bg_removed_" + photo.getId() + "_" + outputMaxSize + ".png";
         File outputFile = new File(cacheDir, cachedFileName);
-
-        // 如果有正在处理的任务或文件已存在，使用异步方式提交
-        if (backgroundRemovalService.isProcessingOrDone(photo.getId()) || outputFile.exists()) {
-            // 异步提交任务（如果还没提交的话）
-            backgroundRemovalService.submitBackgroundRemoval(photo.getId(), sourceFile, outputFile, outputMaxSize);
-
-            // 返回 202 Accepted，表示请求已接受但处理未完成
-            // 前端可以稍后重试
-            log.info("抠图任务已提交，返回处理中状态: photoId={}", id);
+        if (outputFile.exists()) {
+            try {
+                byte[] bytes = Files.readAllBytes(outputFile.toPath());
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.IMAGE_PNG);
+                headers.setContentLength(bytes.length);
+                headers.setCacheControl("public, max-age=31536000");
+                return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
+            } catch (IOException e) {
+                log.warn("读取抠图缓存失败: photoId={}", id, e);
+            }
+        }
+        if (photo.getProcessingStatus() != ProcessingStatus.COMPLETED) {
             return ResponseEntity.status(HttpStatus.ACCEPTED).build();
         }
-
-        // 7. 异步提交抠图任务
-        log.info("开始处理抠图(异步): {}, outputMaxSize={}", userPathService.toDisplayPath(photoPath, true), outputMaxSize);
-
-        backgroundRemovalService.submitBackgroundRemoval(photo.getId(), sourceFile, outputFile, outputMaxSize);
-
-        // 返回 202 Accepted
-        log.info("抠图任务已提交，返回处理中状态: photoId={}", id);
+        UserAccount owner = ownerOf(photo);
+        if (owner == null) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        backgroundJobService.enqueuePhotoJob(owner, owner.getId(), "BACKGROUND_REMOVAL",
+            BackgroundJobResourceLane.LOCAL_GPU_AI, List.of(id), false, true, 100, "1", null,
+            Map.of("outputMaxSize", outputMaxSize));
         return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
@@ -397,6 +379,12 @@ public class PhotoController {
             return ResponseEntity.ok(result);
         }
 
+        if (photo.getProcessingStatus() != ProcessingStatus.COMPLETED) {
+            result.put("success", false);
+            result.put("message", "照片尚未扫描完成，扫描完成后可重新提交");
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(result);
+        }
+
         java.util.Optional<java.nio.file.Path> sourcePath = userPathService.tryResolveLocalStoredPhotoPath(photo.getOriginalPath());
         if (sourcePath.isEmpty()) {
             result.put("success", false);
@@ -412,22 +400,28 @@ public class PhotoController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(result);
         }
 
-        File cacheDir = new File(sourceFile.getParentFile(), ".thumbnails");
-        File outputFile = new File(cacheDir, "bg_removed_" + photo.getId() + ".png");
-        boolean alreadyQueued = backgroundRemovalService.isProcessingOrDone(photo.getId());
-        int outputMaxSize = 720;
-
-        if (!alreadyQueued && !outputFile.exists()) {
-            backgroundRemovalService.submitBackgroundRemoval(photo.getId(), sourceFile, outputFile, outputMaxSize);
+        File outputFile = new File(new File(sourceFile.getParentFile(), ".thumbnails"),
+            "bg_removed_" + photo.getId() + "_720.png");
+        boolean cached = outputFile.exists();
+        UserAccount owner = ownerOf(photo);
+        if (owner == null) {
+            result.put("success", false);
+            result.put("message", "照片缺少有效所属账号");
+            return ResponseEntity.badRequest().body(result);
         }
+        Map<String, Object> job = cached ? null : backgroundJobService.enqueuePhotoJob(owner, owner.getId(),
+            "BACKGROUND_REMOVAL", BackgroundJobResourceLane.LOCAL_GPU_AI, List.of(id), false, true,
+            100, "1", null, Map.of("outputMaxSize", 720));
+        boolean queued = job != null && ((Number) job.get("acceptedItems")).intValue() > 0;
 
         result.put("success", true);
-        result.put("message", alreadyQueued ? "抠图任务已在处理中" : (outputFile.exists() ? "抠图结果已存在" : "抠图任务已提交"));
+        result.put("message", cached ? "抠图结果已存在" : queued ? "抠图任务已提交" : "抠图任务已在队列中或已完成");
         result.put("photoId", id);
-        result.put("queued", !alreadyQueued && !outputFile.exists());
-        result.put("processing", alreadyQueued || backgroundRemovalService.isProcessingOrDone(photo.getId()));
-        result.put("cached", outputFile.exists());
-        result.put("status", outputFile.exists() ? "completed" : ((alreadyQueued || backgroundRemovalService.isProcessingOrDone(photo.getId())) ? "processing" : "queued"));
+        result.put("queued", queued);
+        result.put("processing", !cached && !queued);
+        result.put("cached", cached);
+        result.put("status", cached ? "completed" : queued ? "queued" : "processing");
+        if (job != null) result.put("job", job);
 
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(result);
     }
@@ -441,6 +435,7 @@ public class PhotoController {
      */
     @PostMapping("/batch-remove-background")
     public ResponseEntity<Map<String, Object>> batchRemoveBackground(
+            @RequestHeader("Authorization") String authorization,
             @RequestParam Long albumId,
             @RequestParam(defaultValue = "50") int batchSize,
             @RequestParam(defaultValue = "0") int page,
@@ -455,72 +450,32 @@ public class PhotoController {
         }
 
         try {
-            // 获取相册中的照片
+            UserAccount user = requireCurrentUser(authorization);
+            Long scopedUserId = user.getRole() == com.photoexhibition.entity.UserRole.SUPER_ADMIN ? null : user.getId();
             Pageable pageable = PageRequest.of(page, batchSize);
-            Page<Photo> photoPage = photoRepository.findByAlbumId(albumId, pageable);
-            
-            int processed = 0;
-            int failed = 0;
-            long startTime = System.currentTimeMillis();
-            
-            for (Photo photo : photoPage.getContent()) {
-                try {
-                    String photoPath = photo.getOriginalPath();
-                    java.util.Optional<java.nio.file.Path> resolvedSourcePath = userPathService.tryResolveLocalStoredPhotoPath(photoPath);
-                    if (resolvedSourcePath.isEmpty()) {
-                        log.warn("批量抠图跳过非本地或不可解析路径: photoId={}, path={}", photo.getId(), photoPath);
-                        failed++;
-                        continue;
-                    }
-
-                    File sourceFile = resolvedSourcePath.get().toFile();
-                    if (!sourceFile.exists()) {
-                        log.warn("源文件不存在: photoId={}, path={}", photo.getId(), userPathService.toDisplayPath(photoPath, true));
-                        failed++;
-                        continue;
-                    }
-                    
-                    // 生成输出文件路径：原图目录下的 .thumbnails 文件夹
-                    File thumbnailDir = new File(sourceFile.getParent(), ".thumbnails");
-                    if (!thumbnailDir.exists()) {
-                        thumbnailDir.mkdirs();
-                    }
-                    
-                    String baseName = "bg_removed_" + photo.getId();
-                    File outputFile = new File(thumbnailDir, baseName + ".png");
-                    
-                    // 执行背景移除
-                    boolean success = backgroundRemovalService.removeBackground(sourceFile, outputFile);
-                    
-                    if (success) {
-                        processed++;
-                        // 可选：保存路径到数据库
-                        if (saveToPhoto) {
-                            photo.setBackgroundRemovedPath(userPathService.tryBuildStoragePathReference(outputFile.getAbsolutePath(), photo.getUserId())
-                                .orElse(outputFile.getAbsolutePath()));
-                            photoRepository.save(photo);
-                        }
-                    } else {
-                        failed++;
-                    }
-                    
-                } catch (Exception e) {
-                    log.error("处理照片失败: {}", photo.getId(), e);
-                    failed++;
+            Page<Photo> photoPage = scopedUserId == null
+                ? photoRepository.findByAlbumId(albumId, pageable)
+                : photoRepository.findByAlbumIdAndUserId(albumId, scopedUserId, pageable);
+            Map<Long, List<Long>> byOwner = new java.util.LinkedHashMap<>();
+            for (Photo photo : photoPage) {
+                if (photo.getUserId() != null) {
+                    byOwner.computeIfAbsent(photo.getUserId(), ignored -> new java.util.ArrayList<>()).add(photo.getId());
                 }
             }
-            
-            long duration = System.currentTimeMillis() - startTime;
-            
+            List<Map<String, Object>> jobs = new java.util.ArrayList<>();
+            for (Map.Entry<Long, List<Long>> group : byOwner.entrySet()) {
+                jobs.add(backgroundJobService.enqueuePhotoJob(user, group.getKey(), "BACKGROUND_REMOVAL",
+                    BackgroundJobResourceLane.LOCAL_GPU_AI, group.getValue(), false, true, 100, "1", null,
+                    Map.of("albumId", albumId, "saveToPhoto", saveToPhoto)));
+            }
             result.put("success", true);
-            result.put("message", "批量处理完成");
-            result.put("processed", processed);
-            result.put("failed", failed);
+            result.put("message", "批量抠图任务已加入队列");
+            result.put("jobs", jobs);
+            result.put("processed", 0);
+            result.put("failed", 0);
             result.put("total", photoPage.getContent().size());
-            result.put("duration", duration + "ms");
             result.put("hasMore", !photoPage.isLast());
-            
-            return ResponseEntity.ok(result);
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(result);
             
         } catch (Exception e) {
             log.error("批量处理失败", e);
@@ -534,26 +489,43 @@ public class PhotoController {
      * 获取背景移除批量/异步处理状态
      */
     @GetMapping("/batch-remove-background/status")
-    public ResponseEntity<Map<String, Object>> getBatchStatus(@RequestParam(required = false) String taskId) {
+    public ResponseEntity<Map<String, Object>> getBatchStatus(@RequestParam(required = false) String taskId,
+                                                               @RequestHeader("Authorization") String authorization) {
         Map<String, Object> result = new HashMap<>();
         result.put("modelAvailable", backgroundRemovalService.isModelAvailable());
-        result.put("singlePhotoTasksInProgress", backgroundRemovalService.getActiveTaskCount());
+        UserAccount viewer = requireCurrentUser(authorization);
+        long activeCount = backgroundJobService.activeCount(viewer, "BACKGROUND_REMOVAL");
+        result.put("singlePhotoTasksInProgress", activeCount);
 
         if (taskId != null && !taskId.isBlank()) {
-            result.putAll(photoScanService.getTaskStatus(taskId.trim()));
+            String normalizedId = taskId.trim();
+            if (normalizedId.matches("(?:background-job-)?[0-9]+")) {
+                String numericId = normalizedId.replaceFirst("^background-job-", "");
+                Long jobId = Long.valueOf(numericId);
+                Map<String, Object> job = backgroundJobService.get(viewer, jobId);
+                if (!"BACKGROUND_REMOVAL".equals(job.get("jobType"))) {
+                    return ResponseEntity.notFound().build();
+                }
+                result.put("found", true);
+                result.put("taskId", normalizedId);
+                result.put("job", job);
+                result.put("status", job.get("status"));
+            } else {
+                result.put("found", false);
+            }
             Object found = result.get("found");
             if (Boolean.TRUE.equals(found)) {
                 result.put("message", "已返回批量背景移除任务状态");
             } else {
                 result.put("message", "未找到指定任务，可检查 taskId 是否正确");
             }
-        } else if (backgroundRemovalService.getActiveTaskCount() > 0) {
+        } else if (activeCount > 0) {
             result.put("message", "存在进行中的异步抠图任务");
         } else {
             result.put("message", "当前没有进行中的异步抠图任务");
         }
         result.put("supportsTaskLookup", true);
-        result.put("taskQueryHint", "批量任务可携带 taskId 查询，后台任务 ID 通常来自 /api/admin/tasks/{taskId}");
+        result.put("taskQueryHint", "统一任务可通过 /api/admin/background-jobs/{jobId} 查询详情");
         return ResponseEntity.ok(result);
     }
 
@@ -562,6 +534,10 @@ public class PhotoController {
             throw new RuntimeException("未授权，请先登录");
         }
         return authService.getCurrentUserEntity(authorization.substring(7));
+    }
+
+    private UserAccount ownerOf(Photo photo) {
+        return photo.getUserId() == null ? null : userAccountRepository.findById(photo.getUserId()).orElse(null);
     }
 
     private String sanitizeErrorMessage(String message, String fallback) {

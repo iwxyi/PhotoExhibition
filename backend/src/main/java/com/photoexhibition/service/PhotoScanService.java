@@ -26,6 +26,8 @@ import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.Transactional;
@@ -262,6 +264,9 @@ public class PhotoScanService {
     private final ThreadLocal<Long> currentStorageUserId = new ThreadLocal<>();
 
     private final ObjectMapper objectMapper;
+
+    @Autowired
+    private ApplicationEventPublisher applicationEventPublisher;
 
     public PhotoScanService(AlbumRepository albumRepository,
                            PhotoRepository photoRepository,
@@ -512,6 +517,41 @@ public class PhotoScanService {
         } catch (Exception e) {
             log.error("回填哈希任务失败", e);
         }
+    }
+
+    @Transactional
+    public void rebuildHashForPhoto(Long photoId) {
+        Photo photo = photoRepository.findById(photoId)
+            .orElseThrow(() -> new IllegalArgumentException("照片不存在: " + photoId));
+        if (photo.getCanonicalPhotoId() != null || (photo.getContentHash() != null && !photo.getContentHash().isEmpty())) {
+            return;
+        }
+        try {
+            File file = resolveOriginalFile(photo);
+            if (!file.exists()) throw new IllegalStateException("源文件不存在: " + photoId);
+            photo.setContentHash(calculateSha256(file));
+            photoRepository.save(photo);
+        } catch (IOException e) {
+            throw new IllegalStateException("无法读取源文件: " + photoId, e);
+        }
+    }
+
+    @Transactional
+    public void clearBackgroundCacheForPhoto(Long photoId) {
+        Photo photo = photoRepository.findById(photoId)
+            .orElseThrow(() -> new IllegalArgumentException("照片不存在: " + photoId));
+        String path = photo.getBackgroundRemovedPath();
+        if (path == null || path.isEmpty()) return;
+        try {
+            File file = resolveStoredPathSafely(path);
+            if (file.exists() && !file.delete()) {
+                throw new IllegalStateException("无法删除抠图缓存: " + photoId);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("无法定位抠图缓存: " + photoId, e);
+        }
+        photo.setBackgroundRemovedPath(null);
+        photoRepository.save(photo);
     }
 
     /**
@@ -1191,31 +1231,15 @@ public class PhotoScanService {
     @PostConstruct
     public void init() {
         log.info("扫描服务初始化，默认扫描根目录: {}", resolveBasePath());
-
-        // 初始化现有照片的处理状态
-        initializeProcessingStatusAsync();
-
-        // 检查是否有需要重新处理的照片
-        checkAndRetryIncompletePhotos();
-
-        // 检查是否需要初始化扫描：如果数据库中没有任何相册，则执行一次扫描
-        try {
-            long albumCount = albumRepository.count();
-            if (albumCount == 0) {
-                log.info("数据库中没有任何相册，执行初始化扫描");
-                scanDirectoryAsync(null);
-            } else {
-                log.info("数据库中已有 {} 个相册，跳过初始化扫描", albumCount);
-            }
-        } catch (Exception e) {
-            log.warn("检查相册数量失败，跳过初始化扫描", e);
-        }
+        // Durable ScanTaskService owns automatic and recovered scans. Starting legacy
+        // @Async work here would bypass persisted pause, ownership, and restart state.
+        checkIncompletePhotosForNextScan();
     }
 
     /**
      * 检查并重试未完成的照片处理
      */
-    private void checkAndRetryIncompletePhotos() {
+    private void checkIncompletePhotosForNextScan() {
         try {
             Long userId = resolveCurrentScanUserId();
             long failedCount = userId == null ? photoRepository.countFailedPhotos() : photoRepository.countFailedPhotosByUserId(userId);
@@ -1224,16 +1248,7 @@ public class PhotoScanService {
             if (failedCount > 0 || incompleteCount > 0) {
                 log.info("发现需要重新处理的照片 - 失败: {} 张，未完成: {} 张", failedCount, incompleteCount);
 
-                // 如果有失败的照片，启动重试任务
-                if (failedCount > 0) {
-                    log.info("启动失败照片重试任务");
-                    retryFailedPhotosAsync();
-                }
-
-                // 如果有未完成的照片，在下次扫描时会自动处理
-                if (incompleteCount > 0) {
-                    log.info("发现 {} 张未完成的照片，将在下次扫描时继续处理", incompleteCount);
-                }
+                log.info("失败或未完成照片将在下次持久化扫描任务中继续处理");
             } else {
                 log.info("所有照片处理状态正常");
             }
@@ -1274,6 +1289,11 @@ public class PhotoScanService {
      */
     @Transactional
     public Map<String, Object> rescanFacesForPhoto(Long photoId) {
+        return rescanFacesForPhoto(photoId, true);
+    }
+
+    @Transactional
+    public Map<String, Object> rescanFacesForPhoto(Long photoId, boolean preserveBindings) {
         Map<String, Object> result = new HashMap<>();
         Optional<Photo> opt = photoRepository.findById(photoId);
         if (opt.isEmpty()) {
@@ -1297,7 +1317,7 @@ public class PhotoScanService {
             return result;
         }
         // 调用现有人脸检测流程（单张重建时开启详细日志）
-        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo, true, true, true);
+        List<Face> faces = faceService.detectAndSaveFaces(imageFile, photo, true, true, preserveBindings);
         int count = faces == null ? 0 : faces.size();
 
         // 安全更新关联集合，避免 orphan 触发
@@ -1316,6 +1336,7 @@ public class PhotoScanService {
 
         result.put("count", count);
         result.put("photoId", photoId);
+        result.put("preserveBindings", preserveBindings);
         if (count == 0) {
             result.put("message", "未检测到人脸或全部被过滤，请检查阈值/尺寸/比例设置");
         } else {
@@ -1361,8 +1382,14 @@ public class PhotoScanService {
         return result;
     }
 
-    @Transactional
     public Map<String, Object> removeBackgroundForPhoto(Long photoId, boolean forceRebuild) {
+        return removeBackgroundForPhoto(photoId, forceRebuild, 0);
+    }
+
+    public Map<String, Object> removeBackgroundForPhoto(Long photoId, boolean forceRebuild, int outputMaxSize) {
+        if (outputMaxSize != 0 && outputMaxSize != 480 && outputMaxSize != 720 && outputMaxSize != 1080) {
+            throw new IllegalArgumentException("不支持的抠图输出尺寸");
+        }
         Map<String, Object> result = new HashMap<>();
         Optional<Photo> opt = photoRepository.findById(photoId);
         if (opt.isEmpty()) {
@@ -1375,7 +1402,7 @@ public class PhotoScanService {
         }
         Photo photo = opt.get();
         try {
-            if (!forceRebuild && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank()) {
+            if (outputMaxSize == 0 && !forceRebuild && photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank()) {
                 File existingFile = resolveStoredPathSafely(photo.getBackgroundRemovedPath());
                 if (existingFile.exists()) {
                     result.put("message", "已有抠图缓存，跳过");
@@ -1393,10 +1420,20 @@ public class PhotoScanService {
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs();
             }
-            File outputFile = new File(cacheDir, "bg_removed_" + photo.getId() + ".png");
-            if (backgroundRemovalService.removeBackground(sourceFile, outputFile)) {
-                photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
-                photoRepository.save(photo);
+            File outputFile = new File(cacheDir, "bg_removed_" + photo.getId()
+                + (outputMaxSize == 0 ? "" : "_" + outputMaxSize) + ".png");
+            if (!forceRebuild && outputFile.exists()) {
+                result.put("skipped", true);
+                return result;
+            }
+            boolean success = outputMaxSize == 0
+                ? backgroundRemovalService.removeBackground(sourceFile, outputFile)
+                : backgroundRemovalService.removeBackground(sourceFile, outputFile, outputMaxSize);
+            if (success) {
+                if (outputMaxSize == 0) {
+                    photo.setBackgroundRemovedPath(toStoredManagedPath(outputFile.getAbsolutePath(), photo.getUserId()));
+                    photoRepository.save(photo);
+                }
                 result.put("success", true);
                 result.put("message", "背景移除完成");
                 result.put("photoId", photoId);
@@ -1649,13 +1686,9 @@ public class PhotoScanService {
     @Transactional
     public void reanalyzeAlbumAtmosphere(Long albumId) {
         log.info("重新分析相册 {} 的氛围信息", albumId);
-        try {
-            atmosphereAnalysisService.analyzeAlbumAtmosphere(albumId);
-            atmosphereEffectsService.analyzeAlbumEffects(albumId);
-            log.info("相册 {} 氛围信息重新分析完成", albumId);
-        } catch (Exception e) {
-            log.error("重新分析相册 {} 氛围信息失败", albumId, e);
-        }
+        atmosphereAnalysisService.analyzeAlbumAtmosphere(albumId);
+        atmosphereEffectsService.analyzeAlbumEffects(albumId);
+        log.info("相册 {} 氛围信息重新分析完成", albumId);
     }
 
     /**
@@ -1757,6 +1790,7 @@ public class PhotoScanService {
         activeScanCount.incrementAndGet();
         final Set<String> allExpectedPaths = new java.util.LinkedHashSet<>();
         Exception scanFailure = null;
+        boolean scanContentAttempted = false;
         try {
             // 只有在没有其他扫描进行时才重置计数器和设置扫描状态
             if (activeScanCount.get() == 1) {
@@ -1778,6 +1812,7 @@ public class PhotoScanService {
             if (!Files.isDirectory(path)) {
                 throw new IllegalArgumentException("路径不是文件夹: " + path);
             }
+            scanContentAttempted = true;
 
             // 取消优先处理逻辑，所有照片都在正常的目录遍历中处理
 
@@ -1861,16 +1896,18 @@ public class PhotoScanService {
             lastScanEnd = LocalDateTime.now();
             if (activeScanCount.decrementAndGet() <= 0) {
                 isScanning.set(false);
-                // 扫描完成后先更新 EXIF 数值字段，再更新筛选选项
-                try {
-                    log.info("扫描完成，开始更新 EXIF 数值字段...");
-                    updateAllExifNumericFields();
-                    log.info("EXIF 数值字段更新完成，开始更新筛选选项...");
-                    filterOptionService.updateAllFilterOptions();
-                    log.info("筛选选项更新完成");
-                } catch (Exception e) {
-                    log.error("更新筛选选项失败", e);
-                    // 不抛出异常，避免影响扫描结果
+                // 无效根目录等“尚未进入扫描”的失败应立即返回，不能触发昂贵的全库维护。
+                if (scanContentAttempted) {
+                    try {
+                        log.info("扫描完成，开始更新 EXIF 数值字段...");
+                        updateAllExifNumericFields();
+                        log.info("EXIF 数值字段更新完成，开始更新筛选选项...");
+                        filterOptionService.updateAllFilterOptions();
+                        log.info("筛选选项更新完成");
+                    } catch (Exception e) {
+                        log.error("更新筛选选项失败", e);
+                        // 不抛出异常，避免影响扫描结果
+                    }
                 }
 
                 // 补录未被遍历到的文件（用预统计时收集的路径集合做差集，无需二次 walk）
@@ -2369,8 +2406,7 @@ public class PhotoScanService {
         }
 
         if (photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE) {
-            photo.setProcessingStatus(ProcessingStatus.COMPLETED);
-            photoRepository.save(photo);
+            markPhotoScanCompleted(photo);
         }
     }
 
@@ -3573,8 +3609,7 @@ public class PhotoScanService {
 
             // 步骤11: 完成处理
             if (photo.getProcessingStatus() == ProcessingStatus.AI_SCORING_DONE) {
-                photo.setProcessingStatus(ProcessingStatus.COMPLETED);
-                photoRepository.save(photo);
+                markPhotoScanCompleted(photo);
             }
 
         } catch (Exception e) {
@@ -3584,6 +3619,14 @@ public class PhotoScanService {
                 photoRepository.save(photo);
             }
             log.error("处理图片失败: {}", toRelativePath(imageFile.getAbsolutePath()), e);
+        }
+    }
+
+    private void markPhotoScanCompleted(Photo photo) {
+        photo.setProcessingStatus(ProcessingStatus.COMPLETED);
+        photoRepository.save(photo);
+        if (applicationEventPublisher != null && photo.getId() != null && photo.getUserId() != null) {
+            applicationEventPublisher.publishEvent(new PhotoScanCompletedEvent(photo.getId(), photo.getUserId()));
         }
     }
 
@@ -4172,6 +4215,45 @@ public class PhotoScanService {
         }
 
         log.info("颜色重新计算完成, 更新 {} 张照片", count.get());
+    }
+
+    @Transactional
+    public void recalculateColorForPhoto(Long photoId) {
+        Photo photo = photoRepository.findById(photoId).orElseThrow(() -> new IllegalArgumentException("照片不存在"));
+        try {
+            File imageFile = resolveOriginalFile(photo);
+            if (!imageFile.exists()) throw new IllegalStateException("照片原文件不存在");
+            photo.setDominantColor(null);
+            photo.setColorPalette(null);
+            photo.setColorCategory(null);
+            colorAnalysisService.analyzeColor(imageFile, photo);
+            if (photo.getDominantColor() != null) photo.setColorCategory(ColorAnalysisService.classifyColor(photo.getDominantColor()));
+            photoRepository.save(photo);
+        } catch (IOException e) {
+            throw new IllegalStateException("照片原文件不可访问", e);
+        }
+    }
+
+    @Transactional
+    public void rebuildExifForPhoto(Long photoId) {
+        Photo photo = photoRepository.findById(photoId).orElseThrow(() -> new IllegalArgumentException("照片不存在"));
+        try {
+            File imageFile = resolveOriginalFile(photo);
+            if (!imageFile.exists()) throw new IllegalStateException("照片原文件不存在");
+            extractExifData(imageFile, photo);
+            photoRepository.save(photo);
+        } catch (IOException e) {
+            throw new IllegalStateException("照片原文件不可访问", e);
+        }
+    }
+
+    @Transactional
+    public void updateColorCategoryForPhoto(Long photoId) {
+        Photo photo = photoRepository.findById(photoId).orElseThrow(() -> new IllegalArgumentException("照片不存在"));
+        if (photo.getDominantColor() != null) {
+            photo.setColorCategory(ColorAnalysisService.classifyColor(photo.getDominantColor()));
+            photoRepository.save(photo);
+        }
     }
 
     /**
@@ -4861,6 +4943,23 @@ public class PhotoScanService {
      * 批量更新所有照片的时间信息
      * 重新从EXIF信息中提取拍摄时间
      */
+    @Transactional
+    public Map<String, Object> updatePhotoTimeForPhoto(Long photoId) {
+        Photo photo = photoRepository.findById(photoId)
+            .orElseThrow(() -> new IllegalArgumentException("照片不存在: " + photoId));
+        String originalPath = photo.getOriginalPath();
+        if (originalPath == null || originalPath.isEmpty()) {
+            throw new IllegalArgumentException("照片没有原始路径: " + photoId);
+        }
+        var resolvedPath = userPathService.tryResolveLocalStoredPhotoPath(originalPath);
+        if (resolvedPath.isEmpty() || !resolvedPath.get().toFile().exists()) {
+            throw new IllegalArgumentException("照片文件不存在: " + photoId);
+        }
+        extractExifData(resolvedPath.get().toFile(), photo);
+        photoRepository.save(photo);
+        return Map.of("photoId", photoId, "updated", true);
+    }
+
     @Async
     @Transactional
     public void updateAllPhotoTimesAsync() {

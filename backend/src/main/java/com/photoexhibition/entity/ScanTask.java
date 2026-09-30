@@ -57,6 +57,9 @@ public class ScanTask {
     @Column(name = "error_message", length = 1000)
     private String errorMessage;
 
+    @Column(name = "pause_source", length = 30)
+    private String pauseSource;
+
     @Column(name = "scheduled_task", nullable = false)
     private Boolean scheduledTask = false;
 

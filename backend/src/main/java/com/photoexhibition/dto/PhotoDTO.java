@@ -53,9 +53,39 @@ public class PhotoDTO {
     private Double aiTechnicalScore; // AI技术评分
     private Double aiCompositionScore; // AI构图评分
     private Double aiAppealScore; // AI吸引力评分
+    private String scoreSource; // AI / MIXED / LOCAL
+    private String technicalScoreSource;
+    private String compositionScoreSource;
+    private String appealScoreSource;
+    private Double localOverallScore;
+    private Double localTechnicalScore;
+    private Double localCompositionScore;
+    private Double localAppealScore;
+    private Double visualAiQualityScore;
+    private Double visualAiTechnicalScore;
+    private Double visualAiCompositionScore;
+    private Double visualAiAppealScore;
     private List<String> aiStrengths; // AI分析优点
     private List<String> aiWeaknesses; // AI分析不足
     private List<String> aiSuggestions; // AI改进建议
+    // 有效分析结果：AI大模型有结果时优先，否则回退本地结果
+    private List<Object> sceneAnalysis;
+    private List<Object> emotionAnalysis;
+    private String primaryScene;
+    private String primaryEmotion;
+    private Float sceneConfidence;
+    private Float emotionConfidence;
+    private String sceneAnalysisSource;
+    private String emotionAnalysisSource;
+    private String classificationSource;
+    // 分源结果，便于管理端对比与排障
+    private List<Object> localSceneAnalysis;
+    private List<Object> localEmotionAnalysis;
+    private List<Map<String, Object>> localClassificationAnalysis;
+    private List<Object> aiSceneAnalysis;
+    private List<Object> aiEmotionAnalysis;
+    private List<String> aiVisualTags;
+    private String aiVisualModel;
     private List<TagDTO> tags;
     // 如果图片被指派给某个人物（非人脸关联），在此记录
     private Long assignedPersonId;

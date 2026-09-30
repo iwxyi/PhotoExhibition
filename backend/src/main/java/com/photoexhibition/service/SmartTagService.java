@@ -3,6 +3,7 @@ package com.photoexhibition.service;
 import com.photoexhibition.entity.Photo;
 import com.photoexhibition.entity.Tag;
 import com.photoexhibition.repository.TagRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,12 @@ public class SmartTagService {
     
     @Autowired(required = false)
     private ImageClassificationService imageClassificationService;
+
+    @Autowired(required = false)
+    private PhotoAnalysisPreferenceService analysisPreferenceService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     /**
      * 智能标签名称集合（用于识别和删除智能标签）
@@ -150,8 +157,14 @@ public class SmartTagService {
     public Set<String> generateSmartTags(File imageFile, Photo photo, int faceCount) {
         Set<String> tags = new HashSet<>();
         
-        // 1. 尝试使用AI图像分类（如果启用）
-        if (imageClassificationService != null) {
+        // 1. AI大模型已有视觉标签时优先使用，且不再调用本地ONNX分类。
+        PhotoAnalysisPreferenceService.PreferredAnalysis preferred = analysisPreferenceService == null
+            ? PhotoAnalysisPreferenceService.PreferredAnalysis.empty()
+            : analysisPreferenceService.resolve(photo.getId());
+        if (preferred.hasClassification()) {
+            tags.addAll(preferred.getVisualTags());
+            log.info("使用AI大模型视觉分类标签: [{}]", String.join(", ", preferred.getVisualTags()));
+        } else if (imageClassificationService != null) {
             try {
                 List<ImageClassificationService.ClassificationResult> classifications = 
                     imageClassificationService.classify(imageFile);
@@ -177,6 +190,11 @@ public class SmartTagService {
                             addedCount++;
                         }
                     }
+                    photo.setLocalClassificationAnalysis(objectMapper.writeValueAsString(classifications.stream()
+                        .filter(item -> item.getLabel() != null && !item.getLabel().isBlank())
+                        .map(item -> java.util.Map.<String, Object>of(
+                            "label", item.getLabel(), "confidence", item.getConfidence()))
+                        .collect(java.util.stream.Collectors.toList())));
                     log.info("AI分类生成 {} 个标签: [{}]", addedCount, tagDetails.toString());
                 }
             } catch (Exception e) {

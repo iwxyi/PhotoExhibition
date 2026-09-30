@@ -7,5 +7,6 @@ public enum ScanTaskStatus {
     PAUSED,
     COMPLETED,
     FAILED,
-    CANCELED
+    CANCELED,
+    IGNORED
 }

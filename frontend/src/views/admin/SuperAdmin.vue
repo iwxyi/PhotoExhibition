@@ -38,6 +38,7 @@
       </div>
 
       <section v-if="activeTab === 'overview'" class="space-y-4 admin-super-admin-overview">
+        <BackgroundTaskTable multi-account :accounts="users" />
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 admin-super-admin-overview-grid">
           <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card admin-super-admin-status-card">
             <div class="text-sm admin-table-faint">系统开关</div>
@@ -193,6 +194,19 @@
                   class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
                 >
                   {{ owner.ownerLabel }}：{{ owner.taskCount }} 个任务
+                </div>
+              </div>
+
+              <div v-if="worker.threadType === 'UNIFIED_BACKGROUND_JOBS' && worker.accountSummaries?.length" class="space-y-2 text-xs admin-table-faint">
+                <div class="admin-table-muted">各账号任务概览</div>
+                <div
+                  v-for="account in worker.accountSummaries"
+                  :key="`${worker.threadType}-account-${account.ownerUserId}`"
+                  class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
+                >
+                  用户 #{{ account.ownerUserId }}{{ account.username ? ` · ${account.username}` : '' }}：
+                  运行 {{ account.runningTaskCount || 0 }} · 排队 {{ account.queuedTaskCount || 0 }} ·
+                  暂停 {{ account.pausedTaskCount || 0 }} · 失败 {{ account.failedTaskCount || 0 }}
                 </div>
               </div>
 
@@ -614,9 +628,16 @@
                   <label class="flex items-start justify-between gap-3 rounded-xl px-4 py-3 admin-super-admin-model-option">
                     <div>
                       <div class="text-sm admin-super-admin-modal-title">彻底重建</div>
-                      <div class="text-xs admin-table-faint">会覆盖已有结果；人脸重建会尽量继承历史人物绑定与确认关系。</div>
+                      <div class="text-xs admin-table-faint">会覆盖已有结果。</div>
                     </div>
                     <input v-model="modelRebuildOptions[model.key].forceRebuild" type="checkbox" class="mt-1 w-5 h-5 rounded" />
+                  </label>
+                  <label v-if="model.key === 'face_detection' || model.key === 'face_recognition'" class="flex items-start justify-between gap-3 rounded-xl px-4 py-3 admin-super-admin-model-option">
+                    <div>
+                      <div class="text-sm admin-super-admin-modal-title">保留已有人脸的人物绑定</div>
+                      <div class="text-xs admin-table-faint">关闭后彻底重建会重新检测人脸，不继承原有人物绑定和确认状态；人脸特征的保留模式只更新向量。</div>
+                    </div>
+                    <input v-model="modelRebuildOptions[model.key].preserveBindings" type="checkbox" class="mt-1 w-5 h-5 rounded" />
                   </label>
                   <button
                     class="admin-button-warning inline-flex px-4 py-3 rounded-xl disabled:opacity-60 text-sm"
@@ -660,6 +681,9 @@
                   · 处理 {{ (modelTaskDetails[model.key] || model.latestTask)?.processed || 0 }}/{{ (modelTaskDetails[model.key] || model.latestTask)?.total || 0 }}
                   · 跳过 {{ (modelTaskDetails[model.key] || model.latestTask)?.skipped || 0 }}
                   · 失败 {{ (modelTaskDetails[model.key] || model.latestTask)?.failed || 0 }}
+                </div>
+                <div v-if="model.key === 'face_detection' || model.key === 'face_recognition'" class="text-xs admin-table-faint">
+                  人物绑定：{{ (modelTaskDetails[model.key] || model.latestTask)?.preserveBindings !== false ? '保留' : '完全重建' }}
                 </div>
                 <div class="h-2 rounded-full overflow-hidden admin-super-admin-progress-track">
                   <div
@@ -3363,6 +3387,7 @@
 
 <script setup lang="ts">
 import AdminSuperAdminTabbar from '@/components/admin/AdminSuperAdminTabbar.vue'
+import BackgroundTaskTable from '@/components/admin/BackgroundTaskTable.vue'
 import AdminHtmlPreview from '@/components/admin/AdminHtmlPreview.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -3680,7 +3705,7 @@ const paymentRefundPreview = ref<PaymentRefundPreview | null>(null)
 const vipRenewalPreview = ref<VipRenewalPreviewResponse | null>(null)
 const vipRenewalExecution = ref<VipRenewalExecuteResponse | null>(null)
 const modelDownloadUrls = reactive<Record<string, string>>({})
-const modelRebuildOptions = reactive<Record<string, { includeMissingItems: boolean; forceRebuild: boolean }>>({})
+const modelRebuildOptions = reactive<Record<string, { includeMissingItems: boolean; forceRebuild: boolean; preserveBindings: boolean }>>({})
 const modelTaskDetails = reactive<Record<string, ModelRebuildTask | null>>({})
 let modelTaskPollTimer: ReturnType<typeof setInterval> | null = null
 let processingOverviewPollTimer: ReturnType<typeof setInterval> | null = null
@@ -5820,7 +5845,8 @@ const ensureModelFormState = (models: ManagedModelSummary[]) => {
     if (modelRebuildOptions[model.key] == null) {
       modelRebuildOptions[model.key] = {
         includeMissingItems: true,
-        forceRebuild: false
+        forceRebuild: false,
+        preserveBindings: true
       }
     }
     modelTaskDetails[model.key] = model.latestTask || modelTaskDetails[model.key] || null
@@ -5948,14 +5974,16 @@ const triggerModelRebuild = async (model: ManagedModelSummary) => {
     '注意：',
     '1. 尝试无数据项会补跑此前没有结果的记录。',
     '2. 彻底重建会覆盖已有结果。',
-    '3. 人脸重建会尽量保留既有人脸与人物绑定、确认关系。'
+    ...(model.key === 'face_detection' || model.key === 'face_recognition'
+      ? [`3. 人脸重建${options.preserveBindings ? '尽量保留人物绑定与确认关系' : '不继承原有人物绑定和确认状态'}。`] : [])
   ].join('\n')
   if (!confirm(warning)) return
   rebuildingModelKey.value = model.key
   try {
     const { data } = await superAdminApi.rebuildModel(model.key, {
       includeMissingItems: !!options.includeMissingItems,
-      forceRebuild: !!options.forceRebuild
+      forceRebuild: !!options.forceRebuild,
+      preserveBindings: !!options.preserveBindings
     })
     const task = data?.task as ModelRebuildTask | undefined
     if (task) {
@@ -5989,6 +6017,22 @@ const modelTaskStatusLabel = (task?: ModelRebuildTask | null) => {
       return '失败'
     case 'RUNNING':
       return '执行中'
+    case 'QUEUED':
+      return '排队中'
+    case 'PAUSED':
+      return '已暂停'
+    case 'BLOCKED':
+      return '资源阻塞'
+    case 'PARTIAL_SUCCESS':
+      return '部分完成'
+    case 'SKIPPED':
+      return '已跳过'
+    case 'CANCELED':
+      return '已取消'
+    case 'RETRIED':
+      return '已重试'
+    case 'IGNORED':
+      return '已忽略'
     case 'PENDING':
       return '等待中'
     default:
@@ -6002,10 +6046,14 @@ const modelTaskStatusClass = (task?: ModelRebuildTask | null) => {
     case 'SUCCESS':
       return 'text-emerald-200'
     case 'FAILED':
+    case 'BLOCKED':
+    case 'PARTIAL_SUCCESS':
       return 'text-rose-200'
     case 'RUNNING':
       return 'text-sky-200'
     case 'PENDING':
+    case 'QUEUED':
+    case 'PAUSED':
       return 'text-amber-200'
     default:
       return 'text-gray-300'
@@ -6018,10 +6066,14 @@ const modelTaskProgressClass = (task?: ModelRebuildTask | null) => {
     case 'SUCCESS':
       return 'bg-emerald-500'
     case 'FAILED':
+    case 'BLOCKED':
+    case 'PARTIAL_SUCCESS':
       return 'bg-rose-500'
     case 'RUNNING':
       return 'bg-sky-500'
     case 'PENDING':
+    case 'QUEUED':
+    case 'PAUSED':
       return 'bg-amber-500'
     default:
       return 'bg-gray-500'
@@ -6249,6 +6301,7 @@ const ensureTabDataLoaded = async (tab: SuperAdminTabKey, force = false) => {
     case 'overview':
       tasks.push(
         { label: '概览', loader: loadOverview },
+        { label: '任务账号', loader: loadUsers },
         { label: '线程进度', loader: loadProcessingOverview }
       )
       break

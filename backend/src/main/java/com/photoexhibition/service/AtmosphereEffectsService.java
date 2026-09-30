@@ -127,7 +127,7 @@ public class AtmosphereEffectsService {
 
             log.info("完成相册 {} 的特效分析，生成了 {} 个特效", album.getName(), effects.size());
         } catch (Exception e) {
-            log.warn("序列化特效配置失败: {}", e.getMessage());
+            throw new IllegalStateException("序列化特效配置失败", e);
         }
     }
 

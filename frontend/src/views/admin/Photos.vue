@@ -223,6 +223,7 @@ import { buildPhotoAssetUrl } from '@/utils/photoUrl'
 import { useAuthStore } from '@/stores/auth'
 import { buildPublicPath } from '@/utils/publicRoute'
 import { useAdminFeedback } from '@/composables/useAdminFeedback'
+import { chooseFaceRebuildOptions } from '@/utils/faceRebuildOptions'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -407,12 +408,13 @@ const saveFace = async (face: any) => {
 
 const rescanFaces = async () => {
   if (!activePhoto.value?.id) return
+  const preserveBindings = await chooseFaceRebuildOptions()
+  if (preserveBindings === null) return
   rescanLoading.value = true
   rescanMessage.value = ''
   try {
-    const res = await api.post(`/admin/photos/${activePhoto.value.id}/rescan-faces`)
-    rescanMessage.value = res.data?.message || '重建完成'
-    await loadFaces(activePhoto.value.id)
+    const res = await api.post(`/admin/photos/${activePhoto.value.id}/rescan-faces`, null, { params: { preserveBindings } })
+    rescanMessage.value = res.data?.message || '已加入后台队列，可在任务进度中查看'
   } catch (e: any) {
     rescanMessage.value = e?.response?.data?.error || e?.message || '重建失败'
   } finally {

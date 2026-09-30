@@ -492,6 +492,7 @@
                 <span class="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs">
                   {{ currentPhoto.primaryScene }}
                 </span>
+                <span v-if="currentPhoto.sceneAnalysisSource === 'AI'" class="text-[10px] opacity-60">AI</span>
                 <span v-if="currentPhoto.sceneConfidence" class="text-xs opacity-60">
                   {{ (currentPhoto.sceneConfidence * 100).toFixed(1) }}%
                 </span>
@@ -505,6 +506,7 @@
                 <span class="px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs">
                   {{ currentPhoto.primaryEmotion }}
                 </span>
+                <span v-if="currentPhoto.emotionAnalysisSource === 'AI'" class="text-[10px] opacity-60">AI</span>
                 <span v-if="currentPhoto.emotionConfidence" class="text-xs opacity-60">
                   {{ (currentPhoto.emotionConfidence * 100).toFixed(1) }}%
                 </span>
@@ -533,7 +535,12 @@
             <div v-if="currentPhoto?.aiOverallScore" class="mt-4 pt-3 border-t border-white/10">
               <div class="ai-score-card">
                 <div class="flex items-center justify-between mb-3">
-                  <span class="text-sm font-medium text-yellow-400">🤖 AI 智能评分</span>
+                  <span class="text-sm font-medium text-yellow-400">
+                    🤖 智能评分
+                    <span v-if="currentPhoto.scoreSource" class="ml-1 text-[10px] opacity-70">
+                      {{ currentPhoto.scoreSource === 'AI' ? '大模型' : currentPhoto.scoreSource === 'MIXED' ? '大模型优先' : '本地兜底' }}
+                    </span>
+                  </span>
                   <span class="text-xl font-bold text-yellow-400">{{ currentPhoto.aiOverallScore.toFixed(1) }}</span>
                 </div>
 

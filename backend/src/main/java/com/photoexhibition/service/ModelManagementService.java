@@ -3,15 +3,22 @@ package com.photoexhibition.service;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtSession;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.ProcessingStatus;
+import com.photoexhibition.entity.BackgroundJob;
+import com.photoexhibition.entity.BackgroundJobResourceLane;
+import com.photoexhibition.entity.BackgroundJobStatus;
+import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.repository.BackgroundJobRepository;
 import com.photoexhibition.repository.FaceRepository;
 import com.photoexhibition.repository.PhotoRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 
-import javax.annotation.PreDestroy;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -28,24 +35,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class ModelManagementService {
 
     private static final Set<String> FACE_DETECTION_KEYS = Set.of("face_detection");
     private static final Set<String> FACE_EMBEDDING_KEYS = Set.of("face_recognition");
-    private static final Set<String> AI_ANALYSIS_KEYS = Set.of("image_classification", "saliency_detection", "scene_recognition", "emotion_analysis");
+    private static final Set<String> AI_ANALYSIS_KEYS = Set.of("image_classification", "saliency_detection");
     private static final Set<String> BACKGROUND_REMOVAL_KEYS = Set.of("background_removal");
 
     private final FaceDetectionService faceDetectionService;
@@ -62,19 +61,12 @@ public class ModelManagementService {
     private final FaceRepository faceRepository;
     private final UserPathService userPathService;
 
-    private final ConcurrentHashMap<String, TaskSnapshot> tasks = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> latestTaskByModel = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ValidationSnapshot> latestValidationByModel = new ConcurrentHashMap<>();
-    private final ThreadPoolExecutor rebuildExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadFactory() {
-        private final AtomicInteger threadCounter = new AtomicInteger(1);
+    @Autowired @Lazy
+    private BackgroundJobService backgroundJobService;
+    @Autowired
+    private BackgroundJobRepository backgroundJobRepository;
 
-        @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "model-rebuild-" + threadCounter.getAndIncrement());
-            thread.setDaemon(true);
-            return thread;
-        }
-    });
+    private final ConcurrentHashMap<String, ValidationSnapshot> latestValidationByModel = new ConcurrentHashMap<>();
 
     public List<Map<String, Object>> listModels() {
         List<Map<String, Object>> models = new ArrayList<>();
@@ -86,10 +78,6 @@ public class ModelManagementService {
             List.of("在线下载", "验证后启用", "重建智能标签", "联动 AI 评分重算")));
         models.add(buildModel("saliency_detection", "显著性检测模型", "Saliency Detection", saliencyDetectionService.getModelPath(), saliencyDetectionService.isEnabled(), saliencyDetectionService.isModelLoaded(),
             List.of("在线下载", "验证后启用", "重建 AI 分析与构图相关结果")));
-        models.add(buildModel("scene_recognition", "场景识别模型", "Scene Recognition", sceneRecognitionService.getModelPath(), sceneRecognitionService.isEnabled(), sceneRecognitionService.isModelLoaded(),
-            List.of("在线下载", "验证后启用", "重建场景分析与 AI 评分")));
-        models.add(buildModel("emotion_analysis", "情绪分析模型", "Emotion Analysis", emotionAnalysisService.getModelPath(), emotionAnalysisService.isEnabled(), emotionAnalysisService.isModelLoaded(),
-            List.of("在线下载", "验证后启用", "重建情绪分析与 AI 评分")));
         models.add(buildModel("background_removal", "背景移除模型", "Background Removal", backgroundRemovalService.getModelPath(), backgroundRemovalService.isEnabled(), backgroundRemovalService.isModelAvailable(),
             List.of("在线下载", "验证后启用", "补跑未抠图照片", "彻底重建抠图缓存")));
         models.sort(Comparator.comparing(item -> String.valueOf(item.get("key"))));
@@ -144,51 +132,146 @@ public class ModelManagementService {
         );
     }
 
-    public Map<String, Object> triggerRebuild(String key, boolean includeMissingItems, boolean forceRebuild) {
+    /** Execute one already scanned photo; the durable dispatcher owns retries and progress. */
+    public void rebuildPhoto(String modelKey, Long photoId, boolean includeMissingItems,
+                             boolean forceRebuild, boolean preserveBindings) {
+        String key = getRuntime(modelKey).key;
+        Photo photo = photoRepository.findById(photoId)
+            .orElseThrow(() -> new IllegalArgumentException("照片不存在"));
+        if (photo.getProcessingStatus() != ProcessingStatus.COMPLETED) {
+            throw new IllegalStateException("照片尚未完成扫描");
+        }
+        if (FACE_DETECTION_KEYS.contains(key)) {
+            boolean hasFaces = !faceRepository.findByPhotoId(photoId).isEmpty();
+            if ((!includeMissingItems && !hasFaces) || (!forceRebuild && hasFaces)) return;
+            checkRebuildResult(photoScanService.rescanFacesForPhoto(photoId, preserveBindings));
+        } else if (FACE_EMBEDDING_KEYS.contains(key)) {
+            boolean hasFaces = !faceRepository.findByPhotoId(photoId).isEmpty();
+            if ((hasFaces && forceRebuild && !preserveBindings) || (!hasFaces && includeMissingItems)) {
+                // Face detection already regenerates embeddings for newly detected faces.
+                checkRebuildResult(photoScanService.rescanFacesForPhoto(photoId, preserveBindings));
+            } else if (hasFaces) {
+                checkRebuildResult(photoScanService.rebuildFaceEmbeddingsForPhoto(photoId));
+            }
+        } else if (AI_ANALYSIS_KEYS.contains(key)) {
+            Path imagePath = resolveLocalPhoto(photo);
+            if (imagePath == null || !Files.exists(imagePath)) throw new IllegalStateException("源文件不存在");
+            int faceCount = faceRepository.findByPhotoId(photoId).size();
+            smartTagService.applySmartTags(imagePath.toFile(), photo, faceCount, true, Set.of());
+            photoAIScoringService.rescorePhoto(photo);
+        } else if (BACKGROUND_REMOVAL_KEYS.contains(key)) {
+            boolean hasRemoved = photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank();
+            if ((!includeMissingItems && !hasRemoved) || (!forceRebuild && hasRemoved)) return;
+            checkRebuildResult(photoScanService.removeBackgroundForPhoto(photoId, forceRebuild));
+        }
+    }
+
+    private void checkRebuildResult(Map<String, Object> result) {
+        if (result == null || result.containsKey("error")) {
+            throw new IllegalStateException(result == null ? "重建未返回结果" : String.valueOf(result.get("error")));
+        }
+    }
+
+    public Map<String, Object> triggerRebuild(UserAccount operator, String key, boolean includeMissingItems,
+                                               boolean forceRebuild, boolean preserveBindings) {
         if (!includeMissingItems && !forceRebuild) {
             throw new RuntimeException("请至少选择一种重建策略：尝试无数据项 或 彻底重建");
         }
         ModelRuntime runtime = getRuntime(key);
-        String taskId = key + "-" + UUID.randomUUID();
-        TaskSnapshot task = new TaskSnapshot(taskId, key, runtime.name, includeMissingItems, forceRebuild);
-        tasks.put(taskId, task);
-        latestTaskByModel.put(key, taskId);
+        Map<Long, List<Long>> byOwner = new LinkedHashMap<>();
+        int unscanned = 0;
+        int unowned = 0;
+        int page = 0;
+        Page<Photo> photos;
+        do {
+            photos = photoRepository.findAll(PageRequest.of(page++, 100, Sort.by("id")));
+            for (Photo photo : photos.getContent()) {
+                if (photo.getProcessingStatus() != ProcessingStatus.COMPLETED) { unscanned++; continue; }
+                if (photo.getUserId() == null) { unowned++; continue; }
+                if (!eligibleForRebuild(runtime.key, photo, includeMissingItems, forceRebuild)) continue;
+                byOwner.computeIfAbsent(photo.getUserId(), ignored -> new ArrayList<>()).add(photo.getId());
+            }
+        } while (photos.hasNext());
+        List<Map<String, Object>> jobs = new ArrayList<>();
+        for (Map.Entry<Long, List<Long>> entry : byOwner.entrySet()) {
+            jobs.add(backgroundJobService.enqueuePhotoJob(operator, entry.getKey(),
+                modelJobType(runtime.key), runtime.key.equals("background_removal")
+                    ? BackgroundJobResourceLane.LOCAL_GPU_AI : BackgroundJobResourceLane.LOCAL_CPU_AI,
+                entry.getValue(), forceRebuild, true, 100, "1", null,
+                Map.of("modelKey", runtime.key, "includeMissingItems", includeMissingItems,
+                    "forceRebuild", forceRebuild, "preserveBindings", preserveBindings)));
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("modelKey", runtime.key);
+        response.put("jobs", jobs);
+        response.put("notScannedItems", unscanned);
+        response.put("unownedItems", unowned);
+        response.put("message", jobs.isEmpty() ? "没有满足条件的已扫描照片" : "已按账号创建 " + jobs.size() + " 个重建任务");
+        if (!jobs.isEmpty()) {
+            Map<String, Object> task = getTask("model-job-" + jobs.get(0).get("id"));
+            response.put("taskId", task.get("taskId"));
+            response.put("task", task);
+        }
+        return response;
+    }
 
-        CompletableFuture.runAsync(() -> runTask(task), rebuildExecutor);
+    private String modelJobType(String key) {
+        return "MODEL_REBUILD_" + key.toUpperCase(java.util.Locale.ROOT);
+    }
 
-        return Map.of(
-            "taskId", taskId,
-            "modelKey", key,
-            "message", "重建任务已启动",
-            "task", task.toMap()
-        );
+    private boolean eligibleForRebuild(String key, Photo photo, boolean includeMissing, boolean force) {
+        if (FACE_DETECTION_KEYS.contains(key)) {
+            boolean hasFaces = !faceRepository.findByPhotoId(photo.getId()).isEmpty();
+            return (hasFaces && force) || (!hasFaces && includeMissing);
+        }
+        if (FACE_EMBEDDING_KEYS.contains(key)) {
+            return includeMissing || !faceRepository.findByPhotoId(photo.getId()).isEmpty();
+        }
+        if (BACKGROUND_REMOVAL_KEYS.contains(key)) {
+            boolean hasResult = photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank();
+            return (hasResult && force) || (!hasResult && includeMissing);
+        }
+        return true;
     }
 
     public Map<String, Object> getTask(String taskId) {
-        TaskSnapshot task = tasks.get(taskId);
-        if (task == null) {
-            throw new RuntimeException("任务不存在");
+        if (taskId != null && taskId.startsWith("model-job-")) {
+            long id = Long.parseLong(taskId.substring("model-job-".length()));
+            BackgroundJob job = backgroundJobRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("任务不存在"));
+            if (!job.getJobType().startsWith("MODEL_REBUILD_")) throw new IllegalArgumentException("任务类型不匹配");
+            return toModelTask(job);
         }
-        return task.toMap();
+        throw new IllegalArgumentException("任务不存在");
     }
 
     public Map<String, Object> getTaskOverview() {
         Map<String, Object> result = new LinkedHashMap<>();
-        List<Map<String, Object>> recentTasks = tasks.values().stream()
-            .sorted((left, right) -> right.createdAt.compareTo(left.createdAt))
-            .limit(8)
-            .map(TaskSnapshot::toMap)
-            .collect(java.util.stream.Collectors.toList());
-        long runningCount = tasks.values().stream()
-            .filter(task -> task != null && !task.complete)
-            .count();
+        List<Map<String, Object>> recentTasks = new ArrayList<>();
+        for (String key : List.of("face_detection", "face_recognition", "image_classification",
+            "saliency_detection", "background_removal")) {
+            recentTasks.addAll(listTaskHistory(key, 8));
+        }
+        recentTasks.sort((left, right) -> {
+            LocalDateTime l = (LocalDateTime) left.get("createdAt");
+            LocalDateTime r = (LocalDateTime) right.get("createdAt");
+            return java.util.Comparator.nullsLast(java.util.Comparator.<LocalDateTime>naturalOrder()).compare(r, l);
+        });
+        if (recentTasks.size() > 8) recentTasks = new ArrayList<>(recentTasks.subList(0, 8));
+        long runningCount = backgroundJobRepository.countByJobTypeStartingWithAndStatusIn(
+            "MODEL_REBUILD_", List.of(BackgroundJobStatus.RUNNING));
+        long queuedCount = backgroundJobRepository.countByJobTypeStartingWithAndStatusIn(
+            "MODEL_REBUILD_", List.of(BackgroundJobStatus.QUEUED, BackgroundJobStatus.WAITING_DEPENDENCY));
+        long completedCount = backgroundJobRepository.countByJobTypeStartingWithAndStatusIn(
+            "MODEL_REBUILD_", List.of(BackgroundJobStatus.SUCCEEDED, BackgroundJobStatus.PARTIAL_SUCCESS,
+                BackgroundJobStatus.FAILED, BackgroundJobStatus.SKIPPED, BackgroundJobStatus.CANCELED));
 
         result.put("threadType", "MODEL_REBUILD");
         result.put("label", "模型重建线程");
         result.put("runningTaskCount", runningCount);
-        result.put("activeThreads", rebuildExecutor.getActiveCount());
-        result.put("queuedTasks", rebuildExecutor.getQueue().size());
-        result.put("completedTaskCount", rebuildExecutor.getCompletedTaskCount());
+        result.put("activeThreads", runningCount);
+        result.put("queuedTasks", queuedCount);
+        result.put("completedTaskCount", completedCount);
         result.put("recentTasks", recentTasks);
         return result;
     }
@@ -209,9 +292,9 @@ public class ModelManagementService {
         model.put("active", loaded);
         model.put("rebuildNotes", rebuildNotes);
         model.put("latestValidation", Optional.ofNullable(latestValidationByModel.get(key)).map(ValidationSnapshot::toMap).orElse(null));
-        String latestTaskId = latestTaskByModel.get(key);
-        model.put("latestTask", latestTaskId == null ? null : Optional.ofNullable(tasks.get(latestTaskId)).map(TaskSnapshot::toMap).orElse(null));
-        model.put("taskHistory", listTaskHistory(key, 5));
+        List<Map<String, Object>> history = listTaskHistory(key, 5);
+        model.put("latestTask", history.isEmpty() ? null : history.get(0));
+        model.put("taskHistory", history);
         return model;
     }
 
@@ -229,12 +312,37 @@ public class ModelManagementService {
     }
 
     private List<Map<String, Object>> listTaskHistory(String modelKey, int limit) {
-        return tasks.values().stream()
-            .filter(task -> modelKey.equals(task.modelKey))
-            .sorted((left, right) -> right.createdAt.compareTo(left.createdAt))
-            .limit(limit)
-            .map(TaskSnapshot::toMap)
-            .collect(java.util.stream.Collectors.toList());
+        return backgroundJobRepository.findTop8ByJobTypeOrderByCreatedAtDesc(modelJobType(modelKey)).stream()
+            .limit(limit).map(this::toModelTask).collect(java.util.stream.Collectors.toList());
+    }
+
+    private Map<String, Object> toModelTask(BackgroundJob job) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        String key = job.getJobType().substring("MODEL_REBUILD_".length()).toLowerCase(java.util.Locale.ROOT);
+        data.put("taskId", "model-job-" + job.getId());
+        data.put("modelKey", key);
+        data.put("modelName", getRuntime(key).name);
+        try {
+            Map<?, ?> options = new com.fasterxml.jackson.databind.ObjectMapper().readValue(job.getParametersJson(), Map.class);
+            data.put("includeMissingItems", options.get("includeMissingItems"));
+            data.put("forceRebuild", options.get("forceRebuild"));
+            data.put("preserveBindings", options.get("preserveBindings"));
+        } catch (Exception exception) {
+            throw new IllegalStateException("任务参数无法读取", exception);
+        }
+        BackgroundJobStatus status = job.getStatus();
+        data.put("status", status == BackgroundJobStatus.SUCCEEDED ? "SUCCESS" : status.name());
+        data.put("message", job.getErrorSummary() == null ? status.name() : job.getErrorSummary());
+        data.put("complete", status.isTerminal());
+        data.put("total", job.getTotalItems());
+        data.put("processed", job.getSucceededItems());
+        data.put("skipped", job.getSkippedItems());
+        data.put("failed", job.getFailedItems());
+        data.put("createdAt", job.getCreatedAt());
+        data.put("startedAt", job.getStartedAt());
+        data.put("finishedAt", job.getFinishedAt());
+        data.put("logs", job.getErrorSummary() == null ? List.of() : List.of(job.getErrorSummary()));
+        return data;
     }
 
     private long safeFileSize(Path path) {
@@ -299,143 +407,11 @@ public class ModelManagementService {
         }
     }
 
-    private void runTask(TaskSnapshot task) {
-        task.status = "RUNNING";
-        task.startedAt = LocalDateTime.now();
-        try {
-            if (FACE_DETECTION_KEYS.contains(task.modelKey)) {
-                rebuildFaceDetection(task);
-            } else if (FACE_EMBEDDING_KEYS.contains(task.modelKey)) {
-                rebuildFaceEmbeddings(task);
-            } else if (AI_ANALYSIS_KEYS.contains(task.modelKey)) {
-                rebuildAiAnalysis(task);
-            } else if (BACKGROUND_REMOVAL_KEYS.contains(task.modelKey)) {
-                rebuildBackgroundRemoval(task);
-            } else {
-                throw new RuntimeException("暂不支持该模型的重建任务");
-            }
-            task.status = "SUCCESS";
-            task.message = "重建完成";
-        } catch (Exception e) {
-            task.status = "FAILED";
-            task.message = "重建失败: " + e.getMessage();
-            task.logs.add(task.message);
-            log.error("模型重建失败: {}", task.taskId, e);
-        } finally {
-            task.finishedAt = LocalDateTime.now();
-            task.complete = true;
-        }
-    }
-
-    private void rebuildFaceDetection(TaskSnapshot task) {
-        pagePhotos(photo -> {
-            boolean hasExistingFaces = !faceRepository.findByPhotoId(photo.getId()).isEmpty();
-            if (!task.includeMissingItems && !hasExistingFaces) {
-                task.skipped++;
-                return;
-            }
-            if (!task.forceRebuild && hasExistingFaces) {
-                task.skipped++;
-                return;
-            }
-            Path resolved = resolveLocalPhoto(photo);
-            if (resolved == null || !Files.exists(resolved)) {
-                task.failed++;
-                task.logs.add("跳过不存在文件的照片 #" + photo.getId());
-                return;
-            }
-            photoScanService.rescanFacesForPhoto(photo.getId());
-            task.processed++;
-        }, task);
-    }
-
-    private void rebuildFaceEmbeddings(TaskSnapshot task) {
-        pagePhotos(photo -> {
-            boolean hasExistingFaces = !faceRepository.findByPhotoId(photo.getId()).isEmpty();
-            if (!hasExistingFaces) {
-                if (!task.includeMissingItems) {
-                    task.skipped++;
-                    return;
-                }
-                photoScanService.rescanFacesForPhoto(photo.getId());
-                hasExistingFaces = !faceRepository.findByPhotoId(photo.getId()).isEmpty();
-            }
-            if (!hasExistingFaces) {
-                task.skipped++;
-                return;
-            }
-            photoScanService.rebuildFaceEmbeddingsForPhoto(photo.getId());
-            task.processed++;
-        }, task);
-    }
-
-    private void rebuildAiAnalysis(TaskSnapshot task) {
-        pagePhotos(photo -> {
-            try {
-                Path imagePath = resolveLocalPhoto(photo);
-                if (imagePath == null || !Files.exists(imagePath)) {
-                    task.skipped++;
-                    return;
-                }
-                int faceCount = faceRepository.findByPhotoId(photo.getId()).size();
-                smartTagService.applySmartTags(imagePath.toFile(), photo, faceCount, true, Set.of());
-                photoAIScoringService.rescorePhoto(photo);
-                task.processed++;
-            } catch (Exception e) {
-                task.failed++;
-                task.logs.add("照片 #" + photo.getId() + " 失败: " + e.getMessage());
-            }
-        }, task);
-    }
-
-    private void rebuildBackgroundRemoval(TaskSnapshot task) {
-        if (task.forceRebuild) {
-            Map<String, Object> clearResult = photoScanService.clearBackgroundCache();
-            task.logs.add(String.valueOf(clearResult.getOrDefault("message", "已清理旧抠图缓存")));
-        }
-        pagePhotos(photo -> {
-            boolean hasRemoved = photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isBlank();
-            if (!task.includeMissingItems && !hasRemoved) {
-                task.skipped++;
-                return;
-            }
-            if (!task.forceRebuild && hasRemoved) {
-                task.skipped++;
-                return;
-            }
-            try {
-                Path imagePath = resolveLocalPhoto(photo);
-                if (imagePath == null || !Files.exists(imagePath)) {
-                    task.skipped++;
-                    return;
-                }
-                photoScanService.removeBackgroundForPhoto(photo.getId(), task.forceRebuild);
-                task.processed++;
-            } catch (Exception e) {
-                task.failed++;
-                task.logs.add("照片 #" + photo.getId() + " 抠图失败: " + e.getMessage());
-            }
-        }, task);
-    }
-
     private Path resolveLocalPhoto(Photo photo) {
         if (photo == null || photo.getOriginalPath() == null || photo.getOriginalPath().isBlank()) {
             return null;
         }
         return userPathService.tryResolveLocalStoredPhotoPath(photo.getOriginalPath()).orElse(null);
-    }
-
-    private void pagePhotos(PhotoConsumer consumer, TaskSnapshot task) {
-        int page = 0;
-        Page<Photo> result;
-        do {
-            result = photoRepository.findAll(PageRequest.of(page, 100));
-            task.total = (int) result.getTotalElements();
-            for (Photo photo : result.getContent()) {
-                consumer.accept(photo);
-            }
-            page++;
-        } while (result.hasNext());
     }
 
     private ModelRuntime getRuntime(String key) {
@@ -448,10 +424,6 @@ public class ModelManagementService {
                 return new ModelRuntime("image_classification", "图像分类模型", imageClassificationService.getModelPath(), imageClassificationService::isModelLoaded, imageClassificationService::reloadModel);
             case "saliency_detection":
                 return new ModelRuntime("saliency_detection", "显著性检测模型", saliencyDetectionService.getModelPath(), saliencyDetectionService::isModelLoaded, saliencyDetectionService::reloadModel);
-            case "scene_recognition":
-                return new ModelRuntime("scene_recognition", "场景识别模型", sceneRecognitionService.getModelPath(), sceneRecognitionService::isModelLoaded, sceneRecognitionService::reloadModel);
-            case "emotion_analysis":
-                return new ModelRuntime("emotion_analysis", "情绪分析模型", emotionAnalysisService.getModelPath(), emotionAnalysisService::isModelLoaded, emotionAnalysisService::reloadModel);
             case "background_removal":
                 return new ModelRuntime("background_removal", "背景移除模型", backgroundRemovalService.getModelPath(), backgroundRemovalService::isModelAvailable, backgroundRemovalService::reloadModel);
             default:
@@ -482,16 +454,6 @@ public class ModelManagementService {
             builder.append(String.format("%02x", item));
         }
         return builder.toString();
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        rebuildExecutor.shutdownNow();
-    }
-
-    @FunctionalInterface
-    private interface PhotoConsumer {
-        void accept(Photo photo);
     }
 
     @FunctionalInterface
@@ -553,51 +515,4 @@ public class ModelManagementService {
         }
     }
 
-    private static class TaskSnapshot {
-        final String taskId;
-        final String modelKey;
-        final String modelName;
-        final boolean includeMissingItems;
-        final boolean forceRebuild;
-        volatile String status = "PENDING";
-        volatile String message = "等待执行";
-        volatile boolean complete = false;
-        volatile int total = 0;
-        volatile int processed = 0;
-        volatile int skipped = 0;
-        volatile int failed = 0;
-        volatile LocalDateTime createdAt = LocalDateTime.now();
-        volatile LocalDateTime startedAt;
-        volatile LocalDateTime finishedAt;
-        final List<String> logs = java.util.Collections.synchronizedList(new ArrayList<>());
-
-        private TaskSnapshot(String taskId, String modelKey, String modelName, boolean includeMissingItems, boolean forceRebuild) {
-            this.taskId = taskId;
-            this.modelKey = modelKey;
-            this.modelName = modelName;
-            this.includeMissingItems = includeMissingItems;
-            this.forceRebuild = forceRebuild;
-        }
-
-        private Map<String, Object> toMap() {
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("taskId", taskId);
-            data.put("modelKey", modelKey);
-            data.put("modelName", modelName);
-            data.put("includeMissingItems", includeMissingItems);
-            data.put("forceRebuild", forceRebuild);
-            data.put("status", status);
-            data.put("message", message);
-            data.put("complete", complete);
-            data.put("total", total);
-            data.put("processed", processed);
-            data.put("skipped", skipped);
-            data.put("failed", failed);
-            data.put("createdAt", createdAt);
-            data.put("startedAt", startedAt);
-            data.put("finishedAt", finishedAt);
-            data.put("logs", new ArrayList<>(logs));
-            return data;
-        }
-    }
 }

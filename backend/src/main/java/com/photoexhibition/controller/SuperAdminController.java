@@ -651,14 +651,16 @@ public class SuperAdminController {
                                           @RequestBody(required = false) Map<String, Object> request) {
         boolean includeMissingItems = request != null && Boolean.parseBoolean(String.valueOf(request.getOrDefault("includeMissingItems", false)));
         boolean forceRebuild = request != null && Boolean.parseBoolean(String.valueOf(request.getOrDefault("forceRebuild", false)));
+        boolean preserveBindings = request == null || Boolean.parseBoolean(String.valueOf(request.getOrDefault("preserveBindings", true)));
         return handle(authorization, () -> {
             UserAccount operator = authService.getCurrentUserEntity(extractBearerToken(authorization));
-            Object result = modelManagementService.triggerRebuild(modelKey, includeMissingItems, forceRebuild);
+            Object result = modelManagementService.triggerRebuild(operator, modelKey, includeMissingItems, forceRebuild, preserveBindings);
             Map<String, Object> detail = new HashMap<>();
             detail.put("action", "rebuildModel");
             detail.put("modelKey", modelKey);
             detail.put("includeMissingItems", includeMissingItems);
             detail.put("forceRebuild", forceRebuild);
+            detail.put("preserveBindings", preserveBindings);
             operationLogService.log(operator, OperationType.UPDATE, "MODEL_REBUILD", null, modelKey, detail, requestContext.getRemoteAddr());
             return result;
         });

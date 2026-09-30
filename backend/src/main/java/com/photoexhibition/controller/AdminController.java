@@ -5,24 +5,30 @@ import com.photoexhibition.dto.LoginResponse;
 import com.photoexhibition.entity.AdminUser;
 import com.photoexhibition.entity.OperationType;
 import com.photoexhibition.entity.Photo;
+import com.photoexhibition.entity.Album;
 import com.photoexhibition.entity.UserAccount;
+import com.photoexhibition.entity.ProcessingStatus;
+import com.photoexhibition.entity.BackgroundJobResourceLane;
 import com.photoexhibition.repository.AdminUserRepository;
 import com.photoexhibition.service.AlbumService;
 import com.photoexhibition.service.AuthService;
 import com.photoexhibition.service.DataCleanupService;
 import com.photoexhibition.service.AiSearchService;
 import com.photoexhibition.repository.PhotoRepository;
+import com.photoexhibition.repository.AlbumRepository;
 import com.photoexhibition.repository.PhotoAIScoringRepository;
 import com.photoexhibition.service.FilterOptionService;
 import com.photoexhibition.service.PhotoManageService;
 import com.photoexhibition.service.PhotoScanService;
 import com.photoexhibition.service.PhotoAIScoringService;
+import com.photoexhibition.service.PhotoAnalysisPreferenceService;
 import com.photoexhibition.service.SimilarPhotoSearchService;
 import com.photoexhibition.service.BackgroundRemovalService;
 import com.photoexhibition.service.OnnxConfigurationException;
 import com.photoexhibition.service.OperationLogService;
 import com.photoexhibition.service.ScanTaskService;
 import com.photoexhibition.service.UserPathService;
+import com.photoexhibition.service.BackgroundJobService;
 import com.photoexhibition.util.ONNXDiagnosticUtil;
 import java.lang.NoClassDefFoundError;
 import java.lang.UnsatisfiedLinkError;
@@ -30,7 +36,6 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -40,17 +45,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.io.File;
 import javax.servlet.http.HttpServletRequest;
 
 @RestController
@@ -71,16 +73,19 @@ public class AdminController {
     private final AlbumService albumService;
     private final FilterOptionService filterOptionService;
     private final PhotoRepository photoRepository;
+    private final AlbumRepository albumRepository;
     private final AuthService authService;
     private final ONNXDiagnosticUtil onnxDiagnosticUtil;
     private final PhotoAIScoringService aiScoringService;
     private final PhotoAIScoringRepository aiScoringRepository;
+    private final PhotoAnalysisPreferenceService photoAnalysisPreferenceService;
     private final SimilarPhotoSearchService similarPhotoSearchService;
     private final BackgroundRemovalService backgroundRemovalService;
     private final AiSearchService aiSearchService;
     private final ScanTaskService scanTaskService;
     private final OperationLogService operationLogService;
     private final UserPathService userPathService;
+    private final BackgroundJobService backgroundJobService;
 
     /**
      * 全局异常处理器 - 处理各种异常
@@ -92,6 +97,22 @@ public class AdminController {
         resp.put("details", sanitizeErrorMessage(e.getMessage(), "系统异常"));
         resp.put("exceptionType", e.getClass().getSimpleName());
 
+        if (e instanceof org.springframework.web.bind.MissingRequestHeaderException) {
+            org.springframework.web.bind.MissingRequestHeaderException missingHeader =
+                (org.springframework.web.bind.MissingRequestHeaderException) e;
+            boolean authenticationHeader = "Authorization".equalsIgnoreCase(missingHeader.getHeaderName());
+            resp.put("error", authenticationHeader ? "未授权" : "请求参数错误");
+            return ResponseEntity.status(authenticationHeader ? 401 : 400).body(resp);
+        }
+        if (e instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+            || e instanceof org.springframework.http.converter.HttpMessageNotReadableException
+            || e instanceof org.springframework.web.bind.MissingServletRequestParameterException) {
+            resp.put("error", "请求参数错误");
+            resp.put("message", "请求格式或参数类型不正确");
+            resp.put("details", "请求格式或参数类型不正确");
+            return ResponseEntity.badRequest().body(resp);
+        }
+
         // 认证失败不是服务器故障。此前所有控制器的 requireCurrentUser
         // 都抛 RuntimeException，导致前端把登录失效误判成 500。
         String exceptionMessage = e.getMessage();
@@ -101,6 +122,21 @@ public class AdminController {
             resp.put("error", "未授权");
             resp.put("message", "登录状态已失效，请重新登录");
             return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).body(resp);
+        }
+        if (e instanceof SecurityException) {
+            resp.put("error", "无权执行此操作");
+            resp.put("message", sanitizeErrorMessage(e.getMessage(), "权限不足"));
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).body(resp);
+        }
+        if (e instanceof IllegalArgumentException) {
+            resp.put("error", "请求参数错误");
+            resp.put("message", sanitizeErrorMessage(e.getMessage(), "请求参数错误"));
+            return ResponseEntity.badRequest().body(resp);
+        }
+        if (e instanceof IllegalStateException) {
+            resp.put("error", "当前状态不允许此操作");
+            resp.put("message", sanitizeErrorMessage(e.getMessage(), "当前状态不允许此操作"));
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(resp);
         }
 
         // 处理ONNX相关错误
@@ -127,33 +163,6 @@ public class AdminController {
     }
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    // 任务状态跟踪（用于后台异步任务）
-    private static class TaskStatus {
-        public String taskId;
-        public String status;
-        public boolean complete;
-        public LocalDateTime startTime;
-        public LocalDateTime endTime;
-        public List<String> logs;
-        public int current;
-        public int total;
-
-        public TaskStatus(String taskId, String status, boolean complete, LocalDateTime startTime, LocalDateTime endTime, List<String> logs) {
-            this.taskId = taskId;
-            this.status = status;
-            this.complete = complete;
-            this.startTime = startTime;
-            this.endTime = endTime;
-            this.logs = logs;
-            this.current = 0;
-            this.total = 0;
-        }
-    }
-
-    private final ConcurrentHashMap<String, TaskStatus> tasks = new ConcurrentHashMap<>();
-    private final ThreadLocal<String> currentTaskId = new ThreadLocal<>();
-    private final AtomicInteger scanCurrent = new AtomicInteger(0);
-
     /**
      * 单独触发更新所有照片的 EXIF 字段（用于已存在图片的后处理）
      * 包括数值字段（快门秒数、焦距mm、光圈值）和字符串字段（ISO、镜头型号）
@@ -162,12 +171,11 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> recalculatePhotoColors(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            requireSuperAdminUser(authorization);
-            String taskId = UUID.randomUUID().toString();
-            photoScanService.recalculateAllPhotoColorsAsync(taskId);
-            resp.put("message", "已异步触发照片颜色重新计算");
-            resp.put("taskId", taskId);
-            return ResponseEntity.ok(resp);
+            UserAccount user = requireSuperAdminUser(authorization);
+            resp.put("jobs", enqueuePhotoJobsByOwner(user, loadPhotos(null, null), "COLOR_RECALCULATE",
+                BackgroundJobResourceLane.LOCAL_CPU_AI, true, Map.of()));
+            resp.put("message", "照片颜色重新计算任务已加入队列");
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             log.error("照片颜色重新计算失败", e);
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "照片颜色重新计算失败"));
@@ -179,12 +187,11 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> updateColorCategories(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            requireSuperAdminUser(authorization);
-            String taskId = UUID.randomUUID().toString();
-            photoScanService.updateAllColorCategoriesAsync(taskId);
-            resp.put("message", "已异步触发颜色分类批量更新");
-            resp.put("taskId", taskId);
-            return ResponseEntity.ok(resp);
+            UserAccount user = requireSuperAdminUser(authorization);
+            resp.put("jobs", enqueuePhotoJobsByOwner(user, loadPhotos(null, null), "COLOR_CATEGORY",
+                BackgroundJobResourceLane.MAINTENANCE, true, Map.of()));
+            resp.put("message", "颜色分类任务已加入队列");
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             log.error("颜色分类更新失败", e);
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "颜色分类更新失败"));
@@ -196,11 +203,10 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> updateAllExifData(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            requireSuperAdminUser(authorization);
-            String taskId = java.util.UUID.randomUUID().toString();
-            photoScanService.updateAllExifNumericFieldsAsync(taskId);
-            resp.put("taskId", taskId);
-            resp.put("message", "已异步触发 EXIF 字段批量更新");
+            UserAccount user = requireSuperAdminUser(authorization);
+            resp.put("jobs", enqueuePhotoJobsByOwner(user, loadPhotos(null, null), "EXIF_REBUILD",
+                BackgroundJobResourceLane.MAINTENANCE, true, Map.of()));
+            resp.put("message", "EXIF 重建任务已加入队列");
             return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "EXIF 更新失败"));
@@ -209,13 +215,24 @@ public class AdminController {
     }
 
     @PostMapping("/faces/rebuild-all")
-    public ResponseEntity<Map<String, Object>> rebuildAllFaces() {
+    public ResponseEntity<Map<String, Object>> rebuildAllFaces(@RequestHeader("Authorization") String authorization,
+                                                                @RequestParam(defaultValue = "true") boolean preserveBindings) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            String taskId = UUID.randomUUID().toString();
-            photoScanService.rebuildAllFacesAsync(taskId);
-            resp.put("taskId", taskId);
-            resp.put("message", "已异步触发重建所有人脸（默认保留人物绑定）");
+            UserAccount user = requireSuperAdminUser(authorization);
+            Map<Long, List<Long>> idsByOwner = photoRepository.findAll().stream()
+                .filter(photo -> photo.getUserId() != null && photo.getProcessingStatus() == ProcessingStatus.COMPLETED)
+                .collect(Collectors.groupingBy(Photo::getUserId, java.util.LinkedHashMap::new,
+                    Collectors.mapping(Photo::getId, Collectors.toList())));
+            List<Map<String, Object>> jobs = new ArrayList<>();
+            for (Map.Entry<Long, List<Long>> entry : idsByOwner.entrySet()) {
+                jobs.add(backgroundJobService.enqueuePhotoJob(user, entry.getKey(), "FACE_RESCAN",
+                    BackgroundJobResourceLane.LOCAL_CPU_AI, entry.getValue(), true, false, 50, "1", null,
+                    Map.of("preserveBindings", preserveBindings)));
+            }
+            resp.put("jobs", jobs);
+            resp.put("queuedPhotos", jobs.stream().mapToInt(job -> ((Number) job.getOrDefault("acceptedItems", 0)).intValue()).sum());
+            resp.put("message", preserveBindings ? "已加入人脸重建队列（保留人物绑定）" : "已加入人脸完全重建队列");
             return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             log.error("重建所有人脸失败", e);
@@ -308,119 +325,6 @@ public class AdminController {
     }
 
     /**
-     * 异步执行批量AI重新评分任务（强制覆盖现有评分）
-     */
-    @Async
-    /**
-     * 检查Spring应用上下文是否仍然活跃
-     */
-    private boolean isApplicationContextActive() {
-        try {
-            // 尝试访问一个Spring管理的Bean来检查上下文状态
-            return photoRepository != null && photoRepository.count() >= 0;
-        } catch (Exception e) {
-            // 如果出现异常，说明上下文可能已经关闭
-            return false;
-        }
-    }
-
-    @Async
-    public void processAllAIScoringsAsync(String taskId, List<Long> photoIds) {
-        try {
-            int successCount = 0;
-            int failCount = 0;
-            List<String> errors = new ArrayList<>();
-
-            log.info("开始更新 {} 张照片的AI评分（强制重新评分，覆盖现有评分）", photoIds.size());
-
-            for (int i = 0; i < photoIds.size(); i++) {
-                Long photoId = photoIds.get(i);
-
-                try {
-                    // 检查Spring上下文是否仍然活跃
-                    if (!isApplicationContextActive()) {
-                        log.warn("Spring应用上下文已关闭，停止AI分析任务");
-                        errors.add("任务被中断：Spring应用上下文已关闭");
-                        break;
-                    }
-
-                    var photo = photoRepository.findById(photoId).orElse(null);
-                    if (photo != null) {
-                        // 检查照片文件是否存在
-                        var imagePath = userPathService.tryResolveLocalStoredPhotoPath(photo.getOriginalPath());
-                        if (imagePath.isPresent() && imagePath.get().toFile().exists()) {
-                            aiScoringService.rescorePhoto(photo); // 强制重新评分，覆盖现有评分
-                            successCount++;
-                        } else {
-                            log.warn("照片文件不存在或无法映射到本地路径: {}",
-                                    userPathService.toDisplayPath(photo.getOriginalPath(), true));
-                            failCount++;
-                        }
-                    } else {
-                        failCount++;
-                        errors.add("照片 " + photoId + ": 不存在");
-                    }
-                } catch (Exception e) {
-                    // 检查是否是上下文关闭相关的错误
-                    if (e.getMessage() != null && e.getMessage().contains("has been closed")) {
-                        log.warn("检测到Spring上下文关闭，停止AI分析任务");
-                        errors.add("任务被中断：Spring应用上下文已关闭");
-                        break;
-                    }
-                    failCount++;
-                    String errorMsg;
-                    // 检查是否是ONNX配置异常
-                    if (e instanceof com.photoexhibition.service.OnnxConfigurationException) {
-                        errorMsg = "照片 " + photoId + ": ONNX环境配置错误 - " + sanitizeErrorMessage(e.getMessage(), "系统异常");
-                        log.warn("AI重新评分失败 - ONNX配置错误: {}", sanitizeErrorMessage(e.getMessage(), "系统异常"));
-                    } else {
-                        errorMsg = "照片 " + photoId + ": " + sanitizeErrorMessage(e.getMessage(), "系统异常");
-                        log.warn("AI重新评分失败 - {}", errorMsg, e);
-                    }
-                    errors.add(errorMsg);
-                }
-
-                // 每处理100张照片记录一次进度
-                if ((i + 1) % 100 == 0) {
-                    log.info("AI评分进度: {}/{}", i + 1, photoIds.size());
-                }
-            }
-
-            log.info("AI重新评分完成 - 成功: {}, 失败: {}", successCount, failCount);
-            if (!errors.isEmpty()) {
-                if (errors.size() <= 10) {
-                    log.warn("评分失败详情: {}", String.join("; ", errors));
-                } else {
-                    log.warn("评分失败数量: {}, 示例错误: {}", errors.size(), errors.get(0));
-                }
-            }
-
-            // 更新任务状态
-            TaskStatus task = tasks.get(taskId);
-            if (task != null) {
-                task.status = "COMPLETED";
-                task.complete = true;
-                task.endTime = LocalDateTime.now();
-                task.logs.add(String.format("批量AI重新评分完成。成功: %d，失败: %d", successCount, failCount));
-                if (!errors.isEmpty()) {
-                    task.logs.add("失败详情: " + String.join("; ", errors));
-                }
-            }
-        } catch (Exception e) {
-            log.error("批量AI重新评分任务异常: {}", e.getMessage(), e);
-            TaskStatus task = tasks.get(taskId);
-            if (task != null) {
-                task.status = "FAILED";
-                task.complete = true;
-                task.endTime = LocalDateTime.now();
-                task.logs.add("批量AI重新评分任务异常: " + sanitizeErrorMessage(e.getMessage(), "系统异常"));
-            }
-        } finally {
-            currentTaskId.remove();
-        }
-    }
-
-    /**
      * 清空所有照片的AI分析记录
      */
     @PostMapping("/ai-analysis/clear-all")
@@ -460,38 +364,13 @@ public class AdminController {
         try {
             UserAccount user = requireCurrentUser(authorization);
             Long scopedUserId = resolveScopedUserId(user);
-            log.info("开始更新所有照片的AI分析（强制重新分析，覆盖现有分析）");
-
-            // 获取所有照片ID（分页查询，避免一次性加载所有实体）
-            List<Long> photoIds = new ArrayList<>();
-            int pageSize = 1000; // 每次查询1000个ID
-            int page = 0;
-            Pageable pageable;
-            Page<Photo> photoPage;
-
-            do {
-                pageable = PageRequest.of(page, pageSize);
-                photoPage = scopedUserId == null
-                    ? photoRepository.findAll(pageable)
-                    : photoRepository.findByUserId(scopedUserId, pageable);
-                photoPage.getContent().forEach(photo -> photoIds.add(photo.getId()));
-                page++;
-            } while (photoPage.hasNext());
-
-            resp.put("totalPhotos", photoIds.size());
-            resp.put("message", "AI评分更新开始处理（强制重新评分，覆盖现有评分）");
-
-            // 启动异步任务
-            String taskId = UUID.randomUUID().toString();
-            currentTaskId.set(taskId);
-            tasks.put(taskId, new TaskStatus(taskId, "PROCESSING", false, LocalDateTime.now(), null, new ArrayList<>()));
-
-            // 使用Spring的异步方法执行任务
-            processAllAIScoringsAsync(taskId, photoIds);
-
-            resp.put("taskId", taskId);
-            resp.put("status", "processing");
-            return ResponseEntity.ok(resp);
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, loadPhotos(scopedUserId, null),
+                "AI_SCORING", BackgroundJobResourceLane.LOCAL_CPU_AI, true,
+                Map.of("scope", "ALL", "source", "LEGACY_UPDATE_ALL"));
+            resp.put("jobs", jobs);
+            resp.put("message", "AI评分更新已加入统一后台队列");
+            resp.put("success", true);
+            return ResponseEntity.accepted().body(resp);
 
         } catch (Exception e) {
             log.error("AI评分更新启动失败", e);
@@ -524,12 +403,28 @@ public class AdminController {
             var scoring = aiScoringService.scorePhoto(photo);
 
             if (scoring != null) {
+                var visualAi = photoAnalysisPreferenceService.resolve(photoId);
+                Double technical = visualAi.getTechnicalScore() != null ? visualAi.getTechnicalScore() : scoring.getTechnicalScore();
+                Double composition = visualAi.getCompositionScore() != null ? visualAi.getCompositionScore() : scoring.getCompositionScore();
+                Double appeal = visualAi.getAppealScore() != null ? visualAi.getAppealScore() : scoring.getAppealScore();
+                Double overall = visualAi.getQualityScore() != null
+                    ? visualAi.getQualityScore()
+                    : visualAi.hasPhotographyScores() ? weightedEffectiveScore(technical, composition, appeal) : scoring.getOverallScore();
                 resp.put("success", true);
                 resp.put("photoId", photoId);
-                resp.put("overallScore", scoring.getOverallScore());
-                resp.put("technicalScore", scoring.getTechnicalScore());
-                resp.put("compositionScore", scoring.getCompositionScore());
-                resp.put("appealScore", scoring.getAppealScore());
+                resp.put("overallScore", overall);
+                resp.put("technicalScore", technical);
+                resp.put("compositionScore", composition);
+                resp.put("appealScore", appeal);
+                resp.put("scoreSource", visualAi.hasPhotographyScores() ? "AI_FIRST" : "LOCAL");
+                resp.put("localOverallScore", scoring.getOverallScore());
+                resp.put("localTechnicalScore", scoring.getTechnicalScore());
+                resp.put("localCompositionScore", scoring.getCompositionScore());
+                resp.put("localAppealScore", scoring.getAppealScore());
+                resp.put("visualAiQualityScore", visualAi.getQualityScore());
+                resp.put("visualAiTechnicalScore", visualAi.getTechnicalScore());
+                resp.put("visualAiCompositionScore", visualAi.getCompositionScore());
+                resp.put("visualAiAppealScore", visualAi.getAppealScore());
                 resp.put("processingTimeMs", scoring.getProcessingTimeMs());
                 resp.put("message", "AI评分测试成功");
             } else {
@@ -560,6 +455,15 @@ public class AdminController {
 
             return ResponseEntity.status(500).body(resp);
         }
+    }
+
+    private Double weightedEffectiveScore(Double technical, Double composition, Double appeal) {
+        double total = 0.0;
+        double weight = 0.0;
+        if (technical != null) { total += technical * 0.40; weight += 0.40; }
+        if (composition != null) { total += composition * 0.35; weight += 0.35; }
+        if (appeal != null) { total += appeal * 0.25; weight += 0.25; }
+        return weight == 0.0 ? null : total / weight;
     }
 
     @GetMapping("/debug/numeric-fields")
@@ -734,11 +638,18 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> getTaskStatus(@RequestHeader("Authorization") String authorization,
                                                              @PathVariable String taskId) {
         try {
-            requireSuperAdminUser(authorization);
-            Map<String, Object> resp = photoScanService.getTaskStatus(taskId);
-            if (resp.get("found") != null && !(Boolean) resp.get("found")) {
-                return ResponseEntity.status(404).body(resp);
-            }
+            UserAccount user = requireSuperAdminUser(authorization);
+            Long jobId = parseUnifiedTaskId(taskId);
+            if (jobId == null) return ResponseEntity.status(404).body(Map.of("found", false, "taskId", taskId));
+            Map<String, Object> job = backgroundJobService.get(user, jobId);
+            String status = String.valueOf(job.get("status"));
+            Map<String, Object> resp = new LinkedHashMap<>(job);
+            resp.put("found", true);
+            resp.put("taskId", taskId);
+            resp.put("current", job.get("processedItems"));
+            resp.put("total", job.get("totalItems"));
+            resp.put("complete", List.of("SUCCEEDED", "PARTIAL_SUCCESS", "FAILED", "SKIPPED", "CANCELED").contains(status));
+            resp.put("logs", job.get("errorSummary") == null ? List.of() : List.of(job.get("errorSummary")));
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             Map<String, Object> err = new HashMap<>();
@@ -754,16 +665,29 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> stopTask(@RequestHeader("Authorization") String authorization,
                                                         @PathVariable String taskId) {
         try {
-            requireSuperAdminUser(authorization);
-            Map<String, Object> resp = photoScanService.stopTask(taskId);
-            if (resp.get("found") != null && !(Boolean) resp.get("found")) {
-                return ResponseEntity.status(404).body(resp);
-            }
+            UserAccount user = requireSuperAdminUser(authorization);
+            Long jobId = parseUnifiedTaskId(taskId);
+            if (jobId == null) return ResponseEntity.status(404).body(Map.of("found", false, "taskId", taskId));
+            Map<String, Object> resp = new LinkedHashMap<>(backgroundJobService.cancel(user, jobId));
+            resp.put("found", true);
+            resp.put("taskId", taskId);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             Map<String, Object> err = new HashMap<>();
             err.put("error", sanitizeErrorMessage(e.getMessage(), "执行失败"));
             return ResponseEntity.status(500).body(err);
+        }
+    }
+
+    private Long parseUnifiedTaskId(String taskId) {
+        if (taskId == null || taskId.isBlank()) return null;
+        String normalized = taskId.trim();
+        if (normalized.startsWith("model-job-")) normalized = normalized.substring("model-job-".length());
+        else if (normalized.startsWith("job-")) normalized = normalized.substring("job-".length());
+        try {
+            return Long.valueOf(normalized);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 
@@ -780,16 +704,26 @@ public class AdminController {
      * 重建单张图片的人脸数据
      */
     @PostMapping("/photos/{id}/rescan-faces")
-    public ResponseEntity<Map<String, Object>> rescanFaces(@PathVariable Long id) {
-        return ResponseEntity.ok(photoScanService.rescanFacesForPhoto(id));
+    public ResponseEntity<Map<String, Object>> rescanFaces(@RequestHeader("Authorization") String authorization,
+                                                            @PathVariable Long id,
+                                                            @RequestParam(defaultValue = "true") boolean preserveBindings) {
+        UserAccount user = requireSuperAdminUser(authorization);
+        Photo photo = photoRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("照片不存在"));
+        return ResponseEntity.accepted().body(backgroundJobService.enqueuePhotoJob(user, photo.getUserId(), "FACE_RESCAN",
+            BackgroundJobResourceLane.LOCAL_CPU_AI, List.of(id), true, false, 100, "1", null,
+            Map.of("preserveBindings", preserveBindings)));
     }
 
     /**
      * 仅重算单张图片已有的人脸 embedding，保留人物绑定
      */
     @PostMapping("/photos/{id}/rebuild-face-embeddings")
-    public ResponseEntity<Map<String, Object>> rebuildFaceEmbeddings(@PathVariable Long id) {
-        return ResponseEntity.ok(photoScanService.rebuildFaceEmbeddingsForPhoto(id));
+    public ResponseEntity<Map<String, Object>> rebuildFaceEmbeddings(@RequestHeader("Authorization") String authorization,
+                                                                      @PathVariable Long id) {
+        UserAccount user = requireSuperAdminUser(authorization);
+        Photo photo = photoRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("照片不存在"));
+        return ResponseEntity.accepted().body(backgroundJobService.enqueuePhotoJob(user, photo.getUserId(), "FACE_EMBEDDING",
+            BackgroundJobResourceLane.LOCAL_CPU_AI, List.of(id), true, false, 100, "1", null, Map.of()));
     }
 
     private UserAccount requireCurrentUser(String authorization) {
@@ -815,12 +749,17 @@ public class AdminController {
      * 全量回填图片哈希（SHA-256）
      */
     @PostMapping("/photos/hash-migrate")
-    public ResponseEntity<Map<String, Object>> migrateHashes() {
+    public ResponseEntity<Map<String, Object>> migrateHashes(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            photoScanService.backfillHashesAsync();
-            resp.put("message", "哈希回填任务已异步启动");
-            return ResponseEntity.ok(resp);
+            UserAccount user = requireSuperAdminUser(authorization);
+            List<Photo> photos = loadPhotos(null, null).stream()
+                .filter(photo -> photo.getCanonicalPhotoId() == null && (photo.getContentHash() == null || photo.getContentHash().isEmpty()))
+                .collect(Collectors.toList());
+            resp.put("jobs", enqueuePhotoJobsByOwner(user, photos, "HASH_REBUILD",
+                BackgroundJobResourceLane.MAINTENANCE, false, Map.of()));
+            resp.put("message", "哈希回填任务已加入队列");
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "哈希回填失败"));
             return ResponseEntity.status(500).body(resp);
@@ -1010,13 +949,21 @@ public class AdminController {
      * 重新分析所有相册的氛围信息
      */
     @PostMapping("/atmosphere/reanalyze-all")
-    public ResponseEntity<Map<String, Object>> reanalyzeAllAtmosphere() {
+    public ResponseEntity<Map<String, Object>> reanalyzeAllAtmosphere(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            photoScanService.reanalyzeAllAtmosphere();
-            resp.put("message", "氛围信息重新分析任务已异步启动");
+            UserAccount user = requireSuperAdminUser(authorization);
+            List<Album> albums = albumRepository.findByPhotoCountGreaterThan(0);
+            List<Map<String, Object>> jobs = new ArrayList<>();
+            for (Map.Entry<Long, List<Long>> entry : albums.stream().filter(a -> a.getUserId() != null)
+                .collect(Collectors.groupingBy(Album::getUserId, java.util.LinkedHashMap::new,
+                    Collectors.mapping(Album::getId, Collectors.toList()))).entrySet()) {
+                if (!entry.getValue().isEmpty()) jobs.add(backgroundJobService.enqueueAlbumJob(user, entry.getKey(),
+                    "ALBUM_ATMOSPHERE_REBUILD", entry.getValue(), false));
+            }
+            resp.put("jobs", jobs);
             resp.put("success", true);
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "氛围分析失败"));
             resp.put("success", false);
@@ -1028,14 +975,18 @@ public class AdminController {
      * 重新分析指定相册的氛围信息
      */
     @PostMapping("/albums/{id}/reanalyze-atmosphere")
-    public ResponseEntity<Map<String, Object>> reanalyzeAlbumAtmosphere(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> reanalyzeAlbumAtmosphere(@RequestHeader("Authorization") String authorization,
+                                                                          @PathVariable Long id) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            photoScanService.reanalyzeAlbumAtmosphere(id);
-            resp.put("message", "相册氛围信息重新分析完成");
+            UserAccount user = requireSuperAdminUser(authorization);
+            Album album = albumRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("相册不存在"));
+            resp.put("job", backgroundJobService.enqueueAlbumJob(user, album.getUserId(),
+                "ALBUM_ATMOSPHERE_REBUILD", List.of(id), true));
+            resp.put("message", "相册氛围信息任务已加入队列");
             resp.put("albumId", id);
             resp.put("success", true);
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "氛围分析失败"));
             resp.put("albumId", id);
@@ -1055,22 +1006,12 @@ public class AdminController {
         try {
             UserAccount user = requireCurrentUser(authorization);
             Long scopedUserId = resolveScopedUserId(user);
-            // 启动异步任务重新分析所有照片
-            String taskId = UUID.randomUUID().toString();
-            resp.put("taskId", taskId);
-            resp.put("message", "AI重新分析任务已启动，请通过任务状态接口查询进度");
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, loadPhotos(scopedUserId, null),
+                "AI_SCORING", BackgroundJobResourceLane.LOCAL_CPU_AI, true, Map.of("scope", "ALL"));
+            resp.put("jobs", jobs);
+            resp.put("message", "AI重新评分任务已加入队列");
             resp.put("success", true);
-
-            // 异步执行批量评分
-            new Thread(() -> {
-                try {
-                    performBatchAIScoring(taskId, scopedUserId);
-                } catch (Exception e) {
-                    log.error("批量AI评分任务失败", e);
-                }
-            }).start();
-
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "AI评分任务启动失败"));
             resp.put("success", false);
@@ -1089,23 +1030,13 @@ public class AdminController {
             UserAccount user = requireCurrentUser(authorization);
             Long scopedUserId = resolveScopedUserId(user);
             albumService.getAlbumById(albumId, scopedUserId);
-            // 启动异步任务重新评分指定相册的图片
-            String taskId = UUID.randomUUID().toString();
-            resp.put("taskId", taskId);
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, loadPhotos(scopedUserId, albumId),
+                "AI_SCORING", BackgroundJobResourceLane.LOCAL_CPU_AI, true, Map.of("albumId", albumId));
+            resp.put("jobs", jobs);
             resp.put("albumId", albumId);
-            resp.put("message", "相册AI重新评分任务已启动，请通过任务状态接口查询进度");
+            resp.put("message", "相册AI重新评分任务已加入队列");
             resp.put("success", true);
-
-            // 异步执行相册评分
-            new Thread(() -> {
-                try {
-                    performAlbumAIScoring(taskId, albumId, scopedUserId);
-                } catch (Exception e) {
-                    log.error("相册AI评分任务失败", e);
-                }
-            }).start();
-
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "相册AI评分任务启动失败"));
             resp.put("albumId", albumId);
@@ -1526,11 +1457,15 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> updateAllPhotoTimes(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            UserAccount user = requireCurrentUser(authorization);
             requireSuperAdminUser(authorization);
-            photoScanService.updateAllPhotoTimesAsync();
-            resp.put("message", "照片时间更新任务已异步启动，请稍后查看日志了解进度");
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, loadPhotos(null, null),
+                "PHOTO_TIME_REBUILD", BackgroundJobResourceLane.MAINTENANCE, true,
+                Map.of("source", "UPDATE_PHOTO_TIMES"));
+            resp.put("jobs", jobs);
+            resp.put("message", "照片时间更新任务已加入统一后台队列");
             resp.put("success", true);
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "启动照片时间更新任务失败"));
             resp.put("success", false);
@@ -1543,13 +1478,16 @@ public class AdminController {
      * 重新从EXIF信息中提取拍摄时间（同步执行，耗时较长）
      */
     @PostMapping("/photos/update-times-sync")
-    public ResponseEntity<Map<String, Object>> updateAllPhotoTimesSync() {
+    public ResponseEntity<Map<String, Object>> updateAllPhotoTimesSync(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            Map<String, Object> result = photoScanService.updateAllPhotoTimes();
-            resp.putAll(result);
+            UserAccount user = requireSuperAdminUser(authorization);
+            resp.put("jobs", enqueuePhotoJobsByOwner(user, loadPhotos(null, null),
+                "PHOTO_TIME_REBUILD", BackgroundJobResourceLane.MAINTENANCE, true,
+                Map.of("source", "UPDATE_PHOTO_TIMES_SYNC")));
+            resp.put("message", "照片时间更新任务已加入统一后台队列");
             resp.put("success", true);
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "更新照片时间失败"));
             resp.put("success", false);
@@ -1630,10 +1568,7 @@ public class AdminController {
 
     // ==================== 背景移除批量处理 API ====================
 
-    /**
-     * 批量处理相册中的所有照片背景移除
-     * 同步处理，会阻塞直到完成
-     */
+    /** 兼容旧版分页批量入口，按所属账号提交持久化任务。 */
     @PostMapping("/photos/batch-remove-background")
     public ResponseEntity<Map<String, Object>> batchRemoveBackground(
             @RequestHeader("Authorization") String authorization,
@@ -1672,76 +1607,18 @@ public class AdminController {
                 taskDescription = scopedUserId == null ? "全部照片" : "当前用户照片";
             }
             
-            int processed = 0;
-            int failed = 0;
-            long startTime = System.currentTimeMillis();
-            
-            log.info("开始批量处理 {} 的背景移除，共 {} 张照片", taskDescription, photoPage.getContent().size());
-            
-            for (Photo photo : photoPage.getContent()) {
-                try {
-                    String photoPath = photo.getOriginalPath();
-                    java.util.Optional<java.nio.file.Path> resolvedSourcePath = userPathService.tryResolveLocalStoredPhotoPath(photoPath);
-                    if (resolvedSourcePath.isEmpty()) {
-                        log.warn("抠图跳过非本地或不可解析路径: photoId={}, path={}", photo.getId(), photoPath);
-                        failed++;
-                        continue;
-                    }
-
-                    File sourceFile = resolvedSourcePath.get().toFile();
-                    if (!sourceFile.exists()) {
-                        log.warn("源文件不存在: photoId={}, path={}", photo.getId(), userPathService.toDisplayPath(photoPath, true));
-                        failed++;
-                        continue;
-                    }
-                    
-                    // 生成输出文件路径：原图目录下的 .thumbnails 文件夹
-                    File thumbnailDir = new File(sourceFile.getParent(), ".thumbnails");
-                    if (!thumbnailDir.exists()) {
-                        thumbnailDir.mkdirs();
-                    }
-                    
-                    String baseName = photo.getFilename();
-                    int dotIndex = baseName.lastIndexOf('.');
-                    if (dotIndex > 0) {
-                        baseName = baseName.substring(0, dotIndex);
-                    }
-                    File outputFile = new File(thumbnailDir, baseName + "_no_bg.png");
-                    
-                    // 执行背景移除
-                    boolean success = backgroundRemovalService.removeBackground(sourceFile, outputFile);
-                    
-                    if (success) {
-                        processed++;
-                        // 可选：保存路径到数据库
-                        if (saveToPhoto) {
-                            photo.setBackgroundRemovedPath(userPathService.tryBuildStoragePathReference(outputFile.getAbsolutePath(), photo.getUserId())
-                                .orElse(outputFile.getAbsolutePath()));
-                            photoRepository.save(photo);
-                        }
-                    } else {
-                        failed++;
-                    }
-                    
-                } catch (Exception e) {
-                    log.error("处理照片失败: {}", photo.getId(), e);
-                    failed++;
-                }
-            }
-            
-            long duration = System.currentTimeMillis() - startTime;
-            
-            log.info("批量处理完成: 成功 {}, 失败 {}, 耗时 {}ms", processed, failed, duration);
-            
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, photoPage.getContent(),
+                "BACKGROUND_REMOVAL", BackgroundJobResourceLane.LOCAL_GPU_AI, false,
+                Map.of("saveToPhoto", saveToPhoto, "batchSize", batchSize));
             resp.put("success", true);
-            resp.put("message", "批量处理完成");
-            resp.put("processed", processed);
-            resp.put("failed", failed);
+            resp.put("message", taskDescription + "的背景移除任务已加入队列");
+            resp.put("jobs", jobs);
+            resp.put("processed", 0);
+            resp.put("failed", 0);
             resp.put("total", photoPage.getContent().size());
-            resp.put("duration", duration + "ms");
             resp.put("hasMore", !photoPage.isLast());
             
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.accepted().body(resp);
             
         } catch (Exception e) {
             log.error("批量处理失败", e);
@@ -1788,18 +1665,12 @@ public class AdminController {
             if (albumId != null) {
                 albumService.getAlbumById(albumId, scopedUserId);
             }
-            // 生成任务ID
-            String taskId = "bg-remove-" + System.currentTimeMillis();
-            
-            // 启动异步任务
-            photoScanService.batchBackgroundRemovalAsync(taskId, albumId, batchSize, saveToPhoto, force, scopedUserId);
-            
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, loadPhotos(scopedUserId, albumId),
+                "BACKGROUND_REMOVAL", BackgroundJobResourceLane.LOCAL_GPU_AI, force,
+                Map.of("albumId", albumId == null ? 0L : albumId, "saveToPhoto", saveToPhoto, "batchSize", batchSize));
             resp.put("success", true);
-            resp.put("message", "批量背景移除任务已启动");
-            resp.put("taskId", taskId);
-            resp.put("statusUrl", "/api/admin/tasks/" + taskId);
-            
-            log.info("批量背景移除任务已启动: {}", taskId);
+            resp.put("message", "批量背景移除任务已加入队列");
+            resp.put("jobs", jobs);
             
         } catch (Exception e) {
             log.error("启动批量背景移除失败", e);
@@ -1810,6 +1681,37 @@ public class AdminController {
 
         return ResponseEntity.ok(resp);
     }
+
+    private List<Photo> loadPhotos(Long scopedUserId, Long albumId) {
+        List<Photo> result = new ArrayList<>();
+        int page = 0;
+        Page<Photo> photos;
+        do {
+            Pageable pageable = PageRequest.of(page++, 500, Sort.by("id").ascending());
+            if (albumId != null && scopedUserId != null) photos = photoRepository.findByAlbumIdAndUserId(albumId, scopedUserId, pageable);
+            else if (albumId != null) photos = photoRepository.findByAlbumId(albumId, pageable);
+            else if (scopedUserId != null) photos = photoRepository.findByUserId(scopedUserId, pageable);
+            else photos = photoRepository.findAll(pageable);
+            result.addAll(photos.getContent());
+        } while (photos.hasNext());
+        return result;
+    }
+
+    private List<Map<String, Object>> enqueuePhotoJobsByOwner(UserAccount requester,
+                                                               List<Photo> photos,
+                                                               String jobType,
+                                                               BackgroundJobResourceLane lane,
+                                                               boolean force,
+                                                               Map<String, Object> parameters) {
+        Map<Long, List<Long>> byOwner = photos.stream()
+            .filter(photo -> photo.getUserId() != null && photo.getProcessingStatus() == ProcessingStatus.COMPLETED)
+            .collect(Collectors.groupingBy(Photo::getUserId, java.util.LinkedHashMap::new,
+                Collectors.mapping(Photo::getId, Collectors.toList())));
+        List<Map<String, Object>> jobs = new ArrayList<>();
+        byOwner.forEach((ownerId, ids) -> jobs.add(backgroundJobService.enqueuePhotoJob(requester, ownerId, jobType,
+            lane, ids, force, false, 100, "1", null, parameters)));
+        return jobs;
+    }
     
     /**
      * 清空所有抠图缓存（删除所有背景移除处理后的图片文件）
@@ -1817,21 +1719,17 @@ public class AdminController {
     @DeleteMapping("/photos/clear-background-cache")
     public ResponseEntity<Map<String, Object>> clearBackgroundCache(@RequestHeader("Authorization") String authorization) {
         Map<String, Object> resp = new HashMap<>();
-        requireSuperAdminUser(authorization);
+        UserAccount user = requireSuperAdminUser(authorization);
         
         try {
-            // 生成任务ID
-            String taskId = "clear-bg-cache-" + System.currentTimeMillis();
-            
-            // 启动异步任务
-            photoScanService.clearBackgroundCacheAsync(taskId);
-            
+            List<Photo> photos = loadPhotos(null, null).stream()
+                .filter(photo -> photo.getBackgroundRemovedPath() != null && !photo.getBackgroundRemovedPath().isEmpty())
+                .collect(Collectors.toList());
+            List<Map<String, Object>> jobs = enqueuePhotoJobsByOwner(user, photos, "BACKGROUND_CACHE_CLEAR",
+                BackgroundJobResourceLane.MAINTENANCE, false, Map.of());
             resp.put("success", true);
-            resp.put("message", "清空抠图缓存任务已启动");
-            resp.put("taskId", taskId);
-            resp.put("statusUrl", "/api/admin/tasks/" + taskId);
-            
-            log.info("清空抠图缓存任务已启动: {}", taskId);
+            resp.put("message", "清空抠图缓存任务已加入队列");
+            resp.put("jobs", jobs);
             
         } catch (Exception e) {
             log.error("清空抠图缓存失败", e);
@@ -1840,7 +1738,7 @@ public class AdminController {
             return ResponseEntity.status(500).body(resp);
         }
 
-        return ResponseEntity.ok(resp);
+        return ResponseEntity.accepted().body(resp);
     }
 
     /**

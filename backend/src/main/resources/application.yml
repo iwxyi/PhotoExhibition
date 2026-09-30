@@ -237,13 +237,13 @@ ai:
     composition-weight: 0.35
     appeal-weight: 0.25
 
-  # 场景识别配置
+  # 本地场景识别仅作为AI大模型不可用时的兼容回退，默认关闭
   scene-recognition:
     enabled: false  # 暂时禁用，等待模型文件
     model-path: ./models/scene_recognition.onnx
     confidence-threshold: 0.3
 
-  # 情感分析配置
+  # 本地情感分析仅作为AI大模型不可用时的兼容回退，默认关闭
   emotion-analysis:
     enabled: false  # 暂时禁用，等待模型文件
     model-path: ./models/emotion_analysis.onnx

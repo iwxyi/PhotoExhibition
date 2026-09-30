@@ -25,25 +25,9 @@
         <router-link to="/admin/tags" class="admin-metric"><span>标签</span><strong>{{ stats.tags }}</strong></router-link>
       </section>
 
-      <section class="admin-workbench-grid">
-        <div class="glass-panel admin-workbench-panel">
-          <h2>任务进度</h2>
-          <div class="admin-status-list">
-            <button type="button" class="w-full min-h-10 border-t border-[var(--pe-surface-border)] flex items-center justify-between gap-3 text-left" @click="openScanJobsModal">
-              <span>扫描</span><span :title="scanTaskProgressLine">{{ scanTaskCompactText }}</span>
-            </button>
-            <button type="button" class="w-full min-h-10 border-t border-[var(--pe-surface-border)] flex items-center justify-between gap-3 text-left" @click="openVisualAnalysisJobsModal">
-              <span>AI 分析</span>
-              <span class="flex items-center gap-2 tabular-nums">
-                <span class="text-sky-300">{{ visualJobCounts.RUNNING }}</span>
-                <span class="text-amber-300">{{ visualJobCounts.QUEUED }}</span>
-                <span class="text-emerald-300">{{ visualJobCounts.COMPLETED }}</span>
-                <span class="text-rose-300">{{ visualJobCounts.FAILED }}</span>
-              </span>
-            </button>
-          </div>
-        </div>
+      <BackgroundTaskTable />
 
+      <section class="admin-workbench-grid">
         <div class="glass-panel admin-workbench-panel">
           <h2>快捷入口</h2>
           <div class="admin-action-list">
@@ -92,6 +76,31 @@
               </button>
             </article>
           </div>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="showBackgroundJobsModal" class="admin-dashboard-modal fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showBackgroundJobsModal = false">
+      <div class="admin-modal-backdrop absolute inset-0"></div>
+      <section class="admin-modal-card admin-dashboard-modal-card relative w-full max-w-5xl max-h-[80vh] flex flex-col overflow-hidden">
+        <header class="admin-dashboard-modal-head flex items-center justify-between px-5 py-4 shrink-0">
+          <div><h3 class="text-base font-medium">全部后台任务</h3><p class="text-xs admin-table-muted">暂停会在当前照片处理完成后生效；重试只包含可重试失败项。</p></div>
+          <div class="flex flex-wrap items-center justify-end gap-2"><button type="button" class="admin-button-soft px-3 py-1.5 text-xs rounded-lg" @click="controlTaskScope(true)">{{ authStore.isSuperAdmin ? '整体暂停' : '暂停我的任务' }}</button><button type="button" class="admin-button-soft px-3 py-1.5 text-xs rounded-lg" @click="controlTaskScope(false)">{{ authStore.isSuperAdmin ? '整体恢复' : '恢复我的任务' }}</button><button type="button" class="admin-button-soft px-3 py-1.5 text-xs rounded-lg" @click="retryCurrentFailures">批量重试近期失败</button><button type="button" class="admin-button-soft px-3 py-1.5 text-xs rounded-lg" @click="fetchBackgroundJobs">刷新</button><button type="button" class="admin-dashboard-modal-close p-1.5 rounded-lg" @click="showBackgroundJobsModal = false">×</button></div>
+        </header>
+        <div class="overflow-auto flex-1">
+          <div v-if="loadingBackgroundJobs" class="py-12 text-center text-sm admin-table-muted">加载中…</div>
+          <div v-else-if="backgroundJobs.length === 0" class="py-12 text-center text-sm admin-table-muted">暂无任务</div>
+          <table v-else class="w-full text-xs admin-data-table border-collapse">
+            <thead class="sticky top-0 uppercase tracking-wide"><tr><th class="px-4 py-2.5 text-left">任务</th><th v-if="authStore.isSuperAdmin" class="px-4 py-2.5 text-left">账号</th><th class="px-4 py-2.5 text-left">状态</th><th class="px-4 py-2.5 text-left">进度</th><th class="px-4 py-2.5 text-left">参数/错误</th><th class="px-4 py-2.5 text-left">操作</th></tr></thead>
+            <tbody><tr v-for="job in backgroundJobs" :key="job.id" class="admin-dashboard-modal-row">
+              <td class="px-4 py-3">#{{ job.id }} · {{ backgroundJobTypeLabel(job.jobType) }}<div class="admin-table-faint">{{ job.resourceLane }}</div></td>
+              <td v-if="authStore.isSuperAdmin" class="px-4 py-3 admin-table-muted">用户 #{{ job.ownerUserId }}</td>
+              <td class="px-4 py-3"><span class="px-2 py-1 rounded-full border" :class="taskStatusClass(job.status)">{{ taskStatusLabel(job.status) }}</span></td>
+              <td class="px-4 py-3 tabular-nums">{{ job.processedItems || 0 }} / {{ job.totalItems || 0 }}<div v-if="job.failedItems" class="text-rose-300">失败 {{ job.failedItems }}</div></td>
+              <td class="px-4 py-3 admin-table-muted max-w-xs break-all"><div v-if="job.parameters && Object.keys(job.parameters).length">{{ JSON.stringify(job.parameters) }}</div><div v-if="job.errorSummary" class="text-rose-300">{{ job.errorSummary }}</div></td>
+              <td class="px-4 py-3"><div class="flex flex-wrap gap-1"><button v-if="['QUEUED','RUNNING'].includes(job.status)" class="admin-button-soft px-2 py-1 rounded" @click="controlBackgroundJob(job, 'pause')">暂停</button><button v-if="job.status === 'PAUSED'" class="admin-button-soft px-2 py-1 rounded" @click="controlBackgroundJob(job, 'resume')">恢复</button><button v-if="['FAILED','PARTIAL_SUCCESS','BLOCKED'].includes(job.status)" class="admin-button-soft px-2 py-1 rounded" @click="controlBackgroundJob(job, 'retry')">重试失败项</button><button v-if="!['SUCCEEDED','PARTIAL_SUCCESS','FAILED','SKIPPED','CANCELED'].includes(job.status)" class="admin-button-soft px-2 py-1 rounded text-rose-300" @click="controlBackgroundJob(job, 'cancel')">取消</button></div></td>
+            </tr></tbody>
+          </table>
         </div>
       </section>
     </div>
@@ -331,8 +340,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import BackgroundTaskTable from '@/components/admin/BackgroundTaskTable.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api, authProfileApi, type UserVipOverview, type UserVipPlan } from '@/api'
 import { storageTypeLabel } from '@/utils/providerLabels'
@@ -395,6 +405,16 @@ const visualAnalysisJobs = ref<any[]>([])
 const selectedVisualAnalysisJob = ref<any | null>(null)
 const loadingVisualAnalysisJobs = ref(false)
 const showVisualAnalysisJobsModal = ref(false)
+const backgroundJobs = ref<any[]>([])
+const loadingBackgroundJobs = ref(false)
+const showBackgroundJobsModal = ref(false)
+const recentRetryableBackgroundJobs = computed(() => backgroundJobs.value.filter(job =>
+  job.ownerUserId === authStore.userId && ['FAILED', 'PARTIAL_SUCCESS'].includes(job.status)))
+const backgroundJobCounts = computed(() => ({
+  running: backgroundJobs.value.filter(job => job.status === 'RUNNING').length,
+  queued: backgroundJobs.value.filter(job => ['QUEUED', 'WAITING_DEPENDENCY', 'BLOCKED', 'PAUSED'].includes(job.status)).length,
+  failed: backgroundJobs.value.filter(job => ['FAILED', 'PARTIAL_SUCCESS'].includes(job.status)).length
+}))
 const currentVisualAnalysisJob = computed(() =>
   visualAnalysisJobs.value.find(job => job.status === 'RUNNING') ||
   visualAnalysisJobs.value.find(job => ['QUEUED', 'PENDING'].includes(job.status)) ||
@@ -405,7 +425,7 @@ const visualJobCounts = computed(() => {
   const job = currentVisualAnalysisJob.value
   if (!job) return counts
   counts.RUNNING = job.status === 'RUNNING' ? 1 : 0
-  counts.QUEUED = Math.max(0, Number(job.waitingItems || 0) - counts.RUNNING)
+  counts.QUEUED = Math.max(0, Number(job.waitingItems ?? (Number(job.totalItems || 0) - Number(job.processedItems || 0))) - counts.RUNNING)
   counts.COMPLETED = Number(job.succeededItems || 0) + Number(job.skippedItems || 0)
   counts.FAILED = Number(job.failedItems || 0)
   return counts
@@ -523,20 +543,70 @@ const taskStatusLabel = (status?: string): string => {
       return '待处理'
     case 'PAUSED':
       return '已暂停'
+    case 'BLOCKED':
+      return '已阻塞'
+    case 'WAITING_DEPENDENCY':
+      return '等待条件'
     case 'FAILED':
       return '失败'
     case 'COMPLETED':
+    case 'SUCCEEDED':
       return '已完成'
+    case 'PARTIAL_SUCCESS':
+      return '部分成功'
     case 'SKIPPED':
       return '已跳过'
     case 'CANCELED':
       return '已取消'
+    case 'RETRIED':
+      return '已重试'
+    case 'IGNORED':
+      return '已忽略'
     default:
       return status || '未知'
   }
 }
 
 const visualJobStatusLabel = (status?: string): string => taskStatusLabel(status)
+
+const backgroundJobTypeLabel = (type?: string): string => ({
+  VISUAL_ANALYSIS: 'AI 视觉分析', FACE_RESCAN: '重建人脸', FACE_EMBEDDING: '重建人脸特征',
+  AI_SCORING: 'AI 评分', BACKGROUND_REMOVAL: '背景移除', COLOR_RECALCULATE: '颜色重算',
+  COLOR_CATEGORY: '颜色分类', EXIF_REBUILD: 'EXIF 重建',
+  MODEL_REBUILD_FACE_DETECTION: '模型重建 · 人脸检测',
+  MODEL_REBUILD_FACE_RECOGNITION: '模型重建 · 人脸特征',
+  MODEL_REBUILD_IMAGE_CLASSIFICATION: '模型重建 · 图像分类',
+  MODEL_REBUILD_SALIENCY_DETECTION: '模型重建 · 显著性检测',
+  MODEL_REBUILD_BACKGROUND_REMOVAL: '模型重建 · 背景移除'
+}[type || ''] || type || '后台任务')
+
+const fetchBackgroundJobs = async () => {
+  if (loadingBackgroundJobs.value) return
+  loadingBackgroundJobs.value = true
+  try { backgroundJobs.value = (await api.get('/admin/background-jobs')).data || [] }
+  catch (error) { console.error('加载后台任务失败:', error) }
+  finally { loadingBackgroundJobs.value = false }
+}
+const openBackgroundJobsModal = async () => { showBackgroundJobsModal.value = true; await fetchBackgroundJobs() }
+const controlBackgroundJob = async (job: any, action: 'pause' | 'resume' | 'cancel' | 'retry') => {
+  try {
+    await api.post(`/admin/background-jobs/${job.id}/${action}`, action === 'retry' ? { includeHistorical: false } : undefined)
+    await Promise.all([fetchBackgroundJobs(), fetchVisualAnalysisJobs()])
+  } catch (e: any) { alert(e?.response?.data?.details || e?.response?.data?.error || e.message) }
+}
+const controlTaskScope = async (paused: boolean) => {
+  const endpoint = `/admin/background-jobs/control/users/${authStore.userId}/${paused ? 'pause' : 'resume'}`
+  try { await api.post(endpoint); await Promise.all([fetchBackgroundJobs(), fetchScanStatus(), fetchScanTasks()]) }
+  catch (e: any) { alert(e?.response?.data?.details || e?.response?.data?.error || e.message) }
+}
+const retryCurrentFailures = async () => {
+  try {
+    if (!recentRetryableBackgroundJobs.value.length) return
+    await Promise.all(recentRetryableBackgroundJobs.value.map(job =>
+      api.post(`/admin/background-jobs/${job.id}/retry`, { includeHistorical: false })))
+    await fetchBackgroundJobs()
+  } catch (e: any) { alert(e?.response?.data?.details || e?.response?.data?.error || e.message) }
+}
 
 const visualAnalysisJson = (item: any): any => {
   if (!item?.analysisJson) return {}
@@ -624,10 +694,10 @@ const pathTypeLabel = (pathType?: string): string => {
 
 const taskStatusClass = (status?: string): string => {
   if (status === 'RUNNING') return 'text-sky-300 border-sky-500/40 bg-sky-500/10'
-  if (status === 'QUEUED' || status === 'PENDING') return 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+  if (status === 'QUEUED' || status === 'PENDING' || status === 'WAITING_DEPENDENCY' || status === 'BLOCKED') return 'text-amber-300 border-amber-500/40 bg-amber-500/10'
   if (status === 'PAUSED') return 'text-purple-300 border-purple-500/40 bg-purple-500/10'
   if (status === 'FAILED') return 'text-rose-300 border-rose-500/40 bg-rose-500/10'
-  if (status === 'COMPLETED') return 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+  if (status === 'COMPLETED' || status === 'SUCCEEDED' || status === 'PARTIAL_SUCCESS') return 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
   if (status === 'CANCELED') return 'text-zinc-300 border-zinc-500/40 bg-zinc-500/10'
   return 'text-zinc-300 border-zinc-500/40 bg-zinc-500/10'
 }
@@ -697,6 +767,7 @@ const fetchSkippedFiles = async () => {
 }
 
 const fetchScanTasks = async () => {
+  if (loadingScanTasks.value) return
   loadingScanTasks.value = true
   try {
     const res = await api.get('/admin/scan/tasks')
@@ -1474,6 +1545,7 @@ onMounted(async () => {
   await Promise.all([
     fetchScanStatus(),
     fetchVisualAnalysisJobs(),
+    fetchBackgroundJobs(),
     loadScanProviderOptions(),
     fetchScanTasks(),
     ...(authStore.isSuperAdmin ? [fetchOperationLogs(), fetchLoginRecords()] : [])
@@ -1481,6 +1553,7 @@ onMounted(async () => {
   scanTimer = window.setInterval(() => {
     fetchScanStatus()
     fetchVisualAnalysisJobs()
+    fetchBackgroundJobs()
     fetchScanTasks()
     if (authStore.isSuperAdmin) {
       fetchOperationLogs()

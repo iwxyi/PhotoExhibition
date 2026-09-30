@@ -56,6 +56,9 @@ public class PhotoService {
     private final PhotoAssignmentRepository photoAssignmentRepository;
     private final PersonProfileRepository personProfileRepository;
     private final UserPathService userPathService;
+
+    @Autowired(required = false)
+    private PhotoAnalysisPreferenceService analysisPreferenceService;
     
     @Lazy
     @Autowired
@@ -734,13 +737,68 @@ public class PhotoService {
         dto.setIsFeatured(photo.getIsFeatured());
         dto.setIsHidden(photo.getIsHidden());
         dto.setIsPinned(photo.getIsPinned());
+
+        PhotoAnalysisPreferenceService.PreferredAnalysis preferred = analysisPreferenceService == null
+            ? PhotoAnalysisPreferenceService.PreferredAnalysis.empty()
+            : analysisPreferenceService.resolve(photo.getId());
+        List<Object> localScenes = parseObjectList(photo.getSceneAnalysis());
+        List<Object> localEmotions = parseObjectList(photo.getEmotionAnalysis());
+        List<Map<String, Object>> localClassifications = parseMapList(photo.getLocalClassificationAnalysis());
+        dto.setLocalSceneAnalysis(localScenes);
+        dto.setLocalEmotionAnalysis(localEmotions);
+        dto.setLocalClassificationAnalysis(localClassifications);
+        dto.setAiSceneAnalysis(preferred.getScenes());
+        dto.setAiEmotionAnalysis(preferred.getMoods());
+        dto.setAiVisualTags(preferred.getVisualTags());
+        dto.setAiVisualModel(preferred.getModelName());
+
+        if (preferred.hasScene()) {
+            dto.setSceneAnalysis(preferred.getScenes());
+            dto.setPrimaryScene(preferred.getPrimaryScene());
+            dto.setSceneConfidence(preferred.getSceneConfidence());
+            dto.setSceneAnalysisSource("AI");
+        } else {
+            dto.setSceneAnalysis(localScenes);
+            dto.setPrimaryScene(photo.getPrimaryScene());
+            dto.setSceneConfidence(photo.getSceneConfidence());
+            dto.setSceneAnalysisSource("LOCAL");
+        }
+        if (preferred.hasEmotion()) {
+            dto.setEmotionAnalysis(preferred.getMoods());
+            dto.setPrimaryEmotion(preferred.getPrimaryEmotion());
+            dto.setEmotionConfidence(preferred.getEmotionConfidence());
+            dto.setEmotionAnalysisSource("AI");
+        } else {
+            dto.setEmotionAnalysis(localEmotions);
+            dto.setPrimaryEmotion(photo.getPrimaryEmotion());
+            dto.setEmotionConfidence(photo.getEmotionConfidence());
+            dto.setEmotionAnalysisSource("LOCAL");
+        }
+        dto.setClassificationSource(preferred.hasClassification() ? "AI" : "LOCAL");
+
         if (photo.getTags() != null) {
             // 过滤掉忽略列表中的标签
             Set<String> ignoredTags = systemConfigService.getTagIgnoreListSet();
-            dto.setTags(photo.getTags().stream()
+            List<TagDTO> effectiveTags = photo.getTags().stream()
                     .filter(tag -> !ignoredTags.contains(tag.getName()))
                     .map(this::toTagDTO)
-                    .collect(Collectors.toList()));
+                    .collect(Collectors.toCollection(java.util.ArrayList::new));
+            if (preferred.hasClassification()) {
+                Set<String> localClassificationNames = localClassifications.stream()
+                    .map(item -> item.get("label"))
+                    .filter(Objects::nonNull)
+                    .map(String::valueOf)
+                    .collect(Collectors.toSet());
+                effectiveTags.removeIf(tag -> localClassificationNames.contains(tag.getName()));
+                Set<String> existingNames = effectiveTags.stream().map(TagDTO::getName).collect(Collectors.toSet());
+                for (String aiTag : preferred.getVisualTags()) {
+                    if (ignoredTags.contains(aiTag) || !existingNames.add(aiTag)) continue;
+                    TagDTO tag = new TagDTO();
+                    tag.setName(aiTag);
+                    effectiveTags.add(tag);
+                }
+            }
+            dto.setTags(effectiveTags);
         }
         // faces 需要额外查询，避免懒加载问题
         List<Face> faces = photo.getId() != null
@@ -770,12 +828,20 @@ public class PhotoService {
         if (photo.getId() != null) {
             try {
                 java.util.Optional<com.photoexhibition.entity.PhotoAIScoring> aiScoringOpt = aiScoringRepository.findByPhotoId(photo.getId());
+                Double localOverall = null;
+                Double localTechnical = null;
+                Double localComposition = null;
+                Double localAppeal = null;
                 if (aiScoringOpt.isPresent()) {
                     com.photoexhibition.entity.PhotoAIScoring aiScoring = aiScoringOpt.get();
-                    dto.setAiOverallScore(aiScoring.getOverallScore());
-                    dto.setAiTechnicalScore(aiScoring.getTechnicalScore());
-                    dto.setAiCompositionScore(aiScoring.getCompositionScore());
-                    dto.setAiAppealScore(aiScoring.getAppealScore());
+                    localOverall = aiScoring.getOverallScore();
+                    localTechnical = aiScoring.getTechnicalScore();
+                    localComposition = aiScoring.getCompositionScore();
+                    localAppeal = aiScoring.getAppealScore();
+                    dto.setLocalOverallScore(localOverall);
+                    dto.setLocalTechnicalScore(localTechnical);
+                    dto.setLocalCompositionScore(localComposition);
+                    dto.setLocalAppealScore(localAppeal);
 
                     // 解析优点和不足
                     if (aiScoring.getStrengths() != null) {
@@ -808,12 +874,68 @@ public class PhotoService {
                         }
                     }
                 }
+
+                dto.setVisualAiQualityScore(preferred.getQualityScore());
+                dto.setVisualAiTechnicalScore(preferred.getTechnicalScore());
+                dto.setVisualAiCompositionScore(preferred.getCompositionScore());
+                dto.setVisualAiAppealScore(preferred.getAppealScore());
+
+                Double effectiveTechnical = firstScore(preferred.getTechnicalScore(), localTechnical);
+                Double effectiveComposition = firstScore(preferred.getCompositionScore(), localComposition);
+                Double effectiveAppeal = firstScore(preferred.getAppealScore(), localAppeal);
+                dto.setAiTechnicalScore(effectiveTechnical);
+                dto.setAiCompositionScore(effectiveComposition);
+                dto.setAiAppealScore(effectiveAppeal);
+                dto.setTechnicalScoreSource(preferred.getTechnicalScore() != null ? "AI" : localTechnical != null ? "LOCAL" : null);
+                dto.setCompositionScoreSource(preferred.getCompositionScore() != null ? "AI" : localComposition != null ? "LOCAL" : null);
+                dto.setAppealScoreSource(preferred.getAppealScore() != null ? "AI" : localAppeal != null ? "LOCAL" : null);
+
+                boolean hasAiScore = preferred.hasPhotographyScores();
+                boolean hasLocalFallback = (preferred.getTechnicalScore() == null && localTechnical != null)
+                    || (preferred.getCompositionScore() == null && localComposition != null)
+                    || (preferred.getAppealScore() == null && localAppeal != null);
+                dto.setScoreSource(hasAiScore ? (hasLocalFallback ? "MIXED" : "AI") : localOverall != null ? "LOCAL" : null);
+                dto.setAiOverallScore(preferred.getQualityScore() != null
+                    ? preferred.getQualityScore()
+                    : hasAiScore ? weightedScore(effectiveTechnical, effectiveComposition, effectiveAppeal) : localOverall);
             } catch (Exception e) {
                 log.warn("Failed to load AI scoring for photo {}: {}", photo.getId(), e.getMessage());
             }
         }
 
         return dto;
+    }
+
+    private Double firstScore(Double preferred, Double fallback) {
+        return preferred != null ? preferred : fallback;
+    }
+
+    private Double weightedScore(Double technical, Double composition, Double appeal) {
+        double total = 0.0;
+        double weight = 0.0;
+        if (technical != null) { total += technical * 0.40; weight += 0.40; }
+        if (composition != null) { total += composition * 0.35; weight += 0.35; }
+        if (appeal != null) { total += appeal * 0.25; weight += 0.25; }
+        return weight == 0.0 ? null : total / weight;
+    }
+
+    private List<Object> parseObjectList(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            return objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<Object>>() {});
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
+    }
+
+    private List<Map<String, Object>> parseMapList(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            return objectMapper.readValue(json,
+                new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
     }
 
     /**

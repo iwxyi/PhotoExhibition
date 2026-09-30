@@ -402,7 +402,17 @@ public class UserPathService {
         }
         StoragePathReference reference = parseStoragePathReference(path);
         if (reference == null) {
-            return Paths.get(path).toAbsolutePath().normalize();
+            Path direct = Paths.get(path).toAbsolutePath().normalize();
+            if (Files.exists(direct)) return direct;
+            // Historical rows may contain display-style absolute paths such as
+            // /data/photos/<user>/..., while the configured photo root lives
+            // inside the project directory. Reuse the scoped resolver so these
+            // paths map back to photo.scan.base-path instead of filesystem root.
+            try {
+                return resolveScopedPath(path, null);
+            } catch (IllegalArgumentException ignored) {
+                return direct;
+            }
         }
         StorageProvider provider = storageProviderRepository.findById(reference.getStorageProviderId())
             .orElseThrow(() -> new IllegalArgumentException("存储提供者不存在: " + reference.getStorageProviderId()));

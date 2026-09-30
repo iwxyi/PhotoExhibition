@@ -608,6 +608,14 @@ public class StorageProviderService {
     }
 
     private StorageProvider resolveManagedProvider(UserAccount user, List<StorageProvider> providers) {
+        if (user.getPreferredStorageProviderId() != null) {
+            Optional<StorageProvider> preferredProvider = providers.stream()
+                .filter(provider -> Objects.equals(provider.getId(), user.getPreferredStorageProviderId()))
+                .findFirst();
+            if (preferredProvider.isPresent() && evaluateProvider(preferredProvider.get(), user).isBrowserSupported()) {
+                return preferredProvider.get();
+            }
+        }
         Optional<StorageProvider> defaultProvider = providers.stream()
             .filter(provider -> Boolean.TRUE.equals(provider.getIsDefault()))
             .findFirst();
@@ -645,14 +653,20 @@ public class StorageProviderService {
         if (provider.getType() == StorageType.LOCAL) {
             Path providerBase = resolveAbsoluteBaseDirectory(provider);
             Path scopedRoot = resolveLocalBrowserScopedRoot(providerBase, user);
+            Path scanBase = userPathService.resolvePhotoBasePath();
+            boolean scanSupported = scanBase != null && providerBase.startsWith(scanBase.toAbsolutePath().normalize());
             return ProviderCapability.partialSupportedWithPreview(
                 providerBase,
                 scopedRoot,
                 true,
+                scanSupported,
                 true,
-                true,
-                "本地存储浏览/管理/上传/扫描/预览已接通",
-                "本地存储浏览/管理/上传/扫描/预览已接通"
+                scanSupported
+                    ? "本地存储浏览/管理/上传/扫描/预览已接通"
+                    : "本地存储浏览/管理/上传/预览已接通，自动扫描仅支持扫描根目录内的路径",
+                scanSupported
+                    ? "本地存储浏览/管理/上传/扫描/预览已接通"
+                    : "本地存储浏览/管理/上传/预览已接通，自动扫描仅支持扫描根目录内的路径"
             );
         }
         if (provider.getType() == StorageType.SFTP
