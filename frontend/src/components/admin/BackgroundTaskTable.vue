@@ -1,11 +1,14 @@
 <template>
   <section class="glass-panel admin-task-overview" aria-label="后台任务">
     <header class="admin-task-overview__head">
-      <h2>后台任务</h2>
+      <div>
+        <h2>{{ multiAccount && auth.isSuperAdmin ? '全部账号的后台任务' : '我的后台任务' }}</h2>
+        <p class="admin-task-overview__subtitle">扫描完成后，后续图片处理会自动在这里排队执行。</p>
+      </div>
       <div class="admin-task-overview__actions">
-        <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="controlScope(true)">{{ globalScope ? '整体暂停' : '暂停任务' }}</button>
-        <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="controlScope(false)">{{ globalScope ? '整体恢复' : '恢复任务' }}</button>
-        <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="retryFailures">批量重试失败</button>
+        <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="controlScope(true)">{{ globalScope ? '暂停全部任务' : '暂停我的任务' }}</button>
+        <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="controlScope(false)">{{ globalScope ? '恢复全部任务' : '恢复我的任务' }}</button>
+        <button class="admin-button-soft" :disabled="busy" @click="retryFailures">重试近期失败</button>
         <button class="admin-button-soft" :disabled="busy" @click="load">刷新</button>
       </div>
     </header>
@@ -14,15 +17,22 @@
     </label>
     <p v-if="error" class="text-rose-300 text-sm" role="alert">{{ error }}</p>
     <p v-if="feedback" class="admin-task-feedback" role="status">{{ feedback }}</p>
+    <div class="admin-task-overview__summary" aria-label="任务状态摘要">
+      <span><b>{{ counts.active }}</b> 处理中</span>
+      <span><b>{{ counts.waiting }}</b> 等待中</span>
+      <span :class="counts.failed ? 'admin-task-summary-alert' : ''"><b>{{ counts.failed }}</b> 需处理</span>
+      <span><b>{{ counts.done }}</b> 已完成</span>
+      <span class="admin-table-muted">当前页 {{ rows.length }} / 共 {{ total }} 条</span>
+    </div>
     <div class="admin-task-overview__body admin-task-table-scroll" :aria-busy="loading">
       <table class="admin-data-table admin-task-history__table">
-        <thead><tr><th>任务</th><th v-if="multiAccount">账号</th><th>状态</th><th>进度</th><th>失败 / 跳过</th><th>创建时间</th><th>更新时间</th><th>参数 / 错误</th><th>操作</th></tr></thead>
+        <thead><tr><th>任务</th><th v-if="multiAccount">账号</th><th>状态</th><th>进度</th><th>失败 / 跳过</th><th>创建时间</th><th>更新时间</th><th>配置 / 结果</th><th>下一步</th></tr></thead>
         <tbody>
           <tr v-for="task in rows" :key="key(task)">
-            <td>{{ taskLabel(task) }} <span class="admin-table-muted">#{{ task.id }}</span><div v-if="task.sourceJobId" class="admin-table-muted">重试自 #{{ task.sourceJobId }}</div></td>
+            <td>{{ taskLabel(task) }} <span class="admin-table-muted">#{{ task.id }}</span><div v-if="task.sourceJobId" class="admin-table-muted">来源任务 #{{ task.sourceJobId }}</div></td>
             <td v-if="multiAccount">{{ task.ownerLabel || `用户 #${task.ownerUserId ?? task.userId ?? task.requestedByUserId ?? '—'}` }}</td>
             <td><span :class="statusClass(task.status)">{{ task.status === 'RUNNING' && task.cancelRequested ? '正在取消' : task.status === 'RUNNING' && task.pauseRequested ? '正在暂停' : statusLabel(task.status) }}</span></td>
-            <td class="tabular-nums"><div>{{ task.processedItems || 0 }} / {{ task.totalItems || 0 }}</div><div class="admin-task-table-progress" role="progressbar" :aria-label="`${taskLabel(task)}进度`" :aria-valuenow="percent(task)" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${percent(task)}%` }"></span></div></td>
+            <td class="tabular-nums"><div>{{ task.processedItems || 0 }} / {{ task.totalItems || 0 }} <span class="admin-table-muted">({{ percent(task) }}%)</span></div><div class="admin-task-table-progress" role="progressbar" :aria-label="`${taskLabel(task)}进度`" :aria-valuenow="percent(task)" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${percent(task)}%` }"></span></div></td>
             <td class="tabular-nums">{{ task.failedItems || 0 }} / {{ task.skippedItems || 0 }}</td>
             <td>{{ formatDate(task.createdAt) }}</td><td>{{ formatDate(task.updatedAt || task.finishedAt || task.createdAt) }}</td>
             <td class="admin-task-history__detail"><div v-if="parameterSummary(task)">{{ parameterSummary(task) }}</div><div :class="['FAILED','PARTIAL_SUCCESS','BLOCKED'].includes(task.status) ? 'text-rose-300' : 'admin-table-muted'">{{ taskSummary(task) }}</div><div v-if="actionHint(task)" class="admin-task-action-hint">{{ actionHint(task) }}</div><details v-if="rawError(task)"><summary>错误详情</summary><div class="admin-table-muted">{{ rawError(task) }}</div></details></td>
@@ -66,6 +76,14 @@ const busy = ref(false)
 const error = ref('')
 const feedback = ref('')
 const globalScope = computed(() => props.multiAccount && auth.isSuperAdmin && owner.value === 'all')
+const counts = computed(() => {
+  const active = rows.value.filter(task => ['RUNNING'].includes(task.status) && !task.pauseRequested && !task.cancelRequested).length
+  const waiting = rows.value.filter(task => ['QUEUED', 'PENDING', 'PAUSED', 'WAITING_DEPENDENCY'].includes(task.status) || task.pauseRequested || task.cancelRequested).length
+  const failed = rows.value.filter(task => ['FAILED', 'PARTIAL_SUCCESS', 'BLOCKED'].includes(task.status)).length
+  const done = rows.value.filter(task => ['SUCCEEDED', 'COMPLETED', 'SKIPPED', 'CANCELED', 'IGNORED', 'RETRIED'].includes(task.status)).length
+  return { active, waiting, failed, done }
+})
+const retryableCount = computed(() => rows.value.filter(task => ['FAILED', 'PARTIAL_SUCCESS', 'BLOCKED'].includes(task.status)).length)
 let requestId = 0
 let timer: ReturnType<typeof setInterval> | undefined
 const key = (task: any) => `${task.scan ? 'scan' : 'job'}-${task.id}`

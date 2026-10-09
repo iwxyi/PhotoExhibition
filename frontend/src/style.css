@@ -7814,11 +7814,13 @@
 .admin-task-history__detail summary { cursor: pointer; color: var(--pe-admin-text-muted); }
 .admin-task-overview__head, .admin-task-overview__filters { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
 .admin-task-overview__head h2 { margin: 0; font-size: 1.125rem; font-weight: 650; }
+.admin-task-overview__subtitle { margin: .3rem 0 0; color: var(--pe-admin-text-muted); font-size: .75rem; }
 .admin-task-overview__head p { margin-top: .25rem; font-size: .8125rem; color: var(--pe-admin-text-muted); }
 .admin-task-overview__actions, .admin-task-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .admin-task-overview__actions button, .admin-task-card__actions button { min-height: 2.25rem; padding: .4rem .75rem; border-radius: 6px; font-size: .8125rem; }
 .admin-task-overview__summary { display: flex; flex-wrap: wrap; gap: .75rem 1.75rem; margin: 1.25rem 0; color: var(--pe-admin-text-muted); font-size: .8125rem; }
 .admin-task-overview__summary b { color: var(--pe-admin-text-primary); font-size: 1.375rem; font-variant-numeric: tabular-nums; margin-right: .25rem; }
+.admin-task-summary-alert b { color: #e05265; }
 .admin-task-overview__tabs { display: flex; border-bottom: 1px solid var(--pe-surface-border); }
 .admin-task-overview__tabs button { min-height: 2.5rem; padding: .5rem .75rem; border-bottom: 2px solid transparent; font-size: .8125rem; color: var(--pe-admin-text-muted); }
 .admin-task-overview__tabs button.is-selected { border-bottom-color: var(--pe-theme-primary); color: var(--pe-admin-text-primary); }
