@@ -28,11 +28,12 @@ public class BackgroundJobController {
             @RequestParam(required = false) Long ownerUserId,
             @RequestParam(defaultValue = "false") boolean systemOnly,
             @RequestParam(defaultValue = "true") boolean currentAccount,
+            @RequestParam(defaultValue = "all") String view,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         UserAccount viewer = currentUser(authorization);
         if (currentAccount) { ownerUserId = viewer.getId(); systemOnly = false; }
-        return ResponseEntity.ok(backgroundJobHistoryService.list(viewer, ownerUserId, systemOnly, page, size, true, currentAccount));
+        return ResponseEntity.ok(backgroundJobHistoryService.list(viewer, ownerUserId, systemOnly, page, size, true, currentAccount, view));
     }
 
     @PostMapping("/{jobId}/ignore")

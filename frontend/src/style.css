@@ -7809,6 +7809,15 @@
 .admin-task-table-actions { display: flex; gap: .5rem; }
 .admin-task-table-actions button { padding: .3rem .5rem; border-radius: 4px; }
 .admin-task-feedback { margin-top: .75rem; color: var(--pe-admin-text-primary); font-size: .8125rem; overflow-wrap: anywhere; }
+.admin-task-name { text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.admin-task-connection { margin-right: auto; }
+.admin-task-dialog { width: min(36rem, calc(100vw - 2rem)); max-height: 80vh; overflow: auto; padding: 1.25rem; border: 1px solid var(--pe-surface-border); border-radius: 8px; background: var(--pe-surface-bg); color: var(--pe-admin-text-primary); }
+.admin-task-dialog::backdrop { background: rgba(0, 0, 0, .5); }
+.admin-task-details { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: .75rem; margin: 1.25rem 0; font-size: .8125rem; }
+.admin-task-details dt { color: var(--pe-admin-text-muted); }
+.admin-task-details dd, .admin-task-dialog pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.admin-task-overview__tabs { flex-wrap: wrap; margin-top: .75rem; }
+.admin-task-overview__tabs span { margin-left: .25rem; font-variant-numeric: tabular-nums; }
 .admin-task-action-hint { margin-top: .25rem; color: var(--pe-admin-text-secondary); }
 .admin-task-history__detail details { margin-top: .25rem; }
 .admin-task-history__detail summary { cursor: pointer; color: var(--pe-admin-text-muted); }

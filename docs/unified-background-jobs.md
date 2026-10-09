@@ -300,3 +300,16 @@ These checks used the running Java 11 backend, real MySQL, HTTP requests, and Ch
 Temporary accounts, their tasks/items/owner controls, and their login/operation records were removed after all test work was terminal. The services remain available on frontend 3030 and backend 6060.
 
 Not covered by this run: real remote-provider quota exhaustion, provider outage/timeouts, physical power loss during ONNX inference, database/disk exhaustion, and sustained high-volume multi-user load. The process-kill check verifies durable recovery with fault-injected state, not all of those failure modes. Detailed face-detection output counts are also separate from the task's successful-photo count.
+
+## Compact task console (2026-10-09)
+
+- Keep one table and one combined count/filter strip: all, needs attention, running, waiting, and ended. Counts cover the entire authorized scope, not the current page; filtering precedes database pagination.
+- Move creation time, configuration, retry source, and expandable technical errors into a task-name detail dialog. Keep progress, result, and necessary actions in the table. Normal account overview still has no account selector; cross-account inspection stays in the super-admin page.
+- Missing files, quota, authentication, rate limiting, network errors, and unavailable models have short summaries and corrective actions. Background-job error codes are derived from the existing summary classifier, with textual fallback for older records; this is not a new persisted error schema.
+- Confirm task cancellation and global pause/resume, retain mutation debounce, and disable batch retry when there are no exceptional records or when viewing system tasks. Batch retry still uses the existing recent-failure policy, not all historical failures.
+- Show last successful refresh or connection failure. Same-scope refresh failures retain loaded records; changing scope/filter/page clears old rows so a failed request cannot mislabel another scope's results.
+- Real MySQL testing found incompatible collations between scan and background-job status columns. UNION queries now explicitly normalize these columns to utf8mb4_unicode_ci without changing stored data or schema.
+
+Verification: OpenJDK 11.0.30 runs 28 focused history/job tests with zero failures/errors; the backend starts on Java 11 with development hot restart disabled. Real authenticated HTTP/Chrome checks pass for scope-wide counts independent of page size, server-side failure filtering, task detail and Escape close, ordinary overview account-selector absence, external pagination, 390px mobile document width, offline data retention/reconnection, and super-admin all-account/individual-account/system scopes. Existing records only were read; no jobs were retried or photo data changed. Frontend production build and diff whitespace checks pass.
+
+Limits: current real records are terminal, so this run does not reproduce simultaneous active model jobs, remote quota depletion, or sustained load. Full retry-impact preview, item-level failure drilldown, and a persisted structured user-message schema are not added by this compact-console change.

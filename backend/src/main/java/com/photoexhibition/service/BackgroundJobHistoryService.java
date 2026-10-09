@@ -33,6 +33,12 @@ public class BackgroundJobHistoryService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> list(UserAccount viewer, Long ownerUserId, boolean systemOnly, int page, int size, boolean allRecords, boolean currentAccount) {
+        return list(viewer, ownerUserId, systemOnly, page, size, allRecords, currentAccount, "all");
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> list(UserAccount viewer, Long ownerUserId, boolean systemOnly, int page, int size, boolean allRecords, boolean currentAccount, String view) {
+        if (!List.of("all", "active", "waiting", "failed", "done").contains(view)) throw new IllegalArgumentException("未知任务筛选");
         if (viewer == null) throw new SecurityException("未授权");
         if (systemOnly && ownerUserId != null) throw new IllegalArgumentException("系统任务与账号筛选不能同时指定");
         if (viewer.getRole() != UserRole.SUPER_ADMIN) {
@@ -47,17 +53,29 @@ public class BackgroundJobHistoryService {
             : ownerUserId == null ? "" : viewer.getRole() == UserRole.SUPER_ADMIN && !currentAccount
             ? " AND COALESCE(user_id, requested_by_user_id) = :owner" : " AND requested_by_user_id = :owner";
         // Paginate the union in the database, not the bounded monitoring lists.
-        String history = "SELECT id, 'job' AS source, created_at FROM background_job WHERE "
+        // Existing installations can use different collations for the two status columns.
+        String statusColumn = "CONVERT(status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status";
+        String history = "SELECT id, 'job' AS source, created_at, " + statusColumn + " FROM background_job WHERE "
             + (allRecords ? "1=1" : "(status IN ('SUCCEEDED','SKIPPED','CANCELED','IGNORED','RETRIED') OR (status IN ('FAILED','PARTIAL_SUCCESS') AND updated_at < :cutoff))")
-            + backgroundScope + " UNION ALL SELECT id, 'scan' AS source, created_at FROM scan_task WHERE "
+            + backgroundScope + " UNION ALL SELECT id, 'scan' AS source, created_at, " + statusColumn + " FROM scan_task WHERE "
             + (allRecords ? "1=1" : "(status IN ('COMPLETED','SKIPPED','CANCELED','IGNORED') OR (status = 'FAILED' AND updated_at < :cutoff))") + scanScope;
         LocalDateTime cutoff = allRecords ? null : LocalDateTime.now().minusHours(24);
-        Query count = bind(entityManager.createNativeQuery("SELECT COUNT(*) FROM (" + history + ") history"), ownerUserId, cutoff);
+        Map<String, Long> statistics = new LinkedHashMap<>();
+        if (allRecords) {
+            Query summary = bind(entityManager.createNativeQuery("SELECT status, COUNT(*) FROM (" + history + ") history GROUP BY status"), ownerUserId, cutoff);
+            for (Object value : summary.getResultList()) {
+                Object[] row = (Object[]) value;
+                String group = statusGroup(String.valueOf(row[0]));
+                statistics.put(group, statistics.getOrDefault(group, 0L) + ((Number) row[1]).longValue());
+            }
+        }
+        String filter = "all".equals(view) ? "" : " WHERE status IN (" + groupStatuses(view) + ")";
+        Query count = bind(entityManager.createNativeQuery("SELECT COUNT(*) FROM (" + history + ") history" + filter), ownerUserId, cutoff);
         long total = ((Number) count.getSingleResult()).longValue();
         int totalPages = (int) Math.max(1, (total + pageSize - 1) / pageSize);
         int currentPage = Math.max(0, Math.min(page, totalPages - 1));
         Query query = bind(entityManager.createNativeQuery("SELECT id, source FROM (" + history
-            + ") history ORDER BY created_at DESC, source ASC, id DESC"), ownerUserId, cutoff);
+            + ") history" + filter + " ORDER BY created_at DESC, source ASC, id DESC"), ownerUserId, cutoff);
         query.setFirstResult(currentPage * pageSize);
         query.setMaxResults(pageSize);
         List<Map<String, Object>> items = new ArrayList<>();
@@ -97,7 +115,25 @@ public class BackgroundJobHistoryService {
         result.put("page", currentPage);
         result.put("size", pageSize);
         result.put("totalPages", totalPages);
+        result.put("statistics", statistics);
         return result;
+    }
+
+    private String statusGroup(String status) {
+        if ("RUNNING".equals(status)) return "active";
+        if (List.of("FAILED", "PARTIAL_SUCCESS", "BLOCKED").contains(status)) return "failed";
+        if (List.of("QUEUED", "PENDING", "PAUSED", "WAITING_DEPENDENCY").contains(status)) return "waiting";
+        return "done";
+    }
+
+    private String groupStatuses(String group) {
+        switch (group) {
+            case "active": return "'RUNNING'";
+            case "waiting": return "'QUEUED','PENDING','PAUSED','WAITING_DEPENDENCY'";
+            case "failed": return "'FAILED','PARTIAL_SUCCESS','BLOCKED'";
+            case "done": return "'SUCCEEDED','COMPLETED','SKIPPED','CANCELED','IGNORED','RETRIED'";
+            default: throw new IllegalArgumentException("未知任务筛选");
+        }
     }
 
     private Query bind(Query query, Long ownerUserId, LocalDateTime cutoff) {

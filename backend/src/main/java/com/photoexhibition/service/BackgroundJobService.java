@@ -944,6 +944,11 @@ public class BackgroundJobService {
         result.put("blockingReason", job.getBlockingReason());
         result.put("failureGroupId", job.getFailureGroupId());
         result.put("errorSummary", job.getErrorSummary());
+        if (job.getErrorSummary() != null && !job.getErrorSummary().isBlank()) {
+            Failure failure = classifyFailure(new IllegalStateException(job.getErrorSummary()));
+            result.put("errorCode", failure.code);
+            result.put("retryable", failure.retryable);
+        }
         result.put("createdAt", job.getCreatedAt());
         result.put("startedAt", job.getStartedAt());
         result.put("finishedAt", job.getFinishedAt());
