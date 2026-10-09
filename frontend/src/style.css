@@ -7808,6 +7808,10 @@
 .admin-task-table-progress span { display: block; height: 100%; background: var(--pe-theme-primary); transition: width 350ms ease; }
 .admin-task-table-actions { display: flex; gap: .5rem; }
 .admin-task-table-actions button { padding: .3rem .5rem; border-radius: 4px; }
+.admin-task-feedback { margin-top: .75rem; color: var(--pe-admin-text-primary); font-size: .8125rem; overflow-wrap: anywhere; }
+.admin-task-action-hint { margin-top: .25rem; color: var(--pe-admin-text-secondary); }
+.admin-task-history__detail details { margin-top: .25rem; }
+.admin-task-history__detail summary { cursor: pointer; color: var(--pe-admin-text-muted); }
 .admin-task-overview__head, .admin-task-overview__filters { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
 .admin-task-overview__head h2 { margin: 0; font-size: 1.125rem; font-weight: 650; }
 .admin-task-overview__head p { margin-top: .25rem; font-size: .8125rem; color: var(--pe-admin-text-muted); }
