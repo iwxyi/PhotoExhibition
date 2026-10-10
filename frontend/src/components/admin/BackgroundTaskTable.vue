@@ -5,6 +5,7 @@
         <h2>{{ multiAccount && auth.isSuperAdmin ? '全部账号的后台任务' : '我的后台任务' }}</h2>
       </div>
       <div class="admin-task-overview__actions">
+        <button v-if="multiAccount && auth.isSuperAdmin" class="admin-button-soft" @click="$emit('scan')">扫描</button>
         <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="controlScope(true)">暂停{{ scopeLabel }}任务</button>
         <button class="admin-button-soft" :disabled="busy || owner === 'system'" @click="controlScope(false)">恢复{{ scopeLabel }}任务</button>
         <button class="admin-button-soft" :disabled="busy || owner === 'system' || !counts.failed" @click="retryFailures">重试近期失败</button>
@@ -51,20 +52,40 @@
       <span>{{ page + 1 }} / {{ totalPages }}</span>
       <button class="admin-button-soft" :disabled="loading || page + 1 >= totalPages" @click="page++">下一页</button>
     </footer>
-    <dialog ref="detailDialog" class="admin-task-dialog" @close="selected = null" @click="closeBackdrop">
+    <dialog ref="detailDialog" class="admin-task-dialog admin-task-detail-dialog" @close="selected = null" @click="closeBackdrop">
       <template v-if="selected">
         <header class="admin-task-overview__head"><h2>{{ taskLabel(selected) }} #{{ selected.id }}</h2><button class="admin-button-soft" @click="selected = null">关闭</button></header>
+        <div class="admin-task-overview__tabs" role="tablist" aria-label="任务详情">
+          <button id="task-status-tab" role="tab" :aria-selected="detailTab === 'status'" aria-controls="task-status-panel" :class="{ 'is-selected': detailTab === 'status' }" @click="detailTab = 'status'">状态</button>
+          <button id="task-files-tab" role="tab" :aria-selected="detailTab === 'files'" aria-controls="task-files-panel" :class="{ 'is-selected': detailTab === 'files' }" @click="detailTab = 'files'">文件</button>
+        </div>
+        <section v-if="detailTab === 'status'" id="task-status-panel" role="tabpanel" aria-labelledby="task-status-tab">
         <dl class="admin-task-details">
           <dt>状态</dt><dd>{{ statusLabel(selected.status) }}</dd>
           <dt>进度</dt><dd>{{ selected.processedItems || 0 }} / {{ selected.totalItems || 0 }}</dd>
           <dt>结果</dt><dd>{{ taskSummary(selected) }}</dd>
           <dt v-if="actionHint(selected)">下一步</dt><dd v-if="actionHint(selected)">{{ actionHint(selected) }}</dd>
+          <dt v-if="selected.status === 'RUNNING'">当前阶段</dt><dd v-if="selected.status === 'RUNNING'">{{ stageLabel(selected) }}</dd>
+          <dt v-if="waitingReason(selected)">等待原因</dt><dd v-if="waitingReason(selected)">{{ waitingReason(selected) }}</dd>
+          <dt>最近活动</dt><dd>{{ formatDate(selected.lastActivityAt || selected.updatedAt || selected.finishedAt) }}</dd>
+          <dt v-if="selected.startedAt">已历时</dt><dd v-if="selected.startedAt">{{ durationLabel(selected) }}</dd>
           <dt>创建时间</dt><dd>{{ formatDate(selected.createdAt) }}</dd>
-          <dt>更新时间</dt><dd>{{ formatDate(selected.updatedAt || selected.finishedAt) }}</dd>
+          <dt v-if="selected.scan">扫描路径</dt><dd v-if="selected.scan">{{ selected.rootPathDisplay || selected.rootPath || '—' }}</dd>
           <dt v-if="selected.sourceJobId">来源任务</dt><dd v-if="selected.sourceJobId">#{{ selected.sourceJobId }}</dd>
           <dt v-if="parameterSummary(selected)">配置</dt><dd v-if="parameterSummary(selected)">{{ parameterSummary(selected) }}</dd>
         </dl>
         <details v-if="rawError(selected)"><summary>技术详情</summary><pre>{{ rawError(selected) }}</pre></details>
+        </section>
+        <section v-else id="task-files-panel" role="tabpanel" aria-labelledby="task-files-tab">
+          <p v-if="fileError" role="alert" class="text-rose-300">{{ fileError }} <button class="admin-button-soft" @click="loadFiles">重试</button></p>
+          <div class="admin-task-table-scroll admin-task-files-scroll" :aria-busy="fileLoading">
+            <table class="admin-data-table admin-task-files-table"><thead><tr><th>文件名称</th><th>账号</th><th>状态</th><th>信息</th><th>时间</th><th>相对路径</th></tr></thead><tbody>
+              <tr v-for="file in files" :key="file.id"><td>{{ file.name }}<span v-if="file.pathType === 'DIRECTORY'" class="admin-table-muted">（目录）</span></td><td>{{ file.ownerLabel }}</td><td :class="statusClass(file.status)">{{ statusLabel(file.status) }}</td><td class="admin-task-file-message">{{ fileMessage(file) }}</td><td>{{ formatDate(file.updatedAt || file.finishedAt || file.createdAt) }}</td><td class="admin-task-file-path">{{ file.path || '—' }}</td></tr>
+              <tr v-if="!files.length"><td colspan="6">{{ fileLoading ? '加载中…' : fileError ? '暂时无法获取明细' : selected.scan ? '暂无已记录的文件，旧扫描可能仅有异常记录' : '没有已入队的文件' }}</td></tr>
+            </tbody></table>
+          </div>
+          <footer class="admin-task-history__pagination"><span>{{ selected.scan ? '已记录' : '共' }} {{ fileTotal }} 条</span><button class="admin-button-soft" :disabled="fileLoading || filePage === 0" @click="filePage--">上一页</button><span>{{ filePage + 1 }} / {{ Math.max(1, Math.ceil(fileTotal / 20)) }}</span><button class="admin-button-soft" :disabled="fileLoading || (filePage + 1) * 20 >= fileTotal" @click="filePage++">下一页</button></footer>
+        </section>
       </template>
     </dialog>
   </section>
@@ -76,6 +97,7 @@ import { api } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
 const props = withDefaults(defineProps<{ multiAccount?: boolean; accounts?: any[] }>(), { multiAccount: false, accounts: () => [] })
+defineEmits<{ scan: [] }>()
 const auth = useAuthStore()
 const owner = ref('all')
 const page = ref(0)
@@ -91,6 +113,31 @@ const view = ref('all')
 const selected = ref<any>(null)
 const detailDialog = ref<HTMLDialogElement | null>(null)
 const lastUpdated = ref('')
+const detailTab = ref('status')
+const files = ref<any[]>([])
+const filePage = ref(0)
+const fileTotal = ref(0)
+const fileLoading = ref(false)
+const fileError = ref('')
+let fileRequest = 0
+const loadFiles = async () => {
+  const task = selected.value
+  const request = ++fileRequest
+  if (!task || detailTab.value !== 'files') return
+  fileLoading.value = true
+  fileError.value = ''
+  try {
+    const { data } = await api.get(`/admin/background-jobs/${task.scan ? 'scans/' : ''}${task.id}/files`, { params: { page: filePage.value, size: 20 } })
+    if (request !== fileRequest) return
+    files.value = data.content || []
+    fileTotal.value = data.totalElements || 0
+    const lastPage = Math.max(0, Math.ceil(fileTotal.value / 20) - 1)
+    if (filePage.value > lastPage) filePage.value = lastPage
+  } catch { if (request === fileRequest) fileError.value = '文件明细加载失败' }
+  finally { if (request === fileRequest) fileLoading.value = false }
+}
+watch(() => selected.value ? key(selected.value) : '', () => { fileRequest++; fileLoading.value = false; fileError.value = ''; files.value = []; fileTotal.value = 0; detailTab.value = 'status'; filePage.value = 0 })
+watch([filePage, detailTab], () => { fileRequest++; fileLoading.value = false; files.value = []; void loadFiles() })
 const filters = [{ value: 'all', label: '全部' }, { value: 'failed', label: '需处理' }, { value: 'active', label: '执行中' }, { value: 'waiting', label: '等待' }, { value: 'done', label: '已结束' }]
 const globalScope = computed(() => props.multiAccount && auth.isSuperAdmin && owner.value === 'all')
 const scopeLabel = computed(() => globalScope.value ? '全部' : props.multiAccount ? '此账号' : '我的')
@@ -103,9 +150,45 @@ let timer: ReturnType<typeof setInterval> | undefined
 const key = (task: any) => `${task.scan ? 'scan' : 'job'}-${task.id}`
 const percent = (task: any) => task.totalItems > 0 ? Math.min(100, Math.floor((task.processedItems || 0) * 100 / task.totalItems)) : 0
 const formatDate = (value: string) => value ? new Date(value).toLocaleString('zh-CN') : '—'
+const durationLabel = (task: any) => {
+  let seconds = Number(task.durationSeconds)
+  if (!Number.isFinite(seconds)) seconds = 0
+  if (task.startedAt && !task.finishedAt) seconds = Math.max(0, Math.floor((Date.now() - new Date(task.startedAt).getTime()) / 1000))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remainder = seconds % 60
+  return hours ? `${hours}小时${minutes}分` : minutes ? `${minutes}分${remainder}秒` : `${remainder}秒`
+}
 const statusLabel = (status: string) => ({ PENDING: '待处理', QUEUED: '排队中', RUNNING: '执行中', PAUSED: '已暂停', BLOCKED: '已阻塞', WAITING_DEPENDENCY: '等待条件', SUCCEEDED: '已完成', COMPLETED: '已完成', PARTIAL_SUCCESS: '部分成功', FAILED: '失败', SKIPPED: '已跳过', CANCELED: '已取消', IGNORED: '已忽略', RETRIED: '已重试' } as Record<string, string>)[status] || status
 const statusClass = (status: string) => ['FAILED','PARTIAL_SUCCESS'].includes(status) ? 'text-rose-300' : ['SUCCEEDED','COMPLETED'].includes(status) ? 'text-emerald-300' : ['RUNNING','QUEUED','BLOCKED','PENDING'].includes(status) ? 'text-amber-300' : 'admin-table-muted'
 const rawError = (task: any): string => task.errorSummary || task.errorMessage || task.blockingReason || ''
+const stageLabel = (task: any) => {
+  const stage = task.currentStage || task.lastProcessedType || task.stage || task.jobType || task.taskType
+  const labels: Record<string, string> = {
+    FULL_SCAN: '扫描文件', UPLOAD_SCAN: '扫描文件', RESUME_SCAN: '扫描文件', INCREMENTAL_SCAN: '扫描文件',
+    FILE: '扫描文件', DIRECTORY: '扫描目录', EXIF: '读取 EXIF', COLOR: '分析颜色', FACE: '人脸检测', AI: 'AI 分析', VISUAL_ANALYSIS: 'AI 视觉分析',
+    MODEL_REBUILD_FACE_DETECTION: '重建人脸检测', MODEL_REBUILD_FACE_RECOGNITION: '重建人脸特征',
+    MODEL_REBUILD_IMAGE_CLASSIFICATION: '重建图像分类', MODEL_REBUILD_SALIENCY_DETECTION: '重建显著性',
+    MODEL_REBUILD_SCENE_RECOGNITION: '重建场景识别', MODEL_REBUILD_EMOTION_ANALYSIS: '重建情绪分析'
+  }
+  return labels[stage] || taskLabel({ jobType: stage }) || '准备中'
+}
+const waitingReason = (task: any) => {
+  if (!['WAITING_DEPENDENCY', 'BLOCKED'].includes(task.status)) return ''
+  const reason = task.waitingReason || (['WAITING_DEPENDENCY', 'BLOCKED'].includes(task.status) ? task.blockingReason : '')
+  const labels: Record<string, string> = {
+    SCAN_NOT_COMPLETED: '等待扫描完成', QUOTA_EXHAUSTED: '大模型额度不足', MODEL_UNAVAILABLE: '等待模型可用',
+    TRANSIENT_NETWORK: '等待网络或接口恢复', RESOURCE_BUSY: '等待资源线程'
+  }
+  return labels[reason] || (reason ? '等待前置处理或资源可用' : '')
+}
+const fileMessage = (file: any) => {
+  if (file.message) return file.message
+  if (file.status === 'RUNNING') return '正在处理'
+  if (file.status === 'QUEUED') return '等待执行'
+  if (file.status === 'SUCCEEDED') return '处理完成'
+  return '—'
+}
 const failureKind = (task: any) => {
   const known: Record<string, string> = { QUOTA_EXHAUSTED: 'quota', TRANSIENT_NETWORK: 'network', SOURCE_MISSING: 'file', MODEL_UNAVAILABLE: 'model' }
   if (known[task.errorCode]) return known[task.errorCode]
@@ -129,9 +212,10 @@ const parameterSummary = (task: any) => Object.entries(task.parameters || {}).ma
   const display = typeof value === 'boolean' ? value ? '是' : '否' : typeof value === 'object' ? JSON.stringify(value) : String(value)
   return `${labels[name] || name}：${display}`
 }).join('；')
-const taskSummary = (task: any) => (task.status === 'RETRIED' ? '失败项已转入新的重试任务' : task.status === 'IGNORED' ? '该失败已忽略' : ['SUCCEEDED','COMPLETED'].includes(task.status) ? `成功 ${task.succeededItems ?? task.processedItems ?? 0} 项` : '')
+const taskSummary = (task: any) => (task.status === 'RETRIED' ? '失败项已转入新的重试任务' : task.status === 'IGNORED' ? '该失败已忽略' : ['SUCCEEDED','COMPLETED'].includes(task.status) ? `成功 ${task.succeededItems ?? Math.max(0, (task.processedItems || 0) - (task.failedItems || 0) - (task.skippedItems || 0))} 项` : '')
   || ({ quota: '大模型额度不足', model: '所需模型不可用', file: '源文件不存在', deleted: '目标照片已删除', auth: '大模型接口认证失败', rate: '接口请求受到限流', network: '接口连接失败或超时' } as Record<string, string>)[failureKind(task)]
   || rawError(task)
+  || (['FAILED', 'PARTIAL_SUCCESS'].includes(task.status) && task.failedItems > 0 ? `失败 ${task.failedItems} 项` : '')
   || (['SUCCEEDED','COMPLETED'].includes(task.status) ? `成功 ${task.succeededItems ?? task.processedItems ?? 0} 项`
     : task.status === 'SKIPPED' ? `跳过 ${task.skippedItems || 0} 项`
       : task.status === 'RETRIED' ? '失败项已转入新的重试任务'
@@ -202,6 +286,6 @@ const retryFailures = () => mutate(() => api.post('/admin/background-jobs/retry-
 }), data => `已提交 ${data.jobs?.length || 0} 个重试任务，仅重试近期失败项，不重复处理成功项。`)
 watch([owner, size, view], () => { selected.value = null; if (page.value !== 0) page.value = 0; else void load() })
 watch(page, () => { void load() })
-onMounted(() => { void load(); timer = setInterval(() => { if (!loading.value && !busy.value) void load() }, 5000) })
-onUnmounted(() => { requestId++; if (timer) clearInterval(timer) })
+onMounted(() => { void load(); timer = setInterval(() => { if (!loading.value && !busy.value) void load(); if (selected.value && detailTab.value === 'files' && !fileLoading.value) void loadFiles() }, 5000) })
+onUnmounted(() => { requestId++; fileRequest++; if (timer) clearInterval(timer) })
 </script>

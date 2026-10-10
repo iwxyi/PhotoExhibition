@@ -12,6 +12,13 @@ import java.util.Optional;
 
 @Repository
 public interface ScanTaskRepository extends JpaRepository<ScanTask, Long> {
+    @Query("select t from ScanTask t where t.status in :statuses and t.updatedAt < :cutoff order by t.id")
+    List<ScanTask> findExpired(@Param("statuses") List<ScanTaskStatus> statuses,
+        @Param("cutoff") java.time.LocalDateTime cutoff, org.springframework.data.domain.Pageable pageable);
+
+    @org.springframework.data.jpa.repository.Lock(javax.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from ScanTask t where t.id = :id")
+    Optional<ScanTask> findForUpdate(@Param("id") Long id);
     List<ScanTask> findByStatusOrderByPriorityDescCreatedAtAsc(ScanTaskStatus status);
 
     List<ScanTask> findByStatusInOrderByPriorityDescCreatedAtAsc(List<ScanTaskStatus> statuses);

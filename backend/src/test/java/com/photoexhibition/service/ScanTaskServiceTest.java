@@ -38,6 +38,8 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class ScanTaskServiceTest {
 
+    @Mock private com.photoexhibition.repository.ScanTaskIssueRepository scanTaskIssueRepository;
+
     @Mock
     private ScanTaskRepository scanTaskRepository;
 
@@ -70,6 +72,7 @@ class ScanTaskServiceTest {
     @BeforeEach
     void setUp() {
         scanTaskService = new ScanTaskService(
+            scanTaskIssueRepository,
             scanTaskRepository,
             backgroundJobControlRepository,
             photoScanService,
@@ -81,6 +84,21 @@ class ScanTaskServiceTest {
             new ObjectMapper(),
             transactionManager
         );
+    }
+
+    @Test
+    void issueDetailsRequireOwnershipAndClampPagination() {
+        ScanTask task = new ScanTask();
+        task.setId(91L);
+        task.setRequestedByUserId(7L);
+        UserAccount viewer = new UserAccount();
+        viewer.setId(7L);
+        viewer.setRole(UserRole.USER_ADMIN);
+        when(scanTaskRepository.findById(91L)).thenReturn(Optional.of(task));
+        scanTaskService.getIssues(viewer, 91L, -1, 1000);
+        verify(scanTaskIssueRepository).findIssues(91L, org.springframework.data.domain.PageRequest.of(0, 100));
+        viewer.setId(8L);
+        assertThrows(SecurityException.class, () -> scanTaskService.getIssues(viewer, 91L, 0, 20));
     }
 
     @Test
@@ -180,6 +198,33 @@ class ScanTaskServiceTest {
         );
 
         assertEquals(1L, selected.getId());
+    }
+
+    @Test
+    void scanCallbacksPersistTaskSpecificIssues() throws Exception {
+        ScanTask task = task(9L, 100, 10L, LocalDateTime.now());
+        when(scanTaskRepository.findById(9L)).thenReturn(Optional.of(task));
+        when(userPathService.extractTenantRelativePhotoPath("/data/photos/10/a.jpg")).thenReturn("a.jpg");
+        when(userPathService.extractTenantRelativePhotoPath("/data/photos/10/b.jpg")).thenReturn("b.jpg");
+        when(userPathService.extractTenantRelativePhotoPath("/data/photos/10/c.jpg")).thenReturn("c.jpg");
+        java.lang.reflect.Constructor<?> constructor = Class.forName(
+            "com.photoexhibition.service.ScanTaskService$TaskProgressTracker")
+            .getDeclaredConstructor(ScanTaskService.class, Long.class);
+        constructor.setAccessible(true);
+        PhotoScanService.ScanProgressListener tracker = (PhotoScanService.ScanProgressListener)
+            constructor.newInstance(scanTaskService, 9L);
+
+        tracker.onPathSkipped("/data/photos/10/a.jpg", "FILE", "损坏文件", "无法解码", 1, 2);
+        tracker.onPathFailed("/data/photos/10/b.jpg", "FILE", "读取失败", 2, 2);
+        tracker.onPathProcessed("/data/photos/10/c.jpg", "FILE", 3, 3);
+
+        verify(scanTaskIssueRepository).save(argThat(issue -> issue.getTaskId().equals(9L)
+            && "a.jpg".equals(issue.getPath()) && "损坏文件".equals(issue.getReason())
+            && "无法解码".equals(issue.getDetail())));
+        verify(scanTaskIssueRepository).save(argThat(issue -> issue.getTaskId().equals(9L)
+            && "处理失败".equals(issue.getReason()) && "读取失败".equals(issue.getDetail())));
+        verify(scanTaskIssueRepository).save(argThat(issue -> "SUCCEEDED".equals(issue.getStatus()) && "c.jpg".equals(issue.getPath())));
+        verify(scanTaskIssueRepository, times(3)).save(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

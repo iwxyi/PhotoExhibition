@@ -3,12 +3,16 @@ package com.photoexhibition.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.photoexhibition.entity.ScanTask;
+import com.photoexhibition.entity.ScanTaskIssue;
 import com.photoexhibition.entity.ScanTaskStatus;
 import com.photoexhibition.entity.ScanTaskType;
 import com.photoexhibition.entity.StorageProvider;
 import com.photoexhibition.entity.UserAccount;
 import com.photoexhibition.entity.UserRole;
 import com.photoexhibition.repository.ScanTaskRepository;
+import com.photoexhibition.repository.ScanTaskIssueRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import com.photoexhibition.repository.BackgroundJobControlRepository;
 import com.photoexhibition.repository.StorageProviderRepository;
 import com.photoexhibition.repository.UserAccountRepository;
@@ -54,6 +58,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class ScanTaskService {
+    private final ScanTaskIssueRepository scanTaskIssueRepository;
     private static final int SCAN_FAIR_SHARE_PATHS = 20;
 
     @Data
@@ -208,6 +213,62 @@ public class ScanTaskService {
     @Transactional(readOnly = true)
     public Map<String, Object> getHistorySummary(UserAccount currentUser, Long taskId) {
         return toTaskMap(requireVisibleTask(currentUser, taskId));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ScanTaskIssue> getIssues(UserAccount viewer, Long taskId, int page, int size) {
+        requireVisibleTask(viewer, taskId);
+        return scanTaskIssueRepository.findIssues(taskId,
+            PageRequest.of(Math.max(0, page), Math.max(1, Math.min(100, size))));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Map<String, Object>> getFiles(UserAccount viewer, Long taskId, int page, int size) {
+        ScanTask task = requireVisibleTask(viewer, taskId);
+        String owner = String.valueOf(toTaskMap(task).get("ownerLabel"));
+        Page<ScanTaskIssue> entries = scanTaskIssueRepository.findByTaskIdOrderByIdAsc(taskId,
+            PageRequest.of(Math.max(0, page), Math.max(1, Math.min(100, size))));
+        Map<Long, String> owners = userAccountRepository.findAllById(entries.stream().map(ScanTaskIssue::getOwnerUserId)
+            .filter(Objects::nonNull).collect(Collectors.toSet())).stream().collect(Collectors.toMap(UserAccount::getId,
+                u -> u.getNickname() == null || u.getNickname().isBlank() ? u.getUsername() : u.getNickname()));
+        return entries.map(file -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                String path = TaskFileService.relativePath(userPathService, file.getPath());
+                row.put("id", file.getId()); row.put("path", path);
+                row.put("name", path == null ? "—" : path.substring(path.lastIndexOf('/') + 1));
+                row.put("ownerLabel", file.getOwnerUserId() == null ? owner : owners.getOrDefault(file.getOwnerUserId(), "用户 #" + file.getOwnerUserId())); row.put("pathType", file.getPathType());
+                row.put("status", file.getStatus() == null ? "处理失败".equals(file.getReason()) ? "FAILED" : "SKIPPED" : file.getStatus());
+                row.put("message", file.getReason() == null ? "" : file.getReason() + (file.getDetail() == null ? "" : "：" + file.getDetail()));
+                row.put("updatedAt", file.getRecordedAt());
+                return row;
+            });
+    }
+
+    private void recordIssue(Long taskId, String path, String reason, String detail) {
+        String fileKey = TaskFileService.fileKey(path);
+        ScanTaskIssue issue = scanTaskIssueRepository.findFirstByTaskIdAndFileKey(taskId, fileKey).orElseGet(ScanTaskIssue::new);
+        issue.setFileKey(fileKey);
+        issue.setTaskId(taskId);
+        issue.setOwnerUserId(fileOwner(path));
+        Long ownerId = scanTaskRepository.findById(taskId).map(task -> task.getUserId() != null ? task.getUserId() : task.getRequestedByUserId()).orElse(null);
+        issue.setPath(TaskFileService.relativePath(userPathService, path, ownerId));
+        issue.setStatus("处理失败".equals(reason) ? "FAILED" : "SKIPPED");
+        issue.setRecordedAt(LocalDateTime.now());
+        issue.setReason(reason == null ? "未知原因" : reason.substring(0, Math.min(reason.length(), 100)));
+        issue.setDetail(detail);
+        scanTaskIssueRepository.save(issue);
+    }
+
+    private Long fileOwner(String path) {
+        String scoped = userPathService.toRelativePhotoPath(path, true);
+        if (scoped != null) {
+            String normalized = scoped.replace('\\', '/').replaceFirst("^/", "");
+            String first = normalized.split("/", 2)[0];
+            if (first.matches("[0-9]+")) {
+                try { return Long.valueOf(first); } catch (NumberFormatException ignored) { }
+            }
+        }
+        return null;
     }
 
     @Transactional
@@ -1071,6 +1132,10 @@ public class ScanTaskService {
         resp.put("resumeFromPathDisplay", resumeFromPathDisplay);
         resp.put("resumeFromType", resumeFromType);
         resp.put("checkpointUpdatedAt", checkpoint.updatedAt);
+        resp.put("currentStage", task.getTaskType() == null ? "INCREMENTAL_SCAN" : task.getTaskType().name());
+        resp.put("waitingReason", null);
+        resp.put("lastActivityAt", task.getUpdatedAt() != null ? task.getUpdatedAt() : checkpoint.updatedAt);
+        resp.put("durationSeconds", durationSeconds(task.getStartedAt(), task.getFinishedAt()));
         resp.put("scheduledTask", task.getScheduledTask());
         resp.put("errorMessage", task.getErrorMessage());
         resp.put("pauseSource", task.getPauseSource());
@@ -1080,6 +1145,12 @@ public class ScanTaskService {
         resp.put("updatedAt", task.getUpdatedAt());
         resp.put("checkpoint", toCheckpointMap(checkpoint));
         return resp;
+    }
+
+    private Long durationSeconds(LocalDateTime startedAt, LocalDateTime finishedAt) {
+        if (startedAt == null) return null;
+        LocalDateTime end = finishedAt == null ? LocalDateTime.now() : finishedAt;
+        return Math.max(0L, java.time.Duration.between(startedAt, end).getSeconds());
     }
 
     private UserAccount resolveTaskDisplayUser(ScanTask task) {
@@ -1278,6 +1349,23 @@ public class ScanTaskService {
 
         @Override
         public void onPathProcessed(String absolutePath, String pathType, int current, int total) {
+            String fileKey = TaskFileService.fileKey(absolutePath);
+            ScanTaskIssue file = scanTaskIssueRepository.findFirstByTaskIdAndFileKey(taskId, fileKey).orElseGet(ScanTaskIssue::new);
+            file.setFileKey(fileKey);
+            file.setTaskId(taskId);
+            file.setOwnerUserId(fileOwner(absolutePath));
+            Long ownerId = scanTaskRepository.findById(taskId).map(task -> task.getUserId() != null ? task.getUserId() : task.getRequestedByUserId()).orElse(null);
+            file.setPath(TaskFileService.relativePath(userPathService, absolutePath, ownerId));
+            file.setPathType(pathType);
+            file.setStatus("SUCCEEDED");
+            file.setReason(null);
+            file.setDetail(null);
+            file.setRecordedAt(LocalDateTime.now());
+            scanTaskIssueRepository.save(file);
+            advanceProgress(absolutePath, pathType, current, total);
+        }
+
+        private void advanceProgress(String absolutePath, String pathType, int current, int total) {
             this.processedItems = current;
             this.totalItems = total;
             this.lastProcessedPath = absolutePath;
@@ -1311,13 +1399,15 @@ public class ScanTaskService {
 
         @Override
         public void onPathSkipped(String absolutePath, String pathType, String reason, String detail, int current, int total) {
+            recordIssue(taskId, absolutePath, reason, detail);
             this.skippedItems++;
-            onPathProcessed(absolutePath, pathType, current, total);
+            advanceProgress(absolutePath, pathType, current, total);
             flush(false, task -> task.setSkippedItems(skippedItems));
         }
 
         @Override
         public void onPathFailed(String absolutePath, String pathType, String errorMessage, int current, int total) {
+            recordIssue(taskId, absolutePath, "处理失败", errorMessage);
             this.failedItems++;
             this.lastProcessedPath = absolutePath;
             this.lastProcessedType = firstNonBlank(pathType, inferPathType(absolutePath));

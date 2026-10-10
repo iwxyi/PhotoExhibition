@@ -313,3 +313,51 @@ Not covered by this run: real remote-provider quota exhaustion, provider outage/
 Verification: OpenJDK 11.0.30 runs 28 focused history/job tests with zero failures/errors; the backend starts on Java 11 with development hot restart disabled. Real authenticated HTTP/Chrome checks pass for scope-wide counts independent of page size, server-side failure filtering, task detail and Escape close, ordinary overview account-selector absence, external pagination, 390px mobile document width, offline data retention/reconnection, and super-admin all-account/individual-account/system scopes. Existing records only were read; no jobs were retried or photo data changed. Frontend production build and diff whitespace checks pass.
 
 Limits: current real records are terminal, so this run does not reproduce simultaneous active model jobs, remote quota depletion, or sustained load. Full retry-impact preview, item-level failure drilldown, and a persisted structured user-message schema are not added by this compact-console change.
+
+## Unified scan entry and details (2026-10-10)
+
+- Remove the super-admin scan-management tab and the large background-worker task panel. The unified task table is the single progress/history view; its scan action opens a compact storage-selection dialog. Old scan-tab links fall back to overview.
+- Keep resource concurrency in a collapsed runtime-diagnostics section, fetched only when opened. It contains resource counters, without another task list or periodic overview polling.
+- Persist skipped and failed scan-path events in `scan_task_issue`, indexed by task/id. The task-detail dialog reads these events through `/admin/background-jobs/scans/{taskId}/issues`, with owner authorization and bounded pagination (up to 100 rows). Ordinary accounts can inspect their own requested scans; super-admin can inspect all.
+- The abnormal-file table scrolls within a viewport-bounded region; pagination stays outside that region. An open scan detail refreshes the issue page every five seconds. Failed requests display an error, and stale requests cannot overwrite another task's details.
+- Historical scans created before this change have no reconstructed issue rows and show an explicit empty-record state. Entries represent recorded scan events; a repeated path during recovery can have multiple events. Retrying continues to use the existing task retry mechanism.
+- Scan submission has an in-flight guard. A storage-load failure prevents submission and displays a retry message. Successful scan counts exclude failed/skipped paths; failures without a text summary show the failed-item count.
+
+Verification: Java 11 focused scan/history tests pass (30 tests, zero failures/errors), including owner isolation, pagination bounds, and persisted skip/failure callbacks. Frontend production build and whitespace checks pass. Real Chrome/HTTP checks cover the removed duplicate panel/tab, scan dialog and Escape, collapsed diagnostics, scope/filter counts, offline retention/reconnection, and 25 isolated persisted abnormal-file fixtures across two pages. Desktop and 390px mobile screenshots exposed and verified fixes for table overflow and footer visibility. Anonymous issue requests return 401. The fixtures model abnormal records; this verification does not run a real corrupt-image scan or reproduce provider failures.
+# Task detail files and retention (2026-10-10)
+
+- Status details now show the running operation, known blocking/waiting reason,
+  last persisted activity and elapsed time since first start. Elapsed time includes
+  pauses and queue time; terminal tasks use the recorded finish time. Activity is
+  not a heartbeat and does not imply a stuck worker. Scan substeps do not yet emit
+  independent stage events, so scans display the scan operation, not invented
+  EXIF/face/write substep progress.
+
+- The task dialog has Status and Files tabs. Files are loaded on demand, paginated
+  (20 rows), refreshed while open, with pagination outside the bounded scroll area.
+- Background job items persist target IDs, item state, attempts, errors and timestamps.
+  New items also snapshot target names and tenant-relative paths, so deleting a photo
+  does not erase its task detail. Old items resolve names and paths from existing
+  photos/albums; deleted old targets retain only their target ID.
+- Scan recovery remains checkpoint-based directory traversal, not a persisted pending
+  file manifest. Newly processed paths (including directories), skipped paths and
+  failures are recorded; old scans may contain only abnormal events or no file rows.
+  The file count is the recorded count, not the scan's planned total.
+- No fabricated progress log is generated: item state and real errors are displayed.
+  Replayed scan paths update their prior file record using a task-scoped path hash,
+  avoiding duplicate rows after checkpoint replay.
+  Known storage roots are removed from paths; unknown absolute paths fall back to
+  the basename. Regular users retain the existing task ownership boundary; super
+  administrators can inspect all tasks. File endpoints bound page size to 100.
+- Automatic cleanup runs daily at 03:30 (server timezone), retaining terminal task
+  history for 90 days since its last update. Configure
+  `app.background-tasks.retention-days` (0 disables cleanup) and
+  `app.background-tasks.cleanup-cron`. Each run handles up to 200 jobs and 200 scans,
+  with a separate transaction per task. Running, queued, paused, waiting and blocked
+  tasks are never eligible. A job referenced by a retained retry is also protected.
+- Cleanup removes task records and their item/file details only, never photos,
+  analysis results or face bindings. Successful-item deduplication history expires
+  with its job; explicitly submitting a target after that may run it again.
+- Verified with Java 11: 56 focused tests passed. Real browser/API checks covered
+  paginated file details, mixed persisted outcomes using isolated fixtures, anonymous
+  access rejection, desktop/mobile layout, and offline recovery. Fixtures were removed.

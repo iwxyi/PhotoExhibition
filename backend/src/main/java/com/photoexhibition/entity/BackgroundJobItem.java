@@ -26,6 +26,12 @@ public class BackgroundJobItem {
     @Column(name = "photo_id")
     private Long photoId;
 
+    @Column(length = 1000)
+    private String targetName;
+
+    @Column(columnDefinition = "TEXT")
+    private String targetPath;
+
     @Column(name = "target_key", nullable = false, length = 200)
     private String targetKey;
 

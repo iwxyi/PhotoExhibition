@@ -38,7 +38,20 @@
       </div>
 
       <section v-if="activeTab === 'overview'" class="space-y-4 admin-super-admin-overview">
-        <BackgroundTaskTable multi-account :accounts="users" />
+        <BackgroundTaskTable multi-account :accounts="users" @scan="openScanDialog" />
+        <dialog ref="scanDialog" class="admin-task-dialog">
+          <header class="admin-task-overview__head"><h2>扫描</h2><button class="admin-button-soft" @click="scanDialog?.close()">关闭</button></header>
+          <label>扫描存储<select v-model="superSelectedScanProviderId" class="admin-field w-full"><option :value="null">默认存储</option><option v-for="provider in superScanProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option></select></label>
+          <p v-if="scanProviderError" role="alert">{{ scanProviderError }}</p>
+          <p v-if="superScanDisabledReason" role="alert">{{ superScanDisabledReason }}</p>
+          <button class="admin-button-primary mt-4" :disabled="superTriggeringScan || !!scanProviderError || !superScanActionSupported" @click="submitScan">{{ superTriggeringScan ? '提交中…' : '开始扫描' }}</button>
+        </dialog>
+        <details @toggle="loadDiagnostics" class="text-sm">
+          <summary>运行诊断</summary>
+          <p v-if="loadingProcessingOverview">加载中…</p>
+          <p v-else-if="processingOverviewError" role="alert">{{ processingOverviewError }}</p>
+          <table v-else class="admin-data-table w-full"><thead><tr><th>资源</th><th>活跃</th><th>并发上限</th></tr></thead><tbody><tr v-for="worker in processingOverview.workers || []" :key="worker.threadType"><td>{{ worker.label }}</td><td>{{ worker.activeWorkers ?? worker.activeThreads ?? worker.activeRequestCount ?? '—' }}</td><td>{{ worker.configuredWorkers ?? worker.configuredConcurrency ?? '—' }}</td></tr></tbody></table>
+        </details>
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 admin-super-admin-overview-grid">
           <div class="glass-panel p-5 space-y-2 admin-super-admin-summary-card admin-super-admin-status-card">
             <div class="text-sm admin-table-faint">系统开关</div>
@@ -101,449 +114,6 @@
           </div>
         </div>
 
-        <div class="glass-panel p-5 space-y-4 admin-super-admin-thread-panel">
-          <div class="flex items-center justify-between gap-3 flex-wrap admin-super-admin-thread-head">
-            <div class="admin-super-admin-thread-copy">
-            <div class="text-sm admin-super-admin-modal-title">后台处理线程</div>
-            <div class="text-xs admin-table-faint">{{ processingOverview.nonBlockingNote || '图片处理尽量走后台线程，不阻塞实时请求。' }}</div>
-          </div>
-          <button
-              class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
-              :disabled="loadingProcessingOverview"
-              @click="loadProcessingOverview"
-            >
-              {{ loadingProcessingOverview ? '刷新中...' : '刷新线程状态' }}
-            </button>
-          </div>
-
-          <div class="flex flex-wrap gap-2 text-xs">
-            <span class="chip text-emerald-200">线程组：{{ processingOverview.workerCount || 0 }}</span>
-            <span class="chip text-amber-200">活跃线程组：{{ processingOverview.activeWorkerGroupCount || 0 }}</span>
-          </div>
-
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div
-              v-for="worker in processingOverview.workers || []"
-              :key="worker.threadType"
-              class="rounded-2xl p-4 space-y-3 admin-super-admin-worker-card"
-            >
-              <div class="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div class="text-sm admin-super-admin-modal-title">{{ worker.label }}</div>
-                  <div class="text-xs admin-table-faint">{{ worker.threadType }}</div>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <button
-                    v-if="worker.threadType === 'SCAN_QUEUE'"
-                    type="button"
-                    class="admin-button-soft px-3 py-1.5 rounded-lg text-xs"
-                    @click="openSuperAdminSkippedModal"
-                  >
-                    查看失败原因
-                  </button>
-                  <span class="chip text-xs" :class="workerRunningClass(worker)">
-                    {{ workerRunningLabel(worker) }}
-                  </span>
-                </div>
-              </div>
-
-              <div class="flex flex-wrap gap-2 text-xs admin-table-muted">
-                <span v-if="worker.activeRequestCount != null" class="chip">活跃请求：{{ worker.activeRequestCount }}</span>
-                <span v-if="worker.activeUserCount != null" class="chip">活跃用户：{{ worker.activeUserCount }}</span>
-                <span v-if="worker.recentMinuteRequestCount != null" class="chip">近1分钟请求：{{ worker.recentMinuteRequestCount }}</span>
-                <span v-if="worker.configuredWorkers != null" class="chip">配置线程：{{ worker.configuredWorkers }}</span>
-                <span v-if="worker.configuredConcurrency != null" class="chip">并发上限：{{ worker.configuredConcurrency }}</span>
-                <span v-if="worker.activeWorkers != null" class="chip">活跃工作线程：{{ worker.activeWorkers }}</span>
-                <span v-if="worker.runningImageCount != null" class="chip">运行中剩余图片：{{ worker.runningImageCount }}</span>
-                <span v-if="worker.queuedImageCount != null" class="chip">排队待扫图片：{{ worker.queuedImageCount }}</span>
-                <span v-if="worker.activeThreads != null" class="chip">活跃线程：{{ worker.activeThreads }}</span>
-                <span v-if="worker.runningTaskCount != null" class="chip">运行任务：{{ worker.runningTaskCount }}</span>
-                <span v-if="worker.queuedTaskCount != null" class="chip">队列任务：{{ worker.queuedTaskCount }}</span>
-                <span v-if="worker.queuedTasks != null" class="chip">等待队列：{{ worker.queuedTasks }}</span>
-                <span v-if="worker.pausedTaskCount != null" class="chip">暂停任务：{{ worker.pausedTaskCount }}</span>
-              </div>
-
-              <div v-if="worker.scanStatus?.processingStats" class="text-xs admin-table-faint">
-                扫描统计：已完成 {{ worker.scanStatus.processingStats.completed || 0 }} / 未完成 {{ worker.scanStatus.processingStats.incomplete || 0 }} / 失败 {{ worker.scanStatus.processingStats.failed || 0 }}
-              </div>
-              <div v-if="worker.scanStatus?.scanSummary" class="text-xs admin-table-faint">
-                图片总数 {{ worker.scanStatus.scanSummary.total || 0 }} · 已扫描 {{ worker.scanStatus.scanSummary.scanned || 0 }} · 待扫描 {{ worker.scanStatus.scanSummary.waiting || 0 }}
-              </div>
-
-              <div v-if="worker.summary" class="text-xs admin-table-faint">
-                {{ worker.summary }}
-                <template v-if="worker.slowRequestThresholdMs"> · 慢请求阈值 {{ worker.slowRequestThresholdMs }}ms</template>
-              </div>
-
-              <div v-if="worker.topActiveEndpoints?.length" class="space-y-2 text-xs admin-table-faint">
-                <div class="admin-table-muted">当前最活跃接口</div>
-                <div
-                  v-for="endpoint in worker.topActiveEndpoints.slice(0, 3)"
-                  :key="`${worker.threadType}-${endpoint.endpoint}`"
-                  class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
-                >
-                  {{ endpoint.endpoint }}：{{ endpoint.activeCount }} 个请求
-                </div>
-              </div>
-
-              <div v-if="worker.queuedOwnerSummaries?.length" class="space-y-2 text-xs admin-table-faint">
-                <div class="admin-table-muted">排队用户</div>
-                <div
-                  v-for="owner in worker.queuedOwnerSummaries.slice(0, 3)"
-                  :key="`${worker.threadType}-${owner.ownerKey}`"
-                  class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
-                >
-                  {{ owner.ownerLabel }}：{{ owner.taskCount }} 个任务
-                </div>
-              </div>
-
-              <div v-if="worker.threadType === 'UNIFIED_BACKGROUND_JOBS' && worker.accountSummaries?.length" class="space-y-2 text-xs admin-table-faint">
-                <div class="admin-table-muted">各账号任务概览</div>
-                <div
-                  v-for="account in worker.accountSummaries"
-                  :key="`${worker.threadType}-account-${account.ownerUserId}`"
-                  class="pt-2 first:pt-0 admin-super-admin-inline-list-item admin-super-admin-storage-divider border-t first:border-t-0"
-                >
-                  用户 #{{ account.ownerUserId }}{{ account.username ? ` · ${account.username}` : '' }}：
-                  运行 {{ account.runningTaskCount || 0 }} · 排队 {{ account.queuedTaskCount || 0 }} ·
-                  暂停 {{ account.pausedTaskCount || 0 }} · 失败 {{ account.failedTaskCount || 0 }}
-                </div>
-              </div>
-
-              <div v-if="isScanQueueWorker(worker) && (worker.runningTasks?.length || scanWorkerQueuedTasks(worker).length || scanWorkerFailedTasks(worker).length)" class="space-y-3">
-                <div v-if="worker.runningTasks?.length" class="space-y-2">
-                  <div class="text-xs admin-table-muted">运行中的扫描任务</div>
-                  <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
-                    <div
-                      v-for="task in worker.runningTasks.slice(0, 5)"
-                      :key="`scan-running-${task.id}`"
-                      class="p-3 text-xs space-y-1 admin-super-admin-task-item"
-                    >
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="admin-super-admin-modal-title">
-                          #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                          <span class="admin-table-faint">· {{ task.ownerLabel || '系统任务' }}</span>
-                        </div>
-                        <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
-                          {{ scanTaskStatusLabel(task.status) }}
-                        </span>
-                      </div>
-                      <div class="admin-table-muted">{{ scanTaskProgressText(task) }}</div>
-                      <div class="admin-table-faint break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                      <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="admin-table-faint break-all">
-                        当前断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
-                      </div>
-                      <div class="admin-table-faint">
-                        创建：{{ formatDate(task.createdAt || null) }} · 开始：{{ formatDate(task.startedAt || null) }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="scanWorkerQueuedTasks(worker).length" class="space-y-2">
-                  <div class="text-xs admin-table-muted">排队中的扫描任务</div>
-                  <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
-                    <div
-                      v-for="task in scanWorkerQueuedTasks(worker).slice(0, 5)"
-                      :key="`scan-queued-${task.id}`"
-                      class="p-3 text-xs space-y-1 admin-super-admin-task-item"
-                    >
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="admin-super-admin-modal-title">
-                          #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                          <span class="admin-table-faint">· {{ task.ownerLabel || '系统任务' }}</span>
-                        </div>
-                        <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
-                          {{ scanTaskStatusLabel(task.status) }}
-                        </span>
-                      </div>
-                      <div class="admin-table-muted">{{ scanTaskProgressText(task) }}</div>
-                      <div class="admin-table-faint break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                      <div class="admin-table-faint">
-                        创建：{{ formatDate(task.createdAt || null) }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="scanWorkerFailedTasks(worker).length" class="space-y-2">
-                  <div class="text-xs admin-table-muted">最近失败的扫描任务</div>
-                  <div class="divide-y divide-rose-400/20 overflow-hidden rounded-xl border border-rose-400/20 bg-rose-500/5 admin-super-admin-task-stack admin-super-admin-task-stack--error">
-                    <div
-                      v-for="task in scanWorkerFailedTasks(worker).slice(0, 5)"
-                      :key="`scan-failed-${task.id}`"
-                      class="p-3 text-xs space-y-1 admin-super-admin-task-item"
-                    >
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="text-rose-200">
-                          #{{ task.id }} · {{ scanTaskTypeLabel(task.taskType) }}
-                          <span class="admin-table-faint">· {{ task.ownerLabel || '系统任务' }}</span>
-                        </div>
-                        <span class="chip text-[11px]" :class="scanTaskStatusClass(task.status)">
-                          {{ scanTaskStatusLabel(task.status) }}
-                        </span>
-                      </div>
-                      <div class="admin-table-muted">{{ scanTaskProgressText(task) }}</div>
-                      <div class="admin-table-faint break-all">路径：{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                      <div v-if="task.errorMessage" class="text-rose-300 break-all">失败原因：{{ task.errorMessage }}</div>
-                      <div class="admin-table-faint">
-                        创建：{{ formatDate(task.createdAt || null) }}
-                        <template v-if="task.finishedAt"> · 完成：{{ formatDate(task.finishedAt || null) }}</template>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="worker.recentSlowRequests?.length" class="space-y-2">
-                <div class="text-xs admin-table-muted">最近慢请求</div>
-                <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
-                  <div
-                    v-for="item in worker.recentSlowRequests.slice(0, 5)"
-                    :key="`${worker.threadType}-${item.finishedAt}-${item.path}`"
-                    class="p-3 text-xs space-y-1 admin-super-admin-task-item"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="admin-super-admin-modal-title truncate">{{ item.method }} {{ item.path }}</div>
-                      <span class="chip text-[11px] text-amber-200">{{ item.durationMs || 0 }}ms</span>
-                    </div>
-                    <div class="admin-table-faint">
-                      {{ item.actorLabel || item.ipAddress || '未知访问者' }}
-                      <template v-if="item.statusCode != null"> · 状态 {{ item.statusCode }}</template>
-                    </div>
-                    <div v-if="item.error" class="text-rose-300">{{ item.error }}</div>
-                    <div class="admin-table-faint">{{ formatDate(item.finishedAt || null) }}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="worker.recentTasks?.length" class="space-y-2">
-                <div class="text-xs admin-table-muted">最近任务</div>
-                <div class="overflow-hidden rounded-xl admin-super-admin-task-stack admin-super-admin-scan-detail-card">
-                  <div
-                    v-for="task in worker.recentTasks.slice(0, 3)"
-                    :key="`${worker.threadType}-${task.taskId || task.photoId || task.updatedAt}`"
-                    class="p-3 text-xs space-y-1 admin-super-admin-task-item"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="admin-super-admin-modal-title truncate">{{ processingTaskTitle(task) }}</div>
-                      <span class="chip text-[11px]" :class="processingTaskStatusClass(task.status)">
-                        {{ processingTaskStatusLabel(task.status) }}
-                      </span>
-                    </div>
-                    <div class="admin-table-faint">
-                      <template v-if="task.total">
-                        进度 {{ task.current || 0 }}/{{ task.total }} · {{ task.progressPercent ?? processingTaskPercent(task) }}%
-                      </template>
-                      <template v-else>
-                        {{ isScanQueueWorker(worker) ? scanTaskRecentSummary(task) : (task.message || task.latestLog || '暂无附加说明') }}
-                      </template>
-                    </div>
-                    <div class="admin-table-faint">{{ formatDate(task.updatedAt || task.finishedAt || task.startedAt || null) }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="activeTab === 'scan'" class="space-y-4 admin-super-admin-scan-page">
-        <div class="glass-panel p-6 space-y-5 admin-super-admin-scan-panel">
-          <div class="flex items-start justify-between gap-4 flex-wrap admin-super-admin-scan-head">
-            <div class="admin-super-admin-scan-copy">
-              <h2 class="text-lg font-light">扫描管理</h2>
-              <p class="text-xs admin-table-faint mt-1">查看扫描状态、记录与异常。</p>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button
-                class="admin-button-soft px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
-                :disabled="loadingSuperScan"
-                @click="loadSuperScanPage"
-              >
-                {{ loadingSuperScan ? '刷新中...' : '刷新扫描状态' }}
-              </button>
-              <button
-                class="admin-button-danger px-4 py-2 rounded-lg text-sm"
-                @click="openSuperAdminSkippedModal"
-              >
-                查看异常文件
-              </button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 admin-super-admin-scan-metrics">
-            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs admin-table-faint">扫描状态</div>
-              <div class="text-2xl font-light">{{ superScanStatusLabel }}</div>
-              <div class="text-xs admin-table-faint">最近开始：{{ superScanLastTime || '—' }}</div>
-            </div>
-            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs admin-table-faint">图片进度</div>
-              <div class="text-2xl font-light">{{ superScanProgressText }}</div>
-              <div class="text-xs admin-table-faint">总 {{ superScanSummary.total }} · 已扫 {{ superScanSummary.scanned }}</div>
-            </div>
-            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs admin-table-faint">任务情况</div>
-              <div class="text-2xl font-light">{{ superRunningTaskCount }}/{{ superQueueCount }}</div>
-              <div class="text-xs admin-table-faint">运行中 / 排队中</div>
-            </div>
-            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs admin-table-faint">待扫描</div>
-              <div class="text-2xl font-light text-amber-200">{{ superScanSummary.waiting }}</div>
-              <div class="text-xs admin-table-faint">队列图片 {{ superQueuedImageCount }}</div>
-            </div>
-            <div class="rounded-2xl p-4 space-y-1 admin-super-admin-scan-metric">
-              <div class="text-xs admin-table-faint">失败 / 异常</div>
-              <div class="text-2xl font-light text-rose-200">{{ superScanSummary.failed }}</div>
-              <div class="text-xs admin-table-faint">点击“查看异常文件”加载详情</div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4 admin-super-admin-scan-layout">
-            <div class="rounded-2xl p-4 space-y-4 admin-super-admin-scan-sidecard">
-              <div class="text-sm admin-super-admin-modal-title">立即扫描</div>
-              <div
-                v-if="superScanDisabledReason"
-                class="admin-super-admin-warning-box rounded-lg px-3 py-2 text-[11px] leading-5"
-              >
-                {{ superScanDisabledReason }}
-              </div>
-              <label class="block space-y-2">
-                <span class="text-xs admin-table-faint">扫描存储</span>
-                <select
-                  v-if="superScanProviderOptions.length"
-                  v-model="superSelectedScanProviderId"
-                  class="admin-input w-full px-3 py-2 text-sm rounded-lg"
-                >
-                  <option :value="null">默认存储</option>
-                  <option
-                    v-for="provider in superScanProviderOptions"
-                    :key="provider.id"
-                    :value="provider.id"
-                  >
-                    {{ provider.name }} · {{ storageTypeLabel(provider.type) }}
-                  </option>
-                </select>
-              </label>
-              <button
-                class="admin-button-primary w-full px-4 py-2 rounded-lg disabled:opacity-60 text-sm"
-                :disabled="superTriggeringScan || !superScanActionSupported"
-                @click="triggerSuperScan"
-              >
-                {{ superTriggeringScan ? '触发中...' : '立即触发扫描' }}
-              </button>
-              <div class="text-xs admin-table-faint space-y-1 admin-super-admin-scan-side-meta">
-                <div>当前目标：{{ selectedSuperScanProvider ? `${selectedSuperScanProvider.name} · ${storageTypeLabel(selectedSuperScanProvider.type)}` : '系统默认扫描根目录' }}</div>
-                <div>排队用户：{{ superQueuedOwnerCount }}</div>
-                <div>暂停任务：{{ superPausedTaskCount }}</div>
-                <div v-if="superQueuedOwnerSummaryText">队列分布：{{ superQueuedOwnerSummaryText }}</div>
-                <div v-if="superRunningTaskSummaryText">运行分布：{{ superRunningTaskSummaryText }}</div>
-              </div>
-            </div>
-
-            <div class="rounded-2xl p-4 space-y-4 admin-super-admin-scan-records">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-sm admin-super-admin-modal-title">最近扫描记录与结果</div>
-                </div>
-              </div>
-
-              <div v-if="!superScanTasks.length" class="text-sm admin-table-faint py-8 text-center">
-                暂无扫描任务
-              </div>
-
-              <div v-else class="overflow-auto rounded-2xl admin-super-admin-table-wrap admin-super-admin-scan-detail-card">
-                <table class="admin-data-table w-full text-sm">
-                  <thead>
-                    <tr>
-                      <th class="text-left py-3 pr-4">任务</th>
-                      <th class="text-left py-3 pr-4">状态</th>
-                      <th class="text-left py-3 pr-4">归属</th>
-                      <th class="text-left py-3 pr-4">路径</th>
-                      <th class="text-left py-3 pr-4">结果</th>
-                      <th class="text-left py-3 pr-4">时间</th>
-                      <th class="text-right py-3">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template v-for="task in superScanTasks" :key="task.id">
-                      <tr class="align-top">
-                        <td class="py-3 pr-4">
-                          <button
-                            @click="openSuperScanTaskDetail(task.id)"
-                            class="font-medium text-[color:var(--pe-admin-text-primary)] transition-colors hover:text-sky-300"
-                          >#{{ task.id }}</button>
-                          <div class="mt-1 text-xs admin-table-muted">{{ scanTaskTypeLabel(task.taskType) }}</div>
-                        </td>
-                        <td class="py-3 pr-4">
-                          <span class="px-2 py-1 rounded-full text-xs border" :class="superScanTaskStatusBadgeClass(task.status)">
-                            {{ scanTaskStatusLabel(task.status) }}
-                          </span>
-                          <div v-if="task.errorMessage" class="text-xs text-rose-300 mt-2 max-w-xs break-all">
-                            {{ task.errorMessage }}
-                          </div>
-                        </td>
-                        <td class="py-3 pr-4 text-xs admin-table-muted">
-                          <div>{{ task.ownerLabel || '系统任务' }}</div>
-                          <div class="mt-1 admin-table-faint">
-                            存储：{{ task.storageProviderName || task.storageProviderId || '默认' }}
-                            <span v-if="task.storageProviderType"> · {{ storageTypeLabel(task.storageProviderType) }}</span>
-                          </div>
-                        </td>
-                        <td class="py-3 pr-4">
-                          <div class="max-w-sm break-all text-xs admin-table-muted">{{ task.rootPathDisplay || task.rootPath || '—' }}</div>
-                          <div v-if="task.lastProcessedPathDisplay || task.lastProcessedPath" class="mt-1 break-all text-xs admin-table-faint">
-                            断点：{{ task.lastProcessedPathDisplay || task.lastProcessedPath }}
-                          </div>
-                        </td>
-                        <td class="py-3 pr-4">
-                          <div>{{ scanTaskProgressText(task) }}</div>
-                        </td>
-                        <td class="py-3 pr-4 text-xs admin-table-muted whitespace-nowrap">
-                          <div>创建：{{ formatDateTime(task.createdAt) }}</div>
-                          <div class="mt-1">开始：{{ formatDateTime(task.startedAt) }}</div>
-                          <div class="mt-1">完成：{{ formatDateTime(task.finishedAt) }}</div>
-                        </td>
-                        <td class="py-3 text-right">
-                          <div class="flex justify-end gap-2">
-                            <button
-                              @click="openSuperScanTaskDetail(task.id)"
-                              class="admin-button-soft rounded-lg border px-3 py-1.5 text-xs transition-colors"
-                            >
-                              详情
-                            </button>
-                            <button
-                              v-if="canSuperPauseScanTask(task)"
-                              @click="pauseSuperScanTask(task)"
-                              class="admin-button-warning px-3 py-1.5 text-xs rounded-lg transition-colors"
-                            >
-                              暂停
-                            </button>
-                            <button
-                              v-if="canSuperRetryScanTask(task)"
-                              @click="retrySuperScanTask(task)"
-                              class="admin-button-primary px-3 py-1.5 text-xs rounded-lg transition-colors"
-                            >
-                              重试
-                            </button>
-                            <button
-                              v-if="canSuperCancelScanTask(task)"
-                              @click="cancelSuperScanTask(task)"
-                              class="admin-button-danger px-3 py-1.5 text-xs rounded-lg transition-colors"
-                            >
-                              取消
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
       </section>
 
       <section v-if="activeTab === 'models'" class="space-y-4">
@@ -3263,113 +2833,6 @@
         </div>
       </div>
 
-      <div
-        v-if="showSuperScanTaskDetailModal"
-        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
-        @click.self="closeSuperScanTaskDetailModal"
-      >
-        <div class="admin-modal-card admin-super-admin-modal admin-super-admin-scan-modal relative w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
-          <div class="admin-super-admin-modal-head flex items-center justify-between px-5 py-4 shrink-0">
-            <div>
-              <h3 class="text-base font-medium admin-super-admin-modal-title">
-                扫描任务详情
-                <span v-if="superSelectedTaskDetail" class="text-sky-300 ml-2">#{{ superSelectedTaskDetail.id }}</span>
-              </h3>
-              <p class="text-xs admin-table-faint mt-0.5">查看恢复游标、检查点与任务执行结果。</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                @click="refreshSuperScanTaskDetail"
-                :disabled="loadingSuperScanTaskDetail || !superSelectedTaskDetail"
-                class="admin-button-soft px-3 py-1.5 text-xs rounded-lg disabled:opacity-60"
-              >
-                {{ loadingSuperScanTaskDetail ? '刷新中…' : '刷新详情' }}
-              </button>
-              <button @click="closeSuperScanTaskDetailModal" class="admin-button-soft p-1.5 rounded-lg transition-colors">✕</button>
-            </div>
-          </div>
-
-          <div class="overflow-auto flex-1 p-5" v-if="superSelectedTaskDetail">
-            <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 text-sm">
-              <div class="rounded-xl p-4 space-y-2 admin-super-admin-scan-detail-card">
-                <div class="admin-table-faint text-xs">基础信息</div>
-                <div class="admin-super-admin-modal-title">{{ scanTaskTypeLabel(superSelectedTaskDetail.taskType) }} · {{ scanTaskStatusLabel(superSelectedTaskDetail.status) }}</div>
-                <div class="admin-table-muted break-all">根路径：{{ superSelectedTaskDetail.rootPathDisplay || superSelectedTaskDetail.rootPath || '—' }}</div>
-                <div class="admin-table-muted">优先级：{{ superSelectedTaskDetail.priority ?? '—' }}</div>
-                <div class="admin-table-muted">归属：{{ superSelectedTaskDetail.ownerLabel || '系统任务' }}</div>
-                <div class="admin-table-muted">用户 ID：{{ superSelectedTaskDetail.userId ?? '全局' }}</div>
-                <div class="admin-table-muted">请求者：{{ superSelectedTaskDetail.requestedByUserNickname || superSelectedTaskDetail.requestedByUsername || superSelectedTaskDetail.requestedByUserId || '系统' }}</div>
-                <div class="admin-table-muted">存储：{{ superSelectedTaskDetail.storageProviderName || superSelectedTaskDetail.storageProviderId || '默认' }}<span v-if="superSelectedTaskDetail.storageProviderType"> · {{ storageTypeLabel(superSelectedTaskDetail.storageProviderType) }}</span></div>
-              </div>
-              <div class="rounded-xl p-4 space-y-2 admin-super-admin-scan-detail-card">
-                <div class="admin-table-faint text-xs">恢复状态</div>
-                <div class="admin-table-muted break-all">恢复游标：{{ superSelectedTaskDetail.resumeFromPathDisplay || superSelectedTaskDetail.resumeFromPath || '—' }}</div>
-                <div class="admin-table-muted break-all">最近断点：{{ superSelectedTaskDetail.lastProcessedPathDisplay || superSelectedTaskDetail.lastProcessedPath || '—' }}</div>
-                <div class="admin-table-muted break-all">检查点根路径：{{ superSelectedTaskDetail.checkpoint?.rootPathDisplay || superSelectedTaskDetail.checkpoint?.rootPath || '—' }}</div>
-                <div class="admin-table-muted">检查点更新时间：{{ formatDateTime(superSelectedTaskDetail.checkpointUpdatedAt || superSelectedTaskDetail.checkpoint?.updatedAt) }}</div>
-                <div v-if="superSelectedTaskDetail.errorMessage" class="text-rose-300 break-all">错误：{{ superSelectedTaskDetail.errorMessage }}</div>
-              </div>
-              <div class="rounded-xl p-4 space-y-2 admin-super-admin-scan-detail-card">
-                <div class="admin-table-faint text-xs">进度统计</div>
-                <div class="admin-super-admin-modal-title text-lg">{{ superSelectedTaskDetail.progressPercent || 0 }}%</div>
-                <div class="admin-table-muted">已处理：{{ superSelectedTaskDetail.processedItems || 0 }} / {{ superSelectedTaskDetail.totalItems || 0 }}</div>
-                <div class="admin-table-muted">跳过：{{ superSelectedTaskDetail.skippedItems || 0 }}</div>
-                <div class="admin-table-muted">失败：{{ superSelectedTaskDetail.failedItems || 0 }}</div>
-                <div class="admin-table-faint text-xs">创建：{{ formatDateTime(superSelectedTaskDetail.createdAt) }}</div>
-                <div class="admin-table-faint text-xs">开始：{{ formatDateTime(superSelectedTaskDetail.startedAt) }}</div>
-                <div class="admin-table-faint text-xs">完成：{{ formatDateTime(superSelectedTaskDetail.finishedAt) }}</div>
-              </div>
-            </div>
-            <div class="mt-4 rounded-xl p-4 admin-super-admin-scan-detail-card">
-              <div class="admin-table-faint text-xs mb-3">检查点快照</div>
-              <pre class="admin-super-admin-scan-detail-pre text-xs whitespace-pre-wrap break-words">{{ JSON.stringify(superSelectedTaskDetail.checkpoint || {}, null, 2) }}</pre>
-            </div>
-          </div>
-          <div v-else class="flex-1 flex items-center justify-center admin-table-faint text-sm">
-            {{ loadingSuperScanTaskDetail ? '加载任务详情…' : '暂无任务详情' }}
-          </div>
-        </div>
-      </div>
-
-      <div
-        v-if="showSuperAdminSkippedModal"
-        class="admin-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
-        @click.self="closeSuperAdminSkippedModal"
-      >
-        <div class="admin-modal-card admin-super-admin-modal admin-super-admin-scan-modal relative w-full max-w-5xl max-h-[80vh] flex flex-col overflow-hidden">
-          <div class="admin-super-admin-modal-head flex items-center justify-between px-5 py-4 shrink-0">
-            <div>
-              <h3 class="text-base font-medium admin-super-admin-modal-title">扫描失败原因（全用户）</h3>
-              <p class="text-xs admin-table-faint mt-0.5">仅超级管理员可查看全部用户的扫描异常与失败原因。</p>
-            </div>
-            <button @click="closeSuperAdminSkippedModal" class="admin-button-soft p-1.5 rounded-lg transition-colors">✕</button>
-          </div>
-          <div class="overflow-auto flex-1">
-            <div v-if="loadingSuperAdminSkipped" class="flex items-center justify-center py-16 admin-table-faint text-sm">加载中…</div>
-            <div v-else-if="!superAdminSkippedFiles.length" class="flex items-center justify-center py-16 admin-table-faint text-sm">暂无扫描异常记录</div>
-            <table v-else class="admin-data-table w-full text-xs border-collapse">
-              <thead class="sticky top-0 uppercase tracking-wide">
-                <tr>
-                  <th class="px-4 py-2.5 text-left w-12">#</th>
-                  <th class="px-4 py-2.5 text-left">相对路径</th>
-                  <th class="px-4 py-2.5 text-left w-24">用户</th>
-                  <th class="px-4 py-2.5 text-left w-28">原因</th>
-                  <th class="px-4 py-2.5 text-right w-24">文件大小</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in superAdminSkippedFiles" :key="`${item.index}-${item.recordedAt || ''}`">
-                  <td class="px-4 py-2 admin-table-faint">{{ item.index }}</td>
-                  <td class="px-4 py-2 break-all font-mono admin-table-muted">{{ item.relativePath }}</td>
-                  <td class="px-4 py-2 admin-table-muted">{{ item.userId != null ? `用户#${item.userId}` : '—' }}</td>
-                  <td class="px-4 py-2"><span class="cursor-help border-b border-dashed border-amber-400/50 text-amber-300" :title="item.detail">{{ item.reason }}</span></td>
-                  <td class="px-4 py-2 text-right admin-table-muted">{{ formatBytes(item.fileSizeBytes || 0) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
 
       <button
         type="button"
@@ -3403,7 +2866,6 @@ import {
   type ModelRebuildTask,
   type OperationLogSummary,
   type PageResponse,
-  type ProcessingOverviewTaskSummary,
   type StorageProviderTestResult,
   type StorageMigrationPreview,
   type StorageMigrationResult,
@@ -3433,7 +2895,7 @@ const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-type SuperAdminTabKey = 'overview' | 'scan' | 'models' | 'global' | 'notifications' | 'payment' | 'tools' | 'users' | 'logins' | 'operations' | 'vip' | 'vipOrders' | 'storage'
+type SuperAdminTabKey = 'overview' | 'models' | 'global' | 'notifications' | 'payment' | 'tools' | 'users' | 'logins' | 'operations' | 'vip' | 'vipOrders' | 'storage'
 
 const loading = ref(false)
 const savingSettings = ref(false)
@@ -3455,6 +2917,7 @@ const sendingCustomEmail = ref(false)
 const previewingEmailTemplate = ref(false)
 const sendingTemplateEmail = ref(false)
 const loadingProcessingOverview = ref(false)
+const processingOverviewError = ref('')
 const loadingModels = ref(false)
 const downloadingModelKey = ref<string | null>(null)
 const reloadingModelKey = ref<string | null>(null)
@@ -3490,7 +2953,6 @@ let tablePreferenceSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const superAdminTabs = [
   { key: 'overview', label: '概览' },
-  { key: 'scan', label: '扫描管理' },
   { key: 'storage', label: '存储配置' },
   { key: 'models', label: '模型管理' },
   { key: 'users', label: '用户管理' },
@@ -3644,29 +3106,9 @@ const processingOverview = ref<SuperAdminProcessingOverview>({
   nonBlockingNote: '',
   workers: []
 })
-const loadingSuperScan = ref(false)
 const superTriggeringScan = ref(false)
 const superScanProviderOptions = ref<Array<{ id: number; name: string; type: string; scanSupported?: boolean; supportMessage?: string | null }>>([])
 const superSelectedScanProviderId = ref<number | null>(null)
-const superScanning = ref(false)
-const superQueueCount = ref(0)
-const superQueuedOwnerCount = ref(0)
-const superQueuedOwnerSummaries = ref<any[]>([])
-const superPausedTaskCount = ref(0)
-const superRunningTaskCount = ref(0)
-const superQueuedImageCount = ref(0)
-const superRunningImageCount = ref(0)
-const superRunningTasks = ref<any[]>([])
-const superCurrentScanTask = ref<any | null>(null)
-const superScanTasks = ref<any[]>([])
-const superScanProgress = ref({ current: 0, total: 0 })
-const superScanSummary = ref({ total: 0, scanned: 0, failed: 0, waiting: 0 })
-const superScanLastTime = ref<string | null>(null)
-const showSuperScanTaskDetailModal = ref(false)
-const loadingSuperScanTaskDetail = ref(false)
-const superSelectedTaskDetail = ref<any | null>(null)
-const showSuperAdminSkippedModal = ref(false)
-const loadingSuperAdminSkipped = ref(false)
 const showSmsTestModal = ref(false)
 const showResetPasswordModal = ref(false)
 const resettingUserPassword = ref(false)
@@ -3675,15 +3117,6 @@ const resetPasswordDraft = reactive({
   password: '',
   confirmPassword: ''
 })
-const superAdminSkippedFiles = ref<Array<{
-  index: number
-  userId?: number | null
-  relativePath: string
-  reason: string
-  detail: string
-  fileSizeBytes: number
-  recordedAt?: string | null
-}>>([])
 const storageProviders = ref<StorageProviderSummary[]>([])
 const storageProviderTestResults = reactive<Record<number, StorageProviderTestResult | undefined>>({})
 const storageProviderTestedAt = reactive<Record<number, string | undefined>>({})
@@ -3708,9 +3141,6 @@ const modelDownloadUrls = reactive<Record<string, string>>({})
 const modelRebuildOptions = reactive<Record<string, { includeMissingItems: boolean; forceRebuild: boolean; preserveBindings: boolean }>>({})
 const modelTaskDetails = reactive<Record<string, ModelRebuildTask | null>>({})
 let modelTaskPollTimer: ReturnType<typeof setInterval> | null = null
-let processingOverviewPollTimer: ReturnType<typeof setInterval> | null = null
-let superScanPollTimer: ReturnType<typeof setInterval> | null = null
-let superScanRequestSequence = 0
 const previewingVipOrderId = ref<number | null>(null)
 const initiatingVipOrderId = ref<number | null>(null)
 const mockingVipOrderId = ref<number | null>(null)
@@ -5100,30 +4530,6 @@ const superScanDisabledReason = computed(() => {
   }
   return ''
 })
-const superScanStatusLabel = computed(() => {
-  if (superCurrentScanTask.value) return '扫描中'
-  if (superQueueCount.value > 0) return '排队中'
-  if (superPausedTaskCount.value > 0) return '已暂停'
-  return superScanning.value ? '扫描中' : '空闲'
-})
-const superScanProgressText = computed(() => {
-  const { current, total } = superScanProgress.value
-  if (!total) return '0 / 0'
-  const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0
-  return `${current} / ${total} (${percentage}%)`
-})
-const superQueuedOwnerSummaryText = computed(() =>
-  superQueuedOwnerSummaries.value
-    .slice(0, 3)
-    .map((item: any) => `${item.ownerLabel || '未知'} ${item.taskCount}`)
-    .join('，')
-)
-const superRunningTaskSummaryText = computed(() =>
-  superRunningTasks.value
-    .slice(0, 3)
-    .map((item: any) => `${item.requestedByUserNickname || item.requestedByUsername || item.ownerLabel || `任务 ${item.id}`} · ${item.taskType}`)
-    .join('，')
-)
 
 const applyOverview = (data: SuperAdminOverview) => Object.assign(overview, data)
 const applySettings = (data: SuperAdminSettings) => {
@@ -5291,15 +4697,19 @@ const loadOverview = async () => {
 
 const loadProcessingOverview = async () => {
   loadingProcessingOverview.value = true
+  processingOverviewError.value = ''
   try {
     const { data } = await superAdminApi.getProcessingOverview()
     processingOverview.value = data
+  } catch {
+    processingOverviewError.value = '加载运行诊断失败，请重新展开'
   } finally {
     loadingProcessingOverview.value = false
   }
 }
 
 const loadSuperScanProviderOptions = async () => {
+  scanProviderError.value = ''
   try {
     const { data } = await api.get('/admin/folders/base-path', { timeout: 10000 })
     const providers = Array.isArray(data?.availableStorageProviders) ? data.availableStorageProviders : []
@@ -5314,258 +4724,44 @@ const loadSuperScanProviderOptions = async () => {
       }))
     superSelectedScanProviderId.value = null
   } catch (error) {
+    scanProviderError.value = '加载扫描存储失败，请关闭后重试'
     console.warn('加载扫描存储提供者失败', error)
   }
 }
 
-const normalizeSuperScanTask = (item: any) => ({
-  id: item?.id ?? item?.taskId,
-  taskType: item?.taskType ?? item?.taskName,
-  status: item?.status,
-  ownerLabel: item?.ownerLabel,
-  rootPath: item?.rootPath ?? item?.path,
-  rootPathDisplay: item?.rootPathDisplay ?? item?.path,
-  processedItems: item?.processedItems ?? item?.current ?? 0,
-  totalItems: item?.totalItems ?? item?.total ?? 0,
-  skippedItems: item?.skippedItems ?? item?.skipped ?? 0,
-  failedItems: item?.failedItems ?? item?.failed ?? 0,
-  progressPercent: item?.progressPercent,
-  errorMessage: item?.errorMessage ?? item?.error ?? null,
-  createdAt: item?.createdAt ?? item?.startedAt ?? item?.updatedAt,
-  startedAt: item?.startedAt ?? null,
-  finishedAt: item?.finishedAt ?? null,
-  lastProcessedPath: item?.lastProcessedPath ?? null,
-  lastProcessedPathDisplay: item?.lastProcessedPathDisplay ?? item?.lastProcessedPath ?? null,
-  storageProviderId: item?.storageProviderId ?? null,
-  storageProviderName: item?.storageProviderName ?? null,
-  storageProviderType: item?.storageProviderType ?? null
-})
-
-const mergeSuperScanTasks = (items: any[]) => {
-  const normalized = items
-    .filter(item => item)
-    .map(normalizeSuperScanTask)
-    .filter(item => item.id != null)
-
-  if (!normalized.length) return
-
-  const merged = [...normalized, ...superScanTasks.value]
-  superScanTasks.value = merged.filter((item, index, list) =>
-    list.findIndex(candidate => candidate.id === item.id) === index
-  )
+const scanDialog = ref<HTMLDialogElement | null>(null)
+const scanProviderError = ref('')
+const loadDiagnostics = (event: Event) => { if ((event.target as HTMLDetailsElement).open) void loadProcessingOverview() }
+const openScanDialog = async () => {
+  await loadSuperScanProviderOptions()
+  scanDialog.value?.showModal()
+}
+const submitScan = async () => {
+  if (await triggerSuperScan()) scanDialog.value?.close()
 }
 
-const loadSuperScanStatus = async () => {
-  const { data } = await api.get('/admin/scan/status', { timeout: 10000 })
-  const payload = data || {}
-  superScanning.value = !!payload.scanning
-  superQueueCount.value = payload.queuedTaskCount ?? 0
-  superQueuedOwnerCount.value = payload.queuedOwnerCount ?? 0
-  superQueuedOwnerSummaries.value = Array.isArray(payload.queuedOwnerSummaries) ? payload.queuedOwnerSummaries : []
-  superPausedTaskCount.value = payload.pausedTaskCount ?? 0
-  superRunningTaskCount.value = payload.runningTaskCount ?? 0
-  superQueuedImageCount.value = payload.queuedImageCount ?? 0
-  superRunningImageCount.value = payload.runningImageCount ?? 0
-  superRunningTasks.value = Array.isArray(payload.runningTasks) ? payload.runningTasks : []
-  superCurrentScanTask.value = payload.currentTask ?? null
-  superScanProgress.value = { current: payload.current ?? 0, total: payload.total ?? 0 }
-  superScanSummary.value = {
-    total: payload.scanSummary?.total ?? payload.filesystemStats?.total ?? 0,
-    scanned: payload.scanSummary?.scanned ?? payload.filesystemStats?.scanned ?? 0,
-    failed: payload.scanSummary?.failed ?? payload.processingStats?.failed ?? 0,
-    waiting: payload.scanSummary?.waiting ?? payload.filesystemStats?.unscanned ?? 0
-  }
-  superScanLastTime.value = payload.lastScanStart ? new Date(payload.lastScanStart).toLocaleString('zh-CN') : null
-  if (Array.isArray(payload.recentTasks) && payload.recentTasks.length) {
-    mergeSuperScanTasks(payload.recentTasks)
-  }
-}
-
-const loadSuperScanTasks = async () => {
-  const { data } = await api.get('/admin/scan/tasks', { timeout: 10000 })
-  superScanTasks.value = Array.isArray(data) ? data.map(normalizeSuperScanTask) : []
-}
-
-const fillSuperScanTasksFromProcessingOverview = async () => {
-  const { data } = await superAdminApi.getProcessingOverview()
-  const scanWorker = (data?.workers || []).find((item: any) => item.threadType === 'SCAN_QUEUE')
-  if (!scanWorker) return
-  const merged = [
-    ...(Array.isArray(scanWorker.runningTasks) ? scanWorker.runningTasks : []),
-    ...(Array.isArray(scanWorker.recentTasks) ? scanWorker.recentTasks : [])
-  ]
-  const normalized = merged
-    .filter((item: any) => item)
-    .map((item: any) => normalizeSuperScanTask(item))
-    .filter((item: any) => item.id != null)
-  const deduped = normalized.filter((item: any, index: number, list: any[]) =>
-    list.findIndex(candidate => candidate.id === item.id) === index
-  )
-  if (deduped.length) {
-    superScanTasks.value = deduped
-  }
-}
-
-const loadSuperScanPage = async (options: { silent?: boolean } = {}) => {
-  const requestId = ++superScanRequestSequence
-  const silent = !!options.silent
-  if (!silent) {
-    loadingSuperScan.value = true
-  }
-  let hasLoadedAnySection = false
-  let firstError: any = null
-  const captureError = (error: any) => {
-    if (!firstError) firstError = error
-  }
-
-  try {
-    const results = await Promise.allSettled([
-      loadSuperScanProviderOptions(),
-      loadSuperScanStatus(),
-      loadSuperScanTasks()
-    ])
-
-    results.forEach(result => {
-      if (result.status === 'fulfilled') {
-        hasLoadedAnySection = true
-      } else {
-        captureError(result.reason)
-      }
-    })
-
-    if (!superScanTasks.value.length) {
-      try {
-        await fillSuperScanTasksFromProcessingOverview()
-        hasLoadedAnySection = true
-      } catch (error) {
-        captureError(error)
-      }
-    }
-
-    if (!hasLoadedAnySection && firstError) {
-      throw firstError
-    }
-    if (firstError && !silent) {
-      showMessage(firstError?.response?.data?.error || firstError?.message || '部分扫描状态加载失败', 'error')
-    }
-  } catch (error: any) {
-    if (!silent) {
-      showMessage(error?.response?.data?.error || error?.message || '加载扫描管理失败', 'error')
-    }
-  } finally {
-    if (requestId === superScanRequestSequence) {
-      loadingSuperScan.value = false
-    }
-  }
-}
 
 const triggerSuperScan = async () => {
+  if (superTriggeringScan.value) return false
   if (!superScanActionSupported.value) {
     showMessage(superScanDisabledReason.value || '当前存储暂不支持扫描', 'error')
-    return
+    return false
   }
   superTriggeringScan.value = true
   try {
     const params = superSelectedScanProviderId.value != null ? { storageProviderId: superSelectedScanProviderId.value } : undefined
     const { data } = await api.post('/admin/scan', null, { params })
-    mergeSuperScanTasks([data])
-    superScanning.value = true
-    superQueueCount.value = Math.max(1, Number(superQueueCount.value || 0))
-    superRunningTaskCount.value = Math.max(superRunningTaskCount.value, 1)
-    superScanLastTime.value = new Date().toLocaleString('zh-CN')
     const message = data?.message || (data?.merged ? '扫描任务已合并到现有队列' : '扫描任务已加入队列')
     showMessage(message)
-    loadSuperScanPage({ silent: true }).catch(() => {})
+    return true
   } catch (error: any) {
     showMessage(error?.response?.data?.message || error?.message || '触发扫描失败', 'error')
+    return false
   } finally {
     superTriggeringScan.value = false
   }
 }
 
-const fetchSuperAdminSkippedFiles = async () => {
-  loadingSuperAdminSkipped.value = true
-  try {
-    const { data } = await api.get('/admin/scan/skipped-files')
-    superAdminSkippedFiles.value = Array.isArray(data) ? data : []
-  } catch (error) {
-    superAdminSkippedFiles.value = []
-  } finally {
-    loadingSuperAdminSkipped.value = false
-  }
-}
-
-const openSuperScanTaskDetail = async (taskId: number) => {
-  showSuperScanTaskDetailModal.value = true
-  await fetchSuperScanTaskDetail(taskId)
-}
-
-const fetchSuperScanTaskDetail = async (taskId: number) => {
-  loadingSuperScanTaskDetail.value = true
-  try {
-    const { data } = await api.get(`/admin/scan/tasks/${taskId}`)
-    superSelectedTaskDetail.value = data || null
-  } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '加载任务详情失败', 'error')
-  } finally {
-    loadingSuperScanTaskDetail.value = false
-  }
-}
-
-const refreshSuperScanTaskDetail = async () => {
-  if (!superSelectedTaskDetail.value?.id) return
-  await fetchSuperScanTaskDetail(superSelectedTaskDetail.value.id)
-}
-
-const closeSuperScanTaskDetailModal = () => {
-  showSuperScanTaskDetailModal.value = false
-  superSelectedTaskDetail.value = null
-}
-
-const canSuperRetryScanTask = (task: any): boolean => ['FAILED', 'PAUSED', 'CANCELED'].includes(task.status)
-const canSuperPauseScanTask = (task: any): boolean => task.status === 'RUNNING'
-const canSuperCancelScanTask = (task: any): boolean => ['RUNNING', 'QUEUED', 'PENDING'].includes(task.status)
-
-const retrySuperScanTask = async (task: any) => {
-  if (!confirm(`确认重新入队扫描任务 #${task.id} 吗？`)) return
-  try {
-    await api.post(`/admin/scan/tasks/${task.id}/retry`)
-    await loadSuperScanPage()
-  } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '重新入队失败', 'error')
-  }
-}
-
-const pauseSuperScanTask = async (task: any) => {
-  if (!confirm(`确认暂停扫描任务 #${task.id} 吗？`)) return
-  try {
-    const { data } = await api.post(`/admin/scan/tasks/${task.id}/pause`)
-    if (data?.message) showMessage(data.message)
-    await loadSuperScanPage()
-  } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '暂停失败', 'error')
-  }
-}
-
-const cancelSuperScanTask = async (task: any) => {
-  if (!confirm(`确认取消扫描任务 #${task.id} 吗？`)) return
-  try {
-    const { data } = await api.post(`/admin/scan/tasks/${task.id}/cancel`)
-    if (data?.message) showMessage(data.message)
-    await loadSuperScanPage()
-  } catch (error: any) {
-    showMessage(error?.response?.data?.error || error?.message || '取消失败', 'error')
-  }
-}
-
-const openSuperAdminSkippedModal = async () => {
-  showSuperAdminSkippedModal.value = true
-  await fetchSuperAdminSkippedFiles()
-}
-
-const closeSuperAdminSkippedModal = () => {
-  showSuperAdminSkippedModal.value = false
-}
 
 const loadSettings = async () => {
   const { data } = await superAdminApi.getSettings()
@@ -5902,31 +5098,6 @@ const stopModelTaskPolling = () => {
   modelTaskPollTimer = null
 }
 
-const startProcessingOverviewPolling = () => {
-  if (processingOverviewPollTimer) return
-  processingOverviewPollTimer = setInterval(() => {
-    loadProcessingOverview().catch(() => {})
-  }, 5000)
-}
-
-const stopProcessingOverviewPolling = () => {
-  if (!processingOverviewPollTimer) return
-  clearInterval(processingOverviewPollTimer)
-  processingOverviewPollTimer = null
-}
-
-const startSuperScanPolling = () => {
-  if (superScanPollTimer) return
-  superScanPollTimer = setInterval(() => {
-    loadSuperScanPage({ silent: true }).catch(() => {})
-  }, 5000)
-}
-
-const stopSuperScanPolling = () => {
-  if (!superScanPollTimer) return
-  clearInterval(superScanPollTimer)
-  superScanPollTimer = null
-}
 
 const downloadModel = async (model: ManagedModelSummary) => {
   const url = String(modelDownloadUrls[model.key] || '').trim()
@@ -6080,186 +5251,6 @@ const modelTaskProgressClass = (task?: ModelRebuildTask | null) => {
   }
 }
 
-const workerRunningLabel = (worker: SuperAdminProcessingOverview['workers'][number]) => {
-  const active = Number(worker.activeWorkers ?? worker.activeThreads ?? worker.runningTaskCount ?? 0)
-  if (worker.queueActive || worker.running || active > 0) return '运行中'
-  if (worker.enabled === false) return '未启用'
-  return '空闲'
-}
-
-const workerRunningClass = (worker: SuperAdminProcessingOverview['workers'][number]) => {
-  const label = workerRunningLabel(worker)
-  if (label === '运行中') return 'text-emerald-200'
-  if (label === '未启用') return 'text-rose-200'
-  return 'text-gray-300'
-}
-
-const superScanTaskStatusBadgeClass = (status?: string | null) => {
-  switch ((status || '').toUpperCase()) {
-    case 'RUNNING':
-      return 'text-sky-300 border-sky-500/40 bg-sky-500/10'
-    case 'QUEUED':
-    case 'PENDING':
-      return 'text-amber-300 border-amber-500/40 bg-amber-500/10'
-    case 'PAUSED':
-      return 'text-purple-300 border-purple-500/40 bg-purple-500/10'
-    case 'FAILED':
-      return 'text-rose-300 border-rose-500/40 bg-rose-500/10'
-    case 'COMPLETED':
-      return 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
-    case 'CANCELED':
-      return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
-    default:
-      return 'text-slate-300 border-slate-500/40 bg-slate-500/10'
-  }
-}
-
-const processingTaskTitle = (task: ProcessingOverviewTaskSummary) => {
-  return task.taskName || task.modelName || task.photoName || task.taskId || (task.photoId != null ? `照片 #${task.photoId}` : '后台任务')
-}
-
-const processingTaskPercent = (task: ProcessingOverviewTaskSummary) => {
-  const total = Number(task.total || 0)
-  if (task.progressPercent != null) return Number(task.progressPercent)
-  if (total <= 0) return 0
-  return Math.max(0, Math.min(100, Math.round((Number(task.current || 0) / total) * 100)))
-}
-
-const processingTaskStatusLabel = (status?: string | null) => {
-  switch ((status || '').toUpperCase()) {
-    case 'SUCCESS':
-    case 'COMPLETED':
-      return '已完成'
-    case 'FAILED':
-      return '失败'
-    case 'RUNNING':
-      return '执行中'
-    case 'PENDING':
-    case 'QUEUED':
-      return '排队中'
-    case 'STOPPED':
-    case 'CANCELED':
-      return '已停止'
-    default:
-      return status || '未知'
-  }
-}
-
-const processingTaskStatusClass = (status?: string | null) => {
-  switch ((status || '').toUpperCase()) {
-    case 'SUCCESS':
-    case 'COMPLETED':
-      return 'text-emerald-200'
-    case 'FAILED':
-      return 'text-rose-200'
-    case 'RUNNING':
-      return 'text-sky-200'
-    case 'PENDING':
-    case 'QUEUED':
-      return 'text-amber-200'
-    case 'STOPPED':
-    case 'CANCELED':
-      return 'text-gray-300'
-    default:
-      return 'text-gray-300'
-  }
-}
-
-const isScanQueueWorker = (worker: ProcessingOverviewWorkerSummary) => worker.threadType === 'SCAN_QUEUE'
-
-const scanWorkerQueuedTasks = (worker: ProcessingOverviewWorkerSummary) =>
-  (worker.recentTasks || []).filter(task => ['QUEUED', 'PENDING'].includes(String(task.status || '').toUpperCase()))
-
-const scanWorkerFailedTasks = (worker: ProcessingOverviewWorkerSummary) =>
-  (worker.recentTasks || []).filter(task => ['FAILED'].includes(String(task.status || '').toUpperCase()))
-
-const scanTaskRecentSummary = (task: Record<string, any>) => {
-  const pieces: string[] = []
-  const processed = Number(task.processedItems ?? task.current ?? 0)
-  const total = Number(task.totalItems ?? task.total ?? 0)
-  if (total > 0) {
-    const percent = task.progressPercent ?? Math.min(100, Math.round((processed / total) * 100))
-    pieces.push(`进度 ${processed}/${total} · ${percent}%`)
-  }
-  if (task.rootPathDisplay || task.rootPath) {
-    pieces.push(`路径：${task.rootPathDisplay || task.rootPath}`)
-  }
-  if (task.errorMessage) {
-    pieces.push(`失败：${task.errorMessage}`)
-  }
-  if (task.ownerLabel) {
-    pieces.push(`归属：${task.ownerLabel}`)
-  }
-  return pieces.join(' · ') || task.message || task.latestLog || '暂无附加说明'
-}
-
-const scanTaskTypeLabel = (taskType?: string | null) => {
-  switch ((taskType || '').toUpperCase()) {
-    case 'FULL_SCAN':
-      return '全量扫描'
-    case 'INCREMENTAL_SCAN':
-      return '增量扫描'
-    case 'RESUME_SCAN':
-      return '恢复扫描'
-    case 'UPLOAD_SCAN':
-      return '上传扫描'
-    default:
-      return taskType || '扫描任务'
-  }
-}
-
-const scanTaskStatusLabel = (status?: string | null) => {
-  switch ((status || '').toUpperCase()) {
-    case 'RUNNING':
-      return '运行中'
-    case 'QUEUED':
-      return '排队中'
-    case 'PENDING':
-      return '等待中'
-    case 'PAUSED':
-      return '已暂停'
-    case 'FAILED':
-      return '失败'
-    case 'COMPLETED':
-      return '已完成'
-    case 'CANCELED':
-      return '已取消'
-    default:
-      return status || '未知'
-  }
-}
-
-const scanTaskStatusClass = (status?: string | null) => {
-  switch ((status || '').toUpperCase()) {
-    case 'RUNNING':
-      return 'text-sky-200'
-    case 'QUEUED':
-    case 'PENDING':
-      return 'text-amber-200'
-    case 'PAUSED':
-      return 'text-orange-200'
-    case 'FAILED':
-      return 'text-rose-200'
-    case 'COMPLETED':
-      return 'text-emerald-200'
-    case 'CANCELED':
-      return 'text-gray-300'
-    default:
-      return 'text-gray-300'
-  }
-}
-
-const scanTaskProgressText = (task: Record<string, any>) => {
-  const processed = Number(task.processedItems || 0)
-  const total = Number(task.totalItems || 0)
-  const skipped = Number(task.skippedItems || 0)
-  const failed = Number(task.failedItems || 0)
-  const percent = total > 0 ? Math.max(0, Math.min(100, Number(task.progressPercent ?? Math.round((processed / total) * 100)))) : 0
-  const segments = [`进度 ${processed}/${total}`, `${percent}%`]
-  if (skipped > 0) segments.push(`跳过 ${skipped}`)
-  if (failed > 0) segments.push(`失败 ${failed}`)
-  return segments.join(' · ')
-}
 
 const handleSuperAdminLoadErrors = (failedItems: Array<{ label: string; error: any }>) => {
   if (!failedItems.length) return
@@ -6301,12 +5292,8 @@ const ensureTabDataLoaded = async (tab: SuperAdminTabKey, force = false) => {
     case 'overview':
       tasks.push(
         { label: '概览', loader: loadOverview },
-        { label: '任务账号', loader: loadUsers },
-        { label: '线程进度', loader: loadProcessingOverview }
+        { label: '任务账号', loader: loadUsers }
       )
-      break
-    case 'scan':
-      tasks.push({ label: '扫描管理', loader: loadSuperScanPage })
       break
     case 'storage':
       tasks.push({ label: '存储配置', loader: loadStorageProviders })
@@ -6471,23 +5458,7 @@ watch(activeTab, value => {
   stopModelTaskPolling()
 }, { immediate: true })
 
-watch(activeTab, value => {
-  if (value === 'overview') {
-    loadProcessingOverview()
-    startProcessingOverviewPolling()
-    return
-  }
-  stopProcessingOverviewPolling()
-}, { immediate: true })
 
-watch(activeTab, value => {
-  if (value === 'scan') {
-    loadSuperScanPage()
-    startSuperScanPolling()
-    return
-  }
-  stopSuperScanPolling()
-}, { immediate: true })
 
 watch(
   () => route.query.focusOrderNo,
@@ -7648,7 +6619,5 @@ const paymentGatewayStatusLabel = (value?: string | null) => {
 onMounted(loadAll)
 onUnmounted(() => {
   stopModelTaskPolling()
-  stopProcessingOverviewPolling()
-  stopSuperScanPolling()
 })
 </script>

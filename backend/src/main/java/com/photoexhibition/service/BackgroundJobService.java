@@ -60,6 +60,9 @@ public class BackgroundJobService {
     @Autowired @Lazy
     private ModelManagementService modelManagementService;
 
+    @Autowired
+    private UserPathService userPathService;
+
     private final Map<BackgroundJobResourceLane, ExecutorService> executors = new EnumMap<>(BackgroundJobResourceLane.class);
     private final Map<BackgroundJobResourceLane, AtomicBoolean> laneBusy = new EnumMap<>(BackgroundJobResourceLane.class);
     private final Map<BackgroundJobResourceLane, Long> lastOwnerByLane = new ConcurrentHashMap<>();
@@ -156,6 +159,8 @@ public class BackgroundJobService {
             item.setJobId(job.getId());
             item.setOwnerUserId(effectiveOwner);
             item.setPhotoId(photoId);
+            item.setTargetName(photo.getFilename());
+            item.setTargetPath(TaskFileService.relativePath(userPathService, photo.getOriginalPath(), effectiveOwner));
             item.setTargetKey(targetKey);
             item.setStage(jobType);
             item.setPipelineVersion(version);
@@ -231,6 +236,8 @@ public class BackgroundJobService {
             item.setTargetKey(targetKey);
             item.setStage(jobType);
             item.setPipelineVersion("1");
+            item.setTargetName(album.getName());
+            item.setTargetPath(TaskFileService.relativePath(userPathService, album.getPath(), effectiveOwner));
             item.setParametersHash(hash);
             item.setRequiresScanComplete(false);
             itemRepository.save(item);
@@ -944,6 +951,10 @@ public class BackgroundJobService {
         result.put("blockingReason", job.getBlockingReason());
         result.put("failureGroupId", job.getFailureGroupId());
         result.put("errorSummary", job.getErrorSummary());
+        result.put("currentStage", job.getJobType());
+        result.put("waitingReason", job.getBlockingReason());
+        result.put("lastActivityAt", job.getUpdatedAt());
+        result.put("durationSeconds", durationSeconds(job.getStartedAt(), job.getFinishedAt()));
         if (job.getErrorSummary() != null && !job.getErrorSummary().isBlank()) {
             Failure failure = classifyFailure(new IllegalStateException(job.getErrorSummary()));
             result.put("errorCode", failure.code);
@@ -960,10 +971,18 @@ public class BackgroundJobService {
         return result;
     }
 
+    private Long durationSeconds(LocalDateTime startedAt, LocalDateTime finishedAt) {
+        if (startedAt == null) return null;
+        LocalDateTime end = finishedAt == null ? LocalDateTime.now() : finishedAt;
+        return Math.max(0L, java.time.Duration.between(startedAt, end).getSeconds());
+    }
+
     private Map<String, Object> toItemMap(BackgroundJobItem item) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", item.getId());
         result.put("photoId", item.getPhotoId());
+        result.put("targetName", item.getTargetName());
+        result.put("targetPath", item.getTargetPath());
         result.put("targetKey", item.getTargetKey());
         result.put("stage", item.getStage());
         result.put("status", item.getStatus());
@@ -976,9 +995,44 @@ public class BackgroundJobService {
         result.put("finishedAt", item.getFinishedAt());
         result.put("nextAttemptAt", item.getNextAttemptAt());
         if (item.getPhotoId() != null) {
-            photoRepository.findById(item.getPhotoId()).ifPresent(photo -> result.put("photoName", photo.getFilename()));
+            photoRepository.findById(item.getPhotoId()).ifPresent(photo -> {
+                result.put("photoName", photo.getFilename());
+                if (result.get("targetName") == null) result.put("targetName", photo.getFilename());
+                if (result.get("targetPath") == null) result.put("targetPath", TaskFileService.relativePath(userPathService, photo.getOriginalPath(), item.getOwnerUserId()));
+            });
         }
         return result;
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<Map<String, Object>> getFiles(UserAccount viewer, Long jobId, int page, int size) {
+        BackgroundJob job = requireVisibleJob(viewer, jobId);
+        org.springframework.data.domain.Page<BackgroundJobItem> items = itemRepository.findByJobIdOrderByIdAsc(jobId,
+            org.springframework.data.domain.PageRequest.of(Math.max(0, page), Math.max(1, Math.min(100, size))));
+        Map<Long, Photo> photos = photoRepository.findAllById(items.stream().map(BackgroundJobItem::getPhotoId)
+            .filter(Objects::nonNull).collect(Collectors.toSet())).stream().collect(Collectors.toMap(Photo::getId, p -> p));
+        Set<Long> albumIds = items.stream().map(BackgroundJobItem::getTargetKey).filter(k -> k != null && k.startsWith("ALBUM:"))
+            .map(k -> Long.valueOf(k.substring(6))).collect(Collectors.toSet());
+        Map<Long, Album> albums = albumRepository.findAllById(albumIds).stream().collect(Collectors.toMap(Album::getId, a -> a));
+        String owner = job.getOwnerUserId() == null ? "系统任务" : userAccountRepository.findById(job.getOwnerUserId()).map(u ->
+            u.getNickname() == null || u.getNickname().isBlank() ? u.getUsername() : u.getNickname()).orElse("用户 #" + job.getOwnerUserId());
+        return items.map(item -> {
+            Photo photo = photos.get(item.getPhotoId());
+            Album album = item.getTargetKey().startsWith("ALBUM:") ? albums.get(Long.valueOf(item.getTargetKey().substring(6))) : null;
+            String name = item.getTargetName();
+            String path = item.getTargetPath();
+            if (name == null) name = photo != null ? photo.getFilename() : album != null ? album.getName() : item.getTargetKey();
+            if (path == null) path = TaskFileService.relativePath(userPathService, photo != null ? photo.getOriginalPath() : album != null ? album.getPath() : null, job.getOwnerUserId());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", item.getId()); row.put("name", name); row.put("path", path); row.put("ownerLabel", owner);
+            row.put("status", item.getStatus()); row.put("errorCode", item.getErrorCode());
+            row.put("message", item.getErrorMessage() != null ? item.getErrorMessage()
+                : photo == null && album == null ? "目标已删除" : "");
+            row.put("createdAt", item.getCreatedAt()); row.put("startedAt", item.getStartedAt());
+            row.put("finishedAt", item.getFinishedAt()); row.put("updatedAt", item.getUpdatedAt());
+            row.put("attemptCount", item.getAttemptCount());
+            return row;
+        });
     }
 
     private String shortMessage(Exception exception) {

@@ -41,9 +41,23 @@ public class BackgroundJobController {
         return ResponseEntity.ok(backgroundJobService.ignore(currentUser(authorization), jobId));
     }
 
+    @GetMapping("/scans/{taskId}/issues")
+    public org.springframework.data.domain.Page<com.photoexhibition.entity.ScanTaskIssue> scanIssues(
+            @RequestHeader("Authorization") String authorization, @PathVariable Long taskId,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return scanTaskService.getIssues(currentUser(authorization), taskId, page, size);
+    }
+
     @PostMapping("/scans/{taskId}/ignore")
     public ResponseEntity<Map<String, Object>> ignoreScan(@RequestHeader("Authorization") String authorization, @PathVariable Long taskId) {
         return ResponseEntity.ok(scanTaskService.ignoreTask(currentUser(authorization), taskId));
+    }
+
+    @GetMapping("/scans/{taskId}/files")
+    public org.springframework.data.domain.Page<Map<String, Object>> scanFiles(
+            @RequestHeader("Authorization") String authorization, @PathVariable Long taskId,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return scanTaskService.getFiles(currentUser(authorization), taskId, page, size);
     }
 
     @GetMapping("/history")
@@ -69,6 +83,13 @@ public class BackgroundJobController {
     public ResponseEntity<Map<String, Object>> get(@RequestHeader("Authorization") String authorization,
                                                     @PathVariable Long jobId) {
         return ResponseEntity.ok(backgroundJobService.get(currentUser(authorization), jobId));
+    }
+
+    @GetMapping("/{jobId}/files")
+    public org.springframework.data.domain.Page<Map<String, Object>> files(
+            @RequestHeader("Authorization") String authorization, @PathVariable Long jobId,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return backgroundJobService.getFiles(currentUser(authorization), jobId, page, size);
     }
 
     @PostMapping("/{jobId}/pause")

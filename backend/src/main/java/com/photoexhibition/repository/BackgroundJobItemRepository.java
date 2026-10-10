@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface BackgroundJobItemRepository extends JpaRepository<BackgroundJobItem, Long> {
+    org.springframework.data.domain.Page<BackgroundJobItem> findByJobIdOrderByIdAsc(Long jobId, org.springframework.data.domain.Pageable pageable);
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("delete from BackgroundJobItem i where i.jobId = :id")
+    void deleteByJobId(@org.springframework.data.repository.query.Param("id") Long jobId);
     List<BackgroundJobItem> findByJobIdOrderByIdAsc(Long jobId);
     List<BackgroundJobItem> findTop50ByJobIdAndStatusInOrderByIdAsc(Long jobId, Collection<BackgroundJobItemStatus> statuses);
     Optional<BackgroundJobItem> findFirstByOwnerUserIdAndTargetKeyAndStageAndPipelineVersionAndParametersHashAndStatusInOrderByUpdatedAtDesc(

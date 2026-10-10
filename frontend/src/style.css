@@ -7803,7 +7803,7 @@
 .admin-task-overview { display: flex; flex-direction: column; max-height: 52rem; margin: 1.5rem 0; padding: 1.25rem; border: 1px solid var(--pe-surface-border); border-radius: 8px; background: var(--pe-surface-bg); color: var(--pe-admin-text-primary); overflow: hidden; }
 .admin-task-overview > :not(.admin-task-overview__body) { flex-shrink: 0; }
 .admin-task-overview__body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.admin-task-table-scroll { margin-top: 1rem; }
+.admin-task-table-scroll { margin-top: 1rem; overflow: auto; overscroll-behavior: contain; }
 .admin-task-table-progress { width: 6rem; height: 4px; margin-top: .4rem; background: var(--pe-admin-soft-bg); }
 .admin-task-table-progress span { display: block; height: 100%; background: var(--pe-theme-primary); transition: width 350ms ease; }
 .admin-task-table-actions { display: flex; gap: .5rem; }
@@ -7812,6 +7812,12 @@
 .admin-task-name { text-align: left; text-decoration: underline; text-underline-offset: 3px; }
 .admin-task-connection { margin-right: auto; }
 .admin-task-dialog { width: min(36rem, calc(100vw - 2rem)); max-height: 80vh; overflow: auto; padding: 1.25rem; border: 1px solid var(--pe-surface-border); border-radius: 8px; background: var(--pe-surface-bg); color: var(--pe-admin-text-primary); }
+.admin-task-detail-dialog { width: min(72rem, calc(100vw - 2rem)); }
+.admin-task-files-scroll { max-height: min(28rem, 48vh); }
+.admin-task-files-table { min-width: 58rem; }
+.admin-task-files-table th, .admin-task-files-table td { padding: .5rem .75rem; text-align: left; font-size: .8125rem; line-height: 1.5; vertical-align: top; }
+.admin-task-files-table th { position: sticky; top: 0; background: var(--pe-surface-bg); z-index: 1; }
+.admin-task-file-message, .admin-task-file-path { max-width: 18rem; overflow-wrap: anywhere; }
 .admin-task-dialog::backdrop { background: rgba(0, 0, 0, .5); }
 .admin-task-details { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: .75rem; margin: 1.25rem 0; font-size: .8125rem; }
 .admin-task-details dt { color: var(--pe-admin-text-muted); }

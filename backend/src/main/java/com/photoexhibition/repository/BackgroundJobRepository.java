@@ -16,6 +16,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface BackgroundJobRepository extends JpaRepository<BackgroundJob, Long> {
+    @Query("select j from BackgroundJob j where j.status in :statuses and j.updatedAt < :cutoff "
+        + "and not exists (select r.id from BackgroundJob r where r.sourceJobId = j.id) order by j.id")
+    List<BackgroundJob> findExpired(@Param("statuses") Collection<BackgroundJobStatus> statuses,
+        @Param("cutoff") java.time.LocalDateTime cutoff, org.springframework.data.domain.Pageable pageable);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select j from BackgroundJob j where j.id = :id")
     Optional<BackgroundJob> findForUpdate(@Param("id") Long id);
