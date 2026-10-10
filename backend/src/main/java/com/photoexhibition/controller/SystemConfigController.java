@@ -58,11 +58,7 @@ public class SystemConfigController {
             resp.put("aiSearchEnabled", systemConfigService.isAiSearchEnabled());
             resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
             String apiKey = systemConfigService.getAiSearchApiKey();
-            if (apiKey != null && apiKey.length() > 8) {
-                resp.put("aiSearchApiKey", apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4));
-            } else {
-                resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
-            }
+            resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
             resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
             resp.put("aiVisualAnalysisEnabled", systemConfigService.isAiVisualAnalysisEnabled());
             return ResponseEntity.ok(resp);
@@ -687,11 +683,7 @@ public class SystemConfigController {
         try {
             requireSuperAdmin(authorization);
             String apiKey = systemConfigService.getAiSearchApiKey();
-            if (apiKey != null && apiKey.length() > 8) {
-                resp.put("aiSearchApiKey", apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4));
-            } else {
-                resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
-            }
+            resp.put("aiSearchApiKey", apiKey != null && !apiKey.isEmpty() ? "****" : "");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("error", sanitizeErrorMessage(e.getMessage(), "获取配置失败"));
@@ -705,7 +697,8 @@ public class SystemConfigController {
         try {
             requireSuperAdmin(authorization);
             String key = (String) request.get("aiSearchApiKey");
-            systemConfigService.setAiSearchApiKey(key);
+            if (Boolean.TRUE.equals(request.get("clearSecret"))) systemConfigService.setAiSearchApiKey("");
+            else if (key != null && !key.trim().isEmpty() && !key.contains("****")) systemConfigService.setAiSearchApiKey(key);
             resp.put("message", "AI搜索API密钥设置成功");
             return ResponseEntity.ok(resp);
         } catch (Exception e) {

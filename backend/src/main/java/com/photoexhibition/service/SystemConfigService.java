@@ -19,6 +19,27 @@ public class SystemConfigService {
 
     private final SystemConfigRepository systemConfigRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private SecretConfigCodec secretConfigCodec;
+
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    @Transactional
+    public void encryptLegacySecrets() {
+        List<SystemConfig> configs = systemConfigRepository.findAll();
+        // Validate existing ciphertext before generating a key for any legacy value.
+        for (SystemConfig config : configs) {
+            secretConfigCodec.decode(config.getConfigKey(), config.getConfigValue());
+        }
+        for (SystemConfig config : configs) {
+            String value = config.getConfigValue();
+            if (SecretConfigCodec.isSecret(config.getConfigKey()) && value != null && !value.isEmpty()
+                    && !value.startsWith(SecretConfigCodec.PREFIX)) {
+                config.setConfigValue(secretConfigCodec.encode(config.getConfigKey(), value));
+                systemConfigRepository.save(config);
+            }
+        }
+    }
+
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -148,7 +169,7 @@ public class SystemConfigService {
         // 清除一级缓存，确保读取最新数据
         entityManager.clear();
         Optional<SystemConfig> config = systemConfigRepository.findByConfigKey(key);
-        return config.map(SystemConfig::getConfigValue).orElse(defaultValue);
+        return config.map(c -> secretConfigCodec.decode(key, c.getConfigValue())).orElse(defaultValue);
     }
 
     /**
@@ -158,13 +179,13 @@ public class SystemConfigService {
     public String getConfigValueWithDefault(String key, String defaultValue, String description) {
         Optional<SystemConfig> config = systemConfigRepository.findByConfigKey(key);
         if (config.isPresent()) {
-            return config.get().getConfigValue();
+            return secretConfigCodec.decode(key, config.get().getConfigValue());
         }
 
         // 创建默认配置
         SystemConfig newConfig = new SystemConfig();
         newConfig.setConfigKey(key);
-        newConfig.setConfigValue(defaultValue);
+        newConfig.setConfigValue(secretConfigCodec.encode(key, defaultValue));
         newConfig.setDescription(description);
         systemConfigRepository.save(newConfig);
 
@@ -181,17 +202,17 @@ public class SystemConfigService {
 
         if (existing.isPresent()) {
             config = existing.get();
-            log.info("找到现有配置: key={}, currentValue={}", key, config.getConfigValue());
+            log.info("找到现有配置: key={}", key);
         } else {
             config = new SystemConfig();
             config.setConfigKey(key);
             log.info("创建新配置: key={}", key);
         }
 
-        config.setConfigValue(value);
+        config.setConfigValue(secretConfigCodec.encode(key, value));
         config.setDescription(description);
         systemConfigRepository.save(config);
-        log.info("配置已保存: key={}, value={}", key, value);
+        log.info("配置已保存: key={}", key);
     }
 
     public String getSuperAdminTablePreferences() {
@@ -721,7 +742,9 @@ public class SystemConfigService {
         Iterable<SystemConfig> configs = systemConfigRepository.findAll();
         java.util.Map<String, String> result = new java.util.HashMap<>();
         for (SystemConfig config : configs) {
-            result.put(config.getConfigKey(), config.getConfigValue());
+            String value = config.getConfigValue();
+            result.put(config.getConfigKey(), SecretConfigCodec.isSecret(config.getConfigKey())
+                ? (value == null || value.isEmpty() ? "" : "****") : value);
         }
         return result;
     }

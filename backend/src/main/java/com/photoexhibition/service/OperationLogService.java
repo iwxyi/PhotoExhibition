@@ -32,6 +32,28 @@ public class OperationLogService {
     private final ObjectMapper objectMapper;
     private final UserPathService userPathService;
 
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void redactLegacySettingsLogs() {
+        int page = 0;
+        org.springframework.data.domain.Page<OperationLog> batch;
+        do {
+            batch = operationLogRepository.findByOperationTypeAndTargetType(OperationType.CONFIG_UPDATE,
+                "SYSTEM_SETTINGS", PageRequest.of(page++, 200, Sort.by("id")));
+            List<OperationLog> changed = new ArrayList<>();
+            for (OperationLog record : batch.getContent()) {
+                try {
+                    Object original = objectMapper.readValue(record.getDetailJson(), Object.class);
+                    Object redacted = redactSecrets(original);
+                    if (!redacted.equals(original)) {
+                        record.setDetailJson(objectMapper.writeValueAsString(redacted));
+                        changed.add(record);
+                    }
+                } catch (Exception ignored) { /* Preserve legacy non-JSON records. */ }
+            }
+            if (!changed.isEmpty()) operationLogRepository.saveAll(changed);
+        } while (batch.hasNext());
+    }
+
     @Transactional
     public void log(UserAccount operator,
                     OperationType operationType,
@@ -80,7 +102,7 @@ public class OperationLogService {
             return (String) detail;
         }
         try {
-            return objectMapper.writeValueAsString(detail);
+            return objectMapper.writeValueAsString(redactSecrets(detail));
         } catch (JsonProcessingException e) {
             return String.valueOf(detail);
         }
@@ -135,7 +157,8 @@ public class OperationLogService {
         if (value instanceof Map<?, ?>) {
             Map<?, ?> map = (Map<?, ?>) value;
             Map<String, Object> sanitized = new LinkedHashMap<>();
-            map.forEach((key, nestedValue) -> sanitized.put(String.valueOf(key), sanitizeJsonValue(nestedValue)));
+            map.forEach((key, nestedValue) -> sanitized.put(String.valueOf(key),
+                isSecretField(String.valueOf(key)) ? "[redacted]" : sanitizeJsonValue(nestedValue)));
             return sanitized;
         }
         if (value instanceof List<?>) {
@@ -146,6 +169,23 @@ public class OperationLogService {
         }
         if (value instanceof String) {
             return sanitizePotentialPathText((String) value);
+        }
+        return value;
+    }
+
+    private static boolean isSecretField(String key) {
+        return SecretConfigCodec.isSecretField(key);
+    }
+
+    private Object redactSecrets(Object value) {
+        if (value instanceof Map<?, ?>) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            ((Map<?, ?>) value).forEach((key, nested) -> result.put(String.valueOf(key),
+                isSecretField(String.valueOf(key)) ? "[redacted]" : redactSecrets(nested)));
+            return result;
+        }
+        if (value instanceof List<?>) {
+            return ((List<?>) value).stream().map(this::redactSecrets).collect(Collectors.toList());
         }
         return value;
     }

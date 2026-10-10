@@ -15,4 +15,7 @@ public interface OperationLogRepository extends JpaRepository<OperationLog, Long
     Page<OperationLog> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     Page<OperationLog> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+
+    Page<OperationLog> findByOperationTypeAndTargetType(com.photoexhibition.entity.OperationType operationType,
+                                                     String targetType, Pageable pageable);
 }

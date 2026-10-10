@@ -584,8 +584,7 @@
 
           <label class="space-y-2">
             <span class="text-sm admin-table-muted">AI API 密钥</span>
-            <input v-model="settings.aiSearchApiKey" type="password" placeholder="sk-..." class="admin-input w-full px-4 py-3 rounded-xl" />
-            <div class="text-xs admin-table-faint">已保存的密钥会脱敏显示；留空或保持脱敏值不会覆盖它。</div>
+            <SecretSettingInput v-model="settings.aiSearchApiKey" label="AI API 密钥" :configured="secretConfigured.aiSearchApiKey" :cleared="!!secretCleared.aiSearchApiKey" @clear="setSecretClear('aiSearchApiKey', $event)" />
           </label>
 
           <label class="space-y-2">
@@ -771,12 +770,7 @@
               <span class="text-sm admin-table-muted">{{ smsAccessKeySecretLabel }}</span>
               <a v-if="smsFieldDocLinks.accessKeySecret" :href="smsFieldDocLinks.accessKeySecret.url" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200">↗</a>
             </div>
-            <input
-              v-model="settings.smsAccessKeySecret"
-              type="password"
-              autocomplete="new-password"
-              class="admin-input w-full px-4 py-3 rounded-xl"
-            />
+            <SecretSettingInput v-model="settings.smsAccessKeySecret" :configured="secretConfigured.smsAccessKeySecret" :cleared="!!secretCleared.smsAccessKeySecret" @clear="setSecretClear('smsAccessKeySecret', $event)" />
             <span class="text-xs admin-table-faint">敏感字段，保存后前端不会主动回显，请妥善保管。</span>
           </label>
 
@@ -971,12 +965,7 @@
 
           <label class="space-y-2">
             <span class="text-sm admin-table-muted">密码 / 授权码</span>
-            <input
-              v-model="settings.emailPassword"
-              type="password"
-              autocomplete="new-password"
-              class="admin-input w-full px-4 py-3 rounded-xl"
-            />
+            <SecretSettingInput v-model="settings.emailPassword" :configured="secretConfigured.emailPassword" :cleared="!!secretCleared.emailPassword" @clear="setSecretClear('emailPassword', $event)" />
             <span class="text-xs admin-table-faint">建议使用 SMTP 授权码而不是主账号登录密码。</span>
           </label>
 
@@ -1235,13 +1224,16 @@
                 {{ field.required ? '必填' : '可选' }} · {{ field.shortHint }}
               </span>
             </div>
+            <SecretSettingInput v-if="secretNames.includes(field.key)" v-model="(settings as any)[field.key]" :label="field.label" :configured="secretConfigured[field.key]" :cleared="!!secretCleared[field.key]" @clear="setSecretClear(field.key, $event)" />
+            <details v-else-if="field.multiline">
+              <summary class="text-xs admin-table-muted cursor-pointer">{{ (settings as any)[field.key] ? '已配置，展开编辑' : '展开填写' }}</summary>
             <textarea
-              v-if="field.multiline"
               v-model="(settings as any)[field.key]"
               :rows="field.rows || 3"
               :placeholder="field.placeholder"
               class="admin-input w-full px-4 py-3 rounded-xl"
             />
+            </details>
             <input
               v-else
               v-model="(settings as any)[field.key]"
@@ -2851,6 +2843,7 @@
 <script setup lang="ts">
 import AdminSuperAdminTabbar from '@/components/admin/AdminSuperAdminTabbar.vue'
 import BackgroundTaskTable from '@/components/admin/BackgroundTaskTable.vue'
+import SecretSettingInput from '@/components/admin/SecretSettingInput.vue'
 import AdminHtmlPreview from '@/components/admin/AdminHtmlPreview.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -3021,6 +3014,14 @@ const overview = reactive<SuperAdminOverview>({
   modelHealthy: false
 })
 
+const secretNames = ['aiSearchApiKey', 'smsAccessKeySecret', 'emailPassword', 'paymentPrivateKey', 'paymentWebhookSecret', 'paymentApiSecret']
+const secretConfigured = reactive<Record<string, boolean>>({})
+const secretCleared = reactive<Record<string, boolean>>({})
+const setSecretClear = (name: string, clear: boolean) => {
+  secretCleared[name] = clear
+  if (clear) (settings as any)[name] = ''
+}
+const secretAvailable = (name: string) => !!String((settings as any)[name] || '').trim() || (!!secretConfigured[name] && !secretCleared[name])
 const settings = reactive<SuperAdminSettings>({
   aiSearchEnabled: false,
   aiVisualAnalysisEnabled: false,
@@ -4462,7 +4463,7 @@ const paymentConfigAssessment = computed(() => {
   const hasText = (value?: string | null) => !!String(value || '').trim()
   const requiredMissingKeys: string[] = []
   const requireField = (field: keyof typeof paymentFieldLabels, required: boolean) => {
-    if (required && !hasText(settings[field] as string | null | undefined)) {
+    if (required && !(secretNames.includes(field) ? secretAvailable(field) : hasText(settings[field] as string | null | undefined))) {
       requiredMissingKeys.push(field)
     }
   }
@@ -4475,7 +4476,7 @@ const paymentConfigAssessment = computed(() => {
   if (normalizedMode !== settings.paymentVerificationMode) {
     verificationHints.push(`当前平台仅支持 ${allowedModes.join(' / ')}，已建议切换为 ${normalizedMode}`)
   }
-  if (normalizedMode === 'HMAC' && !hasText(settings.paymentWebhookSecret) && !hasText(settings.paymentApiSecret)) {
+  if (normalizedMode === 'HMAC' && !secretAvailable('paymentWebhookSecret') && !secretAvailable('paymentApiSecret')) {
     verificationHints.push('HMAC 建议至少配置 Webhook Secret 或 API Secret')
   }
   if (normalizedMode === 'RSA' && !hasText(settings.paymentPublicKey)) {
@@ -4489,7 +4490,7 @@ const paymentConfigAssessment = computed(() => {
       verificationHints.push('证书验签建议补充证书序列号')
     }
   }
-  if (normalizedMode === 'CUSTOM' && !hasText(settings.paymentWebhookSecret)) {
+  if (normalizedMode === 'CUSTOM' && !secretAvailable('paymentWebhookSecret')) {
     verificationHints.push('自定义验签建议配置共享密钥')
   }
 
@@ -4534,6 +4535,11 @@ const superScanDisabledReason = computed(() => {
 const applyOverview = (data: SuperAdminOverview) => Object.assign(overview, data)
 const applySettings = (data: SuperAdminSettings) => {
   Object.assign(settings, data)
+  for (const name of secretNames) {
+    secretConfigured[name] = !!(data as any)[name + 'Configured']
+    secretCleared[name] = false
+    ;(settings as any)[name] = ''
+  }
   settings.paymentVerificationMode = getNormalizedPaymentVerificationMode(
     settings.paymentProviderType,
     settings.paymentVerificationMode
@@ -5567,6 +5573,7 @@ const saveSettings = async () => {
   try {
     const payload = {
       ...settings,
+      clearSecrets: secretNames.filter(name => secretCleared[name]),
       paymentVerificationMode: getNormalizedPaymentVerificationMode(
         settings.paymentProviderType,
         settings.paymentVerificationMode

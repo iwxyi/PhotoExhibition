@@ -155,6 +155,34 @@ public class SuperAdminService {
     }
 
     @Transactional
+    private static void putSecretState(Map<String, Object> response, String name, String value) {
+        response.put(name, "");
+        response.put(name + "Configured", value != null && !value.trim().isEmpty());
+    }
+
+    private Map<String, Object> prepareSecretUpdate(Map<String, Object> original) {
+        Map<String, Object> request = new LinkedHashMap<>(original);
+        java.util.Set<String> names = new java.util.HashSet<>(java.util.Arrays.asList(
+            "aiSearchApiKey", "smsAccessKeySecret", "emailPassword", "paymentPrivateKey", "paymentWebhookSecret", "paymentApiSecret"));
+        Object clears = request.get("clearSecrets");
+        if (clears != null && !(clears instanceof java.util.List)) throw new IllegalArgumentException("clearSecrets 必须是字段列表");
+        java.util.List<?> clearList = clears == null ? java.util.Collections.emptyList() : (java.util.List<?>) clears;
+        for (Object name : clearList) {
+            if (!names.contains(name)) throw new IllegalArgumentException("未知的密钥字段");
+            String value = parseNullableString(request.get(name));
+            if (value != null && !value.trim().isEmpty() && !value.contains("****"))
+                throw new IllegalArgumentException("不能同时替换和清除密钥");
+        }
+        for (String name : names) {
+            if (clearList.contains(name)) request.put(name, "");
+            else {
+                String value = parseNullableString(request.get(name));
+                if (value == null || value.trim().isEmpty() || value.contains("****")) request.remove(name);
+            }
+        }
+        return request;
+    }
+
     public Map<String, Object> getSettings() {
         Map<String, Object> resp = new LinkedHashMap<>();
         SmsConfigService.SmsResolvedSettings smsSettings = smsConfigService.getResolvedSettings();
@@ -164,9 +192,7 @@ public class SuperAdminService {
         resp.put("aiVisualAnalysisEnabled", systemConfigService.isAiVisualAnalysisEnabled());
         resp.put("aiSearchApiUrl", systemConfigService.getAiSearchApiUrl());
         String aiApiKey = systemConfigService.getAiSearchApiKey();
-        resp.put("aiSearchApiKey", aiApiKey != null && aiApiKey.length() > 8
-            ? aiApiKey.substring(0, 4) + "****" + aiApiKey.substring(aiApiKey.length() - 4)
-            : (aiApiKey == null || aiApiKey.isEmpty() ? "" : "****"));
+        putSecretState(resp, "aiSearchApiKey", aiApiKey);
         resp.put("aiSearchModel", systemConfigService.getAiSearchModel());
         resp.put("multiUserEnabled", systemConfigService.isMultiUserEnabled());
         resp.put("scanSchedulerEnabled", systemConfigService.isScanSchedulerEnabled());
@@ -179,7 +205,7 @@ public class SuperAdminService {
         resp.put("smsEndpoint", smsSettings.getEndpoint());
         resp.put("smsRegionId", smsSettings.getRegionId());
         resp.put("smsAccessKeyId", smsSettings.getAccessKeyId());
-        resp.put("smsAccessKeySecret", smsSettings.getAccessKeySecret());
+        putSecretState(resp, "smsAccessKeySecret", smsSettings.getAccessKeySecret());
         resp.put("smsSignName", smsSettings.getSignName());
         resp.put("smsTemplateCode", smsSettings.getTemplateCode());
         resp.put("smsTemplateParamName", smsSettings.getTemplateParamName());
@@ -193,7 +219,7 @@ public class SuperAdminService {
         resp.put("emailHost", emailSettings.getHost());
         resp.put("emailPort", emailSettings.getPort());
         resp.put("emailUsername", emailSettings.getUsername());
-        resp.put("emailPassword", emailSettings.getPassword());
+        putSecretState(resp, "emailPassword", emailSettings.getPassword());
         resp.put("emailProtocol", emailSettings.getProtocol());
         resp.put("emailFromAddress", emailSettings.getFromAddress());
         resp.put("emailFromName", emailSettings.getFromName());
@@ -207,15 +233,15 @@ public class SuperAdminService {
         resp.put("paymentAppId", paymentSettings.getAppId());
         resp.put("paymentMerchantId", paymentSettings.getMerchantId());
         resp.put("paymentMerchantName", paymentSettings.getMerchantName());
-        resp.put("paymentPrivateKey", paymentSettings.getPrivateKey());
+        putSecretState(resp, "paymentPrivateKey", paymentSettings.getPrivateKey());
         resp.put("paymentPublicKey", paymentSettings.getPublicKey());
         resp.put("paymentApiBaseUrl", paymentSettings.getApiBaseUrl());
         resp.put("paymentNotifyUrl", paymentSettings.getNotifyUrl());
         resp.put("paymentReturnUrl", paymentSettings.getReturnUrl());
-        resp.put("paymentWebhookSecret", paymentSettings.getWebhookSecret());
+        putSecretState(resp, "paymentWebhookSecret", paymentSettings.getWebhookSecret());
         resp.put("paymentCurrency", paymentSettings.getCurrency());
         resp.put("paymentVerificationMode", paymentSettings.getVerificationMode());
-        resp.put("paymentApiSecret", paymentSettings.getApiSecret());
+        putSecretState(resp, "paymentApiSecret", paymentSettings.getApiSecret());
         resp.put("paymentCertificateSerialNo", paymentSettings.getCertificateSerialNo());
         resp.put("paymentPlatformCertificate", paymentSettings.getPlatformCertificate());
         resp.put("defaultUserQuotaBytes", systemConfigService.getDefaultUserQuotaBytes());
@@ -252,6 +278,7 @@ public class SuperAdminService {
 
     @Transactional
     public Map<String, Object> updateSettings(Map<String, Object> request) {
+        request = prepareSecretUpdate(request);
         if (request.containsKey("aiSearchEnabled")) {
             systemConfigService.setAiSearchEnabled(parseBoolean(request.get("aiSearchEnabled"), "aiSearchEnabled"));
         }
@@ -263,7 +290,7 @@ public class SuperAdminService {
         }
         if (request.containsKey("aiSearchApiKey")) {
             String key = parseNullableString(request.get("aiSearchApiKey"));
-            if (key != null && !key.contains("****")) systemConfigService.setAiSearchApiKey(key);
+            systemConfigService.setAiSearchApiKey(key);
         }
         if (request.containsKey("aiSearchModel")) {
             systemConfigService.setAiSearchModel(parseNullableString(request.get("aiSearchModel")));
@@ -1557,7 +1584,8 @@ public class SuperAdminService {
         if (value instanceof Map<?, ?>) {
             Map<?, ?> map = (Map<?, ?>) value;
             Map<String, Object> sanitized = new LinkedHashMap<>();
-            map.forEach((key, nestedValue) -> sanitized.put(String.valueOf(key), sanitizeJsonValue(nestedValue)));
+            map.forEach((key, nestedValue) -> sanitized.put(String.valueOf(key),
+                SecretConfigCodec.isSecretField(String.valueOf(key)) ? "[redacted]" : sanitizeJsonValue(nestedValue)));
             return sanitized;
         }
         if (value instanceof List<?>) {

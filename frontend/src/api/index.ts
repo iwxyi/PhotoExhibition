@@ -555,6 +555,13 @@ export interface SuperAdminProcessingOverview {
 }
 
 export interface SuperAdminSettings {
+  clearSecrets?: string[]
+  aiSearchApiKeyConfigured?: boolean
+  smsAccessKeySecretConfigured?: boolean
+  emailPasswordConfigured?: boolean
+  paymentPrivateKeyConfigured?: boolean
+  paymentWebhookSecretConfigured?: boolean
+  paymentApiSecretConfigured?: boolean
   aiSearchEnabled: boolean
   aiVisualAnalysisEnabled: boolean
   aiSearchApiUrl: string
