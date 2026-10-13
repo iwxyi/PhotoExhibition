@@ -705,14 +705,14 @@ const previewCurlCommand = computed(() => {
     ...authHeader,
     ...headers
   }).map(([key, value]) => `-H ${shellQuote(`${key}: ${value}`)}`).join(' ')
-  return `curl -X POST ${headerArgs} --data ${shellQuote(dataValue)} http://127.0.0.1:6060/api/admin/super-admin/payments/notify-preview/${paymentProviderType.value}`
+  return `curl -X POST ${headerArgs} --data ${shellQuote(dataValue)} ${window.location.origin}/api/admin/super-admin/payments/notify-preview/${paymentProviderType.value}`
 })
 
 const notifyCurlCommand = computed(() => {
   const { body, headers } = buildPaymentNotifyRequest()
   const dataValue = typeof body === 'string' ? body : JSON.stringify(body)
   const headerArgs = Object.entries(headers).map(([key, value]) => `-H ${shellQuote(`${key}: ${value}`)}`).join(' ')
-  return `curl -X POST ${headerArgs} --data ${shellQuote(dataValue)} http://127.0.0.1:6060/api/payments/notify/${paymentProviderType.value}`
+  return `curl -X POST ${headerArgs} --data ${shellQuote(dataValue)} ${window.location.origin}/api/payments/notify/${paymentProviderType.value}`
 })
 
 const returnCurlCommand = computed(() => {
@@ -725,7 +725,7 @@ const returnCurlCommand = computed(() => {
     if (value == null) return
     params.append(key, String(value))
   })
-  return `curl ${shellQuote(`http://127.0.0.1:6060/api/payments/return/${paymentProviderType.value}?${params.toString()}`)}`
+  return `curl ${shellQuote(`${window.location.origin}/api/payments/return/${paymentProviderType.value}?${params.toString()}`)}`
 })
 
 const copyText = async (text: string, successMessage: string) => {

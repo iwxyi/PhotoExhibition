@@ -1,5 +1,5 @@
 server:
-  port: 6060
+  port: ${SERVER_PORT:6060}
   address: 0.0.0.0  # 监听所有网络接口，允许外部访问
   servlet:
     context-path: /api
@@ -28,9 +28,9 @@ spring:
 
     # MySQL 配置 (生产环境推荐，取消注释下面的配置并注释掉上面的H2配置)
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/photo_exhibition?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: iwxyiroot
+    url: jdbc:mysql://${PHOTO_DB_HOST:localhost}:${PHOTO_DB_PORT:3306}/${PHOTO_DB_NAME:photo_exhibition}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${PHOTO_DB_USER:root}
+    password: ${PHOTO_DB_PASSWORD:iwxyiroot}
     
     hikari:
       # 连接池大小

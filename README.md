@@ -246,6 +246,68 @@ docker-compose up -d
 # 默认管理员账户: admin / admin123
 ```
 
+### 同一 MySQL 上部署两个实例
+
+Windows 可直接运行根目录的 `start.bat`，依次拉取代码、构建前后端并启动后端，需要已安装 Git、Node.js/npm、Java 11+、Maven，并已启动 MySQL。未配置时使用默认端口 `6060` 和数据库 `photo_exhibition`。需要自定义时，取消脚本顶部对应 `set` 行的 `REM` 注释并修改值；配置仅作用于当前脚本及其启动的程序，不影响其他实例。前端构建产物仍需由 Nginx 等 Web 服务部署，该脚本不会启动前端开发服务器。
+
+更推荐将本机配置放在根目录的 `start.local.bat`，该文件已加入 `.gitignore`，不会被正常的 `git pull` 覆盖，也不会提交数据库密码。`start.bat` 会自动加载它。例如：
+
+```bat
+@echo off
+set "SERVER_PORT=6061"
+set "PHOTO_DB_NAME=photo2"
+set "PHOTO_DB_USER=photo_user_2"
+set "PHOTO_DB_PASSWORD=your-password"
+set "PHOTO_SCAN_BASE_PATH=D:\PhotoExhibition2\data\photos"
+set "APP_SECURITY_CONFIG_KEY_FILE=D:\PhotoExhibition2\secrets\config.key"
+set "JWT_SECRET=replace-with-an-independent-long-random-secret"
+exit /b 0
+```
+
+BAT 配置中的密码若含 `%`，应写为 `%%`；不要在配置文件中使用 `exit`，应使用 `exit /b`。直接修改受 Git 管理的 `start.bat` 可能在后续拉取时产生冲突，因此长期部署建议使用上述本机配置文件。脚本拉取失败时会提示警告并继续使用本地代码；构建或启动失败时则停止并保留错误输出。
+
+两套工程可共用同一个 MySQL 服务，但必须使用不同数据库、后端端口、前端端口和数据目录。先创建两个库，并分别授予对应的数据库账号权限；不要让两个实例指向同一个库。
+
+```sql
+CREATE DATABASE photo1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE photo2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+在第一套工程的 `backend` 目录启动（保留原配置时无需设置这些变量）：
+
+```bash
+PHOTO_DB_NAME=photo1 SERVER_PORT=6060 PHOTO_DB_USER=photo_user_1 PHOTO_DB_PASSWORD='your-password' \
+PHOTO_SCAN_BASE_PATH=/srv/photo1/photos APP_SECURITY_CONFIG_KEY_FILE=/srv/photo1/secrets/config.key \
+mvn spring-boot:run -Dspring-boot.run.arguments="--spring.redis.host=disabled"
+```
+
+在第二套工程的 `backend` 目录启动：
+
+```bash
+PHOTO_DB_NAME=photo2 SERVER_PORT=6061 PHOTO_DB_USER=photo_user_2 PHOTO_DB_PASSWORD='your-password' \
+PHOTO_SCAN_BASE_PATH=/srv/photo2/photos APP_SECURITY_CONFIG_KEY_FILE=/srv/photo2/secrets/config.key \
+mvn spring-boot:run -Dspring-boot.run.arguments="--spring.redis.host=disabled"
+```
+
+生产环境使用打包后的 JAR 时，环境变量完全相同，只需将上面的 Maven 命令替换为：
+
+```bash
+java -Djava.awt.headless=true -jar target/photo-exhibition-backend-1.0.0.jar --spring.redis.host=disabled
+```
+
+也可将这些环境变量写入每套实例独立的 systemd `EnvironmentFile`，避免每次启动手动输入。Spring 启动参数仍可覆盖配置，例如 `--server.port=6061` 和 `--spring.datasource.url=...`。
+
+分别在各自的 `frontend` 目录启动 Vite：
+
+```bash
+VITE_PORT=3030 VITE_API_PROXY_TARGET=http://127.0.0.1:6060 npm run dev
+VITE_PORT=3031 VITE_API_PROXY_TARGET=http://127.0.0.1:6061 npm run dev
+```
+
+上面两条前端命令应在不同工程目录执行。访问 `http://localhost:3030` 和 `http://localhost:3031`。`PHOTO_DB_HOST`、`PHOTO_DB_PORT` 也可覆盖，默认是 `localhost:3306`；如需直接指定完整 JDBC URL，可使用 Spring 的 `SPRING_DATASOURCE_URL`。首次启动新库时 JPA 会建表。超级管理员设置中的本地存储根目录、用户资料根目录也要分别指向各自的目录，避免图片、缩略图及上传文件混用。已存在的加密配置迁移数据库时，必须同时迁移对应的 `config.key`；新库可使用独立密钥文件。生产环境还应为每套实例设置不同的 `JWT_SECRET`。
+
+以上的 Vite 命令适合开发或直接运行。生产环境若部署静态前端，应让两个站点的反向代理分别把 `/api` 转发到各自的后端端口；仅修改前端监听端口不会改变 API 目标。现有 Docker Compose 文件会自行启动 MySQL/Redis，并使用固定容器名和端口，不适合原样启动两份；若使用容器部署，需要另配共享外部 MySQL、独立 Compose 项目名与宿主机端口。
+
 ### 📁 照片组织建议
 
 为了获得最佳的展示效果，请按以下结构组织您的照片：

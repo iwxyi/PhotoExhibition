@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:6060'
+const devPort = Number(process.env.VITE_PORT || process.env.PORT || 3030)
 const allowedHostsEnv = process.env.VITE_ALLOWED_HOSTS
 const allowedHosts = allowedHostsEnv
   ? allowedHostsEnv.split(',').map((host) => host.trim()).filter(Boolean)
@@ -28,11 +29,12 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 3030,
+    port: devPort,
+    strictPort: true,
     allowedHosts,
     hmr: {
       overlay: true,
-      clientPort: 3030,
+      clientPort: devPort,
       path: '/hmr/'
     },
     watch: {
