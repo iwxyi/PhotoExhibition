@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 import javax.persistence.EntityManager;
+import java.net.URI;
 import java.nio.file.*;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -14,6 +16,31 @@ import static org.mockito.Mockito.*;
 class SecretConfigProtectionTest {
     @TempDir Path directory;
     SecretConfigCodec codec() { return new SecretConfigCodec(directory.resolve("master.key").toString()); }
+
+    @Test void createsTemporaryKeyOnNonPosixFileSystem() throws Exception {
+        URI uri = URI.create("jar:" + directory.resolve("non-posix.zip").toUri());
+        try (FileSystem fileSystem = FileSystems.newFileSystem(uri, Collections.singletonMap("create", "true"))) {
+            Path parent = fileSystem.getPath("/");
+            assertFalse(Files.getFileStore(parent).supportsFileAttributeView("posix"));
+            Path temporary = ReflectionTestUtils.invokeMethod(SecretConfigCodec.class, "createTemporaryKeyFile", parent);
+            assertNotNull(temporary);
+            assertTrue(Files.isRegularFile(temporary));
+            Files.delete(temporary);
+        }
+    }
+    @Test void createsKeyInNewDirectoryAndKeepsPosixPermissionsPrivate() throws Exception {
+        Path key = directory.resolve("private-config/master.key");
+        SecretConfigCodec codec = new SecretConfigCodec(key.toString());
+        String encrypted = codec.encode("email_password", "secret");
+        assertEquals("secret", new SecretConfigCodec(key.toString()).decode("email_password", encrypted));
+        if (Files.getFileStore(key).supportsFileAttributeView("posix")) {
+            assertEquals(PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(key));
+            assertEquals(PosixFilePermissions.fromString("rwx------"), Files.getPosixFilePermissions(key.getParent()));
+        }
+        try (java.util.stream.Stream<Path> files = Files.list(key.getParent())) {
+            assertEquals(1, files.count());
+        }
+    }
 
     @Test void encryptsWithRandomNonceAndSurvivesRestart() {
         String first = codec().encode("payment_private_key", "private-value");

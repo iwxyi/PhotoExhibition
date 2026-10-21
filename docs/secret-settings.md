@@ -19,7 +19,10 @@ Historical backups or non-JSON legacy records can still contain previous plainte
 credentials; rotate any previously exposed credentials.
 
 The master key is stored outside the database, by default at
-`${user.home}/.photo-exhibition/config.key` with owner-only permissions. Override
+`${user.home}/.photo-exhibition/config.key`. On POSIX filesystems, new key files
+have owner-only permissions (`600`) and newly created directories use `700`.
+On Windows, files inherit the containing directory's ACL; use a private directory
+accessible only to the service account and administrators. Override
 with `app.security.config-key-file` (or `APP_SECURITY_CONFIG_KEY_FILE`). Mount a
 persistent private path in containers. Back up this file separately and restore
 it when moving/restoring the database. All instances must share the same key.

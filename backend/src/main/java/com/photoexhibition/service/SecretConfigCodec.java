@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -63,8 +64,7 @@ public class SecretConfigCodec {
             }
             byte[] bytes = new byte[32]; random.nextBytes(bytes);
             // Publish a complete file, never a partially written master key.
-            Path temporary = Files.createTempFile(parent, ".config-key-", ".tmp",
-                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+            Path temporary = createTemporaryKeyFile(parent);
             try {
                 Files.write(temporary, Base64.getEncoder().encode(bytes));
                 try { Files.createLink(keyFile, temporary); }
@@ -75,5 +75,14 @@ public class SecretConfigCodec {
         if (bytes.length != 32) throw new IllegalStateException("Invalid master key");
         initialized = true;
         return new SecretKeySpec(bytes, "AES");
+    }
+
+    private static Path createTemporaryKeyFile(Path parent) throws IOException {
+        if (Files.getFileStore(parent).supportsFileAttributeView("posix")) {
+            return Files.createTempFile(parent, ".config-key-", ".tmp",
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        }
+        // Windows uses the containing directory's inherited ACL instead of POSIX permissions.
+        return Files.createTempFile(parent, ".config-key-", ".tmp");
     }
 }
